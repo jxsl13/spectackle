@@ -1,0 +1,5 @@
+/bin/
+/spectacle
+.spectacle/cache.db
+*.out
+*.test

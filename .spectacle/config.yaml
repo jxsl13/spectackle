@@ -1,0 +1,7 @@
+# spectacle configuration for the spectacle repository itself (dogfooding).
+langs: [go]
+ignore:
+  - ".git/**"
+  - "bin/**"
+cache: .spectacle/cache.db
+budget_default: 2000
