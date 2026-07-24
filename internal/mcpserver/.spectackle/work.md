@@ -91,3 +91,61 @@ One new tool plus one new function in internal/knowledge. Removing the registrat
 
 REPORT BACK
 The tool's final input struct, the name you chose for the workspace-apply function and why, each test's real output, the live transcript, and anything you deliberately did NOT do. If this brief contradicts what internal/knowledge actually offers, STOP and report rather than improvising.
+
+## T-0115 server hints when its own binary is older than the sources it serves
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0083
+targets: internal/mcpserver/swarm.go, internal/mcpserver/swarm_test.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first; do not explore beyond the files named here.
+
+GOAL
+The server should notice for itself that it is running stale code, because this repository develops itself with itself: after a merged change, the resident binary answers plausibly from code that no longer exists, and the gap is invisible from the inside. Turn an operator discipline into a property of the system.
+
+SCOPE (lease exactly these two)
+  internal/mcpserver/swarm.go        the hint, next to the existing compact hint
+  internal/mcpserver/swarm_test.go   its test
+Do NOT touch internal/mcpserver/tools.go, knowledge.go or docs/tools.md — a sibling task holds all three right now and is adding a new tool. Do NOT touch the Makefile, CONTRIBUTING.md or README.md — a second sibling owns the operator-facing half of this same proposal. Do NOT touch internal/knowledge, internal/drift or cmd/. .spectackle files are server-owned: never edit them by hand.
+
+MODEL IT ON WHAT IS ALREADY THERE
+swarm.go already carries a compact hint: postCall appends a nudge when the journal crosses a configured threshold, debounced (30s) and emitted once per crossing via a remembered timestamp. Read that code first and follow the same shape — same append point, same debounce discipline, same terse record style. Two hints of the same family should not be two mechanisms.
+
+THE CHECK
+Compare the running executable's modification time (os.Executable, then Stat — resolve symlinks, since a dev binary is often one) against the newest .go file under the workspace root. Sources newer than the binary means the server is serving code that is not what the tree says.
+Walk cost matters: this runs on tool calls. Reuse the workspace's existing skip logic (workspace.Root.SkipDir) so vendored trees, nested git boundaries and ignored directories are pruned exactly as every other walk prunes them — a naive walk would descend into worktrees and cache directories and report nonsense. Stop early once you have found any file newer than the binary; you need a boolean, not a maximum.
+Debounce harder than the compact hint. A full walk per tool call is unacceptable; cache the verdict and re-walk at most every 30 seconds. State the interval as a named constant with the reason in a comment.
+
+THE HINT
+One dense record line naming the rebuild-and-restart command (make dev, being added by the sibling task). Emitted at most once per crossing, exactly as the compact hint is — repeated nagging on every call would train the reader to ignore it, which is worse than silence.
+Contract: MCP-010 (read it with get id=MCP-010).
+
+WHAT NOT TO DO
+Do not rebuild anything. A process that replaces its own binary mid-session invalidates every in-flight lease and worktree, and a failed build leaves the agent with no server at all. Reporting is safe; self-surgery is not.
+Do not add a file watcher. It needs a dependency and a background goroutine to answer a question a stat already answers, and the answer only matters when someone is using the server.
+Do not fail or degrade any tool call because of staleness. This is information, not a gate.
+
+TESTS (swarm_test.go)
+  1. binary newer than all sources: no hint.
+  2. a source file newer than the binary: exactly one hint, naming the command.
+  3. once per crossing: a second call inside the debounce window adds no second hint.
+  4. the walk honors the workspace skip rules — a newer file inside a directory that SkipDir prunes must NOT trigger the hint. This is the one that catches a naive walk.
+  5. os.Executable failing or the binary being unstattable degrades to silence, never to an error on the tool call.
+
+VERIFY (run every one; report real output, never predicted)
+  go build ./...
+  go test ./internal/mcpserver/... -race
+  go test ./...
+  go vet ./internal/mcpserver/...
+  /home/user/spectackle/bin/spectackle lint
+Then prove it live: build a binary, start it resident, touch a .go file under the root, make one tool call with the call subcommand, and show the hint appearing exactly once across two consecutive calls. Paste the transcript.
+
+EXIT CRITERION
+Five tests green under -race, the skip-rule test passing (a naive walk fails it), ./... green, vet clean, lint clean, and the live transcript showing one hint and not two.
+
+ROLLBACK
+One hint function, its cached verdict, and one append site next to an existing one. Removing them restores the prior behavior exactly; no schema, stored format, record or anchor changes, and no tool result depends on the hint.
+
+REPORT BACK
+The hint's exact text, the debounce constants and their reasoning, each test's real output, the live transcript, and anything you deliberately did NOT do.

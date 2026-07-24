@@ -74,3 +74,8 @@ Rationale: An agent driving the server sees its defects first. Without a stated 
 WHEN the knowledge tool runs `op=apply`, the server SHALL add only entries the workspace lacks, route every write through the existing `rule op=add` and `decide` paths, and report the counts of entries added and coverage gaps opened.
 
 Rationale: Additive-only keeps a fleet rollout safe to re-run; routing through existing composers preserves the invariant that no new .spectackle write path enters the codebase. An applied rule arrives unanchored, so the gap count is the adoption worklist and must not be a later surprise.
+
+## MCP-010
+WHEN a tool call arrives and the server executable is older than the newest source file under its root, the server SHALL append one debounced hint record naming the `make dev` rebuild-and-restart command, at most once per crossing.
+
+Rationale: This repo develops itself with itself, so a stale binary answers plausibly from code that no longer exists. Two instances this cycle: a shipped feature investigated as a defect against a 41-minute-old binary, and a resident graph that produced false drift heals. Same debounced shape as the compact hint.
