@@ -83,8 +83,13 @@ type Entry struct {
 
 	// Intent payload (Kind == KindIntent): one repository's prose section —
 	// any of ears.IsProseSection's whitelist (intent, notes, design,
-	// context), not only `## intent` — verbatim.
-	Prose string `yaml:"prose,omitempty"`
+	// context), not only `## intent` — verbatim. Section names which
+	// whitelisted heading Prose came from: an `intent` paragraph and a
+	// `design` paragraph that happen to read alike are not the same
+	// knowledge, so Extract folds Section into the content Key as well as
+	// carrying it here for a reader to see (see Extract's doc).
+	Section string `yaml:"section,omitempty"`
+	Prose   string `yaml:"prose,omitempty"`
 
 	// Count is the recurrence rank: the number of distinct repositories
 	// backing this entry, pooling Sources and DerivedFrom — both are
@@ -399,10 +404,18 @@ func NewEntry(kind EntryKind, payload Entry, assertedBy, derivedFrom []Provenanc
 		if prose == "" {
 			return Entry{}, fmt.Errorf("knowledge: intent entry requires non-empty prose")
 		}
+		// Section participates in the key exactly as it does in Extract: an
+		// LLM-authored entry and an extracted one for the same section and
+		// text MUST land on the same key, or brownfield entries stop merging
+		// with extracted ones — the property this constructor exists for. A
+		// caller that supplies no Section keys on the empty section, which is
+		// what Extract would produce for an unnamed section too.
+		section := strings.TrimSpace(payload.Section)
 		e = Entry{
-			Kind:  KindIntent,
-			Prose: prose,
-			Key:   drift.NormHash([]byte(prose)),
+			Kind:    KindIntent,
+			Prose:   prose,
+			Section: section,
+			Key:     drift.NormHash([]byte(section + "\x00" + prose)),
 		}
 	default:
 		return Entry{}, fmt.Errorf("knowledge: unknown entry kind %q", kind)

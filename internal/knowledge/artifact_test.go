@@ -250,13 +250,20 @@ func TestNewEntryKeyMatchesExtract(t *testing.T) {
 		t.Fatalf("adr entry key = %q, want %q (Extract's formula)", adr.Key, want)
 	}
 
+	// Extract keys prose on section+text (an intent paragraph and a design
+	// paragraph that happen to read alike are not the same knowledge), so
+	// NewEntry must use the identical formula or a brownfield-authored entry
+	// never merges with an extracted one for the same section.
 	prose := "This service exists to keep GPU kernels honest."
-	intent, err := NewEntry(KindIntent, Entry{Prose: prose}, prov, nil)
+	intent, err := NewEntry(KindIntent, Entry{Prose: prose, Section: "intent"}, prov, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := drift.NormHash([]byte(prose)); intent.Key != want {
+	if want := drift.NormHash([]byte("intent\x00" + prose)); intent.Key != want {
 		t.Fatalf("intent entry key = %q, want %q (Extract's formula)", intent.Key, want)
+	}
+	if intent.Section != "intent" {
+		t.Fatalf("intent entry section = %q, want %q", intent.Section, "intent")
 	}
 
 	// an LLM-authored entry with no asserting repository at all (purely

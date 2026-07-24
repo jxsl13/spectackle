@@ -302,3 +302,206 @@ func TestExtractADROptions(t *testing.T) {
 		t.Fatalf("adr key depends on more than the question: NewEntry key %q != Extract key %q", other.Key, adr.Key)
 	}
 }
+
+// buildProseSectionTree gives two whitelisted prose sections — `design` and
+// `context`, both in ears.IsProseSection's whitelist — the exact same text,
+// verbatim, in the same spec file. Isolated from buildExtractTree's other
+// fixtures (which only ever put distinct text under intent/notes) so
+// section-aware keying can be exercised on its own: identical text under two
+// different section names is the case that used to collide into one entry.
+func buildProseSectionTree(t *testing.T, text string) string {
+	t.Helper()
+	root := t.TempDir()
+	content := "---\nschema: v0\nprefix: GLB\n---\n" +
+		"## design\n" + text + "\n\n" +
+		"## context\n" + text + "\n\n" +
+		"## GLB-ARC-001\nThe system SHALL log to `stderr` only.\n"
+	p := filepath.Join(root, ".spectackle", "spec.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// TestExtractProseKeyedBySection: an `intent` paragraph and a `design`
+// paragraph that happen to read alike are not the same knowledge — the
+// section name is part of a prose entry's identity, not just its text. Two
+// differently-named sections with byte-identical text must extract as two
+// entries, with two different keys and their own Section carried onto each.
+func TestExtractProseKeyedBySection(t *testing.T) {
+	const text = "Shared prose that reads identically under two different headings."
+	c, err := spec.Load(buildProseSectionTree(t, text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs := c.Findings(); len(fs) != 0 {
+		t.Fatalf("tree should lint clean, got %v", fs)
+	}
+
+	a, err := Extract(c, nil, "github.com/acme/repoA")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var prose []Entry
+	for _, e := range a.Entries {
+		if e.Kind == KindIntent {
+			prose = append(prose, e)
+		}
+	}
+	if len(prose) != 2 {
+		t.Fatalf("want 2 prose entries (design + context, same text), got %d: %+v", len(prose), prose)
+	}
+	if prose[0].Key == prose[1].Key {
+		t.Fatalf("design and context sections with identical text collided into one key: %+v / %+v", prose[0], prose[1])
+	}
+	sections := map[string]bool{prose[0].Section: true, prose[1].Section: true}
+	if !sections["design"] || !sections["context"] {
+		t.Fatalf("expected Section design and context on the two entries, got %+v", sections)
+	}
+	for _, e := range prose {
+		if e.Prose != text {
+			t.Fatalf("entry Prose = %q, want %q", e.Prose, text)
+		}
+	}
+}
+
+// TestExtractProseDedupBySameSectionPools: the fix must not break the
+// dedup it was protecting elsewhere — the same section name and the same
+// text, extracted from two different repositories, is still one identity:
+// Merge must pool them into a single entry with Count == 2, not fork into
+// two because Section+text hashing was applied inconsistently.
+func TestExtractProseDedupBySameSectionPools(t *testing.T) {
+	const text = "Prose that two repositories happen to assert identically."
+	tree := buildProseSectionTree(t, text) // reuse: only its `design` section matters here
+
+	cA, err := spec.Load(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aArt, err := Extract(cA, nil, "github.com/acme/repoA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bArt, err := Extract(cA, nil, "github.com/acme/repoB")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	merged, conflicts, err := Merge(aArt, bArt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("expected no conflicts, got %+v", conflicts)
+	}
+
+	var designEntries []Entry
+	for _, e := range merged.Entries {
+		if e.Kind == KindIntent && e.Section == "design" {
+			designEntries = append(designEntries, e)
+		}
+	}
+	if len(designEntries) != 1 {
+		t.Fatalf("want 1 pooled design entry, got %d: %+v", len(designEntries), designEntries)
+	}
+	if designEntries[0].Count != 2 {
+		t.Fatalf("pooled design entry Count = %d, want 2 (two distinct sources)", designEntries[0].Count)
+	}
+}
+
+// TestExtractProseSectionSurvivesRoundTrip: Section is a new wire field —
+// like every other field on Entry it must marshal and parse back intact, and
+// it must not perturb the format's ordering guarantee (Marshal/Parse are
+// exercised together here, same as TestRoundTrip in artifact_test.go, scoped
+// to just the field this task adds).
+func TestExtractProseSectionSurvivesRoundTrip(t *testing.T) {
+	const text = "Prose that must keep its section label on the wire."
+	c, err := spec.Load(buildProseSectionTree(t, text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := Extract(c, nil, "github.com/acme/repoA")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(out)
+	if err != nil {
+		t.Fatalf("Parse(Marshal(a)) failed: %v\n---\n%s", err, out)
+	}
+	if !reflect.DeepEqual(a, got) {
+		t.Fatalf("round trip mismatch:\n in=%#v\nout=%#v\n---\n%s", a, got, out)
+	}
+
+	var sawDesign, sawContext bool
+	for _, e := range got.Entries {
+		if e.Kind != KindIntent {
+			continue
+		}
+		switch e.Section {
+		case "design":
+			sawDesign = true
+		case "context":
+			sawContext = true
+		}
+	}
+	if !sawDesign || !sawContext {
+		t.Fatalf("Section did not survive Marshal/Parse: entries=%+v", got.Entries)
+	}
+	if !strings.Contains(string(out), "section: design") || !strings.Contains(string(out), "section: context") {
+		t.Fatalf("marshaled artifact does not carry section: field on the wire:\n%s", out)
+	}
+}
+
+// TestExtractRuleAndADRKeysUnchanged: this task must not disturb rule or ADR
+// keying — a rule's key is still the normalized hash of its text alone, and
+// an ADR's key is still the normalized hash of its Question alone (never
+// Options, never Section — ADRs have no Section at all). Literal expected
+// values, not a same-formula recomputation in the test, so the test fails
+// if either formula ever shifts, including as an accidental side effect of
+// this task's prose-keying change.
+func TestExtractRuleAndADRKeysUnchanged(t *testing.T) {
+	c, err := spec.Load(buildExtractTree(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := Extract(c, testItems(), "github.com/acme/repoA")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var ruleKey, adrKey string
+	for _, e := range a.Entries {
+		switch e.Kind {
+		case KindRule:
+			if e.Text == "The system SHALL log to `stderr` only." {
+				ruleKey = e.Key
+			}
+		case KindADR:
+			adrKey = e.Key
+		}
+	}
+	if ruleKey == "" {
+		t.Fatal("expected GLB-ARC-001 rule entry")
+	}
+	if adrKey == "" {
+		t.Fatal("expected adr entry")
+	}
+
+	const wantRuleKey = "43912eeed88212a0"
+	const wantADRKey = "7fe23cb1b78ffa2e"
+	if ruleKey != wantRuleKey {
+		t.Fatalf("rule key = %q, want literal %q (rule keying must stay text-only)", ruleKey, wantRuleKey)
+	}
+	if adrKey != wantADRKey {
+		t.Fatalf("adr key = %q, want literal %q (adr keying must stay question-only)", adrKey, wantADRKey)
+	}
+}

@@ -32,9 +32,9 @@ type knowledgeIn struct {
 	Op string `json:"op" jsonschema:"export|merge|apply"`
 
 	// export
-	Source  string              `json:"source,omitempty" jsonschema:"export: repository label recorded as provenance; default this binary's own module path"`
-	Entries []knowledgeEntryIn  `json:"entries,omitempty" jsonschema:"export brownfield path: caller-authored entries (no .spectackle bundle to extract from) — routed through NewEntry, keyed and validated identically to an extracted entry; never a caller-chosen key"`
-	Out     string              `json:"out,omitempty" jsonschema:"export: also write the marshaled artifact to this path (fleet workflows need a file to move between repos), in addition to returning it inline"`
+	Source  string             `json:"source,omitempty" jsonschema:"export: repository label recorded as provenance; default this binary's own module path"`
+	Entries []knowledgeEntryIn `json:"entries,omitempty" jsonschema:"export brownfield path: caller-authored entries (no .spectackle bundle to extract from) — routed through NewEntry, keyed and validated identically to an extracted entry; never a caller-chosen key"`
+	Out     string             `json:"out,omitempty" jsonschema:"export: also write the marshaled artifact to this path (fleet workflows need a file to move between repos), in addition to returning it inline"`
 
 	// merge | apply
 	Paths     []string `json:"paths,omitempty" jsonschema:"merge|apply: artifact file paths to read"`
@@ -64,7 +64,8 @@ type knowledgeEntryIn struct {
 	Status       string   `json:"status,omitempty" jsonschema:"adr: proposed|accepted|superseded|deprecated"`
 	Options      []string `json:"options,omitempty" jsonschema:"adr: rejected alternatives"`
 
-	Prose string `json:"prose,omitempty" jsonschema:"intent: prose section text, verbatim"`
+	Prose   string `json:"prose,omitempty" jsonschema:"intent: prose section text, verbatim"`
+	Section string `json:"section,omitempty" jsonschema:"intent: which whitelisted heading the prose came from (intent|notes|design|context) — part of the content key, so an intent and a design paragraph with identical text stay distinct entries"`
 
 	AssertedBy  []string `json:"asserted_by,omitempty" jsonschema:"repo labels whose own files literally assert this entry"`
 	DerivedFrom []string `json:"derived_from,omitempty" jsonschema:"repo labels an LLM drew on to generalize this entry (no single repo asserts it verbatim)"`
@@ -79,7 +80,7 @@ func (e knowledgeEntryIn) toEntry() (knowledge.Entry, error) {
 		Text: e.Text, Rationale: e.Rationale,
 		Question: e.Question, Context: e.Context, Decision: e.Decision,
 		Consequences: e.Consequences, Status: e.Status, Options: e.Options,
-		Prose: e.Prose,
+		Prose: e.Prose, Section: e.Section,
 	}
 	return knowledge.NewEntry(knowledge.EntryKind(e.Kind), payload, provenanceOf(e.AssertedBy), provenanceOf(e.DerivedFrom))
 }

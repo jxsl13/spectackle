@@ -53,10 +53,18 @@ func Extract(c *spec.Cascade, items []item.Item, source string) (Artifact, error
 			}
 			entries = append(entries, Entry{
 				Kind:    KindIntent,
+				Section: s.Name,
 				Prose:   prose,
 				Count:   1,
 				Sources: []Provenance{{Source: source, Dir: sf.Dir}},
-				Key:     drift.NormHash([]byte(prose)),
+				// Unlike a rule (identical text IS the same rule) or an ADR
+				// (keyed on Question alone, deliberately — see below), prose
+				// identity depends on which section it came from: an intent
+				// paragraph and a design paragraph that happen to read alike
+				// are not the same knowledge, and hashing text alone would
+				// silently merge them (dropping one) the moment two
+				// repositories' sections happened to collide on wording.
+				Key: drift.NormHash([]byte(s.Name + "\x00" + prose)),
 			})
 		}
 	}
