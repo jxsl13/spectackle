@@ -65,7 +65,7 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
 ```json
 {"type":"object","required":["q"],"properties":{
   "q":    {"type":"string"},
-  "scope":{"enum":["code","rule","spec","proposal","task","bug","research","rejection","history","all"],"default":"all"},
+  "scope":{"enum":["code","rule","spec","proposal","task","bug","research","adr","rejection","history","all"],"default":"all"},
   "k":    {"type":"integer","default":8},
   "focus":{"type":"string","default":""},
   "budget":{"type":"integer","default":2000},
@@ -101,7 +101,7 @@ file-cascade rules as `r` records, root-scoped ones collapsed to one
 
 ```json
 {"type":"object","required":["kind","title"],"properties":{
-  "kind":   {"enum":["proposal","task","research","bug"]},
+  "kind":   {"enum":["proposal","task","research","bug","adr"]},
   "title":  {"type":"string"},
   "body":   {"type":"string"},
   "targets":{"type":"array","items":{"type":"string"}},
@@ -385,7 +385,7 @@ returns `need decision D-x <question> | <options>`; the orchestrator does
 any session, any time, validated against `options` — decisions get
 answered from wherever, whenever; the waiting orchestrator sees the answer
 on its next `swarm` (sw-piggyback) or `state`/`find` call. `ls`: lists open
-`D` items. New item kind `decision` (ID letter `D`, `find scope=decision`).
+`D` items. New item kind `adr` (ID letter `ADR`, `find scope=adr`) — architecture decision records are first-class, searchable items, never loose markdown.
 Every decision that actually needs the user goes through `decide` — never
 unstructured chat.
 
