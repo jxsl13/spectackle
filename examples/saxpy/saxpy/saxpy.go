@@ -14,7 +14,7 @@ import (
 
 // Saxpy computes y[i] = a*x[i] + y[i] on the GPU.
 //
-// Contract chain (see .spectacle.ears.md files):
+// Contract chain (see .spectackle.ears.md files):
 //
 //	SXP-API-001: non-zero CUDA status becomes a Go error carrying the code.
 //	CUDA-KRN-001/002: enforced inside kernels/saxpy.cu.

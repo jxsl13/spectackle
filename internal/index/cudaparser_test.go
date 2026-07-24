@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // cudaparserSrc mirrors examples/saxpy/saxpy/kernels/saxpy.cu closely enough

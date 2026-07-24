@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // extLang maps file extensions to languages. This is the single source of

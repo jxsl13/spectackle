@@ -1,7 +1,7 @@
 // Package graph holds the cross-language symbol graph: nodes are symbols
 // (functions, types, kernels, asm procedures), edges are structural or
 // cross-language binding relations. The graph is the structural pillar of
-// spectacle — it lets an LLM compute the impact radius of a change across
+// spectackle — it lets an LLM compute the impact radius of a change across
 // language boundaries (Go -> C -> CUDA) without reading file contents.
 package graph
 
@@ -87,7 +87,7 @@ const (
 	EAsm               // Go decl <-> asm TEXT implementation
 	ELaunch            // host code launches GPU kernel (<<<>>>, pipeline creation)
 	EUse               // reference that is not a call (type use, var read)
-	ESpecLink          // EARS rule bound to node (from .spectacle/links.tsv)
+	ESpecLink          // EARS rule bound to node (from .spectackle/links.tsv)
 )
 
 var edgeKindNames = [...]string{"?", "def", "call", "incl", "cgo", "asm", "launch", "use", "link"}

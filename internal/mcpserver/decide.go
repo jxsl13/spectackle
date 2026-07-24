@@ -8,10 +8,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/lifecycle"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // decide — native, persistent user decisions (SDD orchestration v2, docs/tools.md
@@ -139,7 +139,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		props["choice"] = map[string]any{"type": "string", "description": in.Question}
 	}
 	res, err := req.Session.Elicit(ctx, &mcp.ElicitParams{
-		Message: "spectacle: " + in.Question,
+		Message: "spectackle: " + in.Question,
 		RequestedSchema: map[string]any{
 			"type": "object", "properties": props, "required": []string{"choice"},
 		},

@@ -1,5 +1,5 @@
 GO         ?= go
-BIN        := bin/spectacle
+BIN        := bin/spectackle
 GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@latest
 
 .PHONY: all build vet test lint-specs smoke clean release-snapshot
@@ -7,7 +7,7 @@ GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@latest
 all: build vet test lint-specs smoke
 
 build:
-	CGO_ENABLED=0 $(GO) build -o $(BIN) ./cmd/spectacle
+	CGO_ENABLED=0 $(GO) build -o $(BIN) ./cmd/spectackle
 
 vet:
 	$(GO) vet ./...

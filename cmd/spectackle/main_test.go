@@ -8,7 +8,7 @@ import (
 
 func writeSpec(t *testing.T, root, content string) {
 	t.Helper()
-	p := filepath.Join(root, ".spectacle", "spec.md")
+	p := filepath.Join(root, ".spectackle", "spec.md")
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -37,8 +37,8 @@ func TestReindexExitCode(t *testing.T) {
 	if code := reindex([]string{"-root", root}); code != 0 {
 		t.Fatalf("reindex = %d, want 0", code)
 	}
-	// cache landed inside .spectacle/cache, never elsewhere in the workspace
-	if _, err := os.Stat(filepath.Join(root, ".spectacle", "cache", "index.db")); err != nil {
+	// cache landed inside .spectackle/cache, never elsewhere in the workspace
+	if _, err := os.Stat(filepath.Join(root, ".spectackle", "cache", "index.db")); err != nil {
 		t.Fatalf("cache not created where expected: %v", err)
 	}
 }

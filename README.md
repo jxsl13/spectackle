@@ -1,19 +1,19 @@
-# spectacle
+# spectackle
 
 **A token-efficient, spec-driven MCP server for cross-language codebases.**
 
-spectacle gives LLM coding agents (Claude Code, Codex CLI, and any other MCP
+spectackle gives LLM coding agents (Claude Code, Codex CLI, and any other MCP
 client) a complete, git-native spec lifecycle plus cross-language code
 intelligence — so large refactors run on flat-rate agent tools instead of
 usage-billed APIs:
 
 ```
             ┌─────────────────────────────────────────────────────┐
-            │                    spectacle (MCP)                  │
+            │                    spectackle (MCP)                  │
  structural │  cross-language AST map      (Aider-inspired)       │
             │  go:Saxpy ─cgo→ c:launch ─launch→ cu:kernel         │
             ├─────────────────────────────────────────────────────┤
-topological │  cascading spec bundles      (.spectacle/spec.md)   │
+topological │  cascading spec bundles      (.spectackle/spec.md)   │
             │  root → module → directory, overrides explicit      │
             ├─────────────────────────────────────────────────────┤
    semantic │  EARS notation, linted       (WHEN …, X SHALL …)    │
@@ -76,7 +76,7 @@ stateDiagram-v2
 ```
 
 The LLM **never writes spec files**: everything lives in versioned
-`.spectacle/` folders (max three bundle files per context dir — no file
+`.spectackle/` folders (max three bundle files per context dir — no file
 sprawl), written exclusively by the server; the SQLite/FTS5 cache underneath
 is local-only and rebuilds from disk (no migrations, pre-v1 by design).
 
@@ -116,8 +116,8 @@ That's `get {"id":"go:saxpy.Saxpy","depth":2}` against the shipped binary on thi
 ## Quickstart
 
 ```sh
-make build                # -> bin/spectacle (pure Go, CGO_ENABLED=0)
-./bin/spectacle lint .    # lint all EARS spec bundles
+make build                # -> bin/spectackle (pure Go, CGO_ENABLED=0)
+./bin/spectackle lint .    # lint all EARS spec bundles
 ```
 
 Register with Claude Code (or any MCP client):
@@ -125,32 +125,32 @@ Register with Claude Code (or any MCP client):
 ```json
 {
   "mcpServers": {
-    "spectacle": {
-      "command": "/absolute/path/to/bin/spectacle",
+    "spectackle": {
+      "command": "/absolute/path/to/bin/spectackle",
       "args": ["serve"]
     }
   }
 }
 ```
 
-The workspace root is auto-detected (`.spectacle/config.yaml` marker, then
+The workspace root is auto-detected (`.spectackle/config.yaml` marker, then
 git root, then `-root`).
 
 ### Entry points
 
-- **`/spectacle`** (Claude Code repo command, `.claude/commands/spectacle.md`)
+- **`/spectackle`** (Claude Code repo command, `.claude/commands/spectackle.md`)
   — two modes on one command: bare (`$ARGUMENTS` empty) renders the current
-  state pack, identical to `/spectacle-state`; given a requirement
-  (`/spectacle add rate limiting to the API`) it drives the full SDD
+  state pack, identical to `/spectackle-state`; given a requirement
+  (`/spectackle add rate limiting to the API`) it drives the full SDD
   lifecycle end-to-end (research → draft → grill → decide-if-uncertain →
   approve → fan out to fresh implementers → check → archive).
-- **`/spectacle-state`** — explicit state-only alias, no lifecycle side
+- **`/spectackle-state`** — explicit state-only alias, no lifecycle side
   effects.
-- **`/mcp__spectacle__workflow`** / **`/mcp__spectacle__next`** /
-  **`/mcp__spectacle__state`** — the same entry points as native MCP
+- **`/mcp__spectackle__workflow`** / **`/mcp__spectackle__next`** /
+  **`/mcp__spectackle__state`** — the same entry points as native MCP
   prompts, available in any MCP-capable client once the server is
   registered; `workflow` takes the same optional `task` argument as the
-  two-mode `/spectacle` command, so the two-mode entry point works
+  two-mode `/spectackle` command, so the two-mode entry point works
   identically outside Claude Code too.
 
 ## Headless quickstart (driving the server from a coding agent / CI)
@@ -163,10 +163,10 @@ things that cost time on first contact:
    the response, then send the `notifications/initialized` notification.
    Only then are `tools/call` requests answered.
 2. **One JSON object per line**, no framing headers.
-3. **Name your agent**: set `SPECTACLE_AGENT=<name>` in the environment so
+3. **Name your agent**: set `SPECTACKLE_AGENT=<name>` in the environment so
    swarm identity (leases, heartbeats, sw learnings) is stable across
    otherwise short-lived driver sessions — coordination state lives in the
-   shared `.spectacle/cache/coord.db`, not in the process.
+   shared `.spectackle/cache/coord.db`, not in the process.
 
 Minimal Python driver (each stdin line = one tool call):
 
@@ -178,7 +178,7 @@ Minimal Python driver (each stdin line = one tool call):
 # JSON
 import json, subprocess, sys
 
-proc = subprocess.Popen(["./bin/spectacle", "serve", "-root", sys.argv[1]],
+proc = subprocess.Popen(["./bin/spectackle", "serve", "-root", sys.argv[1]],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
     stderr=subprocess.DEVNULL, text=True, bufsize=1)
 send = lambda o: (proc.stdin.write(json.dumps(o) + "\n"), proc.stdin.flush())
@@ -244,7 +244,7 @@ explores; that keeps the complex model's own context free of implementation
 noise, and it makes token cost scale with the number of tasks, not the size
 of the codebase. **Disjointness** across concurrently running implementers
 is enforced by scope leases, not by convention — two agents can never
-legally touch the same paths at once. The shared `.spectacle/cache/coord.db`
+legally touch the same paths at once. The shared `.spectackle/cache/coord.db`
 (leases, learnings, rejections, journal) is the swarm's common brain: every
 sibling sees claims and rejections in real time via `swarm`, so failed
 approaches are never retried blind.
@@ -255,7 +255,7 @@ implementer per task in parallel, and serializes only the shared-file
 wiring itself.
 
 For long-running swarms, run the server as a **resident service**
-(`spectacle serve -http <addr>`, see [docs/architecture.md](docs/architecture.md)
+(`spectackle serve -http <addr>`, see [docs/architecture.md](docs/architecture.md)
 §8) instead of spawning a fresh stdio process per agent — one shared
 process, one shared cache, no cold-start per implementer.
 
@@ -275,7 +275,7 @@ checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
 
 ## Dogfooding
 
-This repository carries its own contracts in `.spectacle/` bundles;
+This repository carries its own contracts in `.spectackle/` bundles;
 `go test ./...` fails if any committed spec violates the EARS grammar, and
-the `check` tool must come back clean on the repo itself — spectacle is its
+the `check` tool must come back clean on the repo itself — spectackle is its
 own first user.

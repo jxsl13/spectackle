@@ -4,9 +4,9 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
-	"github.com/jxsl13/spectacle/internal/plan9"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/plan9"
 )
 
 // Plan9AsmResolver links Go declarations to their assembly implementations

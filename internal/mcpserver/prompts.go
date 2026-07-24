@@ -9,9 +9,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/lifecycle"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // loopLines mirrors the lifecycle loop taught by the `instructions` manifest
@@ -33,8 +33,8 @@ var loopLines = []string{
 func (s *Server) registerPrompts() {
 	s.mcp.AddPrompt(&mcp.Prompt{
 		Name:        "workflow",
-		Title:       "spectacle workflow",
-		Description: "Live swarm state (agents, leases) + active items + the lifecycle loop — read before picking work. With task, prepends the full SDD lifecycle instruction for that requirement (same loop /spectacle <task> drives).",
+		Title:       "spectackle workflow",
+		Description: "Live swarm state (agents, leases) + active items + the lifecycle loop — read before picking work. With task, prepends the full SDD lifecycle instruction for that requirement (same loop /spectackle <task> drives).",
 		Arguments: []*mcp.PromptArgument{
 			{Name: "task", Description: "requirement/task text; when set, prepends the research->draft->grill->decide->approve->fanout->check->archive lifecycle instruction for it"},
 		},
@@ -51,7 +51,7 @@ func (s *Server) registerPrompts() {
 
 	s.mcp.AddPrompt(&mcp.Prompt{
 		Name:        "state",
-		Title:       "spectacle state",
+		Title:       "spectackle state",
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing.",
 		Arguments: []*mcp.PromptArgument{
 			{Name: "path", Description: "subtree to scope the snapshot to; default: whole workspace"},
@@ -60,8 +60,8 @@ func (s *Server) registerPrompts() {
 }
 
 // lifecycleLines renders the full research->draft->grill->decide->approve->
-// fanout->check->archive loop the `/spectacle <task>` repo command drives
-// (.claude/commands/spectacle.md) as one dense LIFECYCLE block with the task
+// fanout->check->archive loop the `/spectackle <task>` repo command drives
+// (.claude/commands/spectackle.md) as one dense LIFECYCLE block with the task
 // text embedded — the MCP-native form of that same two-mode entry point, so
 // it works identically in any MCP harness, not only Claude Code's repo
 // commands.
@@ -83,7 +83,7 @@ func lifecycleLines(task string) []string {
 // call) — lock s.mu ourselves and refresh the scan so the snapshot below is
 // current, exactly like preCall does for tools. With the optional task
 // argument set, a LIFECYCLE block (see lifecycleLines) is prepended — the
-// same instruction the `/spectacle <task>` repo command drives, so an MCP
+// same instruction the `/spectackle <task>` repo command drives, so an MCP
 // client with no access to Claude Code's repo commands still gets the full
 // two-mode entry point natively.
 func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -99,7 +99,7 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 			b.WriteString(l + "\n")
 		}
 	}
-	b.WriteString("spectacle workflow - state below is live\n")
+	b.WriteString("spectackle workflow - state below is live\n")
 
 	b.WriteString("AGENTS/LEASES\n")
 	agents, err := s.cd.Agents()
@@ -143,7 +143,7 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 	}
 
 	return &mcp.GetPromptResult{
-		Description: "spectacle live workflow snapshot",
+		Description: "spectackle live workflow snapshot",
 		Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: b.String()}},
 		},
@@ -247,7 +247,7 @@ func (s *Server) promptState(_ context.Context, req *mcp.GetPromptRequest) (*mcp
 		return nil, err
 	}
 	return &mcp.GetPromptResult{
-		Description: "spectacle state snapshot",
+		Description: "spectackle state snapshot",
 		Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: txt}},
 		},

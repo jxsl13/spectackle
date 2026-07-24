@@ -4,9 +4,9 @@ import (
 	"crypto/sha256"
 	"path/filepath"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
-	"github.com/jxsl13/spectacle/internal/plan9"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/plan9"
 )
 
 // AsmParser is the Plan 9 assembly LanguageParser. It wraps plan9.Scan to

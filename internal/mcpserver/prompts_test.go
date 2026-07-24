@@ -8,8 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
 )
 
 // connectRootWithPrompts is connectRoot (tools_test.go) plus registerPrompts
@@ -104,7 +104,7 @@ func TestPromptNextApprovedTask(t *testing.T) {
 
 // TestPromptWorkflowTaskArgument: with task set, the response prepends a
 // LIFECYCLE block carrying the task text (the MCP-native form of
-// `/spectacle <task>`, .claude/commands/spectacle.md) ahead of the usual
+// `/spectackle <task>`, .claude/commands/spectackle.md) ahead of the usual
 // live-state snapshot; bare (no task) stays exactly as before.
 func TestPromptWorkflowTaskArgument(t *testing.T) {
 	sess := connectRootWithPrompts(t, t.TempDir())
@@ -116,7 +116,7 @@ func TestPromptWorkflowTaskArgument(t *testing.T) {
 	if !strings.Contains(out, "decide op=ask") || !strings.Contains(out, "fanout") {
 		t.Fatalf("LIFECYCLE block missing decide/fanout steps: %q", out)
 	}
-	if strings.Index(out, "LIFECYCLE") > strings.Index(out, "spectacle workflow - state below is live") {
+	if strings.Index(out, "LIFECYCLE") > strings.Index(out, "spectackle workflow - state below is live") {
 		t.Fatalf("LIFECYCLE block must be prepended, not appended: %q", out)
 	}
 

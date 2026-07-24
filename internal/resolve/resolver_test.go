@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 func TestDefaultRegistry(t *testing.T) {

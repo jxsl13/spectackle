@@ -6,8 +6,8 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 )
 
 // CudaResolver links host code to CUDA kernels (edge kind ELaunch).

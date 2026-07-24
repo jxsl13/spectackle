@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
 )
 
 // TestGrillUnknownItem: an unknown ID falls back to nearest() (the same nf
@@ -248,7 +248,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 
 	// grilled: header set after call — asserted against the persisted
 	// work.md bytes, not just the in-memory item.
-	raw, err := os.ReadFile(filepath.Join(root, ".spectacle", "work.md"))
+	raw, err := os.ReadFile(filepath.Join(root, ".spectackle", "work.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

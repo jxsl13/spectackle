@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // Kinds and their ID letters. decision items are minted by

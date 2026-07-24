@@ -8,10 +8,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/budget"
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/spec"
 )
 
 // state is the ONE strictly read-only tool in the surface: a sectioned
@@ -57,7 +57,7 @@ func (s *Server) stateText(path string) (string, error) {
 		rootLabel = "wt:" + s.wtItem
 	}
 	b.WriteString("#version\n")
-	fmt.Fprintf(&b, "ok spectacle %s agent %s root %s\n", Version, s.agent, rootLabel)
+	fmt.Fprintf(&b, "ok spectackle %s agent %s root %s\n", Version, s.agent, rootLabel)
 
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {

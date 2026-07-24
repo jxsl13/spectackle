@@ -1,5 +1,5 @@
-// Package cache is the local, NON-versioned index at .spectacle/cache/index.db
-// (pure-Go SQLite via modernc.org/sqlite, FTS5). The versioned .spectacle
+// Package cache is the local, NON-versioned index at .spectackle/cache/index.db
+// (pure-Go SQLite via modernc.org/sqlite, FTS5). The versioned .spectackle
 // files are the source of truth; the cache is rebuildable at any time. There
 // are no migrations: a generation-stamp mismatch drops everything and
 // rebuilds (the sync engine re-feeds it from disk).

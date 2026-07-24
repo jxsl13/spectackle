@@ -1,7 +1,7 @@
 // Package langspec is a data-driven framework for line-oriented language
 // parsers: a language is defined by exactly one Spec value (a set of regex
 // Defs plus a qualification mode), not by a new Go type. Adding a language
-// to spectacle means adding one Spec (see python.go, javascript.go) — the
+// to spectackle means adding one Spec (see python.go, javascript.go) — the
 // indexing pipeline (internal/index) is never touched (SPX-LSP-001).
 //
 // SpecParser adapts a Spec to index.LanguageParser so it plugs into
@@ -22,10 +22,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/cspan"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
-	"github.com/jxsl13/spectacle/internal/index"
+	"github.com/jxsl13/spectackle/internal/cspan"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/index"
 )
 
 // QualMode selects how a matched symbol name is qualified into the

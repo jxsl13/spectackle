@@ -7,11 +7,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/cspan"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/index"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/cspan"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/index"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // cSrc exercises every cSpec Def shape plus every false-positive trap called

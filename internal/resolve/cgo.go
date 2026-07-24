@@ -7,8 +7,8 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 )
 
 // CgoResolver links the Go <-> C boundary (edge kind ECgo).

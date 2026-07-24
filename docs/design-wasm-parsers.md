@@ -4,7 +4,7 @@ Status: research, no implementation. Scope: is the M6 "wazero/WASM parser
 backend replaces cgo tree-sitter" target picture (docs/architecture.md §2,
 docs/roadmap.md M6) actually buildable today, and with what first slice?
 Method: verified candidates by `go get`-ing them into a throwaway scratch
-module (never added to spectacle's own `go.mod`) and reading source/go.mod
+module (never added to spectackle's own `go.mod`) and reading source/go.mod
 from the module cache, plus GitHub/pkg.go.dev pages, 2026-07-24. Nothing
 below is asserted from memory alone.
 
@@ -16,7 +16,7 @@ below is asserted from memory alone.
 | [odvcencio/gotreesitter](https://github.com/odvcencio/gotreesitter) ([pkg.go.dev](https://pkg.go.dev/github.com/odvcencio/gotreesitter)) | v0.47.0, MIT, `go.mod` pulls only `x/sync`+`yaml.v3` | **No** — grep of the full downloaded module (1712 `.go` files, 39 MB) finds zero references to `wazero`; its `wasm/` directory (`wasm_exec.js`, `loader.js`) is tooling to cross-compile *gotreesitter itself* to `wasip1`, unrelated to loading grammars | Not a wazero runtime at all — a from-scratch pure-Go reimplementation of tree-sitter's parsing engine, claiming 206 embedded grammars. Real and it builds, but out of scope for this question (no WASM/wazero involved), and its provenance is a yellow flag worth naming: extremely high commit churn for its age, mechanically-patterned file/test names (`parser_result_forth.go`, `w1_block_splice_test.go`), and a v0.47.0 tag days old at research time. Treat as unverified-for-correctness until someone runs its own conformance suite against upstream grammars — not a dependency to bet fidelity on sight-unseen. |
 
 Both packages exist, are publicly fetchable, and compile — that part of the
-question is answered. Neither is a "just import it" answer for spectacle:
+question is answered. Neither is a "just import it" answer for spectackle:
 one is a thin, unmaintained-looking 2-language PoC; the other doesn't use
 wazero and carries its own credibility questions.
 
@@ -101,7 +101,7 @@ fidelity. The ABI story (§2) is now plausible — the wasi-sdk switch removes
 the Emscripten blocker — but the runtime-loader gap means "wazero ×
 tree-sitter" is a **build-it-yourself** project, not an integration one.
 
-**First-slice PoC, if/when picked up**: one language, C (already spectacle's
+**First-slice PoC, if/when picked up**: one language, C (already spectackle's
 simplest cgo backend, docs/architecture.md §2), built the way
 malivvan/tree-sitter does it — tree-sitter core (wasi-sdk build) statically
 combined with `tree-sitter-c`'s grammar, one exported `language()` function,

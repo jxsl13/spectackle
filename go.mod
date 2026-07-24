@@ -1,4 +1,4 @@
-module github.com/jxsl13/spectacle
+module github.com/jxsl13/spectackle
 
 go 1.25.0
 

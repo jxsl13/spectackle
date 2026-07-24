@@ -1,6 +1,6 @@
 # Contributing
 
-spectacle is developed with the same swarm loop it implements. Before
+spectackle is developed with the same swarm loop it implements. Before
 touching anything, read [docs/agent-workflow.md](docs/agent-workflow.md) —
 it defines the two roles and is the full spec for what follows here.
 
@@ -45,9 +45,9 @@ before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml
 re-runs the same steps plus the self-hosting `check` gate, and does not
 merge red.
 
-## `.spectacle/` is server-written only
+## `.spectackle/` is server-written only
 
-Never hand-edit files under `.spectacle/` — they are the server's
+Never hand-edit files under `.spectackle/` — they are the server's
 coordination and spec state (leases, journal, cache, specs) and are written
 exclusively through MCP tool calls (`draft`, `move`, `rule`, `check`,
 `compact`, ...). Hand edits will desync from the journal and get overwritten

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -134,7 +134,7 @@ func TestLifecycleE2E(t *testing.T) {
 	}
 
 	// work.md is empty again; intent carries the merged delta
-	spec, err := os.ReadFile(filepath.Join(root, ".spectacle", "spec.md"))
+	spec, err := os.ReadFile(filepath.Join(root, ".spectackle", "spec.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestCompactKeepsRejections(t *testing.T) {
 	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "noise b"})
 
 	// force the fold threshold down via config
-	cfg := filepath.Join(root, ".spectacle", "config.yaml")
+	cfg := filepath.Join(root, ".spectackle", "config.yaml")
 	if err := os.WriteFile(cfg, []byte("schema: v0\ncompact:\n  journal_max: 2\n  done_max: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestDraftContextPackElision(t *testing.T) {
 		t.Fatalf("root rule add: %q", out)
 	}
 
-	// a path target with no nested .spectacle context resolves only the
+	// a path target with no nested .spectackle context resolves only the
 	// root-scoped rule above
 	out = callText(t, sess, "draft", map[string]any{
 		"kind": "task", "title": "output diet probe",

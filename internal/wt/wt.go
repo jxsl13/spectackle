@@ -1,11 +1,11 @@
 // Package wt wraps the git operations behind worktree orchestration. All
 // functions shell out to git (worktree/merge plumbing via a library is far
-// riskier than the battle-tested CLI); commits are authored as "spectacle"
+// riskier than the battle-tested CLI); commits are authored as "spectackle"
 // so agent commits are attributable.
 //
 // The invariant the whole merge strategy rests on: CommitCode excludes every
-// .spectacle directory, so branches carry CODE ONLY — spec state reaches
-// main exclusively through the semantic replay, and .spectacle files are
+// .spectackle directory, so branches carry CODE ONLY — spec state reaches
+// main exclusively through the semantic replay, and .spectackle files are
 // never textually merged.
 package wt
 
@@ -19,7 +19,7 @@ import (
 
 func git(dir string, args ...string) (string, error) {
 	full := append([]string{"-C", dir,
-		"-c", "user.name=spectacle", "-c", "user.email=spectacle@localhost"}, args...)
+		"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}, args...)
 	out, err := exec.Command("git", full...).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
@@ -102,11 +102,11 @@ func DeleteBranch(mainRoot, branch string) error {
 	return err
 }
 
-// codeOnly is the pathspec that keeps every .spectacle dir out of branch
+// codeOnly is the pathspec that keeps every .spectackle dir out of branch
 // commits (git >= 2.13 pathspec magic).
-var codeOnly = []string{":(exclude).spectacle", ":(exclude)*/.spectacle", ":(exclude)**/.spectacle/**"}
+var codeOnly = []string{":(exclude).spectackle", ":(exclude)*/.spectackle", ":(exclude)**/.spectackle/**"}
 
-// CommitCode stages and commits everything EXCEPT .spectacle state.
+// CommitCode stages and commits everything EXCEPT .spectackle state.
 // committed=false means the tree had no code changes (still fine to replay).
 func CommitCode(wtRoot, msg string) (bool, error) {
 	if _, err := git(wtRoot, append([]string{"add", "-A", "--"}, codeOnly...)...); err != nil {

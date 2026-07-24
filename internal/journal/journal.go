@@ -1,5 +1,5 @@
 // Package journal is the append-only event log — one journal.ndjson per
-// .spectacle folder, one JSON object per line. The journal is the historical
+// .spectackle folder, one JSON object per line. The journal is the historical
 // source of truth: rejected and archived items leave work.md and live on
 // here (searchable via the cache FTS as the rejection corpus).
 //
@@ -15,7 +15,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // mintEid returns 8 random bytes as hex — unique enough to identify an event
@@ -161,7 +161,7 @@ func ReadAll(root workspace.Root) ([]Event, error) {
 // Rewrite replaces a context dir's journal wholesale — used only by
 // compaction (the sanctioned append-only exception).
 func Rewrite(root workspace.Root, ctx string, events []Event) error {
-	f, err := os.CreateTemp(root.SpectacleDir(ctx), "journal-*")
+	f, err := os.CreateTemp(root.SpectackleDir(ctx), "journal-*")
 	if err != nil {
 		return err
 	}

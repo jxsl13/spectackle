@@ -18,16 +18,16 @@ func TestDetect(t *testing.T) {
 		}
 	}
 
-	// marker: config.yaml at root, nested .spectacle must NOT win
-	mk(".spectacle/config.yaml", "schema: v0\n")
-	mk("sub/deep/.spectacle/spec.md", "---\nschema: v0\n---\n")
+	// marker: config.yaml at root, nested .spectackle must NOT win
+	mk(".spectackle/config.yaml", "schema: v0\n")
+	mk("sub/deep/.spectackle/spec.md", "---\nschema: v0\n---\n")
 
 	ws, err := Detect(filepath.Join(root, "sub", "deep"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ws.Dir != root {
-		t.Fatalf("Detect from nested dir = %s, want %s (nested .spectacle must not shadow the root marker)", ws.Dir, root)
+		t.Fatalf("Detect from nested dir = %s, want %s (nested .spectackle must not shadow the root marker)", ws.Dir, root)
 	}
 
 	// git fallback: no config.yaml anywhere

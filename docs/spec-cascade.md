@@ -1,15 +1,15 @@
 # Cascading spec bundles
 
 Specs are not monolithic. Rules live **next to the code they govern** in
-`.spectacle/` folders and cascade like `.gitignore`/`CLAUDE.md`, so the
+`.spectackle/` folders and cascade like `.gitignore`/`CLAUDE.md`, so the
 server can load exactly the rules for an impact radius — never the whole
 corpus. See [lifecycle.md](lifecycle.md) for the full storage architecture.
 
 ## Locations & naming
 
 ```
-.spectacle/spec.md            # root scope: repo-wide architecture rules + intent
-<any-dir>/.spectacle/spec.md  # rules scoped to <any-dir>/ and below
+.spectackle/spec.md            # root scope: repo-wide architecture rules + intent
+<any-dir>/.spectackle/spec.md  # rules scoped to <any-dir>/ and below
 ```
 
 Each context folder also holds `work.md` (active lifecycle items) and
@@ -45,7 +45,7 @@ Rationale: launches fail asynchronously; an unchecked launch hides errors.
   the EARS linter (docs/ears.md).
 - **`Rationale:`** paragraphs are kept but not sent to the LLM by default.
 - **`{applies: id,id}`** pins a rule to node IDs; the server anchors those
-  bindings in `.spectacle/anchors.tsv` for drift detection.
+  bindings in `.spectackle/anchors.tsv` for drift detection.
 
 ## Resolution algorithm
 
@@ -69,5 +69,5 @@ end user via the MCP client or returned as `need` records (SPX-SPC-003).
 survives in the journal.
 
 The files stay markdown-on-disk so humans review contracts in git diffs —
-and `spectacle lint .` in CI guards against out-of-band hand edits (exit 1
+and `spectackle lint .` in CI guards against out-of-band hand edits (exit 1
 on any E-severity finding).

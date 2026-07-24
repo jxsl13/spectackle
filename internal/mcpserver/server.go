@@ -1,8 +1,8 @@
-// Package mcpserver exposes spectacle over the Model Context Protocol.
+// Package mcpserver exposes spectackle over the Model Context Protocol.
 //
 // Transport is stdio: only JSON-RPC 2.0 frames go to stdout, all logging goes
 // to stderr (SPX-ARC-001). The server is the single source of truth for the
-// spec lifecycle: every write to the versioned .spectacle/ folders happens
+// spec lifecycle: every write to the versioned .spectackle/ folders happens
 // here — the LLM never touches those files directly.
 package mcpserver
 
@@ -16,16 +16,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/cache"
-	"github.com/jxsl13/spectacle/internal/coord"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/index"
-	"github.com/jxsl13/spectacle/internal/langspec"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
-	"github.com/jxsl13/spectacle/internal/sync"
-	"github.com/jxsl13/spectacle/internal/workspace"
-	"github.com/jxsl13/spectacle/internal/wt"
+	"github.com/jxsl13/spectackle/internal/cache"
+	"github.com/jxsl13/spectackle/internal/coord"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/index"
+	"github.com/jxsl13/spectackle/internal/langspec"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
+	"github.com/jxsl13/spectackle/internal/sync"
+	"github.com/jxsl13/spectackle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Version is stamped into the MCP handshake and the CLI. Pre-1.0: anything
@@ -36,8 +36,8 @@ var Version = "0.2.0-dev"
 
 // instructions is the self-bootstrapping server manifest: it teaches a
 // connecting LLM the full lifecycle loop and tool order with zero extra docs.
-const instructions = `spectacle — spec-lifecycle server. Source of truth: versioned .spectacle/ folders (spec.md=living contracts, work.md=active items, journal.ndjson=history). NEVER edit these files yourself; all writes go through tools. Loop for any change: (1) find q=<topic> scope=rejection — learn why similar work failed before; (2) find scope=code → node IDs (go:pkg.Fn); get id=<node> depth=2 for cross-language impact; (3) draft kind=proposal targets=<ids|paths> → CONTEXT PACK (#impact radius, #contracts EARS rules that bind it, #rejections similar past failures); (4) on explicit user approval: move to=approved (or straight to=active — any forward state skip is one call), then draft kind=task parent=<P-id> per work item and rule op=add for new contracts (fill slots; server composes+lints EARS, auto-IDs); (5) implement code; (6) check until ok — d records = spec/code drift, resolve via rule op=edit or code fix; (7) move to=done then to=archived, or active→archived in one call (implies done; merges the delta into spec.md, compacts). move to=rejected REQUIRES note; a rejection made with too little information is revocable — move the rejected ID back to any previous state (never done/archived). compact when check emits c records. Results are dense line records n/e/r/i/s/j/a/d/g/c/l/ag/sw/wt/!/nf/ok; cur <token> = resume by passing cur back. Reference everything by ID — never paste file contents.
-SWARM: you may be one of several agents on this repo. Your siblings, their claims and fresh learnings: swarm (zero params) — run it when unsure. sw lines prepended to any result are sibling learnings (esp. rejections): read them BEFORE forming hypotheses; find scope=rejection includes sibling rejections in realtime. To change code: pick an approved item, then work op=start item=<id> — the server leases its scope and returns wt <item> open <root>: do ALL code edits, builds and benchmarks under that root; spectacle tools keep taking repo-relative paths. Never edit code outside your worktree root while a work item is open. Done implementing + check ok: work op=submit — the server gates (verify+goal commands), merges to main and propagates spec state; on gate fail or merge conflict fix the reported files in your worktree and submit again. work op=abort to give up (leases release, item returns to approved). Scope conflicts come back as l lines naming the holder — pick different scope, never wait idle. Release explicit claims (lease op=release) the moment your item is done — a stale claim blocks siblings until TTL expiry.
+const instructions = `spectackle — spec-lifecycle server. Source of truth: versioned .spectackle/ folders (spec.md=living contracts, work.md=active items, journal.ndjson=history). NEVER edit these files yourself; all writes go through tools. Loop for any change: (1) find q=<topic> scope=rejection — learn why similar work failed before; (2) find scope=code → node IDs (go:pkg.Fn); get id=<node> depth=2 for cross-language impact; (3) draft kind=proposal targets=<ids|paths> → CONTEXT PACK (#impact radius, #contracts EARS rules that bind it, #rejections similar past failures); (4) on explicit user approval: move to=approved (or straight to=active — any forward state skip is one call), then draft kind=task parent=<P-id> per work item and rule op=add for new contracts (fill slots; server composes+lints EARS, auto-IDs); (5) implement code; (6) check until ok — d records = spec/code drift, resolve via rule op=edit or code fix; (7) move to=done then to=archived, or active→archived in one call (implies done; merges the delta into spec.md, compacts). move to=rejected REQUIRES note; a rejection made with too little information is revocable — move the rejected ID back to any previous state (never done/archived). compact when check emits c records. Results are dense line records n/e/r/i/s/j/a/d/g/c/l/ag/sw/wt/!/nf/ok; cur <token> = resume by passing cur back. Reference everything by ID — never paste file contents.
+SWARM: you may be one of several agents on this repo. Your siblings, their claims and fresh learnings: swarm (zero params) — run it when unsure. sw lines prepended to any result are sibling learnings (esp. rejections): read them BEFORE forming hypotheses; find scope=rejection includes sibling rejections in realtime. To change code: pick an approved item, then work op=start item=<id> — the server leases its scope and returns wt <item> open <root>: do ALL code edits, builds and benchmarks under that root; spectackle tools keep taking repo-relative paths. Never edit code outside your worktree root while a work item is open. Done implementing + check ok: work op=submit — the server gates (verify+goal commands), merges to main and propagates spec state; on gate fail or merge conflict fix the reported files in your worktree and submit again. work op=abort to give up (leases release, item returns to approved). Scope conflicts come back as l lines naming the holder — pick different scope, never wait idle. Release explicit claims (lease op=release) the moment your item is done — a stale claim blocks siblings until TTL expiry.
 ORCHESTRATION: the intended division of labor is a complex/strong-model orchestrator (drafts proposals, writes exhaustive task bodies, reviews implementer output, merges) plus fresh minimal-context implementer agents on a simpler/cheaper model — each pulls ONE approved task (get <T-id> = its full brief), claims its scope, implements, tests, moves it to done and releases. Task bodies must be exhaustive (files, APIs, commands, constraints) because the orchestrator explores so the implementer never has to: this keeps the orchestrator's own context free of implementation noise and makes token cost scale with task count, not codebase size. FANOUT: partition approved tasks by disjoint scope (leases prove disjointness), spawn one fresh implementer per task in parallel, serialize only shared-file wiring yourself. Before asking the user anything: research q=<topic> first (mint an R-item + cheap subagent only if the pack doesn't answer it) — never ad hoc exploration in your own context. Before move to=approved on a proposal: grill id=<P-id> and close its gaps — a clean grill stamps grilled: <date>, the evidence move checks for. Every actual user decision goes through decide op=ask (native UI), never unstructured chat — no UI leaves the D-item open without blocking you, answered later via decide op=answer from anywhere. Reopens and gate-fail rounds are server-counted; hitting the configured limit sidesteps the item to blocked and mints a D-item — exits only via decide: rescope→draft, reject→rejected, override-once→active (once).`
 
 // Server bundles the MCP server with its workspace, cache, graph and swarm
@@ -71,7 +71,7 @@ func New(root string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	agent := os.Getenv("SPECTACLE_AGENT")
+	agent := os.Getenv("SPECTACKLE_AGENT")
 	if agent == "" {
 		agent = coord.GenName()
 	}
@@ -117,8 +117,8 @@ func New(root string) (*Server, error) {
 	}
 	s.reindex()
 	s.mcp = mcp.NewServer(&mcp.Implementation{
-		Name:    "spectacle",
-		Title:   "spectacle — spec-driven cross-language code intelligence",
+		Name:    "spectackle",
+		Title:   "spectackle — spec-driven cross-language code intelligence",
 		Version: Version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 	s.registerTools()

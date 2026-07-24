@@ -1,6 +1,6 @@
 # Worked example — a Go call into a CUDA kernel
 
-`examples/saxpy` is the canonical chain spectacle exists for:
+`examples/saxpy` is the canonical chain spectackle exists for:
 
 ```
 go:saxpy.Saxpy ──cgo──→ c:launch_saxpy ──launch──→ cu:saxpy_kernel
@@ -10,9 +10,9 @@ go:saxpy.Saxpy ──cgo──→ c:launch_saxpy ──launch──→ cu:saxpy_
 
 ## The contracts on disk
 
-`examples/saxpy/.spectacle/spec.md` — API level (`SXP-API-001/002`: non-zero
+`examples/saxpy/.spectackle/spec.md` — API level (`SXP-API-001/002`: non-zero
 CUDA status becomes a Go error with the numeric code; invalid extents fail
-before the cgo boundary). `examples/saxpy/saxpy/kernels/.spectacle/spec.md` —
+before the cgo boundary). `examples/saxpy/saxpy/kernels/.spectackle/spec.md` —
 CUDA level (`CUDA-KRN-001`: check cudaGetLastError after every launch;
 `CUDA-KRN-002`: every element access bound-checked). The repo-root `SPX-*`
 rules cascade in above both.
@@ -64,7 +64,7 @@ would return `! E004 … ! REJECTED` and write nothing):
         "system":"kernel","trigger":"stride parameters are supplied",
         "response":"index x and y as i*stride and guard each access with i*stride < n",
         "applies":["cu:saxpy_kernel"],"item":"P-0001"}
-ok CUDA-KRN-003 examples/saxpy/saxpy/kernels/.spectacle/spec.md
+ok CUDA-KRN-003 examples/saxpy/saxpy/kernels/.spectackle/spec.md
 r CUDA-KRN-003 E examples/saxpy/saxpy/kernels WHEN stride parameters are supplied, the kernel SHALL index x and y as i*stride and guard each access with i*stride < n.
 a CUDA-KRN-003 cu:saxpy_kernel examples/saxpy/saxpy/kernels/saxpy.cu:7-13 3fa1b2c4d5e6f708
 ```
@@ -80,7 +80,7 @@ ok                                        # no drift, no gaps, specs lint clean
 i P-0001 proposal archived examples/saxpy strided saxpy access
 ```
 
-Archive merged the outcome into `examples/saxpy/.spectacle/spec.md ## intent`
+Archive merged the outcome into `examples/saxpy/.spectackle/spec.md ## intent`
 and removed the item from work.md; the journal keeps the full history. Had a
 later refactor changed the kernel without touching the spec, `check` would
 report `d changed CUDA-KRN-003 cu:saxpy_kernel …` and `check fix=true` would

@@ -1,6 +1,6 @@
 # Agent workflow — orchestrator + fresh implementers
 
-This document specifies the swarm shape spectacle is built for, and the one
+This document specifies the swarm shape spectackle is built for, and the one
 this repo itself is developed with (self-hosting, see
 [docs/roadmap.md](docs/roadmap.md) milestone 5). It is a product concept,
 not just a dev note: the server's tool grammar, lease system, and
@@ -10,7 +10,7 @@ labor cheap and safe.
 The core bet: **exploration is the most expensive part of agentic coding.**
 A model that has to grep the tree, read five files to find the right API,
 and reconstruct constraints from scratch burns far more tokens than the
-edit itself costs. spectacle attacks this from both ends — `find`/`get`/
+edit itself costs. spectackle attacks this from both ends — `find`/`get`/
 context packs replace exploration for the agent that plans, and an
 exhaustive task body replaces it for the agent that implements. Because the
 brief is written by the complex model, the simple model never has to
@@ -255,7 +255,7 @@ forcing an actual rescope or reject.
 
 ## This repo eats its own dog food
 
-spectacle's own `.spectacle/` folders in this repository are driven exactly
+spectackle's own `.spectackle/` folders in this repository are driven exactly
 this way: the orchestrator drafts and approves proposals and tasks, and
 fresh implementer subagents on a cheaper model pick up approved tasks one
 at a time through `lease`/`move`, with disjointness guaranteed by scope

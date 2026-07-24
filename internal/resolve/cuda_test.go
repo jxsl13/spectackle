@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // cudaFS is a tiny in-memory FileSet exposing only .cu/.cuh files.

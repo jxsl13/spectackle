@@ -1,4 +1,4 @@
-// Package cparser wraps spectacle's own internal/langspec cSpec (the
+// Package cparser wraps spectackle's own internal/langspec cSpec (the
 // regex-driven C parser already shipping in production, see
 // internal/langspec/c.go) as this PoC's parity oracle: whatever it finds on
 // the corpus is "ground truth" for T-0040's exit criterion (a).
@@ -7,10 +7,10 @@ package cparser
 import (
 	"fmt"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/index"
-	"github.com/jxsl13/spectacle/internal/langspec"
-	"github.com/jxsl13/spectacle/poc/wasmparse/triple"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/index"
+	"github.com/jxsl13/spectackle/internal/langspec"
+	"github.com/jxsl13/spectackle/poc/wasmparse/triple"
 )
 
 // Parser is the oracle: internal/langspec's cSpec, obtained the same way

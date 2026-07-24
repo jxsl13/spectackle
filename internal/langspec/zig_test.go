@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // zigSrc exercises every zigSpec Def: plain `fn`, `pub fn`, `export fn`,

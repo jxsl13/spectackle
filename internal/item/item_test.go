@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 func ws(t *testing.T) workspace.Root {

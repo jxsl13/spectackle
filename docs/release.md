@@ -21,17 +21,17 @@ Releases are built by [goreleaser](https://goreleaser.com) (config:
 
 For each tag, goreleaser produces:
 
-- `spectacle` binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
+- `spectackle` binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
   `darwin/arm64`, `windows/amd64`, `windows/arm64` (CGO disabled).
-- Archives: `spectacle_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows),
+- Archives: `spectackle_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows),
   each containing the binary.
 - `checksums.txt` covering all archives.
 - A GitHub Release with an auto-generated changelog (commits prefixed
   `docs:`, `spec:`, or `chore:` are excluded).
 
-The version string baked into the binary (`spectacle version`) is stamped at
+The version string baked into the binary (`spectackle version`) is stamped at
 build time via ldflags into
-`github.com/jxsl13/spectacle/internal/mcpserver.Version`.
+`github.com/jxsl13/spectackle/internal/mcpserver.Version`.
 
 ## Local dry run
 

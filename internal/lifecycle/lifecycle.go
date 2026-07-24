@@ -30,10 +30,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/spec"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // stateOrder is the total order over the six main states: any move from an

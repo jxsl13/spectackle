@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // asmFS is a tiny in-memory FileSet exposing only .s files under LangAsm.

@@ -1,7 +1,7 @@
 // Package ears implements the semantic pillar: classification and linting of
 // requirements written in EARS (Easy Approach to Requirements Syntax).
 //
-// Every rule in a spectacle spec file must match exactly one of the six EARS
+// Every rule in a spectackle spec file must match exactly one of the six EARS
 // patterns. Vague prose is rejected by the linter; keywords are case-sensitive
 // and uppercase (WHEN, WHILE, IF, THEN, WHERE, SHALL) so that lowercase
 // occurrences in code fragments (e.g. "if (i < n)") never trigger a pattern.

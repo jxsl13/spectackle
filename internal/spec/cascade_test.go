@@ -7,12 +7,12 @@ import (
 )
 
 // buildTree writes a fake repo exercising cascade, override and scope in the
-// bundled .spectacle layout.
+// bundled .spectackle layout.
 func buildTree(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		".spectacle/spec.md": `---
+		".spectackle/spec.md": `---
 schema: v0
 prefix: GLB
 ---
@@ -22,7 +22,7 @@ The system SHALL log to ` + "`stderr`" + ` only.
 ## ROOT-STY-001
 The repository SHALL keep every exported symbol documented in doc.go files.
 `,
-		"gpu/.spectacle/spec.md": `---
+		"gpu/.spectackle/spec.md": `---
 schema: v0
 prefix: GPU
 overrides: [ROOT-STY-001]
@@ -30,7 +30,7 @@ overrides: [ROOT-STY-001]
 ## GPU-KRN-001
 WHEN a kernel is launched, the wrapper SHALL check cudaGetLastError.
 `,
-		"gpu/metal/.spectacle/spec.md": `---
+		"gpu/metal/.spectackle/spec.md": `---
 schema: v0
 prefix: MTL
 scope: ["*.metal"]
@@ -107,7 +107,7 @@ func TestProseSectionsParsed(t *testing.T) {
 
 func TestSchemaStampRejected(t *testing.T) {
 	root := t.TempDir()
-	p := filepath.Join(root, ".spectacle", "spec.md")
+	p := filepath.Join(root, ".spectackle", "spec.md")
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	os.WriteFile(p, []byte("---\nschema: v99\n---\n"), 0o644)
 	if _, err := Load(root); err == nil {

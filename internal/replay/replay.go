@@ -1,8 +1,8 @@
-// Package replay merges a worktree's .spectacle state onto main
+// Package replay merges a worktree's .spectackle state onto main
 // SEMANTICALLY: journal events are the operation log (CRDT-style), main's
 // spec.md/work.md are materialized views, and replay re-applies the
 // worktree's event delta through the same code paths the tools use. Git
-// never textually merges .spectacle files (branches carry code only).
+// never textually merges .spectackle files (branches carry code only).
 //
 // Idempotency, twice over: the delta excludes event IDs already recorded as
 // applied (coord.applied — a retried submit after a partial failure resumes
@@ -16,14 +16,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/coord"
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/spec"
-	"github.com/jxsl13/spectacle/internal/workspace"
-	"github.com/jxsl13/spectacle/internal/wt"
+	"github.com/jxsl13/spectackle/internal/coord"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Report summarizes one replay run (rendered as dense records by the caller).

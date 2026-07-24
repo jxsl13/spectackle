@@ -1,6 +1,6 @@
 /bin/
-/spectacle
-.spectacle/cache/
+/spectackle
+.spectackle/cache/
 *.out
 *.test
 dist/

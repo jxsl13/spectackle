@@ -211,7 +211,7 @@ func TestResearchOpenQuestions(t *testing.T) {
 }
 
 // TestResearchReadOnly is the read-only contract test (mirrors state_test.go's
-// TestStateReadOnly): mtimes of every versioned .spectacle bundle file, plus
+// TestStateReadOnly): mtimes of every versioned .spectackle bundle file, plus
 // the journal's byte length, must be bit-for-bit identical before and after
 // any number of research calls, including ones that exercise every section.
 func TestResearchReadOnly(t *testing.T) {
@@ -235,10 +235,10 @@ func TestResearchReadOnly(t *testing.T) {
 	}
 
 	files := []string{
-		filepath.Join(root, ".spectacle", "spec.md"),
-		filepath.Join(root, ".spectacle", "work.md"),
-		filepath.Join(root, ".spectacle", "journal.ndjson"),
-		filepath.Join(root, ".spectacle", "anchors.tsv"),
+		filepath.Join(root, ".spectackle", "spec.md"),
+		filepath.Join(root, ".spectackle", "work.md"),
+		filepath.Join(root, ".spectackle", "journal.ndjson"),
+		filepath.Join(root, ".spectackle", "anchors.tsv"),
 	}
 	before := map[string]os.FileInfo{}
 	for _, f := range files {
@@ -248,7 +248,7 @@ func TestResearchReadOnly(t *testing.T) {
 		}
 		before[f] = st
 	}
-	journalBefore, err := os.ReadFile(filepath.Join(root, ".spectacle", "journal.ndjson"))
+	journalBefore, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestResearchReadOnly(t *testing.T) {
 				f, before[f].Size(), st.Size(), before[f].ModTime(), st.ModTime())
 		}
 	}
-	journalAfter, err := os.ReadFile(filepath.Join(root, ".spectacle", "journal.ndjson"))
+	journalAfter, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}

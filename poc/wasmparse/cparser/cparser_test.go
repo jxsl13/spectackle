@@ -3,7 +3,7 @@ package cparser
 import (
 	"testing"
 
-	"github.com/jxsl13/spectacle/poc/wasmparse/triple"
+	"github.com/jxsl13/spectackle/poc/wasmparse/triple"
 )
 
 const sample = `#include <stddef.h>

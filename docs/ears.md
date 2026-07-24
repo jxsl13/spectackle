@@ -57,7 +57,7 @@ sentence must pass.
 ## Running the linter
 
 ```sh
-spectacle lint .        # CI mode: exit 1 on E-severity findings
+spectackle lint .        # CI mode: exit 1 on E-severity findings
 ```
 
 or via MCP: the `check` tool lints every spec bundle (returns `ok` or `!`

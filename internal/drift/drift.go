@@ -1,6 +1,6 @@
 // Package drift binds EARS rules to code spans and detects when either side
 // moves out from under the other. Bindings live in the root-only, versioned
-// .spectacle/anchors.tsv; each row records a content hash of the normalized
+// .spectackle/anchors.tsv; each row records a content hash of the normalized
 // code span (not its position), so pure line shifts are drift-free — the
 // server silently refreshes file/span when only the position moved.
 package drift
@@ -13,8 +13,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // Anchor is one rule<->node binding.

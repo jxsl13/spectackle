@@ -3,7 +3,7 @@ package langspec
 import (
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // javascriptSpec covers .js/.mjs files. Qualification is QualFileStem,

@@ -10,13 +10,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/coord"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/lifecycle"
-	"github.com/jxsl13/spectacle/internal/replay"
-	"github.com/jxsl13/spectacle/internal/workspace"
-	"github.com/jxsl13/spectacle/internal/wt"
+	"github.com/jxsl13/spectackle/internal/coord"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/replay"
+	"github.com/jxsl13/spectackle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // ---- swarm tool inputs ----
@@ -293,13 +293,13 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	branch := "spectacle/" + id
+	branch := "spectackle/" + id
 	root := filepath.Join(s.main.WtDir(), id)
 	if err := wt.Add(s.main.Dir, root, branch, "HEAD"); err != nil {
 		_ = s.cd.ReleaseItem(id)
 		return text("! WT E " + err.Error())
 	}
-	// carry main's LIVE .spectacle state into the worktree (main bundles may
+	// carry main's LIVE .spectackle state into the worktree (main bundles may
 	// be ahead of HEAD — the server never commits them itself)
 	if err := copyBundles(s.main, root); err != nil {
 		return nil, nil, err
@@ -354,7 +354,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		return s.gateFail(it, res)
 	}
 	_ = s.cd.PutWorktree(withState(w, "gating"))
-	if _, err := wt.CommitCode(s.ws.Dir, "spectacle "+id+": "+it.Title); err != nil {
+	if _, err := wt.CommitCode(s.ws.Dir, "spectackle "+id+": "+it.Title); err != nil {
 		return text("! WT E commit: " + err.Error())
 	}
 
@@ -389,7 +389,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		return text("! WT E ff-merge: " + err.Error())
 	}
 
-	// REPLAY .spectacle state semantically
+	// REPLAY .spectackle state semantically
 	_ = s.cd.PutWorktree(withState(w, "replaying"))
 	rep, err := replay.Run(s.main, s.ws, id, w.Base, s.cd, s.g)
 	if err != nil {
@@ -551,7 +551,7 @@ func holderAlive(s *Server, name string) bool {
 	return false
 }
 
-// copyBundles mirrors main's live .spectacle bundle files into a fresh
+// copyBundles mirrors main's live .spectackle bundle files into a fresh
 // worktree (whose checkout only has the last committed state).
 func copyBundles(main workspace.Root, wtRoot string) error {
 	ctxs, err := main.ContextDirs()
@@ -560,7 +560,7 @@ func copyBundles(main workspace.Root, wtRoot string) error {
 	}
 	for _, ctx := range ctxs {
 		for _, f := range []string{"spec.md", "work.md", "journal.ndjson"} {
-			src := filepath.Join(main.SpectacleDir(ctx), f)
+			src := filepath.Join(main.SpectackleDir(ctx), f)
 			raw, err := os.ReadFile(src)
 			if os.IsNotExist(err) {
 				continue

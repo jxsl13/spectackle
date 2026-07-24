@@ -1,17 +1,17 @@
 # The spec lifecycle — architecture
 
-spectacle is the single source of truth, sole orchestrator and abstraction
+spectackle is the single source of truth, sole orchestrator and abstraction
 layer for spec-driven development. The LLM never creates or edits lifecycle
 files — everything runs through structured tool calls; the server owns the
 files. This document is the blueprint for that lifecycle.
 
 ## 1. Git-native storage & file abstraction
 
-### 1.1 Layout — everything lives in `.spectacle/` folders
+### 1.1 Layout — everything lives in `.spectackle/` folders
 
 ```
 <workspace root>/
-  .spectacle/                    # ROOT folder (marker: contains config.yaml)
+  .spectackle/                    # ROOT folder (marker: contains config.yaml)
     config.yaml                  # settings + compact thresholds (schema: v0)
     spec.md                      # living spec, root scope: intent + EARS rules
     work.md                      # ACTIVE lifecycle items (server-managed)
@@ -20,11 +20,11 @@ files. This document is the blueprint for that lifecycle.
     .gitignore                   # server-written: "cache/"
     .gitattributes               # server-written: "journal.ndjson merge=union"
     cache/index.db               # NOT versioned (SQLite FTS5, pure Go)
-  <any-dir>/.spectacle/          # nested context folder
+  <any-dir>/.spectackle/          # nested context folder
     spec.md · work.md · journal.ndjson · .gitattributes
 ```
 
-Every server write is confined to a `.spectacle/` folder (SPX-ARC-005); the
+Every server write is confined to a `.spectackle/` folder (SPX-ARC-005); the
 rest of the workspace is never touched by lifecycle writes. Everything in
 those folders **except `cache/`** is versioned — the knowledge base travels
 with the repo, reviews happen in git diffs, branches merge it like code.
@@ -32,7 +32,7 @@ with the repo, reviews happen in git diffs, branches merge it like code.
 ### 1.2 Anti file-sprawl: bundles, not files
 
 OpenSpec-style per-item files burn tokens (directory listings, tiny reads)
-and clutter reviews. spectacle bundles by role — a context folder holds at
+and clutter reviews. spectackle bundles by role — a context folder holds at
 most **three content files**, regardless of item or rule count:
 
 - **`spec.md`** — the living spec: `## intent` (+ optional `notes`, `design`,
@@ -51,8 +51,8 @@ the reviewable files; the archive/reject transitions keep work.md bounded.
 ### 1.3 Workspace discovery & context mapping
 
 `workspace.Detect` walks up from the start dir looking for
-**`.spectacle/config.yaml`** (the folder alone is ambiguous — nested context
-dirs have `.spectacle/` folders too), falls back to the `.git` root, then to
+**`.spectackle/config.yaml`** (the folder alone is ambiguous — nested context
+dirs have `.spectackle/` folders too), falls back to the `.git` root, then to
 the `-root` flag. Context mapping for a new item: explicit `dir` param >
 deepest common directory of the `targets`, snapped to the nearest existing
 context dir > root. Scaffolding (`.gitignore`, `.gitattributes`,
@@ -70,7 +70,7 @@ the cache rebuilds.
 
 ## 2. Unified high-performance search (the persisted cache)
 
-One SQLite file (`.spectacle/cache/index.db`, `modernc.org/sqlite` — pure Go,
+One SQLite file (`.spectackle/cache/index.db`, `modernc.org/sqlite` — pure Go,
 FTS5 verified, `CGO_ENABLED=0` holds):
 
 | table | content |
@@ -163,7 +163,7 @@ to operate the lifecycle correctly.
 
 ## 4. Drift detection & backpropagation
 
-**Bindings**: `.spectacle/anchors.tsv` (versioned, root-only) rows
+**Bindings**: `.spectackle/anchors.tsv` (versioned, root-only) rows
 `rule ⇥ node ⇥ file ⇥ span ⇥ chash ⇥ rhash`. `chash` = 16-hex sha256 over the
 **normalized** definition span (CRLF→LF, per-line trailing whitespace
 stripped, outer blank lines dropped — indentation preserved, it is semantic
@@ -185,9 +185,9 @@ rewrites a contract.
 ## 5. Multi-agent swarm: leases, worktrees, replay merging
 
 Multiple autonomous agents operate on one repo in parallel — each its own
-spectacle stdio process (works with every flat-rate agent tool; no daemon),
+spectackle stdio process (works with every flat-rate agent tool; no daemon),
 coordinated through a shared WAL-SQLite `coord.db` in the MAIN repo's
-`.spectacle/cache/` (a linked worktree resolves its parent via
+`.spectackle/cache/` (a linked worktree resolves its parent via
 `git rev-parse --git-common-dir`).
 
 **coord.db owns** (ephemeral coordination, not knowledge): the agent
@@ -203,15 +203,15 @@ it ever merges, SPX-SWM-002), replay bookkeeping and the single
 **integrate lock**.
 
 **Worktree lifecycle** (`work start/submit/abort`): worktrees live under
-`.spectacle/wt/<item>/` (NOT `cache/` — cache is disposable, in-flight work
-is not) on branch `spectacle/<item>`. The session re-roots into the
-worktree; live .spectacle state is mirrored in at start. Submit pipeline:
+`.spectackle/wt/<item>/` (NOT `cache/` — cache is disposable, in-flight work
+is not) on branch `spectackle/<item>`. The session re-roots into the
+worktree; live .spectackle state is mirrored in at start. Submit pipeline:
 gate (config `verify:` + item `goal:`) → commit **code only** (pathspec
-excludes every `.spectacle` dir — SPX-SWM-001) → merge main INTO the branch
+excludes every `.spectackle` dir — SPX-SWM-001) → merge main INTO the branch
 → re-gate the merged tree → `--ff-only` into main (under the integrate
 lock this cannot conflict) → **semantic replay**.
 
-**Conflict-free .spectacle merging**: git never textually merges spec
+**Conflict-free .spectackle merging**: git never textually merges spec
 bundles. Journal events are the operation log (CRDT-style, each with a
 unique `eid`); at submit the worktree's event delta (events absent from
 main's live journal and the applied-set) replays onto main through the same
@@ -229,5 +229,5 @@ with flat parameters; exact JSON Schemas in [tools.md](tools.md). Folds from
 the previous 11-tool surface: `sym`→`find scope=code`, `map`→`get <dir>`,
 `impact`+`contracts`+`plan_change`→`get depth` / `draft` context pack,
 `lint_ears`+`coverage`→`check`, `link`→`rule applies`, `add_rule`/`rm_rule`→
-`rule`, `reindex`→automatic sync (CLI `spectacle reindex` remains for
+`rule`, `reindex`→automatic sync (CLI `spectackle reindex` remains for
 debugging).

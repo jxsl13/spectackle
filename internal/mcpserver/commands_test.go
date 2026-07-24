@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/item"
+	"github.com/jxsl13/spectackle/internal/item"
 )
 
 // connectCommands spins up a server (commands is registered in production by
@@ -98,34 +98,34 @@ func TestCommandsGenClaudeWritesBothFiles(t *testing.T) {
 	_, sess := connectCommands(t, root, nil)
 
 	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}})
-	if !strings.Contains(out, "ok gen claude .claude/commands/spectacle.md") ||
-		!strings.Contains(out, "ok gen claude .claude/commands/spectacle-state.md") {
+	if !strings.Contains(out, "ok gen claude .claude/commands/spectackle.md") ||
+		!strings.Contains(out, "ok gen claude .claude/commands/spectackle-state.md") {
 		t.Fatalf("expected both claude files written: %q", out)
 	}
 
-	wf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectacle.md"))
+	wf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(wf), generatedHeader) {
-		t.Fatalf("spectacle.md missing generated header:\n%s", wf)
+		t.Fatalf("spectackle.md missing generated header:\n%s", wf)
 	}
-	if !strings.Contains(string(wf), "description: spectacle entry point") {
-		t.Fatalf("spectacle.md missing frontmatter description:\n%s", wf)
+	if !strings.Contains(string(wf), "description: spectackle entry point") {
+		t.Fatalf("spectackle.md missing frontmatter description:\n%s", wf)
 	}
 	if !strings.Contains(string(wf), "If `$ARGUMENTS` is empty:") || !strings.Contains(string(wf), "If `$ARGUMENTS` is not empty:") {
-		t.Fatalf("spectacle.md lost the two-mode $ARGUMENTS dispatch:\n%s", wf)
+		t.Fatalf("spectackle.md lost the two-mode $ARGUMENTS dispatch:\n%s", wf)
 	}
 
-	sf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectacle-state.md"))
+	sf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-state.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(sf), generatedHeader) {
-		t.Fatalf("spectacle-state.md missing generated header:\n%s", sf)
+		t.Fatalf("spectackle-state.md missing generated header:\n%s", sf)
 	}
-	if !strings.Contains(string(sf), "description: Render the current spectacle state") {
-		t.Fatalf("spectacle-state.md missing frontmatter description:\n%s", sf)
+	if !strings.Contains(string(sf), "description: Render the current spectackle state") {
+		t.Fatalf("spectackle-state.md missing frontmatter description:\n%s", sf)
 	}
 }
 
@@ -137,12 +137,12 @@ func TestCommandsGenCopilotWritesPromptFiles(t *testing.T) {
 	_, sess := connectCommands(t, root, nil)
 
 	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"copilot"}})
-	if !strings.Contains(out, "ok gen copilot .github/prompts/spectacle.prompt.md") ||
-		!strings.Contains(out, "ok gen copilot .github/prompts/spectacle-state.prompt.md") {
+	if !strings.Contains(out, "ok gen copilot .github/prompts/spectackle.prompt.md") ||
+		!strings.Contains(out, "ok gen copilot .github/prompts/spectackle-state.prompt.md") {
 		t.Fatalf("expected both copilot files written: %q", out)
 	}
 
-	for _, name := range []string{"spectacle.prompt.md", "spectacle-state.prompt.md"} {
+	for _, name := range []string{"spectackle.prompt.md", "spectackle-state.prompt.md"} {
 		b, err := os.ReadFile(filepath.Join(root, ".github", "prompts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -171,7 +171,7 @@ func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 	if strings.Count(string(first), sectionBegin) != 1 {
 		t.Fatalf("expected exactly one managed section, got:\n%s", first)
 	}
-	if !strings.Contains(string(first), "## spectacle workflow") || !strings.Contains(string(first), "## spectacle state") {
+	if !strings.Contains(string(first), "## spectackle workflow") || !strings.Contains(string(first), "## spectackle state") {
 		t.Fatalf("AGENTS.md missing both command descriptions:\n%s", first)
 	}
 
@@ -230,10 +230,10 @@ func TestCommandsGenElicitationAcceptSelectsSubset(t *testing.T) {
 	if strings.Contains(out, "ok gen copilot") || strings.Contains(out, "ok gen codex") || strings.Contains(out, "ok gen kimi") {
 		t.Fatalf("only claude was selected, but other harnesses were written: %q", out)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".claude", "commands", "spectacle.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".claude", "commands", "spectackle.md")); err != nil {
 		t.Fatalf("claude file missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".github", "prompts", "spectacle.prompt.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".github", "prompts", "spectackle.prompt.md")); !os.IsNotExist(err) {
 		t.Fatalf("copilot file should not have been written: %v", err)
 	}
 }
