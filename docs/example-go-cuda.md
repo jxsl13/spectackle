@@ -91,7 +91,7 @@ draft the backprop proposal.
 - EARS conditions translate **deterministically**: `CUDA-KRN-001` *is*
   `if ((err = cudaGetLastError()) != cudaSuccess) …` in C and an error-wrap
   branch in Go. No interpretation, no rework loop.
-- The cascade loaded **five rules**, the radius named **three edit sites** —
+- The cascade loaded **four rules**, the radius named **three edit sites** —
   structure and contracts in, raw text never.
 - The rejection search up front and the drift check at the end are what keep
   this loop from ever doing the same failed work twice.

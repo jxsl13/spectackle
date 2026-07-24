@@ -89,6 +89,22 @@ plugin interfaces for arbitrary languages later.
 | Cross-language graph: `go/parser` + Plan 9 asm + CUDA line-scanner chains, persistent parse cache | ✅ live (tree-sitter/wazero still future, for full C/C++) |
 | Self-hosting gate | 🔜 M5 ([roadmap](docs/roadmap.md)) |
 
+## The chain, live
+
+Real output, right now:
+
+```
+n go:saxpy.Saxpy fn examples/saxpy/saxpy/saxpy.go:21 sig=(n int,a float32,x,y []float32)error
+n c:launch_saxpy fn examples/saxpy/saxpy/kernels/saxpy.cu:14
+n go:main.main~2 fn examples/saxpy/main.go:12 sig=()
+n cu:saxpy_kernel kernel examples/saxpy/saxpy/kernels/saxpy.cu:7
+e go:saxpy.Saxpy cgo c:launch_saxpy via=examples/saxpy/saxpy/saxpy.go:25
+e go:main.main~2 call go:saxpy.Saxpy via=examples/saxpy/main.go:20
+e c:launch_saxpy launch cu:saxpy_kernel via=examples/saxpy/saxpy/kernels/saxpy.cu:27
+```
+
+That's `get {"id":"go:saxpy.Saxpy","depth":2}` against the shipped binary on this repo — not a mockup.
+
 ## Quickstart
 
 ```sh

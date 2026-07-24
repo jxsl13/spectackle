@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build
+        run: make build
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test -race ./...
+
+      - name: lint specs
+        run: ./bin/spectacle lint .
+
+      - name: smoke
+        run: make smoke
+
+      # Self-hosting gate: drive the MCP server headlessly (no ./bin/spectacle
+      # serve needed as a separate step — the driver below spawns and talks to
+      # it over stdio) and require a clean `check`. Driver shape mirrors the
+      # README "Headless quickstart" Python driver; see that section for the
+      # handshake protocol this heredoc implements.
+      - name: check (self-hosting gate)
+        run: |
+          python3 - <<'EOF'
+          import json, subprocess, sys
+
+          proc = subprocess.Popen(["./bin/spectacle", "serve", "-root", "."],
+              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+              stderr=subprocess.DEVNULL, text=True, bufsize=1)
+          send = lambda o: (proc.stdin.write(json.dumps(o) + "\n"), proc.stdin.flush())
+          def recv():
+              while True:
+                  line = proc.stdout.readline()
+                  if not line: return None
+                  try: return json.loads(line)
+                  except json.JSONDecodeError: continue
+
+          send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "ci-gate", "version": "0"}}})
+          recv()
+          send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+          send({"jsonrpc": "2.0", "id": 100, "method": "tools/call",
+                "params": {"name": "check", "arguments": {}}})
+          r = recv()
+          text = "".join(c["text"] for c in r.get("result", {}).get("content", [])
+                          if c.get("type") == "text")
+          lines = [l for l in text.splitlines() if not l.startswith("sw ")]
+          result = "\n".join(lines).strip()
+          proc.terminate()
+          if result != "ok":
+              print(result, file=sys.stderr)
+              sys.exit(1)
+          print("ok")
+          EOF
