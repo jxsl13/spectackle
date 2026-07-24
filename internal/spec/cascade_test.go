@@ -91,6 +91,59 @@ func TestForPathCascade(t *testing.T) {
 	assertEq(t, "gpu/metal/host.go", got, []string{"GLB-ARC-001", "GPU-KRN-001"})
 }
 
+// TestForNode (SPX-SPC-007): explicit applies bindings come first, the
+// file's cascade rules follow, IDs never repeat.
+func TestForNode(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		".spectackle/spec.md": `---
+schema: v0
+prefix: GLB
+---
+## GLB-ARC-001
+The system SHALL log to ` + "`stderr`" + ` only.
+`,
+		"gpu/.spectackle/spec.md": `---
+schema: v0
+prefix: GPU
+---
+## GPU-KRN-001 {applies: cu:pkg.kernel}
+WHEN a kernel is launched, the wrapper SHALL check cudaGetLastError.
+
+## GPU-KRN-002 {applies: cu:pkg.kernel,cu:pkg.other}
+WHEN a kernel exits, the wrapper SHALL synchronize the stream.
+`,
+		"gpu/kern.cu": "// code\n",
+	}
+	for rel, content := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// applies matches first (both binding rules), then the file cascade
+	// (GLB root rule); the applies-bound GPU rules must not repeat.
+	got := ids(c.ForNode("cu:pkg.kernel", "gpu/kern.cu"))
+	assertEq(t, "cu:pkg.kernel", got, []string{"GPU-KRN-001", "GPU-KRN-002", "GLB-ARC-001"})
+
+	// single-binding node: the other applies rule joins via the cascade only
+	got = ids(c.ForNode("cu:pkg.other", "gpu/kern.cu"))
+	assertEq(t, "cu:pkg.other", got, []string{"GPU-KRN-002", "GLB-ARC-001", "GPU-KRN-001"})
+
+	// unknown node, no file: nothing
+	if got := c.ForNode("go:none.Missing", ""); len(got) != 0 {
+		t.Fatalf("unknown node without file must bind nothing, got %v", ids(got))
+	}
+}
+
 func TestProseSectionsParsed(t *testing.T) {
 	c, err := Load(buildTree(t))
 	if err != nil {

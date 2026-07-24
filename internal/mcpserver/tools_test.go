@@ -446,6 +446,37 @@ func TestCompactMergeableCandidates(t *testing.T) {
 	}
 }
 
+// TestGetNodeShowsContracts (SPX-SPC-007): get on a code node appends the
+// node's binding contracts — the applies-bound rule as a full r record,
+// root-scoped cascade rules collapsed to one r-root ID record — while
+// impact neighbors stay bare graph records.
+func TestGetNodeShowsContracts(t *testing.T) {
+	root := t.TempDir()
+	src := "package demo\n\nfunc Foo() {}\n"
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "demo_rules", "pattern": "U", "stem": "DMO",
+		"system":   "the demo function",
+		"response": "stay a stub for the ForNode contract test",
+		"applies":  []string{"go:demo.Foo"},
+	})
+	if !strings.Contains(out, "ok DMO-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+
+	out = callText(t, sess, "get", map[string]any{"id": "go:demo.Foo"})
+	if !strings.Contains(out, "n go:demo.Foo") {
+		t.Fatalf("node record missing: %q", out)
+	}
+	if !strings.Contains(out, "r DMO-001") {
+		t.Fatalf("applies-bound contract missing from get: %q", out)
+	}
+}
+
 // TestCheckOnOwnRepo: the repository itself must come back clean.
 func TestCheckOnOwnRepo(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))

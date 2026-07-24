@@ -389,6 +389,16 @@ func (s *Server) getNode(id string, depth, tokBudget int) (*mcp.CallToolResult, 
 			lines = append(lines, fmt.Sprintf("e %s %s %s via=%s:%d", e.Src, e.Kind, e.Dst, e.File, e.Line))
 		}
 	}
+	// binding contracts of the requested node only (SPX-SPC-007) — impact
+	// neighbors stay bare; root-scoped rules collapse to one r-root record.
+	if c, err := spec.Load(s.ws.Dir); err == nil {
+		var rl, rootIDs []string
+		splitContractRules(c.ForNode(id, n.File), nil, map[string]bool{}, &rl, &rootIDs)
+		lines = append(lines, rl...)
+		if len(rootIDs) > 0 {
+			lines = append(lines, "r-root "+strings.Join(rootIDs, " "))
+		}
+	}
 	kept, cur := budget.TruncateRecords(lines, 0, tokBudget)
 	return text(budget.Render(kept, cur))
 }

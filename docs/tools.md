@@ -80,7 +80,10 @@ learn-before-planning scopes** — the loop starts here.
 ```
 Dispatch on ID shape: item→header+body; rule→text+rationale+`a` anchors;
 node with `depth>0`→cross-language impact radius (`n`/`e`, BFS); dir→scoped
-rules+items; file→resolved contracts; unknown→`nf`.
+rules+items; file→resolved contracts; unknown→`nf`. Node results end with
+the requested node's binding contracts (SPX-SPC-007): applies-bound and
+file-cascade rules as `r` records, root-scoped ones collapsed to one
+`r-root` ID record; impact neighbors stay bare.
 
 ### 3. `draft` — create a lifecycle item (state=draft)
 
