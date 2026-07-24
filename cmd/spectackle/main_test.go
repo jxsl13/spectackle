@@ -4,7 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"io"
+	"log"
 )
+
+func init() {
+	// Silence logging during tests
+	log.SetOutput(io.Discard)
+}
 
 func writeSpec(t *testing.T, root, content string) {
 	t.Helper()
@@ -41,4 +48,46 @@ func TestReindexExitCode(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".spectackle", "cache", "index.db")); err != nil {
 		t.Fatalf("cache not created where expected: %v", err)
 	}
+}
+
+func TestRunDispatch(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{name: "no args", args: nil, want: 2},
+		{name: "version", args: []string{"version"}, want: 0},
+		{name: "help", args: []string{"help"}, want: 0},
+		{name: "-h", args: []string{"-h"}, want: 0},
+		{name: "--help", args: []string{"--help"}, want: 0},
+		{name: "bogus", args: []string{"bogus"}, want: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code := run(tt.args)
+			if code != tt.want {
+				t.Errorf("run(%v) = %d, want %d", tt.args, code, tt.want)
+			}
+		})
+	}
+
+	// Test lint with clean and dirty specs
+	t.Run("lint clean", func(t *testing.T) {
+		clean := t.TempDir()
+		writeSpec(t, clean, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool SHALL exit with code 0 on clean specs.\n")
+		code := run([]string{"lint", clean})
+		if code != 0 {
+			t.Errorf("run([lint, cleanDir]) = %d, want 0", code)
+		}
+	})
+
+	t.Run("lint dirty", func(t *testing.T) {
+		dirty := t.TempDir()
+		writeSpec(t, dirty, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool should handle things appropriately.\n")
+		code := run([]string{"lint", dirty})
+		if code != 1 {
+			t.Errorf("run([lint, dirtyDir]) = %d, want 1", code)
+		}
+	})
 }

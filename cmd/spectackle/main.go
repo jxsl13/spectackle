@@ -39,27 +39,31 @@ const httpShutdownTimeout = 5 * time.Second
 func main() {
 	log.SetFlags(0)
 	log.SetOutput(os.Stderr) // stdout is reserved for JSON-RPC (SPX-ARC-001)
+	os.Exit(run(os.Args[1:]))
+}
 
-	args := os.Args[1:]
+func run(args []string) int {
 	if len(args) == 0 {
 		usage()
-		os.Exit(2)
+		return 2
 	}
 	switch args[0] {
 	case "serve":
-		os.Exit(serve(args[1:]))
+		return serve(args[1:])
 	case "lint":
-		os.Exit(lint(args[1:]))
+		return lint(args[1:])
 	case "reindex":
-		os.Exit(reindex(args[1:]))
+		return reindex(args[1:])
 	case "version":
 		fmt.Println("spectackle " + mcpserver.Version)
+		return 0
 	case "-h", "--help", "help":
 		usage()
+		return 0
 	default:
 		log.Printf("unknown subcommand %q", args[0])
 		usage()
-		os.Exit(2)
+		return 2
 	}
 }
 
