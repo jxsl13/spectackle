@@ -1,11 +1,11 @@
 package main
 
 import (
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
-	"io"
-	"log"
 )
 
 func init() {
@@ -88,6 +88,29 @@ func TestRunDispatch(t *testing.T) {
 		code := run([]string{"lint", dirty})
 		if code != 1 {
 			t.Errorf("run([lint, dirtyDir]) = %d, want 1", code)
+		}
+	})
+
+	t.Run("migrate-adr dry-run", func(t *testing.T) {
+		tmpdir := t.TempDir()
+		p := filepath.Join(tmpdir, ".spectackle", "work.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("---\nschema: v0\n---\n## D-0003 some decision\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code := run([]string{"migrate-adr", tmpdir})
+		if code != 0 {
+			t.Errorf("run([migrate-adr, tmpdir]) = %d, want 0", code)
+		}
+		// dry-run by default: no bytes touched.
+		got, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "---\nschema: v0\n---\n## D-0003 some decision\n" {
+			t.Errorf("dry-run modified work.md: %q", got)
 		}
 	})
 }
