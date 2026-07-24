@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -90,59 +91,88 @@ func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	}
 }
 
-// TestCommandsGenClaudeWritesBothFiles: gen harness=claude regenerates both
-// .claude/commands files with the generated-header stamp and the two-mode
-// $ARGUMENTS dispatch content intact.
+// TestCommandsGenClaudeWritesBothFiles: gen harness=claude regenerates every
+// .claude/commands file (the original workflow/state pair plus the six
+// T-0113 additions) with the generated-header stamp, each command's own
+// frontmatter description, and the workflow file's two-mode $ARGUMENTS
+// dispatch content intact.
 func TestCommandsGenClaudeWritesBothFiles(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
 	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}})
-	if !strings.Contains(out, "ok gen claude .claude/commands/spectackle.md") ||
-		!strings.Contains(out, "ok gen claude .claude/commands/spectackle-state.md") {
-		t.Fatalf("expected both claude files written: %q", out)
+
+	wantFiles := []string{
+		"spectackle.md", "spectackle-state.md", "spectackle-find.md", "spectackle-get.md",
+		"spectackle-research.md", "spectackle-swarm.md", "spectackle-export.md", "spectackle-merge.md",
+	}
+	for _, name := range wantFiles {
+		if !strings.Contains(out, "ok gen claude .claude/commands/"+name) {
+			t.Fatalf("expected %s to be written; got: %q", name, out)
+		}
+	}
+
+	// every commandSpec's file carries its own description and the header
+	for _, spec := range commandSpecs {
+		p := filepath.Join(root, ".claude", "commands", claudeFilename("spectackle", spec.Name))
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		if !strings.Contains(string(b), generatedHeader) {
+			t.Fatalf("%s missing generated header:\n%s", p, b)
+		}
+		if !strings.Contains(string(b), "description: "+spec.Description) {
+			t.Fatalf("%s missing frontmatter description %q:\n%s", p, spec.Description, b)
+		}
 	}
 
 	wf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(wf), generatedHeader) {
-		t.Fatalf("spectackle.md missing generated header:\n%s", wf)
-	}
-	if !strings.Contains(string(wf), "description: spectackle entry point") {
-		t.Fatalf("spectackle.md missing frontmatter description:\n%s", wf)
-	}
 	if !strings.Contains(string(wf), "If `$ARGUMENTS` is empty:") || !strings.Contains(string(wf), "If `$ARGUMENTS` is not empty:") {
 		t.Fatalf("spectackle.md lost the two-mode $ARGUMENTS dispatch:\n%s", wf)
 	}
 
-	sf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-state.md"))
+	// export/merge must not imply an apply command exists
+	ef, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-export.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(sf), generatedHeader) {
-		t.Fatalf("spectackle-state.md missing generated header:\n%s", sf)
+	if !strings.Contains(string(ef), "/spectackle-apply") || !strings.Contains(string(ef), "wrong front\ndoor") {
+		t.Fatalf("spectackle-export.md should explain why there is no apply command:\n%s", ef)
 	}
-	if !strings.Contains(string(sf), "description: Render the current spectackle state") {
-		t.Fatalf("spectackle-state.md missing frontmatter description:\n%s", sf)
+	mf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-merge.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mf), "/spectackle-apply") || !strings.Contains(string(mf), "wrong front\ndoor") {
+		t.Fatalf("spectackle-merge.md should explain why there is no apply command:\n%s", mf)
 	}
 }
 
 // TestCommandsGenCopilotWritesPromptFiles: gen harness=copilot writes the
-// GitHub Copilot dialect under .github/prompts with `mode: agent`
-// frontmatter and the generated-header stamp.
+// GitHub Copilot dialect under .github/prompts — the original workflow/state
+// pair plus the six T-0113 additions — with `mode: agent` frontmatter and
+// the generated-header stamp.
 func TestCommandsGenCopilotWritesPromptFiles(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
 	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"copilot"}})
-	if !strings.Contains(out, "ok gen copilot .github/prompts/spectackle.prompt.md") ||
-		!strings.Contains(out, "ok gen copilot .github/prompts/spectackle-state.prompt.md") {
-		t.Fatalf("expected both copilot files written: %q", out)
+
+	names := []string{
+		"spectackle.prompt.md", "spectackle-state.prompt.md", "spectackle-find.prompt.md", "spectackle-get.prompt.md",
+		"spectackle-research.prompt.md", "spectackle-swarm.prompt.md", "spectackle-export.prompt.md", "spectackle-merge.prompt.md",
+	}
+	for _, name := range names {
+		if !strings.Contains(out, "ok gen copilot .github/prompts/"+name) {
+			t.Fatalf("expected %s to be written; got: %q", name, out)
+		}
 	}
 
-	for _, name := range []string{"spectackle.prompt.md", "spectackle-state.prompt.md"} {
+	for _, name := range names {
 		b, err := os.ReadFile(filepath.Join(root, ".github", "prompts", name))
 		if err != nil {
 			t.Fatal(err)
@@ -157,7 +187,10 @@ func TestCommandsGenCopilotWritesPromptFiles(t *testing.T) {
 }
 
 // TestCommandsGenCodexTwiceIdempotent: gen harness=codex writes exactly one
-// managed section into AGENTS.md; a second run must produce a byte-identical
+// managed section into AGENTS.md — one "## spectackle <heading>" subsection
+// per commandSpec, in order, so the six T-0113 additions read as one
+// coherent block alongside the original workflow/state pair rather than
+// being appended blindly — and a second run must produce a byte-identical
 // file (no duplicate sections, no drift).
 func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 	root := t.TempDir()
@@ -171,8 +204,19 @@ func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 	if strings.Count(string(first), sectionBegin) != 1 {
 		t.Fatalf("expected exactly one managed section, got:\n%s", first)
 	}
-	if !strings.Contains(string(first), "## spectackle workflow") || !strings.Contains(string(first), "## spectackle state") {
-		t.Fatalf("AGENTS.md missing both command descriptions:\n%s", first)
+	// every commandSpec's heading appears, in commandSpecs order (coherent
+	// concatenation, not appended blindly)
+	lastIdx := -1
+	for _, spec := range commandSpecs {
+		heading := "## spectackle " + spec.Heading
+		idx := strings.Index(string(first), heading)
+		if idx == -1 {
+			t.Fatalf("AGENTS.md missing heading %q:\n%s", heading, first)
+		}
+		if idx <= lastIdx {
+			t.Fatalf("AGENTS.md heading %q out of commandSpecs order:\n%s", heading, first)
+		}
+		lastIdx = idx
 	}
 
 	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}})
@@ -235,5 +279,133 @@ func TestCommandsGenElicitationAcceptSelectsSubset(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".github", "prompts", "spectackle.prompt.md")); !os.IsNotExist(err) {
 		t.Fatalf("copilot file should not have been written: %v", err)
+	}
+}
+
+// newCommandTemplateNames are the six templates T-0113 adds on top of the
+// original workflow/state pair — used by every test below that needs to
+// enumerate just the new ones rather than the full commandSpecs set.
+var newCommandTemplateNames = []string{
+	"find.md.tmpl", "get.md.tmpl", "research.md.tmpl",
+	"swarm.md.tmpl", "export.md.tmpl", "merge.md.tmpl",
+}
+
+// TestCommandsNewTemplatesRenderNonEmpty covers TEST 1: every new template
+// renders without error and produces non-empty output.
+func TestCommandsNewTemplatesRenderNonEmpty(t *testing.T) {
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
+	for _, name := range newCommandTemplateNames {
+		body, err := renderCommandTemplate(name, data)
+		if err != nil {
+			t.Fatalf("%s: render error: %v", name, err)
+		}
+		if strings.TrimSpace(body) == "" {
+			t.Fatalf("%s: rendered empty", name)
+		}
+	}
+}
+
+// TestCommandsNewTemplatesNoUnresolvedActions covers TEST 2: rendered output
+// contains no unresolved {{ }} — a template typo (e.g. referencing a field
+// commandsData doesn't have) currently ships silently since text/template
+// only errors on parse, not on every possible bad field reference caught at
+// render time; this guards the render-time-visible subset (literal
+// double-brace leftovers, e.g. from a copy-pasted but unexecuted action).
+func TestCommandsNewTemplatesNoUnresolvedActions(t *testing.T) {
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
+	for _, name := range newCommandTemplateNames {
+		body, err := renderCommandTemplate(name, data)
+		if err != nil {
+			t.Fatalf("%s: render error: %v", name, err)
+		}
+		if strings.Contains(body, "{{") || strings.Contains(body, "}}") {
+			t.Fatalf("%s: unresolved template action in output:\n%s", name, body)
+		}
+	}
+}
+
+// TestCommandsFindTemplateScopesMatchScopeKinds covers TEST 3: the find
+// template names only scopes that exist in scopeKinds (tools.go) — asserted
+// against the map itself (not a hand-copied literal list) so this test
+// breaks the moment a scope is added to or removed from scopeKinds without
+// the template being updated to match. find's scope=code path is handled
+// outside scopeKinds (tools.go's find() special-cases it before the map
+// lookup — it drives the graph, not cache.Search), so it is checked
+// separately rather than folded into the scopeKinds comparison.
+func TestCommandsFindTemplateScopesMatchScopeKinds(t *testing.T) {
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
+	body, err := renderCommandTemplate("find.md.tmpl", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile("`([a-z]+(?:\\|[a-z]+)+)`")
+	m := re.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatalf("find.md.tmpl: no backtick-quoted pipe-delimited scope list found:\n%s", body)
+	}
+	tokens := strings.Split(m[1], "|")
+	got := map[string]bool{}
+	for _, tok := range tokens {
+		got[tok] = true
+	}
+	if !got["code"] {
+		t.Fatalf("find.md.tmpl scope list %v missing scope=code (find's graph-search scope)", tokens)
+	}
+	delete(got, "code")
+	if len(got) != len(scopeKinds) {
+		t.Fatalf("find.md.tmpl scope list %v (%d non-code entries) does not match scopeKinds (%d keys: %v)",
+			tokens, len(got), len(scopeKinds), scopeKinds)
+	}
+	for k := range scopeKinds {
+		if !got[k] {
+			t.Fatalf("find.md.tmpl scope list %v is missing scopeKinds key %q", tokens, k)
+		}
+	}
+	for tok := range got {
+		if _, ok := scopeKinds[tok]; !ok {
+			t.Fatalf("find.md.tmpl invents scope %q, not a key of scopeKinds %v", tok, scopeKinds)
+		}
+	}
+}
+
+// TestCommandsGenEveryFileCarriesGeneratedHeader covers TEST 4: op=gen for
+// every harness writes files that all carry the do-not-edit header — walked
+// generically over commandSpecs so a newly added command is covered without
+// touching this test again.
+func TestCommandsGenEveryFileCarriesGeneratedHeader(t *testing.T) {
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+
+	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude", "copilot", "codex"}})
+	if strings.Contains(out, "! ") {
+		t.Fatalf("unexpected error in gen output: %q", out)
+	}
+
+	for _, spec := range commandSpecs {
+		claudeFile := filepath.Join(root, ".claude", "commands", claudeFilename("spectackle", spec.Name))
+		b, err := os.ReadFile(claudeFile)
+		if err != nil {
+			t.Fatalf("%s: %v", claudeFile, err)
+		}
+		if !strings.Contains(string(b), generatedHeader) {
+			t.Fatalf("%s missing generated header:\n%s", claudeFile, b)
+		}
+
+		copilotFile := filepath.Join(root, ".github", "prompts", copilotFilename("spectackle", spec.Name))
+		b, err = os.ReadFile(copilotFile)
+		if err != nil {
+			t.Fatalf("%s: %v", copilotFile, err)
+		}
+		if !strings.Contains(string(b), generatedHeader) {
+			t.Fatalf("%s missing generated header:\n%s", copilotFile, b)
+		}
+	}
+
+	agents, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(agents), generatedHeader) != 1 {
+		t.Fatalf("AGENTS.md expected exactly one generated header (single managed section):\n%s", agents)
 	}
 }

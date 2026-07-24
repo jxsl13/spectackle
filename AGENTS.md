@@ -73,4 +73,100 @@ Strictly read-only — never draft, move, or otherwise write anything.
 
 Optional path scope: $ARGUMENTS. If non-empty, pass it as the `path`
 argument to `state`; if empty, call `state` with its defaults (whole repo).
+
+## spectackle find
+
+Parse `$ARGUMENTS` as `[scope] query` — an optional leading scope token
+(`code|rule|spec|proposal|task|bug|research|adr|rejection|history|all`)
+followed by the search text; if the first word is not one of those, treat
+the whole argument as the query and leave scope at its default (`all`).
+
+Call the spectackle `find` MCP tool with `q=<query>` and, when a scope was
+given, `scope=<scope>` (or, if no spectackle MCP server is registered in this
+session, drive it headlessly per the "Headless quickstart" recipe in this
+repo's README.md) and render its output as-is. Strictly read-only — never
+draft, move, or otherwise write anything. `scope=rejection` and
+`scope=history` are the learn-before-planning scopes: search them before
+drafting anything similar.
+
+Scope and query: $ARGUMENTS
+
+## spectackle get
+
+Parse `$ARGUMENTS` as `id [depth]` — an item ID, rule ID, node ID
+(`lang:symbol`), a `sec:<dir>#<name>` section ID, or a repo-relative
+directory/file path, followed by an optional integer depth.
+
+Call the spectackle `get` MCP tool with `id=<id>` and, when a depth was
+given, `depth=<depth>` (or, if no spectackle MCP server is registered in
+this session, drive it headlessly per the "Headless quickstart" recipe in
+this repo's README.md) and render its output as-is. Strictly read-only —
+never draft, move, or otherwise write anything. `depth` only affects node
+IDs (cross-language impact radius); it is ignored for every other ID shape.
+An unknown ID answers `nf` with the nearest matches — do not guess a
+different one, report it.
+
+ID and optional depth: $ARGUMENTS
+
+## spectackle research
+
+Call the spectackle `research` MCP tool with `q="$ARGUMENTS"` (or, if no
+spectackle MCP server is registered in this session, drive it headlessly per
+the "Headless quickstart" recipe in this repo's README.md) and render its
+output as-is: `#impact #contracts #rejections #history #docs #gaps #open`
+— the server-aggregated problem-space pack. Strictly read-only — never
+draft, move, or otherwise write anything. Only mint an `R-xxxx` research
+item (`draft kind=research`) for a fresh subagent if this pack does not
+answer the topic; never explore ad hoc.
+
+Topic: $ARGUMENTS
+
+## spectackle swarm
+
+Call the spectackle `swarm` MCP tool — zero arguments — (or, if no spectackle
+MCP server is registered in this session, drive it headlessly per the
+"Headless quickstart" recipe in this repo's README.md) and render its
+output as-is: `ag` agents, `l` leases, `wt` open worktrees, `sw` recent
+learnings (rejections first). Strictly read-only. Check this before
+claiming scope or hypothesizing about a change — a sibling agent may
+already have tried, and failed at, exactly this.
+
+## spectackle export
+
+Call the spectackle `knowledge` MCP tool with `op=export` for this workspace
+(or, if no spectackle MCP server is registered in this session, drive it
+headlessly per the "Headless quickstart" recipe in this repo's README.md)
+and render its output as-is — a portable knowledge artifact (rules, ADRs,
+intent) this repository can hand to another one via `/spectackle-merge`.
+Optional `$ARGUMENTS` is passed through as the tool's output-path argument
+when non-empty (write the artifact to a file instead of returning it
+inline); leave it empty to get the artifact back in the response.
+
+This is read-only with respect to THIS workspace — it produces an artifact,
+it does not change anything here. There is deliberately no
+`/spectackle-apply` command: `apply` is the only operation in this family
+that mutates a workspace, and a one-line slash command is the wrong front
+door for a write. Run `knowledge op=apply` yourself, with review, when you
+actually mean to fold an artifact in.
+
+Optional output path: $ARGUMENTS
+
+## spectackle merge
+
+Call the spectackle `knowledge` MCP tool with `op=merge`, passing the
+artifact paths listed in `$ARGUMENTS` (space-separated) as its artifact
+sources (or, if no spectackle MCP server is registered in this session,
+drive it headlessly per the "Headless quickstart" recipe in this repo's
+README.md), and render its output as-is: the condensed artifact plus every
+conflict it found — conflicts are reported, never auto-resolved, so read
+them before acting on the result.
+
+This is read-only with respect to any workspace — it only combines
+artifacts into a new one, on paths you gave it. There is deliberately no
+`/spectackle-apply` command: `apply` is the only operation in this family
+that mutates a workspace, and a one-line slash command is the wrong front
+door for a write. Run `knowledge op=apply` yourself, with review, when you
+actually mean to fold the merged artifact into a workspace.
+
+Artifact paths: $ARGUMENTS
 <!-- spectackle:commands:end -->
