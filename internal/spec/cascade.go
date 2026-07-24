@@ -82,7 +82,7 @@ func Load(root string) (*Cascade, error) {
 			return nil
 		}
 		switch d.Name() {
-		case ".git", "node_modules", "testdata":
+		case ".git", "node_modules", "testdata", ".claude":
 			return filepath.SkipDir
 		case workspace.Dot:
 			sp := filepath.Join(p, "spec.md")

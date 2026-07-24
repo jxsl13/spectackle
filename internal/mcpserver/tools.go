@@ -1052,7 +1052,7 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "testdata", "bin", ".spectackle":
+			case ".git", "node_modules", "testdata", "bin", ".spectackle", ".claude":
 				return filepath.SkipDir
 			}
 			return nil

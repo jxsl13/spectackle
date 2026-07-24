@@ -200,7 +200,7 @@ func (r Root) ContextDirs() ([]string, error) {
 			return nil
 		}
 		switch d.Name() {
-		case ".git", "node_modules", "testdata":
+		case ".git", "node_modules", "testdata", ".claude":
 			return filepath.SkipDir
 		case Dot:
 			ctx, _ := filepath.Rel(r.Dir, filepath.Dir(p))

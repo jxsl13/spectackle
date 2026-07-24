@@ -90,6 +90,23 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 	if got := NearestContext(ctxs, "pkg/util.go"); got != "" {
 		t.Fatalf("NearestContext fallback = %q", got)
 	}
+
+	// .claude/worktrees/*/.spectackle bundles are agent worktree state, not
+	// project spec content — ContextDirs must skip the whole .claude subtree.
+	claudeBundle := filepath.Join(root, ".claude", "worktrees", "x", ".spectackle")
+	if err := os.MkdirAll(claudeBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctxs2, err := ws.ContextDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ctxs2) != 2 || ctxs2[0] != "" || ctxs2[1] != "gpu/kernels" {
+		t.Fatalf("ContextDirs after .claude bundle = %v, want unchanged %v", ctxs2, ctxs)
+	}
 }
 
 func TestFeedbackConfigDefaults(t *testing.T) {

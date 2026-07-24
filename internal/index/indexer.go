@@ -84,7 +84,7 @@ type indexer struct {
 // generated trees). .spectackle is server-owned spec state, not source.
 var ignoreDirs = map[string]bool{
 	".git": true, ".spectackle": true, "node_modules": true,
-	"testdata": true, "bin": true, "vendor": true,
+	"testdata": true, "bin": true, "vendor": true, ".claude": true,
 }
 
 func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {

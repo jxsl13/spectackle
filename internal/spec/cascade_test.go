@@ -144,6 +144,40 @@ WHEN a kernel exits, the wrapper SHALL synchronize the stream.
 	}
 }
 
+// TestLoadSkipsClaudeDir: a duplicate spec bundle nested under an agent
+// worktree at .claude/worktrees/*/.spectackle must NOT be discovered — the
+// walk skips the whole .claude subtree, so it can't double-count files or
+// collide on rule IDs.
+func TestLoadSkipsClaudeDir(t *testing.T) {
+	root := buildTree(t)
+
+	claudeBundle := filepath.Join(root, ".claude", "worktrees", "x", ".spectackle")
+	if err := os.MkdirAll(claudeBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dup := `---
+schema: v0
+prefix: GLB
+---
+## GLB-ARC-001
+The system SHALL log to ` + "`stderr`" + ` only.
+`
+	if err := os.WriteFile(filepath.Join(claudeBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs := c.Findings(); len(fs) != 0 {
+		t.Fatalf(".claude bundle must not be discovered, got findings %v", fs)
+	}
+	if len(c.All()) != 3 {
+		t.Fatalf("Load discovered %d spec files, want 3 (.claude subtree must be skipped): %+v", len(c.All()), c.All())
+	}
+}
+
 func TestProseSectionsParsed(t *testing.T) {
 	c, err := Load(buildTree(t))
 	if err != nil {
