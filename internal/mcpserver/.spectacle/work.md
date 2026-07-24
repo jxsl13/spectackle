@@ -13,7 +13,7 @@ Requirement: search output shows where functions begin but not where they end. g
 
 ## T-0049 n records render file:start-end span
 kind: task
-state: approved
+state: done
 created: 2026-07-24
 parent: P-0027
 

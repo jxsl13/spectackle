@@ -71,3 +71,5 @@
 {"t":"2026-07-24T12:19:14Z","eid":"2c56134f412206c2","ag":"orchestrator","ev":"create","id":"T-0049","k":"task","ti":"n records render file:start-end span","dir":"internal/mcpserver"}
 {"t":"2026-07-24T12:19:28Z","eid":"9a2411f9f8abac82","ag":"orchestrator","ev":"move","id":"P-0027","dir":"internal/mcpserver","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:19:28Z","eid":"f567eb11ee19d625","ag":"orchestrator","ev":"move","id":"T-0049","dir":"internal/mcpserver","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:20:40Z","eid":"2e01bb0d3079b9e5","ag":"agent-span","ev":"move","id":"T-0049","dir":"internal/mcpserver","fr":"approved","to":"active"}
+{"t":"2026-07-24T12:22:52Z","eid":"9b889b3d032e1a58","ag":"agent-span","ev":"move","id":"T-0049","dir":"internal/mcpserver","fr":"active","to":"done"}

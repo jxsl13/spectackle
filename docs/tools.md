@@ -22,7 +22,7 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 ## Output line grammar
 
 ```
-n <id> <kind> <file>:<line> [sig=<sig>]          node
+n <id> <kind> <file>:<line>[-<endline>] [sig=<sig>] node (endline shown when known and > line)
 e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|use|link)
 r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
 r-root <ID> <ID> ...                             root-scoped rules, IDs only (full text via get)

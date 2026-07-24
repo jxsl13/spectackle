@@ -452,3 +452,28 @@ func TestConcurrentDraftsMintUniqueIDs(t *testing.T) {
 		t.Fatalf("duplicate IDs after concurrent drafts:\n%s", out)
 	}
 }
+
+// TestFindCodeRendersEndLineSpan (T-0049, MCP-002): a node record renders
+// '<file>:<start>-<end>' once EndLine is known and > Line (Bar, a multi-line
+// func), and keeps the plain '<file>:<line>' form when EndLine == Line
+// (Foo, a single-line func) — asserted over the wire via the "find"
+// scope=code tool, the same connectRoot pattern the rest of this file uses.
+func TestFindCodeRendersEndLineSpan(t *testing.T) {
+	root := t.TempDir()
+	src := "package demo\n\nfunc Foo() {}\n\nfunc Bar() {\n\t_ = 1\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "find", map[string]any{"q": "demo", "scope": "code"})
+	if !strings.Contains(out, "n go:demo.Foo fn demo.go:3 ") {
+		t.Fatalf("single-line node must keep plain file:line form: %q", out)
+	}
+	if !strings.Contains(out, "n go:demo.Bar fn demo.go:5-7 ") {
+		t.Fatalf("multi-line node must render file:start-end span: %q", out)
+	}
+	if strings.Contains(out, "demo.go:5 ") {
+		t.Fatalf("multi-line node must not also render the old single-line form: %q", out)
+	}
+}

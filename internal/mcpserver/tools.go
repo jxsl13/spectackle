@@ -1152,7 +1152,12 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 // ---- shared helpers ----
 
 func nodeLine(n graph.Node) string {
-	l := fmt.Sprintf("n %s %s %s:%d", n.ID, n.Kind, n.File, n.Line)
+	var l string
+	if n.EndLine > n.Line {
+		l = fmt.Sprintf("n %s %s %s:%d-%d", n.ID, n.Kind, n.File, n.Line, n.EndLine)
+	} else {
+		l = fmt.Sprintf("n %s %s %s:%d", n.ID, n.Kind, n.File, n.Line)
+	}
 	if n.Sig != "" {
 		l += " sig=" + n.Sig
 	}
