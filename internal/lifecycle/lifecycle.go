@@ -30,6 +30,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/spec"
@@ -182,9 +184,51 @@ func maxRounds(ws workspace.Root) int {
 	return 3
 }
 
+// moveOpts carries Move's optional, additive parameters. Zero value = every
+// option off, which is exactly Move's behavior before the audit gate below
+// existed — so the field set here grows without ever touching an existing
+// call site (see MoveOption).
+type moveOpts struct {
+	g        graph.Graph
+	ruleText func(string) (string, bool)
+}
+
+// MoveOption customizes a Move call. Options are the least invasive way to
+// grow Move's parameters: every existing call site (positional ws, id, to,
+// note) keeps compiling and keeps its old behavior untouched, since omitting
+// opts... leaves moveOpts at its zero value.
+type MoveOption func(*moveOpts)
+
+// WithAuditGate supplies the symbol graph and a rule-text resolver so Move
+// can enforce the done-state audit gate (see the auditGate doc comment
+// below). The ruleText closure mirrors the one internal/mcpserver's check
+// tool builds from the loaded spec.Cascade: given a rule ID, return its
+// current sentence and whether the rule still exists in the cascade
+// (false routes the anchor to drift.Stale, which never blocks). Without this
+// option Move performs no drift check at all — unchanged, pre-gate behavior.
+func WithAuditGate(g graph.Graph, ruleText func(string) (string, bool)) MoveOption {
+	return func(o *moveOpts) {
+		o.g = g
+		o.ruleText = ruleText
+	}
+}
+
 // Move transitions an item and applies the persistence effects. A rejected
 // item (no longer in work.md) is restored from its reject journal snapshot.
-func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
+//
+// When to is done, or a forward skip that implies done (archived — see the
+// package doc comment), and the caller supplied WithAuditGate, Move refuses
+// the transition if any anchor bound to the item's targets carries
+// unresolved audit-class drift (drift.Tightened or drift.Diverged — a human
+// has to look, per package drift's doc comment). drift.Evolved anchors never
+// block: they are mechanically healable by check and re-stamp themselves the
+// next time it runs, so gating on them would just make done unreachable
+// without giving the caller anything to fix here. See auditGate below.
+func Move(ws workspace.Root, id, to, note string, opts ...MoveOption) (item.Item, error) {
+	var o moveOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
 	it, ok, err := item.Get(ws, id)
 	if err != nil {
 		return item.Item{}, err
@@ -208,6 +252,11 @@ func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
 	}
 	if to == item.StateRejected && strings.TrimSpace(note) == "" {
 		return it, fmt.Errorf("lifecycle: rejection requires a note — it becomes the searchable rejection corpus")
+	}
+	if to == item.StateDone || to == item.StateArchived {
+		if err := auditGate(ws, o.g, o.ruleText, it); err != nil {
+			return it, err
+		}
 	}
 	if to == item.StateArchived {
 		if open := openChildren(ws, it); len(open) > 0 {
@@ -479,6 +528,88 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 		}
 	}
 	return item.Item{}, false, nil
+}
+
+// auditGate is the "an item cannot reach done while its bound contracts
+// carry unresolved audit-class drift" check: it loads anchors.tsv, narrows
+// it to the anchors bound to the item's targets (see boundAnchors), classifies
+// them with drift.Classify — the same call internal/mcpserver/tools.go's
+// check tool builds (graph + a rule-text closure over the loaded spec
+// cascade) — and refuses when any of them is drift.Tightened or
+// drift.Diverged. drift.Evolved never blocks: it is the mechanically
+// healable class, re-stamped by check without a human needing to look.
+//
+// g == nil or ruleText == nil means Move was called without WithAuditGate:
+// the check is skipped entirely (existing callers, and any test that
+// doesn't care about drift). No bound anchors, or none in a blocking class,
+// is also a no-op — items with no bound anchors are unaffected.
+func auditGate(ws workspace.Root, g graph.Graph, ruleText func(string) (string, bool), it item.Item) error {
+	if g == nil || ruleText == nil || len(it.Targets) == 0 {
+		return nil
+	}
+	anchors, err := drift.Load(ws)
+	if err != nil {
+		return err
+	}
+	bound := boundAnchors(anchors, it.Targets)
+	if len(bound) == 0 {
+		return nil
+	}
+	var offenders []string
+	for _, r := range drift.Classify(ws, g, bound, ruleText) {
+		if r.Class == drift.Tightened || r.Class == drift.Diverged {
+			offenders = append(offenders, fmt.Sprintf("! GATE E %s audit %s %s %s",
+				it.ID, r.Anchor.Rule, r.Anchor.Node, r.Class))
+		}
+	}
+	if len(offenders) == 0 {
+		return nil
+	}
+	sort.Strings(offenders)
+	return fmt.Errorf("%s", strings.Join(offenders, "\n"))
+}
+
+// boundAnchors narrows anchors to the ones bound to one of targets:
+// node-ID-shaped targets ("go:pkg.Func", per targetPath below) match
+// Anchor.Node directly; path-shaped targets match any anchor whose code span
+// lives at that path or under it (a directory target covers every anchor
+// beneath it) — mirroring the node-ID/path split internal/mcpserver's
+// grillTargets/researchGaps use against the same anchor set.
+func boundAnchors(anchors []drift.Anchor, targets []string) []drift.Anchor {
+	var out []drift.Anchor
+	seen := make([]bool, len(anchors))
+	for _, t := range targets {
+		if p, ok := targetPath(t); ok {
+			for i, a := range anchors {
+				if !seen[i] && (a.File == p || strings.HasPrefix(a.File, p+"/")) {
+					seen[i] = true
+					out = append(out, a)
+				}
+			}
+			continue
+		}
+		for i, a := range anchors {
+			if !seen[i] && string(a.Node) == t {
+				seen[i] = true
+				out = append(out, a)
+			}
+		}
+	}
+	return out
+}
+
+// targetPath decides whether a target is a file path (as opposed to a graph
+// node ID) and strips an optional ":line" suffix — a duplicate, not an
+// import, of internal/mcpserver/tools.go's targetPath: mcpserver imports
+// lifecycle, not the other way around, and the split is three lines.
+func targetPath(t string) (string, bool) {
+	if i := strings.IndexByte(t, ':'); i > 0 {
+		if !strings.ContainsAny(t[:i], "./") {
+			return "", false
+		}
+		return t[:i], true
+	}
+	return t, strings.ContainsAny(t, "./")
 }
 
 func openChildren(ws workspace.Root, it item.Item) []string {

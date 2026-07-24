@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -504,5 +506,154 @@ func TestArchiveMergesIntentAndFoldsChildren(t *testing.T) {
 	}
 	if archived != 2 {
 		t.Fatalf("expected 2 archive events, got %d", archived)
+	}
+}
+
+// --- audit gate (WithAuditGate / auditGate) -------------------------------
+//
+// T-0089: an item cannot reach done while its bound contracts carry
+// unresolved audit-class drift (drift.Tightened or drift.Diverged).
+// drift.Evolved is the mechanically healable class and must never block.
+
+// ruleTexts builds the func(string)(string,bool) closure WithAuditGate
+// expects, mirroring the one internal/mcpserver/tools.go's check tool builds
+// from a loaded spec.Cascade (rule ID -> current sentence, still-exists).
+func ruleTexts(m map[string]string) func(string) (string, bool) {
+	return func(id string) (string, bool) {
+		t, ok := m[id]
+		return t, ok
+	}
+}
+
+// auditFixture writes a one-line Go "file", indexes it as a single graph
+// node, and stamps+saves an anchor binding ruleID/ruleText to that node —
+// the minimal setup every audit-gate test below builds on.
+func auditFixture(t *testing.T, root workspace.Root, ruleID, ruleText string) (graph.Graph, graph.NodeID) {
+	t.Helper()
+	const node graph.NodeID = "go:pkg.Func"
+	if err := os.MkdirAll(root.Dir+"/pkg", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root.Dir+"/pkg/x.go", []byte("func Func() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: node, File: "pkg/x.go", Line: 1, EndLine: 1}}, nil)
+	a := drift.Stamp(root, g, ruleID, ruleText, node)
+	if err := drift.Save(root, []drift.Anchor{a}); err != nil {
+		t.Fatal(err)
+	}
+	return g, node
+}
+
+// TestAuditGateBlocksTightened: rule sentence changes, code doesn't -> the
+// anchor classifies Tightened. Move to done must refuse, naming the rule and
+// node in a dense "! GATE E ..." record, and must leave the item untouched.
+func TestAuditGateBlocksTightened(t *testing.T) {
+	root := ws(t)
+	g, node := auditFixture(t, root, "EARS-001", "old rule text")
+	it, err := Draft(root, nil, "task", "audited work", "", "", "", []string{string(node)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := ruleTexts(map[string]string{"EARS-001": "new rule text"})
+
+	_, err = Move(root, it.ID, item.StateDone, "", WithAuditGate(g, rt))
+	if err == nil {
+		t.Fatal("tightened anchor did not block move to done")
+	}
+	want := "! GATE E " + it.ID + " audit EARS-001 " + string(node) + " tightened"
+	if err.Error() != want {
+		t.Fatalf("refusal text = %q, want %q", err.Error(), want)
+	}
+	got, ok, _ := item.Get(root, it.ID)
+	if !ok || got.State != item.StateDraft {
+		t.Fatalf("item moved despite refusal: %+v", got)
+	}
+}
+
+// TestAuditGateSucceedsAfterReconcile: once the anchor is re-stamped against
+// the current rule text (the human resolved the drift), the same move to
+// done succeeds.
+func TestAuditGateSucceedsAfterReconcile(t *testing.T) {
+	root := ws(t)
+	g, node := auditFixture(t, root, "EARS-001", "old rule text")
+	it, err := Draft(root, nil, "task", "audited work", "", "", "", []string{string(node)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := ruleTexts(map[string]string{"EARS-001": "new rule text"})
+	if _, err := Move(root, it.ID, item.StateDone, "", WithAuditGate(g, rt)); err == nil {
+		t.Fatal("expected the tightened anchor to block the first attempt")
+	}
+
+	anchors, err := drift.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciled := drift.Upsert(anchors, drift.Stamp(root, g, "EARS-001", "new rule text", node))
+	if err := drift.Save(root, reconciled); err != nil {
+		t.Fatal(err)
+	}
+
+	done, err := Move(root, it.ID, item.StateDone, "", WithAuditGate(g, rt))
+	if err != nil || done.State != item.StateDone {
+		t.Fatalf("move after reconcile = %+v, %v", done, err)
+	}
+}
+
+// TestAuditGateEvolvedNeverBlocks: code changes, rule sentence identical ->
+// Evolved, the mechanically-healable class. It must never block done.
+func TestAuditGateEvolvedNeverBlocks(t *testing.T) {
+	root := ws(t)
+	g, node := auditFixture(t, root, "EARS-001", "same rule text")
+	it, err := Draft(root, nil, "task", "audited work", "", "", "", []string{string(node)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root.Dir+"/pkg/x.go", []byte("func Func() { /* changed */ }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt := ruleTexts(map[string]string{"EARS-001": "same rule text"})
+
+	done, err := Move(root, it.ID, item.StateDone, "", WithAuditGate(g, rt))
+	if err != nil || done.State != item.StateDone {
+		t.Fatalf("evolved anchor blocked move to done: %+v, %v", done, err)
+	}
+}
+
+// TestAuditGateNoBoundAnchorsUnaffected: an anchor bound to a node the item
+// does NOT target must not affect that item's move, tightened or not.
+func TestAuditGateNoBoundAnchorsUnaffected(t *testing.T) {
+	root := ws(t)
+	g, _ := auditFixture(t, root, "EARS-001", "old rule text") // bound to go:pkg.Func
+	it, err := Draft(root, nil, "task", "unrelated work", "", "", "", []string{"go:pkg.Other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := ruleTexts(map[string]string{"EARS-001": "new rule text"}) // would classify Tightened, but for a different node
+
+	done, err := Move(root, it.ID, item.StateDone, "", WithAuditGate(g, rt))
+	if err != nil || done.State != item.StateDone {
+		t.Fatalf("unrelated anchor blocked move to done: %+v, %v", done, err)
+	}
+}
+
+// TestAuditGateSkippedWithoutOption: every pre-existing call site of Move
+// (positional ws, id, to, note — no opts) must keep behaving exactly as
+// before this gate was added, even when a tightened anchor is bound to the
+// item's target.
+func TestAuditGateSkippedWithoutOption(t *testing.T) {
+	root := ws(t)
+	_, node := auditFixture(t, root, "EARS-001", "old rule text")
+	it, err := Draft(root, nil, "task", "audited work", "", "", "", []string{string(node)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// rule text changed underneath (would classify Tightened), but Move is
+	// called the old way — no WithAuditGate, so no drift check runs at all.
+	done, err := Move(root, it.ID, item.StateDone, "")
+	if err != nil || done.State != item.StateDone {
+		t.Fatalf("move without WithAuditGate was blocked: %+v, %v", done, err)
 	}
 }

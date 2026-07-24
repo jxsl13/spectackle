@@ -489,3 +489,5 @@
 {"t":"2026-07-24T19:03:40Z","eid":"b3378a979f2c1d7e","ag":"orchestrator","ev":"create","id":"T-0090","k":"task","ti":"generic worktree ignore: nested-.git detection + config globs/regex, drop the .claude hardcode"}
 {"t":"2026-07-24T19:03:40Z","eid":"d36bf90faa38d3bc","ag":"orchestrator","ev":"move","id":"T-0090","fr":"draft","to":"active"}
 {"t":"2026-07-24T19:03:57Z","eid":"8666683dfaea5890","ag":"orchestrator","ev":"move","id":"T-0089","fr":"draft","to":"active"}
+{"t":"2026-07-24T19:14:34Z","eid":"bfe668ac2fb0334d","ag":"orchestrator","ev":"move","id":"T-0089","fr":"active","to":"archived"}
+{"t":"2026-07-24T19:14:34Z","eid":"283187cd9221ebff","ag":"orchestrator","ev":"archive","id":"T-0089","k":"task","ti":"gate move-to-done on tightened/diverged anchors","sum":"task gate move-to-done on tightened/diverged anchors — IMPLEMENTER IN A DEDICATED WORKTREE (pre-created at .claude/worktrees/impl-t0090, based on HEAD); NO lifecycle moves (orchestrator owns them); only lease claim, code+tests, lease release, report. Scope (disjoint, EXACTLY two files): internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go. A sibling implementer owns internal/wor"}
