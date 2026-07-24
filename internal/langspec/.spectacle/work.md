@@ -18,7 +18,7 @@ Rollback: additive files only. EXIT CRITERION: go build/vet clean, go test -race
 
 ## T-0045 langspec batch G: dart + groovy
 kind: task
-state: approved
+state: active
 created: 2026-07-24
 parent: P-0025
 
@@ -41,7 +41,7 @@ EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langs
 
 ## T-0046 langspec batch H: elixir + erlang + julia
 kind: task
-state: approved
+state: active
 created: 2026-07-24
 parent: P-0025
 

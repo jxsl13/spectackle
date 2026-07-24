@@ -4,3 +4,4 @@
 {"t":"2026-07-24T12:04:50Z","eid":"07ea9eea482472a6","ag":"orchestrator","ev":"create","id":"T-0044","k":"task","ti":"drift.Reconcile: rule edit/retire drops stale anchor rows","dir":"internal/drift"}
 {"t":"2026-07-24T12:05:10Z","eid":"93d34611c2972663","ag":"orchestrator","ev":"move","id":"P-0024","dir":"internal/drift","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:05:10Z","eid":"3d3b1d5627b6712d","ag":"orchestrator","ev":"move","id":"T-0044","dir":"internal/drift","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:07:29Z","eid":"75df560df3138d4a","ag":"agent-reconcile","ev":"move","id":"T-0044","dir":"internal/drift","fr":"approved","to":"active"}
