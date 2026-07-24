@@ -34,6 +34,17 @@ var extLang = map[string]graph.Lang{
 	".java":  graph.LangJava,
 	".rb":    graph.LangRb,
 	".php":   graph.LangPHP,
+	".kt":    graph.LangKt,
+	".kts":   graph.LangKt,
+	".swift": graph.LangSwift,
+	".cs":    graph.LangCs,
+	".scala": graph.LangScala,
+	".sh":    graph.LangSh,
+	".bash":  graph.LangSh,
+	".lua":   graph.LangLua,
+	".zig":   graph.LangZig,
+	".pl":    graph.LangPerl,
+	".pm":    graph.LangPerl,
 }
 
 // LangOf returns the language for a path, or "" if unrecognized.
