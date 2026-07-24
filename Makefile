@@ -2,7 +2,11 @@ GO         ?= go
 BIN        := bin/spectackle
 GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@latest
 
-.PHONY: all build vet test lint-specs smoke clean release-snapshot
+.PHONY: all build vet test cover lint-specs smoke clean release-snapshot
+
+# Minimum total statement coverage (percent) enforced by `make cover`.
+# Baseline at introduction: 75.0%; kept below to absorb noise, ratchet upward.
+COVER_MIN ?= 70
 
 all: build vet test lint-specs smoke
 
@@ -14,6 +18,14 @@ vet:
 
 test:
 	$(GO) test -race ./...
+
+cover:
+	@mkdir -p bin
+	$(GO) test -coverprofile=bin/cover.out ./...
+	@$(GO) tool cover -func=bin/cover.out | awk -v min=$(COVER_MIN) '\
+	  /^total:/ { sub(/%/, "", $$3); \
+	    if ($$3 + 0 < min) { printf "coverage %s%% below COVER_MIN %s%%\n", $$3, min; exit 1 } \
+	    else { printf "coverage %s%% (min %s%%)\n", $$3, min } }'
 
 lint-specs: build
 	./$(BIN) lint .
