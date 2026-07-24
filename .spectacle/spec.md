@@ -66,3 +66,8 @@ The server SHALL mint every item ID and rule ID through the shared coordination 
 
 ## SPX-SWM-005
 WHILE a worktree is open for this session, the server SHALL block the `compact` tool so journal folds cannot corrupt the submit replay.
+
+## SPX-SWM-006 {applies: go:coord.DB.Sweep}
+WHEN the stale-agent sweep runs, the server SHALL delete the `agents` rows whose heartbeat is older than `agent_ttl` together with their `leases` rows.
+
+Rationale: the swarm view must show who is actually there; short-lived driver sessions must not accumulate.

@@ -144,7 +144,7 @@ func (s *Server) registerTools() {
 		gate(s, s.compact))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "lease",
-		Description: "Scope leases stop agent collisions. claim: reserve dirs/files/item IDs (auto-refreshed each call; conflict → l line naming the holder). release: drop. ls: all live leases. work op=start auto-claims its item+targets — explicit claims only for extra scope."},
+		Description: "Scope leases stop agent collisions. claim: reserve dirs/files/item IDs (auto-refreshed each call; conflict → l line naming the holder). release: drop — do this the moment your item is done, a stale claim blocks siblings until TTL expiry. ls: all live leases. work op=start auto-claims its item+targets — explicit claims only for extra scope."},
 		gate(s, s.lease))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "work",
@@ -180,7 +180,7 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if in.Scope == "code" {
 		nodes := s.g.Find(in.Q, in.K, graph.KUnknown)
 		if len(nodes) == 0 {
-			return text("ok no code matches (graph indexing lands in M1)")
+			return text("ok no code matches")
 		}
 		var lines []string
 		for _, n := range nodes {
@@ -442,7 +442,7 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	}
 	nodes, edges := s.g.Impact(seeds, 2, graph.Both, nil)
 	if len(nodes) == 0 {
-		b.WriteString("ok radius empty (graph indexing lands in M1; path targets still resolve contracts)\n")
+		b.WriteString("ok radius empty (no indexed nodes among targets; path targets still resolve contracts)\n")
 	}
 	for _, n := range nodes {
 		b.WriteString(nodeLine(n) + "\n")
@@ -826,7 +826,7 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	if pending > 0 {
-		lines = append(lines, fmt.Sprintf("ok %d anchors pending (graph indexing lands in M1)", pending))
+		lines = append(lines, fmt.Sprintf("ok %d anchors pending (nodes not in the graph yet)", pending))
 	}
 
 	// compact-due signals

@@ -43,6 +43,37 @@ func TestNodeAndFind(t *testing.T) {
 	}
 }
 
+func TestFindFileAndSig(t *testing.T) {
+	// SPX-GRA-003: Find matches ID, file path and signature; ID hits rank
+	// above file- or signature-only hits.
+	g := diamond()
+	g.Upsert([]Node{
+		{ID: "go:pkg.Launch", Kind: KFunc, File: "pkg/launch.go", Line: 3,
+			Sig: "(n int,a float32)error"},
+	}, nil)
+
+	// file-path query: nothing in the ID says "launch.go"
+	hits := g.Find("launch.go", 5, KUnknown)
+	if len(hits) != 1 || hits[0].ID != "go:pkg.Launch" {
+		t.Fatalf("file-path match: %+v", hits)
+	}
+	// signature fragment
+	hits = g.Find("float32", 5, KUnknown)
+	if len(hits) != 1 || hits[0].ID != "go:pkg.Launch" {
+		t.Fatalf("signature match: %+v", hits)
+	}
+	// ranking: query "a" hits go:a by ID (suffix) and pkg/launch.go by sig
+	// ("a float32") — the ID hit must come first
+	hits = g.Find("a", 10, KUnknown)
+	if len(hits) < 2 || hits[0].ID != "go:a" {
+		t.Fatalf("ID hit must rank above sig-only hit: %+v", hits)
+	}
+	// no match anywhere stays empty
+	if hits := g.Find("zzz-nowhere", 5, KUnknown); len(hits) != 0 {
+		t.Fatalf("unexpected hits: %+v", hits)
+	}
+}
+
 func TestNeighbors(t *testing.T) {
 	g := diamond()
 	if es := g.Neighbors("go:a", Out, nil); len(es) != 2 {

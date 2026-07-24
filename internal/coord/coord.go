@@ -56,11 +56,11 @@ type Lease struct {
 
 // AgentRow is one registered agent.
 type AgentRow struct {
-	Name    string
-	Pid     int
-	HB      time.Time
-	Item    string
-	WT      string
+	Name string
+	Pid  int
+	HB   time.Time
+	Item string
+	WT   string
 }
 
 // Event is one swarm learning/coordination notice.
@@ -83,6 +83,7 @@ type Worktree struct {
 type DB struct {
 	db    *sql.DB
 	Agent string
+	pid   int // for heartbeat re-registration after a sweep
 }
 
 // Open opens (creating/rebuilding as needed) the coordination DB and
@@ -101,7 +102,7 @@ func Open(path, agent string, pid int) (*DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	d := &DB{db: db, Agent: agent}
+	d := &DB{db: db, Agent: agent, pid: pid}
 	if err := d.init(); err != nil {
 		db.Close()
 		return nil, err
@@ -160,11 +161,35 @@ func (d *DB) retry(f func() error) error {
 	return err
 }
 
-// Heartbeat marks this agent alive; called by the tool gate.
+// Heartbeat marks this agent alive; called by the tool gate. It is an upsert:
+// an agent whose row was removed by a sibling's sweep (idle past agent_ttl)
+// silently re-registers on its next call instead of heartbeating into a void.
 func (d *DB) Heartbeat() error {
+	now := time.Now().Unix()
 	return d.retry(func() error {
-		_, err := d.db.Exec(`UPDATE agents SET hb=? WHERE name=?`, time.Now().Unix(), d.Agent)
+		_, err := d.db.Exec(`INSERT INTO agents(name,pid,started,hb) VALUES(?,?,?,?)
+			ON CONFLICT(name) DO UPDATE SET hb=excluded.hb`, d.Agent, d.pid, now, now)
 		return err
+	})
+}
+
+// Deregister removes this agent's leases and registry row — the clean
+// goodbye on server shutdown, so short-lived sessions never linger in the
+// swarm view until the TTL sweep.
+func (d *DB) Deregister() error {
+	return d.retry(func() error {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`DELETE FROM leases WHERE agent=?`, d.Agent); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM agents WHERE name=?`, d.Agent); err != nil {
+			return err
+		}
+		return tx.Commit()
 	})
 }
 
@@ -204,13 +229,16 @@ func (d *DB) Sweep(agentTTL time.Duration) ([]Lease, error) {
 			expired = append(expired, l)
 		}
 		rows.Close()
-		if len(expired) == 0 {
-			return tx.Commit()
+		if len(expired) > 0 {
+			if _, err := tx.Exec(`DELETE FROM leases WHERE agent IN (SELECT name FROM agents WHERE hb < ?)`, cutoff); err != nil {
+				return err
+			}
 		}
-		if _, err := tx.Exec(`DELETE FROM leases WHERE agent IN (SELECT name FROM agents WHERE hb < ?)`, cutoff); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`UPDATE agents SET item='', wt='' WHERE hb < ?`, cutoff); err != nil {
+		// SPX-SWM-006: the registry row goes with the leases — the swarm
+		// view shows who is actually there. Deleted unconditionally (a stale
+		// agent usually holds no leases at all); a still-alive-but-idle agent
+		// re-registers via its next Heartbeat (upsert).
+		if _, err := tx.Exec(`DELETE FROM agents WHERE hb < ?`, cutoff); err != nil {
 			return err
 		}
 		now := time.Now().Unix()
