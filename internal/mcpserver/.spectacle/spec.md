@@ -23,11 +23,17 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - P-0004 swarm registry hygiene: sweep removes stale agents, close deregisters, lease guidance: sweep deletes stale agent rows (SPX-SWM-006), close deregisters, heartbeat re-registers, lease release guidance in manifest+description
 - P-0010 output diet: elide root-rule text in packs, no sw replay for fresh agents, edge dedup, drop empty sections: output diet: r-root eliding, no sw replay, edge dedup, empty sections omitted (~77% smaller packs)
 - P-0014 MCP prompts: /spectacle workflow entry points (workflow + next): workflow+next MCP prompts live: slash-command entry with live state, implementer protocol briefing
+- P-0017 state tool + /spectacle-state prompt: one structured, read-only full picture: state tool + prompt live: sectioned read-only full picture, SPX-MCP-005 anchored
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
 
 Rationale: root rules are stable knowledge after the first get; empty sections are pure filler.
-
 ## SPX-MCP-005 {applies: go:mcpserver.Server.state}
 WHEN the state tool is invoked, the server SHALL render the `#version` `#items` `#rules` `#graph` `#swarm` `#drift` `#health` sections as dense records and perform zero `.spectacle` writes.
+
+## SPX-MCP-006 {applies: go:mcpserver.Server.research}
+WHEN the research tool is invoked, the server SHALL render the condensed pack sections `#impact` `#contracts` `#rejections` `#history` `#docs` `#gaps` `#open` and perform zero `.spectacle` writes.
+
+## SPX-MCP-007 {applies: go:mcpserver.Server.grill}
+WHEN the grill tool completes its critique pack, the server SHALL stamp the item header field `grilled:` with the current date as fold-proof evidence.

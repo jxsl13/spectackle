@@ -84,3 +84,6 @@ WHILE a worktree is open for this session, the server SHALL block the `compact` 
 WHEN the stale-agent sweep runs, the server SHALL delete the `agents` rows whose heartbeat is older than `agent_ttl` together with their `leases` rows.
 
 Rationale: the swarm view must show who is actually there; short-lived driver sessions must not accumulate.
+
+## SPX-SWM-007 {applies: go:lifecycle.Escalate}
+WHEN an item exhausts `feedback.max_rounds` reopen or gate-fail rounds, the server SHALL set the item to the `blocked` side state and mint a linked `decision` item whose only exits are rescope, reject and override-once.

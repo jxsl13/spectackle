@@ -342,9 +342,16 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 
+	// a previous submit already escalated this item — decide first, the
+	// gate stays unrun (it would only pile up more rounds against a budget
+	// that is already exhausted)
+	if it.State == item.StateBlocked {
+		return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s", it.ID, it.Rounds, s.maxRounds(), lastNeed(it.Needs)))
+	}
+
 	// GATE 1: verify + goal on the worktree tree
 	if res := s.runGate(it.Goal); res != "" {
-		return text(res)
+		return s.gateFail(it, res)
 	}
 	_ = s.cd.PutWorktree(withState(w, "gating"))
 	if _, err := wt.CommitCode(s.ws.Dir, "spectacle "+id+": "+it.Title); err != nil {
@@ -372,7 +379,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 	// GATE 2: the tree that merges is the tree that was tested
 	if res := s.runGate(it.Goal); res != "" {
-		return text(res)
+		return s.gateFail(it, res)
 	}
 	touched, _ := wt.TouchedFiles(s.main.Dir, w.Base, w.Branch)
 	if overlap := wt.DirtyOverlap(s.main.Dir, touched); len(overlap) > 0 {
@@ -474,6 +481,59 @@ func (s *Server) runGate(goal string) string {
 		}
 	}
 	return ""
+}
+
+// maxRounds resolves the configured feedback round limit the same way
+// lifecycle's unexported maxRounds does (that helper isn't reachable from
+// here — package-private), defaulting to 3 for a zero-value Cfg.
+func (s *Server) maxRounds() int {
+	if s.ws.Cfg.Feedback.MaxRounds > 0 {
+		return s.ws.Cfg.Feedback.MaxRounds
+	}
+	return 3
+}
+
+// gateFail records a GATE 1/GATE 2 failure against the item's feedback-round
+// budget — the same server-counted mechanic as lifecycle.Move's done->active
+// reopen (see lifecycle.ErrRoundsExhausted), just triggered by a gate
+// failure instead of a reopen; lifecycle.Move itself is not involved (the
+// item's state does not change on a gate fail, only its Rounds counter).
+// At the configured limit the item is escalated into item.StateBlocked
+// (lifecycle.Escalate mints the decision item that is the only way out)
+// instead of just returning the gate output. Either way the worktree is
+// left open — work op=abort remains available, and once the block clears
+// via decide, submit can be retried.
+func (s *Server) gateFail(it item.Item, gateMsg string) (*mcp.CallToolResult, any, error) {
+	max := s.maxRounds()
+	it.Rounds++
+	if err := item.Upsert(s.ws, it); err != nil {
+		return nil, nil, err
+	}
+	if err := journal.Append(s.ws, it.Dir, journal.Event{
+		Ev: journal.EvMove, ID: it.ID, Fr: it.State, To: it.State, Dir: it.Dir,
+		Note: "gate fail", Rnd: it.Rounds,
+	}); err != nil {
+		return nil, nil, err
+	}
+	s.scan.MarkDirty()
+	if it.Rounds < max {
+		return text(gateMsg)
+	}
+	blocked, d, err := lifecycle.Escalate(s.ws, s.minter(), it)
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = s.cd.Emit("escalate", blocked.ID, "gate rounds exhausted -> "+d.ID)
+	return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s", blocked.ID, blocked.Rounds, max, d.ID))
+}
+
+// lastNeed mirrors lifecycle's unexported lastNeed (package-private there
+// too): the most recently added ID in Needs, "-" if empty.
+func lastNeed(needs []string) string {
+	if len(needs) == 0 {
+		return "-"
+	}
+	return needs[len(needs)-1]
 }
 
 func withState(w coord.Worktree, state string) coord.Worktree { w.State = state; return w }

@@ -1,0 +1,12 @@
+---
+description: Render the current spectacle state (explicit alias for bare /spectacle)
+---
+
+Call the spectacle `state` MCP tool (or, if no spectacle MCP server is
+registered in this session, drive it headlessly per the "Headless
+quickstart" recipe in this repo's README.md) and render its output as-is:
+`#version`, `#items`, `#rules`, `#graph`, `#swarm`, `#drift`, `#health`.
+Strictly read-only — never draft, move, or otherwise write anything.
+
+Optional path scope: $ARGUMENTS. If non-empty, pass it as the `path`
+argument to `state`; if empty, call `state` with its defaults (whole repo).

@@ -59,7 +59,16 @@ var orderedStates = []string{
 // remaining forward states, then the done->active reopen special case,
 // then rejected (unless from is archived or already rejected). rejected
 // itself only allows revocation into draft/submitted/approved/active.
+// blocked (see item.StateBlocked) is a side state like rejected but stricter
+// still: it allows NO move-driven transitions at all — only
+// lifecycle.ResolveBlocked, acting on the linked decision item's outcome,
+// can move an item out of it. blocked is never a legal Move destination
+// either (it never appears in any from's result here) — only Escalate sets
+// it.
 func Allowed(from string) []string {
+	if from == item.StateBlocked {
+		return nil
+	}
 	if from == item.StateRejected {
 		return []string{item.StateDraft, item.StateSubmitted, item.StateApproved, item.StateActive}
 	}
@@ -138,6 +147,35 @@ func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string
 	return it, err
 }
 
+// ErrRoundsExhausted is returned by Move when a done->active reopen would
+// push an item's Rounds counter to (or past) the configured feedback round
+// limit (ws.Cfg.Feedback.MaxRounds). Move cannot escalate the item itself —
+// escalation mints a new decision item, which needs a Minter, and Move's
+// signature carries none (changing it would break every existing caller).
+// So Move only persists the incremented Rounds counter (+ journal event) and
+// leaves the item on done, then returns this error carrying the item as it
+// stands. The caller — mcpserver's move handler in a later task — is
+// expected to catch it (errors.As) and call Escalate(ws, mint, it) to
+// actually transition the item into item.StateBlocked and mint the
+// decision item.
+type ErrRoundsExhausted struct {
+	Item item.Item
+}
+
+func (e ErrRoundsExhausted) Error() string {
+	return fmt.Sprintf("lifecycle: %s: feedback rounds exhausted (%d) — resolve via Escalate", e.Item.ID, e.Item.Rounds)
+}
+
+// maxRounds resolves the configured feedback round limit, defaulting to 3
+// for zero-value workspace.Root (e.g. constructed directly in tests without
+// going through workspace.Detect/load, which apply the same default).
+func maxRounds(ws workspace.Root) int {
+	if ws.Cfg.Feedback.MaxRounds > 0 {
+		return ws.Cfg.Feedback.MaxRounds
+	}
+	return 3
+}
+
 // Move transitions an item and applies the persistence effects. A rejected
 // item (no longer in work.md) is restored from its reject journal snapshot.
 func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
@@ -155,6 +193,9 @@ func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
 		}
 		it = rej // state == rejected; falls through to the transition check
 	}
+	if it.State == item.StateBlocked {
+		return it, fmt.Errorf("lifecycle: %s: blocked — resolve via decide %s", id, lastNeed(it.Needs))
+	}
 	if !allowed(it.State, to) {
 		return it, fmt.Errorf("lifecycle: %s: %s -> %s not allowed (allowed: %s)",
 			id, it.State, to, strings.Join(Allowed(it.State), ", "))
@@ -167,10 +208,32 @@ func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
 			return it, fmt.Errorf("lifecycle: %s has open children: %s", id, strings.Join(open, ", "))
 		}
 	}
+
+	// done->active is the reopen special case: it counts against the
+	// configured feedback round budget before the move is allowed to land.
+	reopen := it.State == item.StateDone && to == item.StateActive
+	newRounds := it.Rounds
+	if reopen {
+		newRounds++
+	}
+
 	from := it.State
 	ev := journal.Event{Ev: journal.EvMove, ID: it.ID, Fr: from, To: to, Note: note, Dir: it.Dir}
+	if reopen {
+		ev.Rnd = newRounds
+	}
 	if err := journal.Append(ws, it.Dir, ev); err != nil {
 		return it, err
+	}
+
+	if reopen && newRounds >= maxRounds(ws) {
+		// rounds exhausted: persist the counter bump but do NOT move the
+		// item — it stays on done until the caller escalates it.
+		it.Rounds = newRounds
+		if err := item.Upsert(ws, it); err != nil {
+			return it, err
+		}
+		return it, ErrRoundsExhausted{Item: it}
 	}
 
 	switch to {
@@ -180,6 +243,7 @@ func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
 			Ev: journal.EvReject, ID: it.ID, K: it.Kind, Ti: it.Title,
 			Sum: summary(it), Note: note, Dir: it.Dir,
 			Body: it.Body, Tg: it.Targets, Par: it.Parent, Rls: it.Rules,
+			Rnd: it.Rounds, Gr: it.Grilled, Nd: it.Needs, Ov: it.Override,
 		}); err != nil {
 			return it, err
 		}
@@ -192,12 +256,137 @@ func Move(ws workspace.Root, id, to, note string) (item.Item, error) {
 		}
 	default:
 		it.State = to
+		if reopen {
+			it.Rounds = newRounds
+		}
 		if err := item.Upsert(ws, it); err != nil {
 			return it, err
 		}
 	}
 	it.State = to
 	return it, nil
+}
+
+// lastNeed returns the most recently added ID in needs (the decision the
+// item is currently blocked on), or "" if empty.
+func lastNeed(needs []string) string {
+	if len(needs) == 0 {
+		return ""
+	}
+	return needs[len(needs)-1]
+}
+
+// Escalate transitions a done item that has exhausted its feedback rounds
+// (see ErrRoundsExhausted) into the item.StateBlocked side state and mints a
+// decision item (kind=decision) recording the ways out: rescope, reject, or
+// override-once (omitted once it.Override has already been spent once).
+// Move cannot do this itself since it has no Minter; callers that catch
+// ErrRoundsExhausted from Move are expected to call this with one. Returns
+// the updated (now blocked) item and the newly minted decision item.
+func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Item, error) {
+	options := []string{"rescope", "reject"}
+	if !it.Override {
+		options = append(options, "override-once")
+	}
+	optStr := strings.Join(options, "|")
+	body := fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide %s outcome=%s.",
+		it.ID, it.Rounds, it.ID, optStr)
+	d, err := Draft(ws, mint, "decision", "escalate "+it.ID+": "+optStr, body, it.Dir, it.ID, nil)
+	if err != nil {
+		return it, item.Item{}, err
+	}
+	it.State = item.StateBlocked
+	it.Needs = append(it.Needs, d.ID)
+	if err := item.Upsert(ws, it); err != nil {
+		return it, d, err
+	}
+	if err := journal.Append(ws, it.Dir, journal.Event{
+		Ev: journal.EvEscalate, ID: it.ID, Dir: it.Dir, Note: d.ID, Rnd: it.Rounds, Nd: it.Needs,
+	}); err != nil {
+		return it, d, err
+	}
+	return it, d, nil
+}
+
+// ResolveBlocked resolves an item stuck in item.StateBlocked (see Escalate)
+// according to outcome, recorded on its linked decision item:
+//   - "rescope": item goes back to draft; Rounds resets to 0 (a fresh
+//     feedback budget), Grilled is kept (still-valid context for the
+//     rescoped work).
+//   - "reject": the item is rejected outright (note required — it becomes
+//     the searchable rejection corpus); the reject snapshot includes
+//     Rounds/Grilled/Needs/Override so it stays revocable like any other
+//     rejection.
+//   - "override-once": forces the item back to active for one more round
+//     without counting against the limit again (Rounds resets to 0); usable
+//     only once per item — Override is set and a second override-once
+//     errors.
+func ResolveBlocked(ws workspace.Root, id, outcome, note string) (item.Item, error) {
+	it, ok, err := item.Get(ws, id)
+	if err != nil {
+		return item.Item{}, err
+	}
+	if !ok {
+		return item.Item{}, fmt.Errorf("lifecycle: unknown item %s", id)
+	}
+	if it.State != item.StateBlocked {
+		return it, fmt.Errorf("lifecycle: %s: not blocked (state=%s)", id, it.State)
+	}
+
+	switch outcome {
+	case "rescope":
+		it.Rounds = 0
+		it.State = item.StateDraft
+		if err := journal.Append(ws, it.Dir, journal.Event{
+			Ev: journal.EvDecide, ID: it.ID, Dir: it.Dir, To: item.StateDraft, Note: note,
+		}); err != nil {
+			return it, err
+		}
+		if err := item.Upsert(ws, it); err != nil {
+			return it, err
+		}
+		return it, nil
+	case "reject":
+		if strings.TrimSpace(note) == "" {
+			return it, fmt.Errorf("lifecycle: rejection requires a note — it becomes the searchable rejection corpus")
+		}
+		if err := journal.Append(ws, it.Dir, journal.Event{
+			Ev: journal.EvReject, ID: it.ID, K: it.Kind, Ti: it.Title,
+			Sum: summary(it), Note: note, Dir: it.Dir,
+			Body: it.Body, Tg: it.Targets, Par: it.Parent, Rls: it.Rules,
+			Rnd: it.Rounds, Gr: it.Grilled, Nd: it.Needs, Ov: it.Override,
+		}); err != nil {
+			return it, err
+		}
+		if err := item.Remove(ws, it); err != nil {
+			return it, err
+		}
+		if err := journal.Append(ws, it.Dir, journal.Event{
+			Ev: journal.EvDecide, ID: it.ID, Dir: it.Dir, To: item.StateRejected, Note: note,
+		}); err != nil {
+			return it, err
+		}
+		it.State = item.StateRejected
+		return it, nil
+	case "override-once":
+		if it.Override {
+			return it, fmt.Errorf("lifecycle: %s: override-once already used", id)
+		}
+		it.Rounds = 0
+		it.Override = true
+		it.State = item.StateActive
+		if err := journal.Append(ws, it.Dir, journal.Event{
+			Ev: journal.EvDecide, ID: it.ID, Dir: it.Dir, To: item.StateActive, Note: note, Ov: true,
+		}); err != nil {
+			return it, err
+		}
+		if err := item.Upsert(ws, it); err != nil {
+			return it, err
+		}
+		return it, nil
+	default:
+		return it, fmt.Errorf("lifecycle: unknown outcome %q (want rescope|reject|override-once)", outcome)
+	}
 }
 
 // archive merges the item's outcome into the living spec (## intent line),
@@ -254,6 +443,7 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 			return item.Item{
 				ID: e.ID, Kind: e.K, State: item.StateRejected, Title: e.Ti,
 				Dir: e.Dir, Parent: e.Par, Targets: e.Tg, Rules: e.Rls, Body: e.Body,
+				Rounds: e.Rnd, Grilled: e.Gr, Needs: e.Nd, Override: e.Ov,
 			}, true, nil
 		}
 	}

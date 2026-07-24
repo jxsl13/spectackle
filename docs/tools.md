@@ -1,6 +1,6 @@
 # MCP tool surface
 
-Eleven orthogonal tools (eight lifecycle + three swarm). The Go structs in `internal/mcpserver/tools.go` are
+Fourteen orthogonal tools (eleven lifecycle + three swarm). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
 handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
@@ -26,25 +26,34 @@ n <id> <kind> <file>:<line> [sig=<sig>]          node
 e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|use|link)
 r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
 r-root <ID> <ID> ...                             root-scoped rules, IDs only (full text via get)
-i <id> <kind> <state> <dir> <title>              lifecycle item
+i <id> <kind> <state> <dir> <title>              lifecycle item (state: draft|submitted|approved|active|done|archived|rejected|blocked)
 s sec:<dir>#<name> <text>                        prose section
 j <ref> <summary> :: <snippet>                   journal/history record
 a <rule> <node> <file>:<s>-<e> <chash>           anchor
 d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|changed|stale)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 c <dir> <reason> <n>                             compact candidate
-! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK)
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
 l <path> <agent> <item|-> <exp>s                 scope lease
 sw <seq> <agent> <ev> <ref|-> <msg>              swarm event (sibling learning, may prefix ANY result)
 wt <item> <state> <root>                         worktree (open|gating|integrating|conflict|replaying)
 need <slot> <question>                           missing input (elicitation fallback)
+q <ref> <question>                               open question (research #open, grill #questions)
+b <id> <issue>                                   brief-quality finding (grill #briefs: child task body fails the exhaustiveness heuristic)
 nf <id> <id> <id>                                not found — nearest matches
 cur <token>                                      more results; pass back as cur
 ok [<msg>]                                       success / nothing to report
 #impact #contracts #rejections                   context-pack sections (draft)
+#impact #contracts #rejections #history #docs #gaps #open  research pack sections
+#targets #contracts #briefs #tests #rejections #questions  grill pack sections
 #version #items #rules #graph #swarm #drift #health  snapshot sections (state)
 ```
+
+Item headers may also carry `rounds: n/max` (server-only reopen/gate-fail
+counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
+<id>[, <id>…]` (open `research`/`decision` dependencies) — visible via
+`get`/`state`/`i` context, not separate grammar lines.
 
 ## Tools
 
@@ -134,6 +143,26 @@ item. `done → active` (reopen) is the one backward hop outside rejection.
 `done` and runs the archive effects once — merges the delta into spec.md
 `## intent`. `archived` is terminal. Illegal transition → `!` with the
 allowed set. Approve/reject only on explicit user instruction.
+
+Two side-effects piggyback on `move`, both server-counted — never LLM
+bookkeeping. Reopening a `done` item back to `active`, and a `work
+op=submit` gate failure, each increment the item's `rounds` header field
+(default max 3, `config.yaml feedback.max_rounds`). At `rounds ==
+max_rounds` the server (never the LLM) side-steps the item to **`blocked`**
+— a side-state like `rejected`: outside the total order, never visited on
+the happy path, absent from `to`'s enum (no tool call can enter or leave it
+directly) — and mints a `decision` item (`D-xxxx`, options exactly
+`rescope`/`reject`/`override-once`) linked via `needs: D-xxxx`; `i`/`state`
+show it, `next` and fanout skip it structurally. The only exits, applied by
+the server from the matching `decide` answer: `rescope` → `draft`
+(mandatory rescoping), `reject` → `rejected` (note = the decide rationale),
+`override-once` → `active` (counter reset, exactly once — a second
+escalation on the same item offers no override). Separately, a forward
+`move` on a `proposal` without a `grilled:` header (see `grill`) or with
+unresolved `needs:` (see `research`/`decide`) returns a `! GRILL W` /
+`! NEEDS W` warning by default (`config.yaml feedback.grill: warn|require`
+tightens it to a hard block); `next` and fanout skip items with open
+`needs:` structurally regardless of the warning mode.
 
 ### 6. `check` — verify (drift, coverage, lint, compact-due)
 
@@ -225,7 +254,84 @@ Budget-truncated like every other read tool (SPX-ARC-002). Same content is
 exposed as the `state` MCP prompt (`internal/mcpserver/prompts.go`) via the
 shared `(s *Server) stateText(path string)` builder.
 
-### 12. Prompts — slash-command entry points
+### 12. `research` — condensed problem-space pack (server-aggregated, read-only)
+
+```json
+{"type":"object","required":["q"],"properties":{
+  "q":      {"type":"string","description":"topic, node ID, or item ID"},
+  "targets":{"type":"array","items":{"type":"string"},"description":"optional node IDs/paths to seed impact"},
+  "depth":  {"type":"integer","default":2},
+  "budget": {"type":"integer","default":2500}}}
+```
+Stage 1 of research: the server aggregates what it already knows into one
+condensed pack of dense records — never file contents — so the
+orchestrator's context grows by O(pack), not O(codebase): `#impact` (graph
+impact radius, IDs+spans), `#contracts` (binding EARS rules), `#rejections`
+(similar past failures), `#history` (journal FTS), `#docs` (prose-section
+FTS hits), `#gaps` (unanchored targets, uncovered dirs), `#open` (`q`
+records — server-generated open questions, e.g. `q target <id> has no
+binding rule`). Empty sections are omitted (SPX-MCP-004 spirit). Strictly
+read-only, same "server aggregates, LLM reads IDs" contract as `draft`'s
+context pack. Stage 2: when the pack doesn't answer the question (external
+knowledge, a measurement nothing in the repo can supply), `draft
+kind=research` mints an `R-xxxx` item with an exhaustive brief and
+delegates it to a fresh, cheap subagent exactly like any other task — never
+ad hoc exploration in the orchestrator's own context. The result is a doc
+file plus a condensed summary in the item body; the orchestrator reads only
+the summary via `get R-xxxx`. Naming note: `research` is both a tool
+(deterministic, stage 1) and an item kind (delegated, stage 2) — same word,
+two levels of the same activity, by design.
+
+### 13. `grill` — critique pack before delegation
+
+```json
+{"type":"object","required":["id"],"properties":{
+  "id":    {"type":"string","description":"proposal or task ID"},
+  "budget":{"type":"integer","default":1500}}}
+```
+Server-computed evidence for the questioning an orchestrator should do
+before approving or delegating a plan — the critique itself is LLM
+reasoning; `grill` only supplies the material: `#targets` (`nf` for
+unknown/unanchored targets), `#contracts` (targets with no binding rule),
+`#briefs` (`b` records — child task bodies that fail the exhaustiveness
+heuristic: under 300 chars, no file path, no verification command, no
+scope sentence), `#tests` (target packages with no `*_test.go`,
+SPX-TST-001), `#rejections` (similar past failures), `#questions` (`q`
+records — a grill checklist). Writes exactly one journal event `ev=grill`,
+which stamps the item header field `grilled: <YYYY-MM-DD>` — the O(1),
+compact-fold-surviving evidence a forward `move` checks for (see `move`
+above).
+
+### 14. `decide` — native, persistent user decisions
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":      {"enum":["ask","answer","ls"]},
+  "id":      {"type":"string","description":"D-id (answer) — omit for ask"},
+  "question":{"type":"string","description":"ask: the decision to make"},
+  "kind":    {"enum":["radio","confirm","text"],"default":"radio"},
+  "options": {"type":"array","items":{"type":"string"},"description":"radio choices, 2-5"},
+  "item":    {"type":"string","description":"lifecycle item this decision blocks"},
+  "choose":  {"type":"string","description":"answer: option text / yes|no / free text"}}}
+```
+`ask` tries MCP elicitation (`Session.Elicit`, the same native-UI mechanism
+`rule`'s slot forms already use in production — `elicitSlots` in
+`tools.go`) — `radio`→enum property (host renders a radio/dropdown),
+`confirm`→boolean property (confirm dialog), `text`→string property (free
+text). Two outcomes: **the host renders it and the user answers** — the
+decision is persisted immediately (`D-xxxx` item → `done` with the choice),
+returns `ok D-x <choice>`. **No elicitation support, declined/cancelled, or
+a different harness** — the `D-xxxx` item stays open (`state=submitted`),
+returns `need decision D-x <question> | <options>`; the orchestrator does
+**not** block on it, it keeps working other disjoint tasks. `answer`: from
+any session, any time, validated against `options` — decisions get
+answered from wherever, whenever; the waiting orchestrator sees the answer
+on its next `swarm` (sw-piggyback) or `state`/`find` call. `ls`: lists open
+`D` items. New item kind `decision` (ID letter `D`, `find scope=decision`).
+Every decision that actually needs the user goes through `decide` — never
+unstructured chat.
+
+### 15. Prompts — slash-command entry points
 
 Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`
@@ -233,11 +339,17 @@ Three MCP prompts (`prompts/get`, no arguments unless noted) in
 (prompts/get is not a tool call): each handler locks `s.mu` and calls
 `s.scan.Refresh()` itself so the snapshot below is current.
 
-**`workflow`** (no args) — a standing situational-awareness dump: line 1
-`spectacle workflow - state below is live`, then `AGENTS/LEASES` (`ag`/`l`
-lines from `s.cd.Agents()`/`s.cd.Leases()`), `ACTIVE ITEMS` (`i` lines from
-`item.LoadAll`, non-draft items surfaced first), and `LOOP` — the six-step
-lifecycle checklist condensed from the server's `instructions` manifest.
+**`workflow`** (optional `task` string arg) — a standing situational-awareness
+dump: line 1 `spectacle workflow - state below is live`, then
+`AGENTS/LEASES` (`ag`/`l` lines from `s.cd.Agents()`/`s.cd.Leases()`),
+`ACTIVE ITEMS` (`i` lines from `item.LoadAll`, non-draft items surfaced
+first), and `LOOP` — the six-step lifecycle checklist condensed from the
+server's `instructions` manifest. With `task` given, the response instead
+carries the same two-mode lifecycle instruction the `/spectacle <task>`
+repo command drives (research → draft → grill → decide-if-uncertain →
+approve → fan out → check → archive) with the task text embedded — this is
+the MCP-native form of the two-mode entry point, so it works identically in
+any MCP harness, not only Claude Code's repo commands.
 
 **`next`** (optional `item` string arg) — the full implementer brief for one
 item: with `item` given, that item (or `nf <id>` if unknown); otherwise the

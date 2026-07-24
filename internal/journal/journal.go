@@ -38,6 +38,12 @@ const (
 	EvStart   = "start"  // worktree opened for an item
 	EvSubmit  = "submit" // worktree gated, merged and replayed onto main
 	EvAbort   = "abort"  // worktree abandoned
+
+	// SDD orchestration v2 (see internal/lifecycle: Move reopen counter,
+	// Escalate, ResolveBlocked).
+	EvGrill    = "grill"    // grill feedback recorded against an item
+	EvDecide   = "decide"   // a blocked item's linked decision was resolved
+	EvEscalate = "escalate" // an item exhausted its feedback rounds and was blocked
 )
 
 // Event is the single flat record type for all journal lines; unused fields
@@ -70,6 +76,12 @@ type Event struct {
 	Nh   string    `json:"nh,omitempty"`   // drift: new hash
 	Item string    `json:"item,omitempty"` // drift: backprop item
 	N    int       `json:"n,omitempty"`    // compact: events folded
+
+	// SDD orchestration v2: reopen/grill/decide/escalate + reject snapshot.
+	Rnd int      `json:"rnd,omitempty"` // move (reopen)/escalate/reject: Rounds counter
+	Gr  string   `json:"gr,omitempty"`  // grill/reject: Grilled feedback
+	Nd  []string `json:"nd,omitempty"`  // escalate/reject: Needs (blocking decision IDs)
+	Ov  bool     `json:"ov,omitempty"`  // decide(override-once)/reject: Override spent
 }
 
 // Append writes one event to the journal of a context dir, creating the

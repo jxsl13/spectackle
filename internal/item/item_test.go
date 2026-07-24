@@ -83,6 +83,67 @@ func TestRemoveAndLoadAll(t *testing.T) {
 	}
 }
 
+func TestUpsertLoadRoundtripFeedbackFields(t *testing.T) {
+	root := ws(t)
+	in := Item{
+		ID: "T-0001", Kind: "task", State: StateActive, Title: "feedback loop",
+		Created: "2026-07-24", Goal: "go test ./...",
+		Rounds: 2, Grilled: "needs more tests", Needs: []string{"D-0001", "D-0002"}, Override: true,
+	}
+	if err := Upsert(root, in); err != nil {
+		t.Fatal(err)
+	}
+	items, err := LoadWork(root.WorkPath(""), "")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("LoadWork = %+v, %v", items, err)
+	}
+	got := items[0]
+	if got.Rounds != 2 || got.Grilled != "needs more tests" ||
+		len(got.Needs) != 2 || got.Needs[0] != "D-0001" || got.Needs[1] != "D-0002" || !got.Override {
+		t.Fatalf("feedback fields roundtrip mismatch: %+v", got)
+	}
+
+	// blocked is a valid state and survives roundtrip like any other
+	in.State = StateBlocked
+	if err := Upsert(root, in); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = LoadWork(root.WorkPath(""), "")
+	if len(items) != 1 || items[0].State != StateBlocked {
+		t.Fatalf("blocked state roundtrip failed: %+v", items)
+	}
+
+	// zero-value feedback fields do not pollute the output
+	plain := Item{ID: "T-0002", Kind: "task", State: StateDraft, Title: "plain"}
+	if err := Upsert(root, plain); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(root.WorkPath(""))
+	if strings.Contains(string(raw), "T-0002") {
+		idx := strings.Index(string(raw), "## T-0002")
+		block := string(raw)[idx:]
+		if strings.Contains(block, "rounds:") || strings.Contains(block, "grilled:") ||
+			strings.Contains(block, "needs:") || strings.Contains(block, "override:") {
+			t.Fatalf("zero-value feedback fields written for plain item:\n%s", block)
+		}
+	}
+}
+
+func TestDecisionKindAndIDs(t *testing.T) {
+	if !ValidKind("decision") {
+		t.Fatal("decision not a valid kind")
+	}
+	if Letter("decision") != "D" {
+		t.Fatalf("Letter(decision) = %q, want D", Letter("decision"))
+	}
+	if !IDRe.MatchString("D-0001") {
+		t.Fatal("IDRe rejects D- ids")
+	}
+	if NextID("decision", 0) != "D-0001" {
+		t.Fatalf("NextID(decision, 0) = %s", NextID("decision", 0))
+	}
+}
+
 func TestIDHelpers(t *testing.T) {
 	if !ValidKind("proposal") || ValidKind("epic") {
 		t.Fatal("ValidKind broken")

@@ -111,7 +111,14 @@ func Run(main, wtWS workspace.Root, itemID, base string, cd *coord.DB, g graph.G
 				if mainCascade, err = spec.Load(main.Dir); err != nil {
 					return rep, err
 				}
-			case journal.EvCreate, journal.EvMove, journal.EvReject:
+			case journal.EvCreate, journal.EvMove, journal.EvReject,
+				journal.EvGrill, journal.EvDecide, journal.EvEscalate:
+				// SDD orchestration v2 events (T-0030): grill/decide/escalate
+				// carry no bespoke replay effect of their own — the resulting
+				// item state (blocked/rounds/needs/...) is captured by the
+				// worktree's work.md and reconciled below like any other
+				// touched item. Recorded in history either way; tolerated
+				// even for older journals that predate them.
 				if e.ID != "" {
 					touchedItems[e.ID] = true
 				}

@@ -1,0 +1,48 @@
+---
+description: spectacle entry point — bare = state snapshot, with a requirement = full SDD lifecycle
+---
+
+If `$ARGUMENTS` is empty: call the spectacle `state` MCP tool (or, if no
+spectacle MCP server is registered in this session, drive it headlessly per
+the "Headless quickstart" recipe in this repo's README.md) and render its
+output as-is — identical to `/spectacle-state`. Do not start a lifecycle,
+do not draft or move anything.
+
+If `$ARGUMENTS` is not empty: treat it as a requirement/task description
+and act as the orchestrator (see docs/agent-workflow.md for the
+orchestrator/implementer division of labor), driving the full
+spec-driven-development lifecycle to completion:
+
+1. **Research** — `research q="$ARGUMENTS"` first (server-aggregated pack:
+   impact, contracts, rejections, history, docs, gaps). Only if that
+   doesn't answer what you need, `draft kind=research` an R-item with an
+   exhaustive brief and delegate it to a fresh, cheap subagent. Never
+   explore ad hoc, and never ask the user something the pack could answer.
+2. **Draft** — `draft kind=proposal targets=<ids from research>` to mint
+   the proposal and get the context pack (impact/contracts/rejections).
+3. **Grill** — `grill id=<P-id>` and close what it surfaces: unanchored
+   targets get contracts via `rule`, thin child-task briefs get rewritten
+   exhaustively (exact files, APIs, verification commands, scope — see
+   docs/agent-workflow.md "Anatomy of a thorough task body").
+4. **Decide, if still uncertain** — for any decision that actually needs
+   the user, `decide op=ask` (native UI). Never fall back to unstructured
+   chat. If no UI is available or the dialog isn't answered immediately,
+   keep working other disjoint tasks — the answer arrives later via
+   `decide op=answer`.
+5. **Approve** — on explicit user approval, `move to=approved` (or
+   straight to `active`, one call).
+6. **Fan out** — partition the approved tasks by disjoint scope (leases
+   prove disjointness) and spawn one fresh implementer per task, in
+   parallel, on a cheaper model. Each implementer pulls its task via `get`,
+   claims scope via `lease`/`work op=start`, implements, tests, and moves
+   it to `done`.
+7. **Check** — `check` until `ok`; review diffs, run the declared
+   gate/verify commands. Never trust a `done` you haven't checked.
+8. **Archive** — `move to=archived` (implies `done`); the delta merges
+   into spec.md. Commit/PR per this repo's normal git conventions.
+
+If any task escalates to `blocked` (rounds limit hit), resolve the
+auto-minted D-item via `decide` — `rescope`, `reject`, or `override-once`
+— before continuing that task's line of work.
+
+Requirement: $ARGUMENTS
