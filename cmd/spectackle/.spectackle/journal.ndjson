@@ -15,3 +15,7 @@
 {"t":"2026-07-24T20:29:02Z","eid":"155a9854dede7441","ag":"orchestrator","ev":"create","id":"T-0102","k":"task","ti":"serve -pidfile plus a README recipe for the resident localhost HTTP service","dir":"cmd/spectackle"}
 {"t":"2026-07-24T20:29:09Z","eid":"9460caa4e1e8d38f","ag":"orchestrator","ev":"move","id":"P-0072","dir":"cmd/spectackle","fr":"draft","to":"active"}
 {"t":"2026-07-24T20:29:09Z","eid":"5d2fdea1eb0cec86","ag":"orchestrator","ev":"move","id":"T-0102","dir":"cmd/spectackle","fr":"draft","to":"active"}
+{"t":"2026-07-24T20:31:31Z","eid":"218dc8a037ad4a86","ag":"orchestrator","ev":"create","id":"P-0073","k":"proposal","ti":"self-contained Go MCP client: retire the external wrapper scripts for headless tool calls","dir":"cmd/spectackle"}
+{"t":"2026-07-24T20:31:31Z","eid":"b76fa01717c3d07b","ag":"orchestrator","ev":"grill","id":"P-0073","dir":"cmd/spectackle","gr":"2026-07-24"}
+{"t":"2026-07-24T20:32:08Z","eid":"d428196aa8c58776","ag":"orchestrator","ev":"rule","dir":"cmd/spectackle","op":"add","rule":"CLI-002","txt":"The spectackle binary SHALL ship its own MCP client so a headless tool call needs no external wrapper, using the go-sdk `mcp.Client` rather than hand-rolled JSON-RPC framing.","item":"P-0073"}
+{"t":"2026-07-24T20:32:14Z","eid":"59c9dfc56ac16182","ag":"orchestrator","ev":"move","id":"P-0073","dir":"cmd/spectackle","fr":"draft","to":"active"}

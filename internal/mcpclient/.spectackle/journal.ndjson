@@ -1,0 +1,2 @@
+{"t":"2026-07-24T20:32:08Z","eid":"14580ffe40dc0068","ag":"orchestrator","ev":"create","id":"T-0103","k":"task","ti":"internal/mcpclient: transport selection, tool calls, dense result rendering","dir":"internal/mcpclient"}
+{"t":"2026-07-24T20:32:14Z","eid":"70ee4ba59da35f3a","ag":"orchestrator","ev":"move","id":"T-0103","dir":"internal/mcpclient","fr":"draft","to":"active"}
