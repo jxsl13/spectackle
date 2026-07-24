@@ -138,7 +138,7 @@ docs/architecture.md §2) rather than langspec's line/regex-level symbol
 extraction. Neither track blocks the other; M6 can ship the langspec
 cookbook on schedule while this WASM question stays open past it.
 
-## Re-measurement (D-0004, reopen-poc)
+## Re-measurement (ADR-0011, reopen-poc)
 
 T-0081, 2026-07-24. Reproduced T-0040's measurements
 (poc/wasmparse/cmd/{poc,sizewith,sizewithout}) in isolation on this repo to
@@ -188,7 +188,7 @@ performance.** No WASI-sdk grammar `.wasm` for CUDA or ObjC was published at
 research time (only Emscripten builds, incompatible with §2's wasi-sdk host
 ABI), so a wazero backend cannot today cover the native-binding languages
 that are spectackle's whole reason for existing. So the honest,
-correctness-first outcome of reopening D-0004: **the approach is sound and
+correctness-first outcome of reopening ADR-0011 into ADR-0010: **the approach is sound and
 latency is not the obstacle — the blocker is a WASI-native multi-grammar
 distribution for C/C++/CUDA/ObjC.** The first buildable slice is therefore
 to secure or hand-compile (wasi-sdk) those grammar `.wasm` files; once they

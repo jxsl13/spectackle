@@ -226,10 +226,10 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 //     commas). This is what NEW decisions write.
 //  2. the legacy `options: a, b, c` comma-joined line decideAsk used to
 //     write — kept forever so existing items/journals stay answerable
-//     without migration (this repo's D-0002 is such an item: its option
-//     text itself contains commas, so the comma-split fragments it into
-//     more pieces than were intended, but that shattered form is exactly
-//     what remains answerable — it is not rewritten to option: lines).
+//     without migration (when an option's own text contains commas, the
+//     comma-split fragments it into more pieces than were intended, but
+//     that shattered form is exactly what remains answerable — it is not
+//     rewritten to option: lines).
 //  3. lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
 //     foundation, not writable from this package).
 //
