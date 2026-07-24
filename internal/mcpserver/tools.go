@@ -35,8 +35,10 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 type findIn struct {
 	Q     string `json:"q" jsonschema:"text or ID fragment"`
 	Scope string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|rejection|history|all, default all"`
-	K     int    `json:"k,omitempty" jsonschema:"max results, default 8"`
-	Focus string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
+	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
+	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
+	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 type getIn struct {
@@ -82,6 +84,7 @@ type checkIn struct {
 	Path   string `json:"path,omitempty" jsonschema:"subtree, default workspace"`
 	Fix    bool   `json:"fix,omitempty" jsonschema:"auto-draft backprop proposals for drift, default false"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 type compactIn struct {
@@ -216,6 +219,9 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if in.Scope == "" {
 		in.Scope = "all"
 	}
+	if in.Budget <= 0 {
+		in.Budget = 2000
+	}
 	if in.Scope == "code" {
 		k := in.K
 		if in.Focus != "" {
@@ -241,7 +247,8 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 		for _, n := range nodes {
 			lines = append(lines, nodeLine(n))
 		}
-		return text(budget.Render(lines, ""))
+		kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
+		return text(budget.Render(kept, cur))
 	}
 	kinds, ok := scopeKinds[in.Scope]
 	if !ok {
@@ -284,7 +291,8 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 			lines = append(lines, fmt.Sprintf("i %s %s %s %s", d.ID, d.Kind, dir, d.Title))
 		}
 	}
-	return text(budget.Render(lines, ""))
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
+	return text(budget.Render(kept, cur))
 }
 
 // ---- get ----
@@ -302,9 +310,9 @@ func (s *Server) get(in getIn) (*mcp.CallToolResult, any, error) {
 	case strings.HasPrefix(id, "sec:"):
 		return s.getSection(id)
 	case strings.Contains(id, ":") && !strings.Contains(id, "/"):
-		return s.getNode(id, in.Depth, in.Budget)
+		return s.getNode(id, in.Depth, in.Budget, budget.Resume(in.Cur))
 	default:
-		return s.getPath(id, in.Budget)
+		return s.getPath(id, in.Budget, budget.Resume(in.Cur))
 	}
 }
 
@@ -389,7 +397,7 @@ func (s *Server) getSection(id string) (*mcp.CallToolResult, any, error) {
 	return s.nearest(id)
 }
 
-func (s *Server) getNode(id string, depth, tokBudget int) (*mcp.CallToolResult, any, error) {
+func (s *Server) getNode(id string, depth, tokBudget, offset int) (*mcp.CallToolResult, any, error) {
 	n, ok := s.g.Node(graph.NodeID(id))
 	if !ok {
 		return s.nearest(id)
@@ -416,11 +424,11 @@ func (s *Server) getNode(id string, depth, tokBudget int) (*mcp.CallToolResult, 
 			lines = append(lines, "r-root "+strings.Join(rootIDs, " "))
 		}
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, tokBudget)
+	kept, cur := budget.TruncateRecords(lines, offset, tokBudget)
 	return text(budget.Render(kept, cur))
 }
 
-func (s *Server) getPath(p string, tokBudget int) (*mcp.CallToolResult, any, error) {
+func (s *Server) getPath(p string, tokBudget, offset int) (*mcp.CallToolResult, any, error) {
 	p = strings.Trim(filepath.ToSlash(p), "/")
 	if p == "." {
 		p = ""
@@ -457,7 +465,7 @@ func (s *Server) getPath(p string, tokBudget int) (*mcp.CallToolResult, any, err
 	if len(lines) == 0 {
 		return text("ok nothing scoped to " + orDot(p))
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, tokBudget)
+	kept, cur := budget.TruncateRecords(lines, offset, tokBudget)
 	return text(budget.Render(kept, cur))
 }
 
@@ -1031,7 +1039,7 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	if len(lines) == 0 {
 		return text("ok")
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, in.Budget)
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
 

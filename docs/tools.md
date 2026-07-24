@@ -65,13 +65,19 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
   "q":    {"type":"string"},
   "scope":{"enum":["code","rule","spec","proposal","task","bug","research","rejection","history","all"],"default":"all"},
   "k":    {"type":"integer","default":8},
-  "focus":{"type":"string","default":""}}}
+  "focus":{"type":"string","default":""},
+  "budget":{"type":"integer","default":2000},
+  "cur":  {"type":"string","default":""}}}
 ```
 `code`→graph, everything else→FTS5. **`rejection` and `history` are the
 learn-before-planning scopes** — the loop starts here. `focus` (scope=code
 only, SPX-GRA-004) re-ranks matches by deterministic personalized PageRank
 seeded at that node — "near what I'm working on" beats global degree rank;
-empty keeps the global ordering, an unknown focus answers `nf`.
+empty keeps the global ordering, an unknown focus answers `nf`. Every read
+tool takes `budget`+`cur`: results truncate at record boundaries with a
+trailing `cur` record, and passing that token back resumes at the next
+record — consecutive pages concatenate without overlap or gap
+(SPX-ARC-002, SPX-ARC-006).
 
 ### 2. `get` — read one thing by ID
 
@@ -178,7 +184,8 @@ tightens it to a hard block); `next` and fanout skip items with open
 {"type":"object","properties":{
   "path":  {"type":"string"},
   "fix":   {"type":"boolean","default":false},
-  "budget":{"type":"integer","default":1500}}}
+  "budget":{"type":"integer","default":1500},
+  "cur":   {"type":"string","default":""}}}
 ```
 Emits `!` lint findings, `g` coverage gaps (`g uncovered <dir>` — source
 files with zero applicable rules; `g orphan <rule> <node>` — a live rule's
@@ -251,7 +258,8 @@ before they ever merge (SPX-SWM-002).
 ```json
 {"type":"object","properties":{
   "path":  {"type":"string","description":"subtree, default all"},
-  "budget":{"type":"integer","default":2000}}}
+  "budget":{"type":"integer","default":2000},
+  "cur":   {"type":"string","default":""}}}
 ```
 The full spec-driven-development picture in one call, strictly read-only —
 unlike `check`, it writes nothing (no `drift.Save`, no backprop drafts, no
@@ -274,7 +282,8 @@ shared `(s *Server) stateText(path string)` builder.
   "q":      {"type":"string","description":"topic, node ID, or item ID"},
   "targets":{"type":"array","items":{"type":"string"},"description":"optional node IDs/paths to seed impact"},
   "depth":  {"type":"integer","default":2},
-  "budget": {"type":"integer","default":2500}}}
+  "budget": {"type":"integer","default":2500},
+  "cur":    {"type":"string","default":""}}}
 ```
 Stage 1 of research: the server aggregates what it already knows into one
 condensed pack of dense records — never file contents — so the
@@ -300,7 +309,8 @@ two levels of the same activity, by design.
 ```json
 {"type":"object","required":["id"],"properties":{
   "id":    {"type":"string","description":"proposal or task ID"},
-  "budget":{"type":"integer","default":1500}}}
+  "budget":{"type":"integer","default":1500},
+  "cur":   {"type":"string","default":""}}}
 ```
 Server-computed evidence for the questioning an orchestrator should do
 before approving or delegating a plan — the critique itself is LLM

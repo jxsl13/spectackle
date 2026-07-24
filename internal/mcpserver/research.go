@@ -26,6 +26,7 @@ type researchIn struct {
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the question touches"`
 	Depth   int      `json:"depth,omitempty" jsonschema:"impact BFS depth, default 2"`
 	Budget  int      `json:"budget,omitempty" jsonschema:"token budget, default 2500"`
+	Cur     string   `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 // packHits is the top-K used for every graph.Find / cache.Search call inside
@@ -53,7 +54,7 @@ func (s *Server) research(in researchIn) (*mcp.CallToolResult, any, error) {
 	if len(lines) == 0 {
 		return text("ok research empty — provide q and/or targets")
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, in.Budget)
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
 

@@ -446,6 +446,74 @@ func TestCompactMergeableCandidates(t *testing.T) {
 	}
 }
 
+// TestCursorsResumeAcrossPages (SPX-ARC-002/006): a tiny budget yields a
+// trailing cur record; feeding it back resumes at the next record, and the
+// concatenated pages equal the unbudgeted output exactly. A malformed cur
+// degrades to page 0.
+func TestCursorsResumeAcrossPages(t *testing.T) {
+	root := t.TempDir()
+	src := "package demo\n\nfunc A() { B() }\n\nfunc B() { C() }\n\nfunc C() { D() }\n\nfunc D() {}\n"
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	page := func(tool string, args map[string]any) (body, cur string) {
+		t.Helper()
+		out := callText(t, sess, tool, args)
+		for _, l := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if strings.HasPrefix(l, "cur ") {
+				cur = strings.TrimPrefix(l, "cur ")
+				continue
+			}
+			body += l + "\n"
+		}
+		return body, cur
+	}
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"find", map[string]any{"q": "demo", "scope": "code", "k": 8}},
+		{"get", map[string]any{"id": "go:demo.A", "depth": 3}},
+	} {
+		full, cur := page(tc.tool, tc.args)
+		if cur != "" {
+			t.Fatalf("%s: default budget should not truncate this tiny repo: %q", tc.tool, cur)
+		}
+		var paged string
+		cur = ""
+		for i := 0; ; i++ {
+			if i > 20 {
+				t.Fatalf("%s: paging did not terminate", tc.tool)
+			}
+			args := map[string]any{"budget": 30, "cur": cur}
+			for k, v := range tc.args {
+				args[k] = v
+			}
+			body, next := page(tc.tool, args)
+			paged += body
+			if next == "" {
+				break
+			}
+			if next == cur {
+				t.Fatalf("%s: cursor did not advance: %q", tc.tool, next)
+			}
+			cur = next
+		}
+		if paged != full {
+			t.Fatalf("%s: concatenated pages diverge from unbudgeted output:\n-- paged --\n%s-- full --\n%s", tc.tool, paged, full)
+		}
+	}
+
+	// malformed cursor: page 0, no error
+	body, _ := page("find", map[string]any{"q": "demo", "scope": "code", "budget": 30, "cur": "not-a-cursor"})
+	if body == "" || strings.Contains(body, "! ") {
+		t.Fatalf("malformed cur must degrade to page 0: %q", body)
+	}
+}
+
 // TestFindFocusReranks (SPX-GRA-004): with focus set, a low-degree direct
 // callee of the focus node outranks a high-degree hub sitting elsewhere in
 // the package; an unknown focus yields nf corrections, not an error.

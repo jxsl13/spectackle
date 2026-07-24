@@ -23,6 +23,7 @@ import (
 type stateIn struct {
 	Path   string `json:"path,omitempty" jsonschema:"subtree, default all"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 func (s *Server) state(in stateIn) (*mcp.CallToolResult, any, error) {
@@ -39,7 +40,7 @@ func (s *Server) state(in stateIn) (*mcp.CallToolResult, any, error) {
 			lines = append(lines, l)
 		}
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, in.Budget)
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
 
