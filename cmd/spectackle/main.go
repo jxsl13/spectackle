@@ -6,11 +6,6 @@
 //	                                         (workspace auto-detected)
 //	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
 //	spectackle reindex [-root DIR] force a cache resync (debugging aid)
-//	spectackle migrate-adr [-root DIR] [-apply]
-//	                                rewrite legacy D-nnnn item ids to ADR-nnnn
-//	                                across every .spectackle bundle (dry-run by
-//	                                default; the only sanctioned way to do this,
-//	                                since hand-editing .spectackle is forbidden)
 //	spectackle version             print the version
 package main
 
@@ -32,7 +27,6 @@ import (
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/mcpserver"
-	"github.com/jxsl13/spectackle/internal/migrate"
 	"github.com/jxsl13/spectackle/internal/spec"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -60,8 +54,6 @@ func run(args []string) int {
 		return lint(args[1:])
 	case "reindex":
 		return reindex(args[1:])
-	case "migrate-adr":
-		return migrateADR(args[1:])
 	case "version":
 		fmt.Println("spectackle " + mcpserver.Version)
 		return 0
@@ -82,10 +74,6 @@ func usage() {
                                             (workspace auto-detected)
   spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
   spectackle reindex [-root DIR] force a cache resync
-  spectackle migrate-adr [-root DIR] [-apply]
-                                  rewrite legacy D-nnnn item ids to ADR-nnnn
-                                  across every .spectackle bundle (dry-run by
-                                  default; pass -apply to write)
   spectackle version             print the version`)
 }
 
@@ -239,34 +227,5 @@ func reindex(args []string) int {
 		return 1
 	}
 	log.Printf("reindex: ok (%s)", ws.Dir)
-	return 0
-}
-
-// migrateADR wires internal/migrate.Run into the CLI: the only sanctioned
-// way to rewrite legacy D-nnnn item ids to ADR-nnnn, since hand-editing
-// .spectackle is architecturally forbidden. Dry-run by default (-apply
-// writes); accepts -root DIR like reindex, or (for parity with lint's bare
-// PATH argument) a trailing positional path when -root isn't given.
-func migrateADR(args []string) int {
-	fs := flag.NewFlagSet("migrate-adr", flag.ExitOnError)
-	root := fs.String("root", ".", "workspace detection start / fallback root")
-	apply := fs.Bool("apply", false, "perform the rewrites (default: dry-run, changes nothing)")
-	_ = fs.Parse(args)
-
-	effRoot := *root
-	rootSet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "root" {
-			rootSet = true
-		}
-	})
-	if !rootSet && fs.NArg() > 0 {
-		effRoot = fs.Arg(0)
-	}
-
-	if err := migrate.Run(effRoot, *apply, os.Stdout); err != nil {
-		log.Printf("migrate-adr: %v", err)
-		return 1
-	}
 	return 0
 }
