@@ -91,17 +91,18 @@ func text(s string) (*mcp.CallToolResult, any, error) {
 }
 
 // gate serializes the handler (the SDK dispatches tool calls concurrently,
-// but lifecycle writes are read-modify-write over shared files) and runs the
-// debounced cache sync first (the .spectacle files on disk are the source of
-// truth).
+// but lifecycle writes are read-modify-write over shared files), runs the
+// swarm bookkeeping + debounced cache sync before it, and piggybacks unseen
+// sibling learnings (sw records) onto the result.
 func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(context.Context, *mcp.CallToolRequest, T) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in T) (*mcp.CallToolResult, any, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if err := s.scan.Refresh(); err != nil {
+		if err := s.preCall(); err != nil {
 			return nil, nil, err
 		}
-		return h(in)
+		res, out, err := h(in)
+		return s.postCall(res), out, err
 	}
 }
 
@@ -123,10 +124,11 @@ func (s *Server) registerTools() {
 		func(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			if err := s.scan.Refresh(); err != nil {
+			if err := s.preCall(); err != nil {
 				return nil, nil, err
 			}
-			return s.rule(ctx, req, in)
+			res, out, err := s.rule(ctx, req, in)
+			return s.postCall(res), out, err
 		})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "move",
@@ -140,6 +142,18 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "compact",
 		Description: "Housekeeping. Dry-run lists candidates (c): done-unarchived items, journal folds. apply=true executes — reject events are NEVER dropped. Trigger when check emits c records."},
 		gate(s, s.compact))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "lease",
+		Description: "Scope leases stop agent collisions. claim: reserve dirs/files/item IDs (auto-refreshed each call; conflict → l line naming the holder). release: drop. ls: all live leases. work op=start auto-claims its item+targets — explicit claims only for extra scope."},
+		gate(s, s.lease))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "work",
+		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectacle paths stay repo-relative). submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectacle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
+		gate(s, s.work))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
+		Description: "Sibling awareness, zero params: ag agents (item, freshness), l leases, wt open worktrees, sw recent learnings (rejections first). Check before claiming scope or hypothesizing — a sibling may have failed at it already."},
+		gate(s, s.swarm))
 }
 
 // ---- find ----
@@ -182,10 +196,23 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(docs) == 0 {
+	var lines []string
+	// union in live sibling learnings: a rejection in another agent's
+	// worktree is visible here BEFORE it ever merges to main
+	if in.Scope == "rejection" || in.Scope == "history" || in.Scope == "all" {
+		evKinds := []string{"reject"}
+		if in.Scope == "history" || in.Scope == "all" {
+			evKinds = nil
+		}
+		if events, err := s.cd.SearchEvents(in.Q, evKinds, in.K); err == nil {
+			for _, e := range events {
+				lines = append(lines, swLine(e))
+			}
+		}
+	}
+	if len(docs) == 0 && len(lines) == 0 {
 		return text("ok no matches")
 	}
-	var lines []string
 	for _, d := range docs {
 		dir := d.Dir
 		if dir == "" {
@@ -385,7 +412,12 @@ func (s *Server) nearest(id string) (*mcp.CallToolResult, any, error) {
 
 func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	targets := normalizeTargets(in.Targets)
-	it, err := lifecycle.Draft(s.ws, in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets)
+	if s.wtItem == "" { // inside a worktree the scope is already leased
+		if res, out, err := s.blockedByLease(targets); res != nil || err != nil {
+			return res, out, err
+		}
+	}
+	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
@@ -568,8 +600,13 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
+	if s.wtItem == "" {
+		if res, out, err := s.blockedByLease([]string{dirOf(in.Dir)}); res != nil || err != nil {
+			return res, out, err
+		}
+	}
 	res, err := spec.AddRule(s.ws, c, spec.AuthorReq{
-		Dir: in.Dir, Stem: in.Stem,
+		Dir: in.Dir, Stem: in.Stem, Mint: s.ruleMinter(),
 		Sentence: sentence, Rationale: in.Rationale, Applies: in.Applies,
 	})
 	if err != nil {
@@ -660,6 +697,8 @@ func (s *Server) journalRule(op, id, txt string, applies []string, itemID, ctx s
 	_ = journal.Append(s.ws, ctx, journal.Event{
 		Ev: journal.EvRule, Op: op, Rule: id, Txt: txt, Ap: applies, Item: itemID, Dir: ctx,
 	})
+	// dual-write: siblings learn about contract changes before any merge
+	_ = s.cd.Emit("rule", id, op+": "+txt)
 }
 
 // stampAnchors writes/refreshes anchors for a rule's applies list.
@@ -687,9 +726,18 @@ func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string 
 // ---- move ----
 
 func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
+	if s.wtItem == "" {
+		if res, out, err := s.blockedByLease([]string{in.ID}); res != nil || err != nil {
+			return res, out, err
+		}
+	}
 	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
+	}
+	if in.To == item.StateRejected {
+		// dual-write: the rejection reaches siblings before any merge
+		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
 	}
 	s.scan.MarkDirty()
 	return text(item.Record(it) + "\n")
@@ -829,7 +877,7 @@ func (s *Server) backprop(c *spec.Cascade, r drift.Result) (string, error) {
 	ctx := ruleCtx(rule.File)
 	body := fmt.Sprintf("Backprop: code under %s drifted (%s).\nrule: %s\nnode: %s at %s:%d-%d\nold hash %s, new hash %s.\nResolve: rule op=edit id=%s (spec follows code) or revert the code (code follows spec).",
 		r.Anchor.Rule, r.Class, rule.Text, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End, r.Anchor.CHash, orDash(r.NewHash), r.Anchor.Rule)
-	it, err := lifecycle.Draft(s.ws, "proposal", fmt.Sprintf("backprop %s %s", r.Anchor.Rule, r.Class), body, ctx, "", []string{string(r.Anchor.Node)})
+	it, err := lifecycle.Draft(s.ws, s.minter(), "proposal", fmt.Sprintf("backprop %s %s", r.Anchor.Rule, r.Class), body, ctx, "", []string{string(r.Anchor.Node)})
 	if err != nil {
 		return "", err
 	}
@@ -837,6 +885,7 @@ func (s *Server) backprop(c *spec.Cascade, r drift.Result) (string, error) {
 		Ev: journal.EvDrift, Rule: r.Anchor.Rule, Node: string(r.Anchor.Node),
 		Cls: string(r.Class), Oh: r.Anchor.CHash, Nh: r.NewHash, Item: it.ID, Dir: ctx,
 	})
+	_ = s.cd.Emit("drift", r.Anchor.Rule, string(r.Class)+" at "+string(r.Anchor.Node)+" backprop="+it.ID)
 	return it.ID, nil
 }
 
@@ -882,6 +931,9 @@ func (s *Server) compactCandidates(sub string) []string {
 }
 
 func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
+	if s.wtItem != "" {
+		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
+	}
 	defer s.scan.MarkDirty()
 	var b strings.Builder
 	cands := s.compactCandidates(in.Path)

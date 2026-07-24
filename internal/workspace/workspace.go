@@ -33,6 +33,15 @@ type Config struct {
 	Ignore        []string   `yaml:"ignore"`
 	BudgetDefault int        `yaml:"budget_default"`
 	Compact       CompactCfg `yaml:"compact"`
+	Verify        []string   `yaml:"verify"`        // shell commands gating work-submit (e.g. "make test")
+	Swarm         SwarmCfg   `yaml:"swarm"`
+	WorktreesDir  string     `yaml:"worktrees_dir"` // override for .spectacle/wt (abs or root-relative)
+}
+
+// SwarmCfg tunes multi-agent coordination.
+type SwarmCfg struct {
+	LeaseTTL int `yaml:"lease_ttl"` // seconds a scope lease lives without refresh
+	AgentTTL int `yaml:"agent_ttl"` // seconds without heartbeat before an agent counts as gone
 }
 
 // CompactCfg holds the compact-due thresholds surfaced by `check`.
@@ -48,13 +57,15 @@ func defaultConfig() Config {
 		Ignore:        []string{".git/**", "bin/**"},
 		BudgetDefault: 2000,
 		Compact:       CompactCfg{JournalMax: 500, DoneMax: 8},
+		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
 	}
 }
 
 // Root is a detected workspace.
 type Root struct {
-	Dir string // absolute path
-	Cfg Config
+	Dir   string // absolute path
+	Agent string // agent identity writing through this workspace ("" outside swarm contexts)
+	Cfg   Config
 }
 
 // Detect finds the workspace root starting at start (usually the cwd).
@@ -121,6 +132,12 @@ func load(dir string) (Root, error) {
 	if r.Cfg.Compact.DoneMax == 0 {
 		r.Cfg.Compact.DoneMax = 8
 	}
+	if r.Cfg.Swarm.LeaseTTL == 0 {
+		r.Cfg.Swarm.LeaseTTL = 600
+	}
+	if r.Cfg.Swarm.AgentTTL == 0 {
+		r.Cfg.Swarm.AgentTTL = 900
+	}
 	return r, nil
 }
 
@@ -141,6 +158,21 @@ func (r Root) AnchorsPath() string { return filepath.Join(r.Dir, Dot, "anchors.t
 
 // CacheDir is root-only and excluded from git by the server-written .gitignore.
 func (r Root) CacheDir() string { return filepath.Join(r.Dir, Dot, "cache") }
+
+// CoordPath is the shared multi-agent coordination DB (main repo only).
+func (r Root) CoordPath() string { return filepath.Join(r.CacheDir(), "coord.db") }
+
+// WtDir is where agent worktrees live. NOT under cache/ — cache is
+// disposable, in-flight work is not.
+func (r Root) WtDir() string {
+	if d := r.Cfg.WorktreesDir; d != "" {
+		if filepath.IsAbs(d) {
+			return d
+		}
+		return filepath.Join(r.Dir, d)
+	}
+	return filepath.Join(r.Dir, Dot, "wt")
+}
 
 // ContextDirs returns every repo-relative dir (incl. "" for root) that has a
 // .spectacle folder with at least one bundle file, shallow before deep.
@@ -220,7 +252,9 @@ func (r Root) EnsureScaffold(ctx string) error {
 	if ctx != "" {
 		return nil
 	}
-	if err := writeIfAbsent(filepath.Join(dot, ".gitignore"), "cache/\n"); err != nil {
+	// ensure-lines, not write-if-absent: repos scaffolded by older versions
+	// have a .gitignore without wt/ and must not start committing worktrees.
+	if err := ensureLines(filepath.Join(dot, ".gitignore"), "cache/", "wt/"); err != nil {
 		return err
 	}
 	if !fileExists(filepath.Join(dot, "config.yaml")) {
@@ -240,6 +274,33 @@ func writeIfAbsent(path, content string) error {
 		return nil
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// ensureLines appends any of the given lines that are missing from the file.
+func ensureLines(path string, lines ...string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(string(raw), "\n") {
+		have[strings.TrimSpace(l)] = true
+	}
+	out := string(raw)
+	changed := false
+	for _, l := range lines {
+		if !have[l] {
+			if out != "" && !strings.HasSuffix(out, "\n") {
+				out += "\n"
+			}
+			out += l + "\n"
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return os.WriteFile(path, []byte(out), 0o644)
 }
 
 func fileExists(p string) bool {

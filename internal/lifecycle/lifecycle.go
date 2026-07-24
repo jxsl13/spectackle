@@ -52,9 +52,14 @@ func allowed(from, to string) bool {
 	return false
 }
 
+// Minter turns a scan-derived floor into the next unique ID number. The
+// swarm coordination DB provides one that is collision-free across parallel
+// worktrees; nil falls back to floor+1 (single-agent behavior).
+type Minter func(kind string, floor int) (int, error)
+
 // Draft creates a new item (state=draft) in the correct context dir:
 // explicit dir > deepest common context dir of the targets > root.
-func Draft(ws workspace.Root, kind, title, body, dir, parent string, targets []string) (item.Item, error) {
+func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string, targets []string) (item.Item, error) {
 	if !item.ValidKind(kind) {
 		return item.Item{}, fmt.Errorf("lifecycle: unknown kind %q", kind)
 	}
@@ -75,6 +80,12 @@ func Draft(ws workspace.Root, kind, title, body, dir, parent string, targets []s
 	max, err := maxNum(ws, kind)
 	if err != nil {
 		return item.Item{}, err
+	}
+	if mint != nil {
+		if max, err = mint("item:"+item.Letter(kind), max); err != nil {
+			return item.Item{}, err
+		}
+		max-- // NextID below adds 1
 	}
 	it := item.Item{
 		ID: item.NextID(kind, max), Kind: kind, State: item.StateDraft,

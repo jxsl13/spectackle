@@ -29,32 +29,32 @@ func ws(t *testing.T) workspace.Root {
 func TestDraftScopeMapping(t *testing.T) {
 	root := ws(t)
 	// path targets under gpu/ snap to the gpu context
-	it, err := Draft(root, "proposal", "kernel work", "", "", "", []string{"gpu/kern.cu", "gpu/host.go"})
+	it, err := Draft(root, nil, "proposal", "kernel work", "", "", "", []string{"gpu/kern.cu", "gpu/host.go"})
 	if err != nil || it.Dir != "gpu" || it.ID != "P-0001" || it.State != item.StateDraft {
 		t.Fatalf("Draft = %+v, %v", it, err)
 	}
 	// no targets -> root; per-kind counter independent of proposals
-	it2, err := Draft(root, "task", "cleanup", "", "", "", nil)
+	it2, err := Draft(root, nil, "task", "cleanup", "", "", "", nil)
 	if err != nil || it2.Dir != "" || it2.ID != "T-0001" {
 		t.Fatalf("Draft = %+v, %v", it2, err)
 	}
 	// explicit dir wins
-	it3, err := Draft(root, "bug", "b", "", "gpu", "", nil)
+	it3, err := Draft(root, nil, "bug", "b", "", "gpu", "", nil)
 	if err != nil || it3.Dir != "gpu" {
 		t.Fatalf("Draft dir = %+v, %v", it3, err)
 	}
 	// unknown kind and unknown parent are rejected
-	if _, err := Draft(root, "epic", "x", "", "", "", nil); err == nil {
+	if _, err := Draft(root, nil, "epic", "x", "", "", "", nil); err == nil {
 		t.Fatal("unknown kind accepted")
 	}
-	if _, err := Draft(root, "task", "x", "", "", "P-9999", nil); err == nil {
+	if _, err := Draft(root, nil, "task", "x", "", "", "P-9999", nil); err == nil {
 		t.Fatal("unknown parent accepted")
 	}
 }
 
 func TestMoveGuards(t *testing.T) {
 	root := ws(t)
-	Draft(root, "proposal", "p", "", "", "", nil)
+	Draft(root, nil, "proposal", "p", "", "", "", nil)
 
 	// illegal transition names the allowed set
 	if _, err := Move(root, "P-0001", item.StateDone, ""); err == nil || !strings.Contains(err.Error(), "allowed") {
@@ -77,7 +77,7 @@ func TestMoveGuards(t *testing.T) {
 
 func TestRejectionSnapshotAndRevocation(t *testing.T) {
 	root := ws(t)
-	Draft(root, "proposal", "vram cache", "Keep kernels resident.", "", "", []string{"gpu/kern.cu"})
+	Draft(root, nil, "proposal", "vram cache", "Keep kernels resident.", "", "", []string{"gpu/kern.cu"})
 	if _, err := Move(root, "P-0001", item.StateRejected, "breaks multi-tenant scheduling"); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRejectionSnapshotAndRevocation(t *testing.T) {
 		t.Fatalf("restored item incomplete: %+v", got)
 	}
 	// ID minting does not reuse the rejected/restored number
-	it2, _ := Draft(root, "proposal", "next", "", "", "", nil)
+	it2, _ := Draft(root, nil, "proposal", "next", "", "", "", nil)
 	if it2.ID != "P-0002" {
 		t.Fatalf("counter reused an ID: %s", it2.ID)
 	}
@@ -114,8 +114,8 @@ func TestRejectionSnapshotAndRevocation(t *testing.T) {
 
 func TestArchiveMergesIntentAndFoldsChildren(t *testing.T) {
 	root := ws(t)
-	Draft(root, "proposal", "strided access", "Delta text.", "gpu", "", nil)
-	Draft(root, "task", "kernel change", "", "gpu", "P-0001", nil)
+	Draft(root, nil, "proposal", "strided access", "Delta text.", "gpu", "", nil)
+	Draft(root, nil, "task", "kernel change", "", "gpu", "P-0001", nil)
 
 	Move(root, "P-0001", item.StateSubmitted, "")
 	Move(root, "P-0001", item.StateApproved, "")

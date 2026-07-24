@@ -50,3 +50,18 @@ Rationale: self-hosting requires every subsystem to be under contract.
 WHEN a package is added under internal or cmd, the repository SHALL provide a dedicated `*_test.go` file exercising the package's exported surface.
 
 Rationale: end-to-end tested implementations are the exit criterion of P-0002.
+
+## SPX-SWM-001
+The server SHALL confine every agent branch commit to code files by excluding `.spectacle` paths, so spec state reaches main only through the semantic replay.
+
+## SPX-SWM-002
+WHEN an item is moved to rejected, the server SHALL write the rejection to the shared `coord.db` event log so sibling agents see it before any merge.
+
+## SPX-SWM-003
+IF a scope lease of a live agent overlaps a requested claim, THEN the server SHALL reject the claim with an `l` record naming the holder, the item and the expiry.
+
+## SPX-SWM-004
+The server SHALL mint every item ID and rule ID through the shared coordination counters so two parallel worktrees never mint the same ID.
+
+## SPX-SWM-005
+WHILE a worktree is open for this session, the server SHALL block the `compact` tool so journal folds cannot corrupt the submit replay.

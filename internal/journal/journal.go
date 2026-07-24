@@ -9,12 +9,22 @@ package journal
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"time"
 
 	"github.com/jxsl13/spectacle/internal/workspace"
 )
+
+// mintEid returns 8 random bytes as hex — unique enough to identify an event
+// across worktrees for replay deduplication.
+func mintEid() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
 
 // Event kinds (Ev field).
 const (
@@ -25,6 +35,9 @@ const (
 	EvReject  = "reject"
 	EvDrift   = "drift"
 	EvCompact = "compact"
+	EvStart   = "start"  // worktree opened for an item
+	EvSubmit  = "submit" // worktree gated, merged and replayed onto main
+	EvAbort   = "abort"  // worktree abandoned
 )
 
 // Event is the single flat record type for all journal lines; unused fields
@@ -32,6 +45,8 @@ const (
 // and indexed, not read linearly by the LLM.
 type Event struct {
 	T    time.Time `json:"t"`
+	Eid  string    `json:"eid,omitempty"` // unique event ID (minted on append) — the replay/idempotency backbone
+	Ag   string    `json:"ag,omitempty"`  // agent that wrote the event
 	Ev   string    `json:"ev"`
 	ID   string    `json:"id,omitempty"`
 	K    string    `json:"k,omitempty"`    // item kind
@@ -58,7 +73,8 @@ type Event struct {
 }
 
 // Append writes one event to the journal of a context dir, creating the
-// scaffold if needed.
+// scaffold if needed. It mints a unique event ID and stamps the workspace's
+// agent name unless the caller provided them (replay does, verbatim).
 func Append(root workspace.Root, ctx string, e Event) error {
 	if err := root.EnsureScaffold(ctx); err != nil {
 		return err
@@ -67,6 +83,12 @@ func Append(root workspace.Root, ctx string, e Event) error {
 		e.T = time.Now().UTC()
 	}
 	e.T = e.T.Truncate(time.Second)
+	if e.Eid == "" {
+		e.Eid = mintEid()
+	}
+	if e.Ag == "" {
+		e.Ag = root.Agent
+	}
 	raw, err := json.Marshal(e)
 	if err != nil {
 		return err

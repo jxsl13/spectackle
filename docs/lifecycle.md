@@ -171,7 +171,47 @@ code) or revert (code follows spec). A `drift` journal event links rule,
 node, hashes and the item. The LLM decides; the server never silently
 rewrites a contract.
 
-## 5. Tool surface
+## 5. Multi-agent swarm: leases, worktrees, replay merging
+
+Multiple autonomous agents operate on one repo in parallel — each its own
+spectacle stdio process (works with every flat-rate agent tool; no daemon),
+coordinated through a shared WAL-SQLite `coord.db` in the MAIN repo's
+`.spectacle/cache/` (a linked worktree resolves its parent via
+`git rev-parse --git-common-dir`).
+
+**coord.db owns** (ephemeral coordination, not knowledge): the agent
+registry (heartbeat per tool call; stale agents auto-expire), scope
+**leases** (path prefixes + item IDs; overlap of a live foreign lease
+rejects a claim with the holder named), the **global ID counters** (item and
+rule IDs — floor-seeded `max(stored, file-scan)+1`, so deleting the cache
+never regresses IDs and two worktrees can never mint the same ID,
+SPX-SWM-004), the **swarm event log** (dual-written rejections/rules/drift —
+`find scope=rejection` unions it, and unseen events piggyback as `sw` lines
+on every tool result: agent B learns of agent A's failed hypothesis before
+it ever merges, SPX-SWM-002), replay bookkeeping and the single
+**integrate lock**.
+
+**Worktree lifecycle** (`work start/submit/abort`): worktrees live under
+`.spectacle/wt/<item>/` (NOT `cache/` — cache is disposable, in-flight work
+is not) on branch `spectacle/<item>`. The session re-roots into the
+worktree; live .spectacle state is mirrored in at start. Submit pipeline:
+gate (config `verify:` + item `goal:`) → commit **code only** (pathspec
+excludes every `.spectacle` dir — SPX-SWM-001) → merge main INTO the branch
+→ re-gate the merged tree → `--ff-only` into main (under the integrate
+lock this cannot conflict) → **semantic replay**.
+
+**Conflict-free .spectacle merging**: git never textually merges spec
+bundles. Journal events are the operation log (CRDT-style, each with a
+unique `eid`); at submit the worktree's event delta (events absent from
+main's live journal and the applied-set) replays onto main through the same
+code paths the tools use — journal appends verbatim, rule ops (colliding
+IDs re-minted with a `remap` notice), work.md reconciled to final state,
+intent lines containment-checked, anchors re-stamped. Every step is
+idempotent, so a submit retried after a partial failure resumes precisely.
+`compact` is blocked inside worktrees (SPX-SWM-005) — folds would corrupt
+the delta.
+
+## 6. Tool surface
 
 Seven orthogonal tools — `find, get, draft, rule, move, check, compact` —
 with flat parameters; exact JSON Schemas in [tools.md](tools.md). Folds from

@@ -1,6 +1,6 @@
 # MCP tool surface
 
-Seven orthogonal tools. The Go structs in `internal/mcpserver/tools.go` are
+Ten orthogonal tools (seven lifecycle + three swarm). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
 handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
@@ -32,7 +32,11 @@ a <rule> <node> <file>:<s>-<e> <chash>           anchor
 d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|changed|stale)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 c <dir> <reason> <n>                             compact candidate
-! <code> <sev> <ref> <msg>                       finding (lint E001-E101)
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK)
+ag <name> <item|-> <hb-age>s <wt|main>           agent
+l <path> <agent> <item|-> <exp>s                 scope lease
+sw <seq> <agent> <ev> <ref|-> <msg>              swarm event (sibling learning, may prefix ANY result)
+wt <item> <state> <root>                         worktree (open|gating|integrating|conflict|replaying)
 need <slot> <question>                           missing input (elicitation fallback)
 nf <id> <id> <id>                                not found — nearest matches
 cur <token>                                      more results; pass back as cur
@@ -143,7 +147,48 @@ Candidates: done-unarchived items (apply archives them), journal folds over
 `journal_max`. Folds drop `create/move/rule/drift` noise; **`reject`,
 `archive` and `compact` events are never dropped**.
 
-## Fold map (previous 11-tool surface → 7)
+### 8. `lease` — scope reservations (multi-agent)
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":   {"enum":["claim","release","ls"]},
+  "paths":{"type":"array","items":{"type":"string"},"description":"dirs/files or item IDs"},
+  "item": {"type":"string"},
+  "ttl":  {"type":"integer","description":"seconds, default 600"}}}
+```
+Prefix-overlap of a live foreign lease → `! LEASE E` + `l` line naming the
+holder (SPX-SWM-003). Own leases auto-refresh on every tool call; stale
+agents (no heartbeat > `agent_ttl`) expire lazily. `work op=start`
+auto-claims its item + targets.
+
+### 9. `work` — git-worktree lifecycle (multi-agent isolation)
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":  {"enum":["start","submit","abort","status"]},
+  "item":{"type":"string","description":"required for start; defaults to own active item"}}}
+```
+`start`: lease scope, create worktree + branch `spectacle/<item>` under
+`.spectacle/wt/`, mirror live spec state in, re-root the session — the `wt`
+line names YOUR edit/build root; spectacle paths stay repo-relative.
+`submit`: gate (config `verify:` + item `goal:`) → **code-only commit**
+(`.spectacle` excluded — SPX-SWM-001) → merge main into the branch →
+re-gate → `--ff-only` to main → **semantic replay** of the .spectacle delta
+→ teardown. Conflicts come back as `! WT E conflict <files>` — resolve in
+the worktree, submit again (resumable). `abort`: teardown, item back to
+approved.
+
+### 10. `swarm` — sibling awareness (zero params)
+
+```json
+{"type":"object","properties":{}}
+```
+→ `ag` agents, `l` leases, `wt` open worktrees, `sw` recent learnings.
+Unseen `sw` events are additionally prepended to every tool result
+(realtime piggyback); `find scope=rejection` unions live sibling rejections
+before they ever merge (SPX-SWM-002).
+
+## Fold map (previous 11-tool surface → 7 lifecycle tools)
 
 `sym`→`find scope=code` · `map`→`get <dir>` · `impact`→`get depth` ·
 `contracts`/`plan_change`→`draft` context pack + `get` · `lint_ears`+

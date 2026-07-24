@@ -19,7 +19,7 @@ import (
 
 // gen stamps the cache format; any change to the DDL or the doc feeding
 // logic must bump it. Mismatch => full rebuild.
-const gen = "v0-3"
+const gen = "v0-4"
 
 const ddl = `
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
@@ -37,12 +37,16 @@ type Doc struct {
 type Cache struct{ db *sql.DB }
 
 // Open opens (or rebuilds) the cache under the given cache directory.
+// WAL + busy_timeout + immediate transactions: two agent processes rooted at
+// the same workspace share this file and must not trip over each other.
 func Open(cacheDir string) (*Cache, error) {
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(cacheDir, "index.db"))
+	dsn := "file:" + filepath.Join(cacheDir, "index.db") + "?_txlock=immediate" +
+		"&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1) // single local writer; avoids SQLITE_BUSY
+	db.SetMaxOpenConns(1)
 	c := &Cache{db: db}
 	if err := c.init(); err != nil {
 		db.Close()

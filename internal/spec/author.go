@@ -21,6 +21,8 @@ import (
 type AuthorReq struct {
 	Dir       string // context dir ("" = root)
 	Stem      string // ID stem, e.g. "CUDA-KRN"; default: stem of last rule in target file
+	ForceID   string // exact ID to use (replay); skips minting, still lints
+	Mint      func(stem string, floor int) (int, error) // collision-free minter (swarm coord); nil = local scan
 	Sentence  string // composed EARS sentence
 	Rationale string
 	Applies   []string
@@ -36,9 +38,9 @@ type AuthorRes struct {
 
 var reIDTail = regexp.MustCompile(`^(.*)-(\d{3})$`)
 
-// NextID returns the next free ID for a stem, scanning the whole cascade so
-// the result can never collide (E006).
-func (c *Cascade) NextID(stem string) string {
+// MaxNum returns the highest number used for a stem across the cascade —
+// the floor for collision-free minting.
+func (c *Cascade) MaxNum(stem string) int {
 	max := 0
 	for id := range c.byID {
 		m := reIDTail.FindStringSubmatch(id)
@@ -48,7 +50,14 @@ func (c *Cascade) NextID(stem string) string {
 			}
 		}
 	}
-	return fmt.Sprintf("%s-%03d", stem, max+1)
+	return max
+}
+
+// NextID returns the next free ID for a stem, scanning the whole cascade so
+// the result can never collide locally (E006). Cross-worktree uniqueness
+// needs AuthorReq.Mint (coord counters).
+func (c *Cascade) NextID(stem string) string {
+	return fmt.Sprintf("%s-%03d", stem, c.MaxNum(stem)+1)
 }
 
 // AddRule lints the sentence and, if error-free, appends it to the context
@@ -69,21 +78,36 @@ func AddRule(ws workspace.Root, c *Cascade, req AuthorReq) (AuthorRes, error) {
 		}
 	}
 
-	// resolve the ID stem: explicit > last rule in target file
+	// resolve the ID: forced (replay) > minted from stem
 	stem := strings.TrimSuffix(strings.TrimSpace(req.Stem), "-")
-	target, hasFile := c.File(req.Dir)
-	if stem == "" {
-		if hasFile && len(target.Rules) > 0 {
-			last := target.Rules[len(target.Rules)-1]
-			if m := reIDTail.FindStringSubmatch(last.ID); m != nil {
-				stem = m[1]
+	if req.ForceID != "" {
+		res.ID = req.ForceID
+		if m := reIDTail.FindStringSubmatch(req.ForceID); m != nil {
+			stem = m[1]
+		}
+	} else {
+		target, hasFile := c.File(req.Dir)
+		if stem == "" {
+			if hasFile && len(target.Rules) > 0 {
+				last := target.Rules[len(target.Rules)-1]
+				if m := reIDTail.FindStringSubmatch(last.ID); m != nil {
+					stem = m[1]
+				}
+			}
+			if stem == "" {
+				return res, fmt.Errorf("spec: no ID stem: pass stem (e.g. CUDA-KRN) for a new spec file")
 			}
 		}
-		if stem == "" {
-			return res, fmt.Errorf("spec: no ID stem: pass stem (e.g. CUDA-KRN) for a new spec file")
+		if req.Mint != nil {
+			n, err := req.Mint(stem, c.MaxNum(stem))
+			if err != nil {
+				return res, err
+			}
+			res.ID = fmt.Sprintf("%s-%03d", stem, n)
+		} else {
+			res.ID = c.NextID(stem)
 		}
 	}
-	res.ID = c.NextID(stem)
 
 	if err := ws.EnsureScaffold(req.Dir); err != nil {
 		return res, err

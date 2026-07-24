@@ -41,6 +41,7 @@ type Item struct {
 	Dir     string // context dir (repo-relative, "" = root)
 	Parent  string
 	Created string // YYYY-MM-DD
+	Goal    string // optional shell command gating work-submit (benchmark/verify target)
 	Targets []string
 	Rules   []string
 	Body    string
@@ -106,6 +107,8 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Created = v
 			case "parent":
 				it.Parent = v
+			case "goal":
+				it.Goal = v
 			case "targets":
 				it.Targets = splitList(v)
 			case "rules":
@@ -209,6 +212,9 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		b.WriteString("created: " + it.Created + "\n")
 		if it.Parent != "" {
 			b.WriteString("parent: " + it.Parent + "\n")
+		}
+		if it.Goal != "" {
+			b.WriteString("goal: " + it.Goal + "\n")
 		}
 		if len(it.Targets) > 0 {
 			b.WriteString("targets: " + strings.Join(it.Targets, ", ") + "\n")
