@@ -12,7 +12,7 @@ Approved plan /root/.claude/plans/du-bist-ein-principal-magical-moonbeam.md. New
 
 ## T-0033 docs + two-mode /spectacle wrappers + manifest
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0018
 

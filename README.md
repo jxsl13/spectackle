@@ -43,7 +43,10 @@ self-bootstrapping, no docs needed):
 
 Every hop is optional: any forward jump is a single move call (token
 economy); only rejection needs a note and only archive has a guard (no open
-children).
+children). `blocked` is the one side-state neither `move` nor the LLM can
+set or clear directly — the server enters it on a rounds-limit escalation,
+and its three exits are driven by `decide` (see
+[docs/agent-workflow.md](docs/agent-workflow.md) "Bounded feedback loops").
 
 ```mermaid
 stateDiagram-v2
@@ -64,6 +67,11 @@ stateDiagram-v2
     done --> rejected: note required
     rejected --> draft: revocable
     rejected --> active
+    active --> blocked: server (rounds limit)
+    done --> blocked: server (rounds limit)
+    blocked --> draft: decide rescope
+    blocked --> rejected: decide reject
+    blocked --> active: decide override-once
     archived --> [*]
 ```
 
@@ -127,6 +135,23 @@ Register with Claude Code (or any MCP client):
 
 The workspace root is auto-detected (`.spectacle/config.yaml` marker, then
 git root, then `-root`).
+
+### Entry points
+
+- **`/spectacle`** (Claude Code repo command, `.claude/commands/spectacle.md`)
+  — two modes on one command: bare (`$ARGUMENTS` empty) renders the current
+  state pack, identical to `/spectacle-state`; given a requirement
+  (`/spectacle add rate limiting to the API`) it drives the full SDD
+  lifecycle end-to-end (research → draft → grill → decide-if-uncertain →
+  approve → fan out to fresh implementers → check → archive).
+- **`/spectacle-state`** — explicit state-only alias, no lifecycle side
+  effects.
+- **`/mcp__spectacle__workflow`** / **`/mcp__spectacle__next`** /
+  **`/mcp__spectacle__state`** — the same entry points as native MCP
+  prompts, available in any MCP-capable client once the server is
+  registered; `workflow` takes the same optional `task` argument as the
+  two-mode `/spectacle` command, so the two-mode entry point works
+  identically outside Claude Code too.
 
 ## Headless quickstart (driving the server from a coding agent / CI)
 
@@ -241,7 +266,7 @@ checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
 
 - [docs/lifecycle.md](docs/lifecycle.md) — **the lifecycle architecture**: storage, search, state machine, compacting, drift/backprop
 - [docs/agent-workflow.md](docs/agent-workflow.md) — the orchestrator + fresh-implementer swarm workflow
-- [docs/tools.md](docs/tools.md) — the 7 MCP tools: JSON Schemas + output grammar
+- [docs/tools.md](docs/tools.md) — the 14 MCP tools: JSON Schemas + output grammar
 - [docs/spec-cascade.md](docs/spec-cascade.md) — cascading spec bundles: format, resolution, authoring
 - [docs/ears.md](docs/ears.md) — the EARS grammar and linter codes
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)

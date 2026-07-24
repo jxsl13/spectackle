@@ -141,6 +141,101 @@ instead of the size of the codebase: the orchestrator's context stays busy
 briefing and reviewing, never blocked waiting on one implementer to finish
 before starting the next.
 
+## Decisions, grill & bounded feedback loops
+
+Three additions close gaps in the loop above: research must happen before
+any question reaches the user, plans get criticized before they're
+delegated, and the implementer↔orchestrator retry loop is hard-capped so a
+stuck task can't burn tokens forever. All three are server-mediated, not
+LLM discipline.
+
+### Research before you ask
+
+Before the orchestrator puts a question to the user, it exhausts what the
+server already knows: `research q=<topic>` returns one condensed pack —
+impact, binding contracts, rejections, journal history, doc hits, and
+structurally-generated gaps/open questions (`q` records) — at O(pack) cost,
+not O(codebase). Only when that pack doesn't answer the question (external
+knowledge, a measurement nothing in the repo can supply) does the
+orchestrator mint a `research`-kind item (`R-xxxx`) with an exhaustive
+brief and delegate it to a fresh, cheap subagent, exactly like any other
+task — never ad hoc exploration in its own context, never a question the
+pack could have answered.
+
+### Grill before you approve
+
+Before `move to=approved` on a proposal (or before delegating its child
+tasks), the orchestrator runs `grill id=<P-id>`: a server-computed critique
+pack — unanchored targets, contracts with no binding rule, child task
+bodies that fail the exhaustiveness heuristic (`b` records, see "Anatomy of
+a thorough task body" above), target packages with no tests, similar
+rejections, and a checklist of open questions (`q` records). The critique
+itself is the orchestrator's own reasoning; `grill` only supplies the
+evidence. A successful grill stamps the item header `grilled: <date>` —
+the proof a forward `move` checks for. Skipping it isn't fatal (`! GRILL W`
+warning by default, tightenable to a hard block via `config.yaml`), but
+it's the difference between a briefed implementer and one that has to
+improvise.
+
+### Decide: native UI, answer from anywhere
+
+Every decision that actually needs the user goes through `decide`, never
+unstructured chat. `decide op=ask` tries MCP elicitation (the same
+native-UI mechanism `rule`'s slot forms already use) — radio for
+enumerated choices, a confirm dialog for yes/no, free text otherwise. Two
+outcomes:
+
+- **The host renders it and the user answers immediately** — the decision
+  is persisted (`D-xxxx` → `done`) and the orchestrator has its answer in
+  the same call.
+- **No elicitation support, declined, or a different harness entirely** —
+  the `D-xxxx` item stays open; the orchestrator does **not** block on it.
+  It keeps working other disjoint tasks and picks the answer up later —
+  from `state`, from `swarm`'s sw piggyback, or because someone (any
+  session, any harness) called `decide op=answer id=D-xxxx choose=…`. A
+  decision made hours or days later, from an entirely different session,
+  is a first-class re-entry, not a special case.
+
+### Bounded feedback loops (rounds → blocked)
+
+The implementer↔orchestrator retry loop has exactly two failure signals,
+both server-counted — never the LLM's own bookkeeping:
+
+```
+implementer                    server                       orchestrator
+    │  work op=submit              │                              │
+    ├──────────────────────────────►  gate fails (verify/goal)    │
+    │◄───────────────── rounds++ ──┤                              │
+    │  fix, submit again           │                              │
+    │                               │                              │
+    │                               │◄──── move id=T-x to=active ─┤  (reopen from done)
+    │                               ├───────────── rounds++ ──────►│
+    │                               │                              │
+    │                               │  rounds == max_rounds (default 3):
+    │                               │  server side-steps the item
+    │                               │    T-x -> blocked
+    │                               │  and mints D-xxxx
+    │                               │    (rescope | reject | override-once)
+    │                               │    T-x needs: D-xxxx, sw escalate
+    │                               │                              │
+    │                               │◄──── decide op=answer D-xxxx │
+    │                               │                              │
+    │             rescope       -> draft     (mandatory rescoping)│
+    │             reject        -> rejected  (note = decide reason)
+    │             override-once -> active    (counter reset, ONCE)│
+```
+
+`blocked` is a side-state like `rejected` — outside the total order, never
+visited on the happy path, and reachable/leaveable only through server
+logic (`move`'s `to` enum never includes it — no tool call can set or clear
+it directly). `next` and fanout skip `blocked` items structurally, the same
+way they skip items with open `needs:`. The three exits are exhaustive:
+`rescope` demands a smaller or different task before it can be re-approved,
+`reject` closes it into the rejection corpus with the decide answer as the
+note, and `override-once` resets the counter and hands it back to `active`
+— but only once; a second escalation on the same item offers no override,
+forcing an actual rescope or reject.
+
 ## Failure modes
 
 - **Lease conflict** (`lease claim` returns `! LEASE` naming the holder) —
@@ -149,7 +244,9 @@ before starting the next.
   the conflict up rather than polling.
 - **Gate/test failure** — fix it and re-run the declared verify command
   until it's green. Never call `move to=done` on a red gate; a task marked
-  done is a claim the orchestrator will trust without re-checking.
+  done is a claim the orchestrator will trust without re-checking. Each
+  gate failure also increments the item's server-counted `rounds` — see
+  "Bounded feedback loops" above for what happens at the limit.
 - **The task turns out to be wrong or unimplementable as written** — don't
   improvise around it. `move to=rejected` with a note explaining why. This
   is not a defeat: it feeds the rejection corpus, which siblings see in

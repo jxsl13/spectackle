@@ -119,3 +119,4 @@
 {"t":"2026-07-24T07:45:07Z","eid":"5b1f0f90ebba7a18","ag":"orchestrator","ev":"move","id":"P-0018","fr":"draft","to":"approved"}
 {"t":"2026-07-24T07:45:07Z","eid":"0027558365df6668","ag":"orchestrator","ev":"create","id":"T-0033","k":"task","ti":"docs + two-mode /spectacle wrappers + manifest"}
 {"t":"2026-07-24T07:46:16Z","eid":"545350754895bf92","ag":"agent-docs3","ev":"move","id":"T-0033","fr":"draft","to":"active"}
+{"t":"2026-07-24T07:52:56Z","eid":"46fd5497ee33ba57","ag":"agent-docs3","ev":"move","id":"T-0033","fr":"active","to":"done"}
