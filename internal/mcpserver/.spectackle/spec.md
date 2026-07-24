@@ -86,3 +86,8 @@ Rationale: This repo develops itself with itself, so a stale binary answers plau
 WHEN `draft` receives a `refs` list, the server SHALL reject the whole call with a dense `! ARG` record naming every id that `item.UnknownRefs` reports, and persist nothing.
 
 Rationale: Parse stays permissive because a citation may point at an item archived out of work.md; the writer is where a typo must be caught, or a dangling citation becomes unrecoverable noise.
+
+## MCP-013
+WHEN the swarm tool is invoked, the server SHALL emit one `q free <id>` record per approved item no held lease collides with, and one `q held <id> <agent>` record per item a lease does collide with.
+
+Rationale: The orchestrator's real question is what is claimable, not what is approved. Computing it by hand each round is what makes it stall when every remaining task needs a held file; naming the holder distinguishes a progressing sibling from a stale lease.

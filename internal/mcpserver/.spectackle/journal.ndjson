@@ -180,3 +180,10 @@
 {"t":"2026-07-24T22:23:14Z","eid":"71aeb91d5ffc4987","ag":"ag-67d9","ev":"create","id":"T-0120","k":"task","ti":"default generation is the three lifecycle commands; the rest on explicit request","dir":"internal/mcpserver"}
 {"t":"2026-07-24T22:23:14Z","eid":"a2ef52f27dbe597c","ag":"ag-67d9","ev":"move","id":"P-0087","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-24T22:23:14Z","eid":"6fa392d2231f96ac","ag":"ag-67d9","ev":"move","id":"T-0120","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T22:26:15Z","eid":"811a505e53fe57a5","ag":"ag-67d9","ev":"create","id":"P-0088","k":"proposal","ti":"swarm answers what can start right now, so the orchestrator never has to wait to find out","dir":"internal/mcpserver"}
+{"t":"2026-07-24T22:26:16Z","eid":"9b97fc530e321e53","ag":"ag-67d9","ev":"grill","id":"P-0088","dir":"internal/mcpserver","gr":"2026-07-24"}
+{"t":"2026-07-24T22:26:27Z","eid":"d16af877128ff1fb","ag":"ag-67d9","ev":"rule","dir":"internal/mcpserver","op":"add","rule":"MCP-013","txt":"WHEN the swarm tool is invoked, the server SHALL emit one record per approved item that no held lease collides with, and one per item that a lease does collide with, naming the holding agent.","item":"P-0088"}
+{"t":"2026-07-24T22:26:38Z","eid":"6d8f0c28cc59a5b2","ag":"ag-67d9","ev":"rule","dir":"internal/mcpserver","op":"edit","rule":"MCP-013","txt":"WHEN the swarm tool is invoked, the server SHALL emit one `q free \u003cid\u003e` record per approved item no held lease collides with, and one `q held \u003cid\u003e \u003cagent\u003e` record per item a lease does collide with.","item":"P-0088"}
+{"t":"2026-07-24T22:27:16Z","eid":"c3c146bb9af04955","ag":"ag-67d9","ev":"create","id":"T-0121","k":"task","ti":"swarm reports the claimable queue: free approved items and the ones a lease holds","dir":"internal/mcpserver"}
+{"t":"2026-07-24T22:27:16Z","eid":"9cf696da5aa53d15","ag":"ag-67d9","ev":"move","id":"P-0088","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T22:27:16Z","eid":"311be35550d59b80","ag":"ag-67d9","ev":"move","id":"T-0121","dir":"internal/mcpserver","fr":"draft","to":"active"}

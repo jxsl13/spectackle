@@ -224,3 +224,88 @@ One field on commandSpecs, one branch in the writers, one new template. Revertin
 
 REPORT BACK
 The argument shape you chose and why, the AGENTS.md decision and why, both ok gen lists, each test's real output, and anything you deliberately did NOT do.
+
+## P-0088 swarm answers what can start right now, so the orchestrator never has to wait to find out
+kind: proposal
+state: active
+created: 2026-07-24
+grilled: 2026-07-24
+targets: internal/mcpserver/swarm.go
+
+The orchestrator must never stall once it has begun delegating, and new work must be addable at any moment. Both fail today for the same reason: nothing answers the question the orchestrator actually has, which is not what is approved but what is CLAIMABLE — approved work whose declared scope collides with no lease currently held.
+
+Today that answer is assembled by hand. state lists items, swarm lists leases, and the orchestrator intersects the two in its head, once per round, re-deriving it every time an agent finishes. When every remaining task needs a file a sibling holds, there is nothing to do but wait, which is exactly the stall this proposal exists to remove — and the waiting is not caused by the work being genuinely blocked, it is caused by nobody having computed which other work was free.
+
+Making it a query changes the shape of the loop. Adding a task mid-flight becomes an ordinary write into a pool rather than a scheduling decision, because the next claim is recomputed from live lease state on every ask rather than fixed at fan-out time.
+
+swarm is the right home. It is already the sibling-awareness tool, already zero-parameter, already reads the lease table and the agent registry, and its whole purpose is answering before you claim scope. A second tool would split one question across two calls.
+
+The blocked items matter as much as the free ones, and for a reason worth stating: an orchestrator that sees only what it can start cannot tell the difference between finished and stuck. Naming the holder of each collision turns waiting into information — either the holder is progressing, or a lease has gone stale past its TTL and the scope is really free.
+
+Rejected: a scheduler that assigns tasks to agents. Leases already arbitrate, and an assigner would need to model agent capability, failure and restart to beat them — a large machine to replace a working small one. Reporting what is claimable leaves the decision where it already sits.
+
+Second, smaller item folded in because it is the same failure surface: draft and rule describe IDs as server-assigned but not as drawn from a counter shared across processes, so gaps are normal and the next number is unpredictable. Two task bodies in this repository cited contract IDs guessed from the highest visible number and were rejected for it — the second after the lesson from the first had already been recorded. The descriptions are where that belongs, but they live in tools.go, which is held by another task in flight; this proposal records it and a follow-up carries it.
+
+## T-0121 swarm reports the claimable queue: free approved items and the ones a lease holds
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0088
+targets: internal/mcpserver/swarm.go, internal/mcpserver/swarm_test.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Read internal/mcpserver/swarm.go before writing anything — it already renders the agent registry, the lease table, open worktrees and recent learnings, and you are adding one section to that, not building a new tool.
+
+GOAL
+Answer the orchestrator's real question in one call: not what is approved, but what is CLAIMABLE right now — approved work whose declared scope collides with no currently held lease — and, for everything else, which agent is holding it up.
+
+SCOPE (lease exactly these two)
+  internal/mcpserver/swarm.go
+  internal/mcpserver/swarm_test.go
+Do NOT touch internal/mcpserver/tools.go, grill.go, decide.go, knowledge.go, commands.go or templates/ — four sibling tasks hold those right now. Do NOT touch internal/journal (a fifth sibling owns it), internal/knowledge, internal/item, internal/drift, cmd/, README.md or docs/. .spectackle files are server-owned: never edit them by hand.
+
+CONTRACT
+MCP-013 (read it with get id=MCP-013): WHEN the swarm tool is invoked, the server SHALL emit one `q free <id>` record per approved item no held lease collides with, and one `q held <id> <agent>` record per item a lease does collide with.
+
+WHAT TO ADD
+A section in swarm's output listing, for every item in a claimable state:
+  q free <id> <title>              nothing held collides with its declared scope
+  q held <id> <agent> <path>       a lease collides; name the HOLDING AGENT and the colliding path
+The held records are as important as the free ones and the reason is worth a comment: an orchestrator that sees only what it can start cannot distinguish finished from stuck. Naming the holder turns waiting into information — either that agent is progressing, or its lease has aged past its TTL and the scope is actually free.
+
+COLLISION SEMANTICS — get this exactly right
+Read how lease claim already decides a conflict and REUSE that comparison; do not invent a second notion of overlap. Two scopes collide if one path is the other or an ancestor directory of it, so a lease on internal/mcpserver collides with a target internal/mcpserver/tools.go and vice versa. If the existing conflict check is not factored out, factor out the minimum needed and say what you moved.
+An item's declared scope is its targets, falling back to its context dir when targets are empty. State that fallback in a comment — an item with no targets is scoped to its whole directory, which is the conservative reading and the one that avoids handing out work that then collides on first claim.
+Ignore leases the CALLING agent itself holds: an orchestrator asking what it can start must not be told its own claims block it.
+Respect lease expiry. A lease past its TTL does not collide. If the lease table already filters expired rows on read, say so and rely on it rather than filtering twice.
+
+WHICH ITEMS COUNT
+Approved items are the queue. Include active ones only if they are not currently leased by anyone — an active item with no lease is a crashed or abandoned agent's work, which is exactly what an orchestrator wants to see and is otherwise invisible. Say in your report which states you included and why.
+
+BUDGET
+swarm is a cheap, frequently-called awareness tool. Keep the section bounded and sorted deterministically; do not walk the graph or the filesystem. If the item count could grow large, truncate with a count line rather than emitting hundreds of records, following whatever truncation convention the file already uses.
+
+TESTS (swarm_test.go — extend, do not add parallel files)
+  1. an approved item whose targets nothing holds -> q free.
+  2. an approved item whose target is held by another agent -> q held naming that agent and the colliding path.
+  3. ancestor collision both directions: a lease on a directory blocks an item targeting a file inside it, and a lease on a file blocks an item whose scope is the containing directory.
+  4. a lease held by the CALLING agent does not make its own item held.
+  5. an expired lease does not collide.
+  6. an active item with no lease appears; an active item that is leased does not.
+  7. determinism: two calls with identical state produce byte-identical sections.
+
+VERIFY (run every one; report real output, never predicted)
+  go build ./...
+  go test ./internal/mcpserver/... -race
+  go test ./...
+  go vet ./internal/mcpserver/...
+  /home/user/spectackle/bin/spectackle lint
+Then prove it live: build your binary, serve it on a probed free port against a scratch workspace, create two approved items, claim a lease over one item's scope from a second agent identity, and show swarm reporting one free and one held. Paste the transcript.
+
+EXIT CRITERION
+Seven tests green under -race, the ancestor-collision test passing in BOTH directions, ./... green, vet clean, lint clean, and the live transcript showing both record kinds.
+
+ROLLBACK
+One output section in an existing tool. Removing it restores swarm's current output exactly; no schema, stored format, record or anchor change, and no other tool reads the new records.
+
+REPORT BACK
+The record format, which item states you included and why, whether you reused or factored out the lease conflict check, each test's real output, the live transcript, and anything you deliberately did NOT do. If the brief contradicts how leases actually work, STOP and report rather than implementing a second overlap rule.
