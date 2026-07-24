@@ -8,3 +8,4 @@ The langspec registry SHALL define a language purely as one `Spec` data value so
 
 ## intent
 - P-0023 langspec wave 2: kotlin, swift, c#, scala, shell, lua, zig, perl — 20 languages total: wave 2 shipped: kotlin, swift, c#, scala, shell, lua, zig, perl — 20 languages total, all batches green under -race, one self-caught fix (C# indentation guard vs record primary constructors)
+- P-0025 langspec wave 3: dart, groovy, elixir, erlang, julia, haskell, ocaml, r — 28 languages total: wave 3 shipped: dart, groovy, elixir, erlang, julia, haskell, ocaml, r — 28 languages total; OCaml proves Def.Name multi-group capture, R proves uppercase-extension routing e2e
