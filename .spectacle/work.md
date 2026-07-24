@@ -20,7 +20,7 @@ Publish the server properly: .goreleaser.yaml (CGO_ENABLED=0 builds for linux/da
 
 ## T-0028 goreleaser config + tag-gated release workflow
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0016
 

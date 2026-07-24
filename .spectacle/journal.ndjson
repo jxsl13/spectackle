@@ -109,3 +109,4 @@
 {"t":"2026-07-24T06:31:24Z","eid":"e0120e47b0ea44b7","ag":"orchestrator","ev":"move","id":"P-0016","fr":"draft","to":"approved"}
 {"t":"2026-07-24T06:31:25Z","eid":"3d3cd2b14cb3c03c","ag":"orchestrator","ev":"create","id":"T-0028","k":"task","ti":"goreleaser config + tag-gated release workflow"}
 {"t":"2026-07-24T06:32:24Z","eid":"6d2df401664c8e7c","ag":"agent-release","ev":"move","id":"T-0028","fr":"draft","to":"active"}
+{"t":"2026-07-24T06:38:33Z","eid":"3fa8bd34aea0956a","ag":"agent-release","ev":"move","id":"T-0028","fr":"active","to":"done"}
