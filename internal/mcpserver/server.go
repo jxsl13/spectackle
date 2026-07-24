@@ -20,6 +20,7 @@ import (
 	"github.com/jxsl13/spectacle/internal/coord"
 	"github.com/jxsl13/spectacle/internal/graph"
 	"github.com/jxsl13/spectacle/internal/index"
+	"github.com/jxsl13/spectacle/internal/langspec"
 	"github.com/jxsl13/spectacle/internal/resolve"
 	"github.com/jxsl13/spectacle/internal/store"
 	"github.com/jxsl13/spectacle/internal/sync"
@@ -142,8 +143,12 @@ func openBlobs(ws workspace.Root) store.Store {
 // the previous graph: lifecycle tools must survive unparseable trees.
 func (s *Server) reindex() {
 	g := graph.NewMem()
-	ix := index.New(g, s.blobs,
+	// hand-written parsers first, then every langspec-registered language —
+	// adding a language is one data file in internal/langspec, no wiring.
+	parsers := append(
 		[]index.LanguageParser{index.GoParser{}, index.AsmParser{}, index.CudaParser{}},
+		langspec.All()...)
+	ix := index.New(g, s.blobs, parsers,
 		resolve.Default().All(), s.ws.Cfg.Ignore...)
 	st, err := ix.IndexAll(context.Background(), s.ws.Dir)
 	if err != nil {

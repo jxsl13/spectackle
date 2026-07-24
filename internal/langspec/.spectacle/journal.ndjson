@@ -1,0 +1,20 @@
+{"t":"2026-07-24T08:34:20Z","eid":"9b7c54eaf59fa9bb","ag":"orchestrator","ev":"create","id":"T-0034","k":"task","ti":"langspec framework + python/javascript reference specs","dir":"internal/langspec"}
+{"t":"2026-07-24T08:35:31Z","eid":"0775b1bb6f47d5b3","ag":"agent-langspec","ev":"move","id":"T-0034","dir":"internal/langspec","fr":"draft","to":"active"}
+{"t":"2026-07-24T08:38:59Z","eid":"7a3b350bc3c5bddd","ag":"agent-langspec","ev":"rule","dir":"internal/langspec","op":"add","rule":"SPX-LSP-001","txt":"The langspec registry SHALL define a language purely as one `Spec` data value so adding a language never modifies the indexing pipeline.","ap":["go:langspec.SpecParser.Parse"],"item":"P-0019"}
+{"t":"2026-07-24T08:39:08Z","eid":"99f21620088db4de","ag":"agent-langspec","ev":"move","id":"T-0034","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T08:41:11Z","eid":"40694a90c0f97313","ag":"orchestrator","ev":"create","id":"T-0036","k":"task","ti":"langspec batch A: rust + java","dir":"internal/langspec"}
+{"t":"2026-07-24T08:41:11Z","eid":"2ba9687e55f5af8f","ag":"orchestrator","ev":"create","id":"T-0037","k":"task","ti":"langspec batch B: typescript/tsx + ruby + php","dir":"internal/langspec"}
+{"t":"2026-07-24T08:41:11Z","eid":"5343b2312df701b7","ag":"orchestrator","ev":"create","id":"T-0038","k":"task","ti":"langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain","dir":"internal/langspec"}
+{"t":"2026-07-24T08:44:33Z","eid":"ff2746d7e2dafa4f","ag":"orchestrator","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T08:44:33Z","eid":"8c3017120a7c5118","ag":"orchestrator","ev":"move","id":"T-0037","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T08:44:33Z","eid":"5c043d3e76eedce0","ag":"orchestrator","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T08:50:47Z","eid":"5deaf0863a931238","ag":"agent-rustjava","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:50:50Z","eid":"aa4a4ca60eba8b85","ag":"agent-tsweb","ev":"move","id":"T-0037","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:53:41Z","eid":"30cda3418a25a2a8","ag":"agent-tsweb","ev":"move","id":"T-0037","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T08:54:01Z","eid":"b62a9a14907a1f1a","ag":"agent-cheader","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:55:09Z","eid":"cc7d73eb72dfaaa7","ag":"agent-rustjava","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T08:59:00Z","eid":"ad65ac1e22894c98","ag":"agent-cheader","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T09:02:07Z","eid":"e56bf892c307f14a","ag":"orchestrator","ev":"archive","id":"T-0034","k":"task","ti":"langspec framework + python/javascript reference specs","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"2a5b8cfd494b2923","ag":"orchestrator","ev":"archive","id":"T-0036","k":"task","ti":"langspec batch A: rust + java","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"82ee8871ef80687b","ag":"orchestrator","ev":"archive","id":"T-0037","k":"task","ti":"langspec batch B: typescript/tsx + ruby + php","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"456717295eeaab2b","ag":"orchestrator","ev":"archive","id":"T-0038","k":"task","ti":"langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain","dir":"internal/langspec","sum":"archived with parent P-0019"}

@@ -116,7 +116,13 @@ func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string
 		if _, ok, err := item.Get(ws, parent); err != nil {
 			return item.Item{}, err
 		} else if !ok {
-			return item.Item{}, fmt.Errorf("lifecycle: unknown parent %s", parent)
+			// an archived parent (Tombstone hit) is legitimate provenance —
+			// only a parent that resolves nowhere is rejected.
+			if _, tombOk, err := Tombstone(ws, parent); err != nil {
+				return item.Item{}, err
+			} else if !tombOk {
+				return item.Item{}, fmt.Errorf("lifecycle: unknown parent %s", parent)
+			}
 		}
 	}
 	ctx, err := scopeFor(ws, dir, targets)
@@ -428,6 +434,31 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 		}
 	}
 	return nil
+}
+
+// Tombstone reconstructs an archived item from its most recent archive
+// journal event — the read-only afterlife for an id reference once
+// work.md no longer has it (see archive above: an archived item leaves
+// work.md and its outcome lives in the journal from then on). Returns
+// ok=false if no archive event exists for id. Read-only: callers MUST NOT
+// item.Upsert the result — a tombstone has no work.md home. compact's fold
+// retention keeps EvArchive events forever, so tombstones survive
+// compaction.
+func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
+	events, err := journal.ReadAll(ws)
+	if err != nil {
+		return item.Item{}, false, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		if e.Ev == journal.EvArchive && e.ID == id {
+			return item.Item{
+				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
+				State: item.StateArchived, Body: e.Sum,
+			}, true, nil
+		}
+	}
+	return item.Item{}, false, nil
 }
 
 // lastReject reconstructs a rejected item from its most recent reject
