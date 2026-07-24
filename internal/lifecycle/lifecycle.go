@@ -627,8 +627,15 @@ func openChildren(ws workspace.Root, it item.Item) []string {
 	return open
 }
 
-// maxNum finds the highest ID number for a kind across journal create events
-// (source of truth, includes archived/rejected) and active items.
+// maxNum finds the highest ID number for a kind across every source that can
+// still witness a used id: journal events (source of truth, includes
+// archived/rejected) and active items. Deliberately not restricted to
+// journal.EvCreate — compact folds create/move/rule/drift events away and
+// keeps only reject/archive/compact, so an id whose create event was
+// compacted away would otherwise look unused and get minted again (seen
+// live: ADR-0001..0004 and P-0067 both re-minted after a compact). Any
+// event carrying both an id and the kind field k — create, archive, reject
+// alike — still witnesses the id, so all of them count toward the floor.
 func maxNum(ws workspace.Root, kind string) (int, error) {
 	letter := item.Letter(kind)
 	max := 0
@@ -637,7 +644,7 @@ func maxNum(ws workspace.Root, kind string) (int, error) {
 		return 0, err
 	}
 	for _, e := range events {
-		if e.Ev == journal.EvCreate && strings.HasPrefix(e.ID, letter+"-") {
+		if e.K == kind && strings.HasPrefix(e.ID, letter+"-") {
 			if n := item.Num(e.ID); n > max {
 				max = n
 			}

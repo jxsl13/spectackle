@@ -153,3 +153,5 @@
 {"t":"2026-07-24T20:05:37Z","eid":"ed91f6d664780e5b","ag":"orchestrator","ev":"move","id":"P-0068","fr":"draft","to":"active"}
 {"t":"2026-07-24T20:06:08Z","eid":"ea01cbf267f3a148","ag":"orchestrator","ev":"create","id":"T-0098","k":"task","ti":"add BROWNFIELD and RECORDS paragraphs to the instructions manifest"}
 {"t":"2026-07-24T20:06:08Z","eid":"1916ca9712749a10","ag":"orchestrator","ev":"move","id":"T-0098","fr":"draft","to":"active"}
+{"t":"2026-07-24T20:09:53Z","eid":"c527e6c77d9db5d8","ag":"orchestrator","ev":"move","id":"T-0096","fr":"active","to":"archived"}
+{"t":"2026-07-24T20:09:53Z","eid":"9eda886a91e3247d","ag":"orchestrator","ev":"archive","id":"T-0096","k":"task","ti":"minter must not reuse ids whose create event was compacted away","sum":"task minter must not reuse ids whose create event was compacted away — IMPLEMENTER IN A DEDICATED WORKTREE (pre-created at .claude/worktrees/impl-n, based on HEAD); NO lifecycle moves (orchestrator owns them); only lease claim, code+tests, lease release, report. Scope (disjoint, EXACTLY two files): internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go. A sibling implementer owns "}

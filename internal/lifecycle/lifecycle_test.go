@@ -220,6 +220,118 @@ func TestRejectionSnapshotAndRevocation(t *testing.T) {
 	}
 }
 
+// foldToCompactSurvivors rewrites a context dir's journal down to only the
+// event kinds that survive compaction (see internal/mcpserver's compact
+// tool: it folds create/move/rule/drift away and keeps only
+// reject/archive/compact/escalate/decide). Used by the maxNum regression
+// tests below to simulate "the create event for this id is gone".
+func foldToCompactSurvivors(t *testing.T, root workspace.Root, ctx string) {
+	t.Helper()
+	events, err := journal.Read(root, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []journal.Event
+	for _, e := range events {
+		switch e.Ev {
+		case journal.EvReject, journal.EvArchive, journal.EvCompact,
+			journal.EvEscalate, journal.EvDecide:
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == 0 {
+		t.Fatal("nothing survived the simulated fold — test setup is wrong")
+	}
+	if err := journal.Rewrite(root, ctx, kept); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMaxNumSurvivesCompactAfterArchive is the regression for the maxNum
+// bug: it used to scan only journal.EvCreate events for the highest used
+// number, but compact folds create events away and keeps only the archive
+// tombstone. After a compact, an archived item's id looked unused and got
+// minted again — this happened live twice in this repo (ADR-0001..0004 and
+// P-0067 both re-minted after a compact). maxNum must also count archive
+// events as witnesses of a used id.
+func TestMaxNumSurvivesCompactAfterArchive(t *testing.T) {
+	root := ws(t)
+	if _, err := Draft(root, nil, "task", "flaky check", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Move(root, "T-0001", item.StateArchived, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	foldToCompactSurvivors(t, root, "")
+
+	// only the archive tombstone remains for T-0001 — no create event, no
+	// work.md row (archived items leave work.md). The next task draft must
+	// not reuse T-0001.
+	it, err := Draft(root, nil, "task", "second task", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.ID != "T-0002" {
+		t.Fatalf("expected T-0002 after compact, got %s (reused a folded-away archived id)", it.ID)
+	}
+}
+
+// TestMaxNumSurvivesCompactAfterReject mirrors the archive regression above
+// for rejected items: reject events also survive compaction and must also
+// count as witnesses of a used id.
+func TestMaxNumSurvivesCompactAfterReject(t *testing.T) {
+	root := ws(t)
+	if _, err := Draft(root, nil, "bug", "flaky", "", "", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Move(root, "B-0001", item.StateRejected, "not reproducible"); err != nil {
+		t.Fatal(err)
+	}
+
+	foldToCompactSurvivors(t, root, "")
+
+	it, err := Draft(root, nil, "bug", "second bug", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.ID != "B-0002" {
+		t.Fatalf("expected B-0002 after compact, got %s (reused a folded-away rejected id)", it.ID)
+	}
+}
+
+// TestMaxNumBoundByLiveWorkItem checks the floor still honors an item that
+// exists only in work.md (no journal event at all yet) — the fix widens the
+// journal scan but must not stop bounding the floor by live items.
+func TestMaxNumBoundByLiveWorkItem(t *testing.T) {
+	root := ws(t)
+	if err := item.Upsert(root, item.Item{
+		ID: "P-0005", Kind: "proposal", State: item.StateActive, Title: "manually seeded",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	it, err := Draft(root, nil, "proposal", "next", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.ID != "P-0006" {
+		t.Fatalf("expected P-0006, got %s", it.ID)
+	}
+}
+
+// TestMaxNumEmptyWorkspaceStartsAtOne checks an empty workspace (no journal
+// events, no items of the kind) still starts minting at 0001.
+func TestMaxNumEmptyWorkspaceStartsAtOne(t *testing.T) {
+	root := ws(t)
+	it, err := Draft(root, nil, "research", "first", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.ID != "R-0001" {
+		t.Fatalf("expected R-0001 in an empty workspace, got %s", it.ID)
+	}
+}
+
 // TestReopenIncrementsAndEscalates drives an item through the feedback loop:
 // two reopens succeed and increment Rounds, the third exhausts the
 // (deliberately small) round budget — Move returns ErrRoundsExhausted and
