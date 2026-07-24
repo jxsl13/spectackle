@@ -2,13 +2,6 @@
 schema: v0
 ---
 
-## T-0026 honor config.yaml ignore globs in IndexAll
-kind: task
-state: done
-created: 2026-07-24
-
-Scope ONLY: internal/index/indexer.go + indexer_test.go (extend existing test file or the cache test file - your choice, one place). docs/architecture.md claims the walk honors config ignore globs; reality: fixed ignoreDirs only, MatchIgnore is exported but unused. Fix: index.New gains variadic tail New(g, s, parsers, resolvers, ignore ...string) storing the globs (backward compatible - all existing callers compile unchanged); IndexAll walk: after the ignoreDirs check, skip any file whose repo-relative path matches MatchIgnore(ix.ignore, rel); for directories, skip when MatchIgnore matches rel+"/" pattern semantics is messy - keep it simple: check files only (dirs still pruned via ignoreDirs), document that dir-level pruning of custom globs is an optimization for later. Also compute the typespass module key... NO - typespass is out of scope, note the asymmetry in the report instead. Test: temp tree with gen/x.go + config-style ignore ["gen/**"] -> node absent; without ignore -> present. NO server.go changes (orchestrator passes ws.Cfg.Ignore).
-
 ## R-0003 graph node removal for true incremental IndexPaths
 kind: research
 state: draft

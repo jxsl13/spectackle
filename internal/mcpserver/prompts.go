@@ -22,6 +22,7 @@ var loopLines = []string{
 	"4 on explicit user approval: move to=approved|active, then draft kind=task parent=<P-id> per work item + rule op=add for new contracts",
 	"5 implement code; check until ok (d records = spec/code drift, fix via rule op=edit or code fix)",
 	"6 move to=done then to=archived (active->archived in one call implies done, merges spec.md); rejected REQUIRES note and is revocable; compact when check emits c",
+	"7 fanout: orchestrator partitions approved tasks by disjoint scope (leases prove disjointness), spawns one fresh implementer per task in parallel, serializes only shared-file wiring",
 }
 
 // registerPrompts adds the MCP prompts (slash-command entry points): a

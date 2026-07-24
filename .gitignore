@@ -3,3 +3,4 @@
 .spectacle/cache/
 *.out
 *.test
+dist/

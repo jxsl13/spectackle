@@ -14,7 +14,11 @@ it defines the two roles and is the full spec for what follows here.
   its leased scope, hands it back via `move`.
 
 Never mix the two: an implementer that has to explore beyond its task body
-means the task body was insufficient, not that it should improvise.
+means the task body was insufficient, not that it should improvise. The
+orchestrator writes the brief so the implementer never has to explore —
+that keeps the orchestrator's own context free of implementation noise, and
+it makes token cost scale with the number of tasks, not the size of the
+codebase.
 
 ## Every change starts with `find` + `draft`
 
