@@ -37,3 +37,8 @@ WHEN the research tool is invoked, the server SHALL render the condensed pack se
 
 ## SPX-MCP-007 {applies: go:mcpserver.Server.grill}
 WHEN the grill tool completes its critique pack, the server SHALL stamp the item header field `grilled:` with the current date as fold-proof evidence.
+
+## MCP-001 {applies: go:mcpserver.Server.decideAsk}
+WHEN `decide op=ask` stores a decision's option set, the spectacle server SHALL persist each option as its own `option:` body line so `decideOptions` reproduces every option byte-identically.
+
+Rationale: comma-joined storage shattered comma-containing options — no byte-identical answer could ever match (found live on D-0002)

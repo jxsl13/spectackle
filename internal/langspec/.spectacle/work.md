@@ -12,7 +12,7 @@ Scope ONLY: new internal/langspec/ (langspec.go, python.go, javascript.go, langs
 
 ## T-0036 langspec batch A: rust + java
 kind: task
-state: draft
+state: active
 created: 2026-07-24
 parent: P-0019
 
@@ -20,7 +20,7 @@ Scope ONLY: new internal/langspec/rust.go, java.go, rust_test.go, java_test.go. 
 
 ## T-0037 langspec batch B: typescript/tsx + ruby + php
 kind: task
-state: draft
+state: active
 created: 2026-07-24
 parent: P-0019
 
@@ -28,7 +28,7 @@ Scope ONLY: new internal/langspec/typescript.go, ruby.go, php.go + one _test.go 
 
 ## T-0038 langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain
 kind: task
-state: draft
+state: approved
 created: 2026-07-24
 parent: P-0019
 
