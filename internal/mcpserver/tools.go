@@ -124,11 +124,11 @@ func (s *Server) registerTools() {
 		gate(s, s.get))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "draft",
-		Description: "Create a lifecycle item (state=draft) in the correct .spectackle/work.md — server assigns ID+scope. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Never edit .spectackle files yourself."},
+		Description: "Create a lifecycle item (state=draft) in the correct .spectackle/work.md — server assigns ID+scope from one coord.db shared by every process and worktree, so the next id is never derivable from the highest one visible and gaps are normal (a sibling may mint or retire between your calls); read the id this call returns, or check swarm for sibling mints. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Never edit .spectackle files yourself."},
 		gate(s, s.draft))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",
-		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots (missing ones elicited or returned as need records); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
+		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots (missing ones elicited or returned as need records); server composes+lints (errors reject, nothing written), auto-IDs from one coord.db shared by every process and worktree, so the next id is never derivable from the highest one visible and gaps are normal; read the id this call returns, or check swarm for sibling mints. Anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -1379,6 +1379,29 @@ func (s *Server) compactCandidates(sub string) []string {
 		if since >= s.ws.Cfg.Compact.JournalMax {
 			out = append(out, fmt.Sprintf("c %s journal %d events since last compact", orDot(ctx), since))
 		}
+		// redundant rejection clusters (MCP-014): dry-run report only, never
+		// an auto-supersede. Reuses the events already read above for the
+		// since-last-compact count — no second journal.Read for this ctx.
+		out = append(out, redundantLines(ctx, events)...)
+	}
+	return out
+}
+
+// redundantLines reports each redundant-rejection cluster found in events as
+// one `c <dir> redundant <canonical>+<superseded...>` line (MCP-014).
+// Singleton clusters (no superseded member — the rejection resembled nothing
+// else) are not redundancy and are never reported, or the output would fill
+// with noise for every rejection on file. This is a report only: it never
+// calls journal.Append, journal.Rewrite, or otherwise touches the journal —
+// superseding stays a deliberate, separate act.
+func redundantLines(ctx string, events []journal.Event) []string {
+	var out []string
+	for _, c := range journal.ClusterRedundant(events) {
+		if len(c.Superseded) == 0 {
+			continue
+		}
+		ids := append([]string{c.Canonical}, c.Superseded...)
+		out = append(out, fmt.Sprintf("c %s redundant %s", orDot(ctx), strings.Join(ids, "+")))
 	}
 	return out
 }

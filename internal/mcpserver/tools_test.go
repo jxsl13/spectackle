@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -642,6 +643,134 @@ func TestCompactMergeableCandidates(t *testing.T) {
 	for _, id := range []string{"MRG-A-001", "MRG-B-001", "MRG-C-001"} {
 		if got := callText(t, sess, "get", map[string]any{"id": id}); !strings.Contains(got, id) {
 			t.Fatalf("rule %s must survive apply: %q", id, got)
+		}
+	}
+}
+
+// TestCompactRedundantClusters (MCP-014): two reject events whose notes
+// state the same lesson in different words surface, in the compact
+// dry-run, as one `c <dir> redundant CANONICAL+SUPERSEDED` line naming the
+// two reject event ids; two unrelated rejections, and a single rejection on
+// its own (a singleton cluster), never produce a redundant line. Expected
+// eids come straight from journal.Read + journal.ClusterRedundant (the same
+// analysis the handler calls) rather than being hardcoded, since Eid is
+// minted at random.
+func TestCompactRedundantClusters(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "vram residency a"})
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "vram residency b"})
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "disk latency"})
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0001", "to": "rejected",
+		"note": "vram cache breaks scheduling under load",
+	})
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0002", "to": "rejected",
+		"note": "vram cache breaks scheduling under load again",
+	})
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0003", "to": "rejected",
+		"note": "completely different concern about disk latency",
+	})
+
+	events, err := journal.Read(ws, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clusters := journal.ClusterRedundant(events)
+	var want string
+	found := 0
+	for _, c := range clusters {
+		if len(c.Superseded) == 0 {
+			continue
+		}
+		found++
+		want = fmt.Sprintf("c . redundant %s+%s", c.Canonical, strings.Join(c.Superseded, "+"))
+	}
+	if found != 1 {
+		t.Fatalf("expected exactly one non-singleton cluster from the fixture, got %d: %+v", found, clusters)
+	}
+
+	out := callText(t, sess, "compact", map[string]any{})
+	if !strings.Contains(out, want) {
+		t.Fatalf("expected redundant line %q in dry-run output: %q", want, out)
+	}
+	// the unrelated rejection (P-0003, singleton cluster) must never appear
+	// in a redundant line — count "c . redundant" lines, expect exactly one.
+	if n := strings.Count(out, "c . redundant"); n != 1 {
+		t.Fatalf("expected exactly one redundant line (singletons excluded), got %d: %q", n, out)
+	}
+}
+
+// TestCompactRedundantDryRunWritesNothing (MCP-014): running compact's
+// dry-run over a fixture that contains a real redundant cluster must not
+// change the journal by one byte — the report is read-only, and the apply
+// path for superseding does not exist yet. This is the load-bearing test:
+// it is what proves compaction did not quietly supersede anything.
+func TestCompactRedundantDryRunWritesNothing(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "vram residency a"})
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "vram residency b"})
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0001", "to": "rejected",
+		"note": "vram cache breaks scheduling under load",
+	})
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0002", "to": "rejected",
+		"note": "vram cache breaks scheduling under load again",
+	})
+
+	before, err := os.ReadFile(ws.JournalPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := callText(t, sess, "compact", map[string]any{})
+	if !strings.Contains(out, "redundant") {
+		t.Fatalf("fixture should have produced a redundant line to make this test meaningful: %q", out)
+	}
+	// apply=true too: MCP-014 forbids auto-supersede outright, not just in
+	// the default dry-run call.
+	callText(t, sess, "compact", map[string]any{"apply": true})
+
+	after, err := os.ReadFile(ws.JournalPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("compact must never write the journal for redundant clusters:\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
+// TestDraftAndRuleDescribeSharedCounter (MCP-014 change 2): both draft and
+// rule tool descriptions must say the id counter lives in one coord.db
+// shared by every process and worktree, so a caller cannot derive the next
+// id from the highest one currently visible. Asserted on a substring meant
+// to survive rewording but not deletion.
+func TestDraftAndRuleDescribeSharedCounter(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "coord.db shared by every process and worktree"
+	got := map[string]string{}
+	for _, tool := range res.Tools {
+		got[tool.Name] = tool.Description
+	}
+	for _, name := range []string{"draft", "rule"} {
+		desc, ok := got[name]
+		if !ok {
+			t.Fatalf("tool %q not registered", name)
+		}
+		if !strings.Contains(desc, want) {
+			t.Fatalf("%s description missing shared-counter wording %q: %q", name, want, desc)
 		}
 	}
 }

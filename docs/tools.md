@@ -44,6 +44,7 @@ g <kind> <ref> <msg>                             gap (uncovered|orphan)
 cf <kind> <key> n=<count>                        knowledge merge conflict (same identity, different substance)
 cf> count=<n> <preview> sources=<repo,...>        one conflicting answer inside a cf record
 c <dir> <reason> <n>                             compact candidate
+c <dir> redundant <canon>+<sup>[+<sup>]          redundant rejection cluster (notes state the same lesson, MCP-014)
 sb <msg>                                         stale-binary hint (postCall piggyback, T-0115)
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
@@ -260,7 +261,16 @@ Candidates: done-unarchived items (apply archives them), journal folds over
 `journal_max`, and mergeable rule pairs — `c <dir> mergeable <ID1>+<ID2>
 j=<score>` for same-file, same-pattern rules with sentence-token Jaccard
 ≥ 0.6 or identical non-empty applies sets (MCP-005; suggestion only,
-`apply=true` never merges rules). Folds drop `create/move/rule/drift`
+`apply=true` never merges rules), and redundant rejection clusters —
+`c <dir> redundant <canonical>+<superseded>[+<superseded>…]` for reject
+events whose *notes* state the same lesson, by the same sentence-token
+Jaccard ≥ 0.6 measure (MCP-014). Canonical is the earliest by timestamp,
+tie-broken by event id: the first statement of a lesson is the one later
+ones repeat. Singleton clusters are not reported. Like mergeable rules this
+is a suggestion only — `apply=true` never supersedes, and the reason is
+stronger here than for rules: a wrongly merged rule can be split again,
+while a wrongly superseded rejection hides a lesson exactly when someone is
+about to repeat it. Folds drop `create/move/rule/drift`
 noise; **`reject`, `archive` and `compact` events are never dropped**.
 
 ### 8. `lease` — scope reservations (multi-agent)
