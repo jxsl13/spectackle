@@ -13,7 +13,7 @@ Found live via dogfooding: `rule op=add` with a mistyped node ID (go:index.Index
 
 ## T-0044 drift.Reconcile: rule edit/retire drops stale anchor rows
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0024
 targets: go:mcpserver.Server.stampAnchors, go:drift.Upsert

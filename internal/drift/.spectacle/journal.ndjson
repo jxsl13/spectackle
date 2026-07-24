@@ -6,3 +6,4 @@
 {"t":"2026-07-24T12:05:10Z","eid":"3d3b1d5627b6712d","ag":"orchestrator","ev":"move","id":"T-0044","dir":"internal/drift","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:07:29Z","eid":"75df560df3138d4a","ag":"agent-reconcile","ev":"move","id":"T-0044","dir":"internal/drift","fr":"approved","to":"active"}
 {"t":"2026-07-24T12:12:24Z","eid":"7b53e1b354df2c04","ag":"agent-reconcile","ev":"rule","dir":"internal/drift","op":"edit","rule":"DRF-001","txt":"WHEN `rule op=edit` or `op=retire` changes a rule's `applies` set, the spectacle server SHALL reconcile anchors.tsv via `drift.Reconcile` — rows of that rule absent from the new set are dropped before the new rows are stamped.","ap":["go:mcpserver.Server.stampAnchors","go:drift.Upsert"]}
+{"t":"2026-07-24T12:13:30Z","eid":"f5bd219ddbf8b58a","ag":"agent-reconcile","ev":"move","id":"T-0044","dir":"internal/drift","fr":"active","to":"done"}

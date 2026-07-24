@@ -53,3 +53,4 @@
 {"t":"2026-07-24T12:10:09Z","eid":"32da2a82c92569b5","ag":"agent-fpr","ev":"move","id":"T-0047","dir":"internal/langspec","fr":"approved","to":"active"}
 {"t":"2026-07-24T12:11:18Z","eid":"7470fbb1ed4f6f0a","ag":"agent-dartgroovy","ev":"move","id":"T-0045","dir":"internal/langspec","fr":"active","to":"done"}
 {"t":"2026-07-24T12:11:19Z","eid":"d48eb697513ed0c3","ag":"agent-beamjl","ev":"move","id":"T-0046","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T12:12:49Z","eid":"68b812db00a0879e","ag":"agent-fpr","ev":"move","id":"T-0047","dir":"internal/langspec","fr":"active","to":"done"}

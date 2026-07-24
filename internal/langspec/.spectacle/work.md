@@ -70,7 +70,7 @@ EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langs
 
 ## T-0047 langspec batch I: haskell + ocaml + r
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0025
 
