@@ -203,6 +203,29 @@ Unseen `sw` events are additionally prepended to every tool result
 (realtime piggyback); `find scope=rejection` unions live sibling rejections
 before they ever merge (SPX-SWM-002).
 
+### 11. Prompts — slash-command entry points
+
+Two MCP prompts (`prompts/get`, no arguments unless noted) in
+`internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`
+(not yet wired into `New` — the orchestrator calls it). They bypass `gate()`
+(prompts/get is not a tool call): each handler locks `s.mu` and calls
+`s.scan.Refresh()` itself so the snapshot below is current.
+
+**`workflow`** (no args) — a standing situational-awareness dump: line 1
+`spectacle workflow - state below is live`, then `AGENTS/LEASES` (`ag`/`l`
+lines from `s.cd.Agents()`/`s.cd.Leases()`), `ACTIVE ITEMS` (`i` lines from
+`item.LoadAll`, non-draft items surfaced first), and `LOOP` — the six-step
+lifecycle checklist condensed from the server's `instructions` manifest.
+
+**`next`** (optional `item` string arg) — the full implementer brief for one
+item: with `item` given, that item (or `nf <id>` if unknown); otherwise the
+first `approved` item, `kind=task` preferred, falling back to any approved
+item, or `ok nothing approved - draft or approve first` if none exists. Body
+is `item.Record` + `parent`/`targets`/body verbatim, followed by the 5-step
+IMPLEMENTER PROTOCOL (`get` → `lease op=claim` → `move to=active` →
+implement+test → `move to=done` + `lease op=release`), using the item's
+context dir as the suggested lease path.
+
 ## Fold map (previous 11-tool surface → 7 lifecycle tools)
 
 `sym`→`find scope=code` · `map`→`get <dir>` · `impact`→`get depth` ·

@@ -12,7 +12,7 @@ Expose the working mode as MCP prompts so clients surface them as slash commands
 
 ## T-0025 implement prompts.go: workflow + next (no server.go wiring)
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0014
 

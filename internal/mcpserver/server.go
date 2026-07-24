@@ -120,6 +120,7 @@ func New(root string) (*Server, error) {
 		Version: Version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 	s.registerTools()
+	s.registerPrompts()
 	return s, nil
 }
 
