@@ -36,6 +36,7 @@ type findIn struct {
 	Q     string `json:"q" jsonschema:"text or ID fragment"`
 	Scope string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|rejection|history|all, default all"`
 	K     int    `json:"k,omitempty" jsonschema:"max results, default 8"`
+	Focus string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
 }
 
 type getIn struct {
@@ -216,9 +217,25 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 		in.Scope = "all"
 	}
 	if in.Scope == "code" {
-		nodes := s.g.Find(in.Q, in.K, graph.KUnknown)
+		k := in.K
+		if in.Focus != "" {
+			k *= 4 // over-fetch, PPR decides the final K (SPX-GRA-004)
+		}
+		nodes := s.g.Find(in.Q, k, graph.KUnknown)
 		if len(nodes) == 0 {
 			return text("ok no code matches")
+		}
+		if in.Focus != "" {
+			if _, ok := s.g.Node(graph.NodeID(in.Focus)); !ok {
+				return s.nearest(in.Focus)
+			}
+			score := graph.PersonalizedRank(s.g, []graph.NodeID{graph.NodeID(in.Focus)}, 4, 20, 0.85)
+			sort.SliceStable(nodes, func(i, j int) bool {
+				return score[nodes[i].ID] > score[nodes[j].ID]
+			})
+			if len(nodes) > in.K {
+				nodes = nodes[:in.K]
+			}
 		}
 		var lines []string
 		for _, n := range nodes {

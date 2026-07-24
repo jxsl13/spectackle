@@ -17,3 +17,6 @@ WHEN Impact is invoked, the graph SHALL return each reachable node exactly once 
 The graph SHALL match Find queries against node ID, file path and signature, ranking ID matches above file- or signature-only hits.
 
 Rationale: an agent knows a file name or a parameter type as often as a symbol name; ID hits stay the cheapest currency.
+
+## SPX-GRA-004 {applies: go:graph.PersonalizedRank}
+WHEN find runs with scope=code and a focus node, the server SHALL rank the matches by deterministic personalized PageRank seeded at the focus node, leaving global degree rank in effect when focus is empty.

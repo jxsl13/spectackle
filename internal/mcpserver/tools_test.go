@@ -446,6 +446,56 @@ func TestCompactMergeableCandidates(t *testing.T) {
 	}
 }
 
+// TestFindFocusReranks (SPX-GRA-004): with focus set, a low-degree direct
+// callee of the focus node outranks a high-degree hub sitting elsewhere in
+// the package; an unknown focus yields nf corrections, not an error.
+func TestFindFocusReranks(t *testing.T) {
+	root := t.TempDir()
+	// Near is called only by Focus (degree 1); Hub is called by three
+	// helpers (degree 3) and wins the global-rank ordering.
+	src := `package demo
+
+func Focus() { Near() }
+
+func Near() {}
+
+func Hub() {}
+
+func A() { Hub() }
+
+func B() { Hub() }
+
+func C() { Hub() }
+`
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	// global rank: the hub leads, the low-degree near node doesn't make
+	// the cut (or trails the hub)
+	out := callText(t, sess, "find", map[string]any{"q": "demo", "scope": "code", "k": 4})
+	hubIdx, nearIdx := strings.Index(out, "go:demo.Hub"), strings.Index(out, "go:demo.Near")
+	if hubIdx < 0 || (nearIdx >= 0 && nearIdx < hubIdx) {
+		t.Fatalf("global rank should lead with the hub: %q", out)
+	}
+
+	// focused rank: the focus neighborhood leads
+	out = callText(t, sess, "find", map[string]any{"q": "demo", "scope": "code", "k": 4, "focus": "go:demo.Focus"})
+	hubIdx, nearIdx = strings.Index(out, "go:demo.Hub"), strings.Index(out, "go:demo.Near")
+	if nearIdx < 0 {
+		t.Fatalf("focused find lost the near node: %q", out)
+	}
+	if hubIdx >= 0 && hubIdx < nearIdx {
+		t.Fatalf("focus must rank the direct callee above the far hub: %q", out)
+	}
+
+	out = callText(t, sess, "find", map[string]any{"q": "demo", "scope": "code", "focus": "go:demo.Missing"})
+	if !strings.Contains(out, "nf ") {
+		t.Fatalf("unknown focus must yield nf corrections: %q", out)
+	}
+}
+
 // TestGetNodeShowsContracts (SPX-SPC-007): get on a code node appends the
 // node's binding contracts — the applies-bound rule as a full r record,
 // root-scoped cascade rules collapsed to one r-root ID record — while

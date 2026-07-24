@@ -64,10 +64,14 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
 {"type":"object","required":["q"],"properties":{
   "q":    {"type":"string"},
   "scope":{"enum":["code","rule","spec","proposal","task","bug","research","rejection","history","all"],"default":"all"},
-  "k":    {"type":"integer","default":8}}}
+  "k":    {"type":"integer","default":8},
+  "focus":{"type":"string","default":""}}}
 ```
 `code`→graph, everything else→FTS5. **`rejection` and `history` are the
-learn-before-planning scopes** — the loop starts here.
+learn-before-planning scopes** — the loop starts here. `focus` (scope=code
+only, SPX-GRA-004) re-ranks matches by deterministic personalized PageRank
+seeded at that node — "near what I'm working on" beats global degree rank;
+empty keeps the global ordering, an unknown focus answers `nf`.
 
 ### 2. `get` — read one thing by ID
 
