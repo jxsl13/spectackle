@@ -10,7 +10,7 @@
 | **M3** ✅ | Spec integration depth | `applies:`-aware `ForNode` (SPX-SPC-007); orphan-rule coverage (MCP-004); mergeable-rule compaction candidates (MCP-005); personalized PageRank with `focus` (SPX-GRA-004) | `check` gates CI on this repo |
 | **M4** *(all deliverables live: perf gate cleared 7-15x per internal/index intent, streamable-HTTP, linter fuzzing, cursors everywhere SPX-ARC-006)* | Hardening | cursors everywhere; linter fuzzing; perf: ≥100k LOC repo indexed < 5 s warm; optional streamable-HTTP transport | perf target met on a reference repo |
 | **M5** | **Self-hosting gate** | CI: lint + check + coverage threshold; CONTRIBUTING documents the loop: every change starts with `find scope=rejection` + `draft` | a spectackle feature is merged that was developed through spectackle's own lifecycle |
-| **M6** | Extension | ObjC/Metal/Vulkan resolvers; **wazero/WASM parser backend replaces cgo tree-sitter** (`CGO_ENABLED=0` release builds); new-language cookbook | adding a language touches only `langs.go` + one parser + one resolver |
+| **M6** *(cookbook live + Fortran/ObjC/Metal parsers shipped through it; ObjC/gpupipe resolvers and wazero backend still open — wazero deferred per D-0002)* | Extension | ObjC/Metal/Vulkan resolvers; **wazero/WASM parser backend replaces cgo tree-sitter** (`CGO_ENABLED=0` release builds); new-language cookbook | adding a language touches only `langs.go` + one parser + one resolver |
 
 ## Standing constraints
 
