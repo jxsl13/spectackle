@@ -25,6 +25,39 @@ topological │  cascading spec bundles      (.spectackle/spec.md)   │
             └─────────────────────────────────────────────────────┘
 ```
 
+## Quickstart
+
+Grab a prebuilt binary — no build required. Download the archive for your
+OS/arch from the [latest release](https://github.com/jxsl13/spectackle/releases/latest);
+assets are named `spectackle_<version>_<os>_<arch>.tar.gz` (`.zip` on
+Windows), for `linux`/`darwin`/`windows` × `amd64`/`arm64`, alongside
+`checksums.txt`.
+
+```sh
+# pick your version + platform from the releases page, then:
+VERSION=0.1.0; OS=linux; ARCH=amd64        # or darwin / windows, arm64
+curl -L "https://github.com/jxsl13/spectackle/releases/download/v${VERSION}/spectackle_${VERSION}_${OS}_${ARCH}.tar.gz" | tar xz
+sudo mv spectackle /usr/local/bin/          # onto your PATH
+```
+
+Then point **any** MCP client at the binary — the standard `mcpServers`
+entry works across MCP clients:
+
+```json
+{
+  "mcpServers": {
+    "spectackle": {
+      "command": "/absolute/path/to/spectackle",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+The workspace root auto-detects (git root, or a `.spectackle/config.yaml`
+marker) — nothing else to configure. No tagged release yet? Build from
+source (below) until the first release is published.
+
 **The loop** (taught to the LLM by the server's own MCP instructions —
 self-bootstrapping, no docs needed):
 
@@ -117,7 +150,7 @@ r-root SPX-ARC-001 SPX-ARC-002 SPX-ARC-003 SPX-ARC-004 SPX-ARC-005 SPX-REPO-001 
 
 That's `get {"id":"go:saxpy.Saxpy","depth":2}` against the shipped binary on this repo — not a mockup: the `n` spans, the cross-language `e` edges, and the node's binding contracts (`r`/`r-root`) all come from one call.
 
-## Quickstart
+## Build from source
 
 ```sh
 make build                # -> bin/spectackle (pure Go, CGO_ENABLED=0)
