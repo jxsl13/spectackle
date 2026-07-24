@@ -13,7 +13,7 @@ import (
 // `def save!`); the Name capture group allows that suffix, and
 // ids.Mint's idRe ([^\s~]+ for the qualifier) accepts it unmodified.
 var rubySpec = Spec{
-	Lang: graph.Lang("rb"),
+	Lang: graph.LangRb,
 	Exts: []string{".rb"},
 	Qual: QualFileStem,
 	Defs: []Def{

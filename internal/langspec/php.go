@@ -13,7 +13,7 @@ import (
 // `function ($x) {` never match — there is no identifier for the Name
 // group to capture.
 var phpSpec = Spec{
-	Lang: graph.Lang("php"),
+	Lang: graph.LangPHP,
 	Exts: []string{".php"},
 	Qual: QualFileStem,
 	Defs: []Def{

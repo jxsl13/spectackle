@@ -13,7 +13,7 @@ import (
 // JavaScript for these forms), plus three TypeScript-only type-level
 // declarations: interface, type alias, and enum.
 var typescriptSpec = Spec{
-	Lang: graph.Lang("ts"),
+	Lang: graph.LangTS,
 	Exts: []string{".ts", ".tsx"},
 	Qual: QualFileStem,
 	Defs: []Def{

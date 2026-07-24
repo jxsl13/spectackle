@@ -8,16 +8,14 @@ import (
 
 // rustSpec covers .rs files. Qualification is QualFileStem, mirroring
 // pythonSpec and javascriptSpec: one file is treated as one module, so
-// `fn run` in app.rs mints "rs:app.run". graph.Lang("rs") is used directly
-// rather than a new graph.LangRust const — the orchestrator wires up shared
-// constants (and extLang registration) once every langspec batch lands.
+// `fn run` in app.rs mints "rs:app.run".
 //
 // Indented `fn` lines (impl/trait methods) mint the same KFunc kind as
 // top-level functions in this v0, matching pythonSpec's def/method
 // convention — distinguishing KMethod would need tracking the enclosing
 // impl/trait block, deferred to a later langspec iteration.
 var rustSpec = Spec{
-	Lang: graph.Lang("rs"),
+	Lang: graph.LangRs,
 	Exts: []string{".rs"},
 	Qual: QualFileStem,
 	Defs: []Def{

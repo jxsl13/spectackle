@@ -12,7 +12,7 @@ import (
 // deliberately dropped, a known v0 limitation of SpecParser's single Name
 // submatch group).
 var cppSpec = Spec{
-	Lang: graph.LangCpp, // == graph.Lang("cpp")
+	Lang: graph.LangCpp,
 	Exts: []string{".cc", ".cpp", ".cxx", ".hpp"},
 	Qual: QualFlat,
 	Defs: []Def{

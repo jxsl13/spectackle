@@ -8,10 +8,7 @@ import (
 
 // javaSpec covers .java files. Qualification is QualFileStem, mirroring
 // pythonSpec and javascriptSpec: one file is treated as one module, so
-// `class Foo` in App.java mints "java:App.Foo". graph.Lang("java") is used
-// directly rather than a new graph.LangJava const — the orchestrator wires
-// up shared constants (and extLang registration) once every langspec batch
-// lands.
+// `class Foo` in App.java mints "java:App.Foo".
 //
 // The method Def is a pragmatic single-line heuristic, not a Java grammar:
 // it requires at least one leading access/other modifier keyword
@@ -24,7 +21,7 @@ import (
 // the terminating `;`) from matching, without an explicit negative
 // lookahead list.
 var javaSpec = Spec{
-	Lang: graph.Lang("java"),
+	Lang: graph.LangJava,
 	Exts: []string{".java"},
 	Qual: QualFileStem,
 	Defs: []Def{

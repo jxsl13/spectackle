@@ -14,3 +14,7 @@
 {"t":"2026-07-24T08:54:01Z","eid":"b62a9a14907a1f1a","ag":"agent-cheader","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"approved","to":"active"}
 {"t":"2026-07-24T08:55:09Z","eid":"cc7d73eb72dfaaa7","ag":"agent-rustjava","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"active","to":"done"}
 {"t":"2026-07-24T08:59:00Z","eid":"ad65ac1e22894c98","ag":"agent-cheader","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T09:02:07Z","eid":"e56bf892c307f14a","ag":"orchestrator","ev":"archive","id":"T-0034","k":"task","ti":"langspec framework + python/javascript reference specs","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"2a5b8cfd494b2923","ag":"orchestrator","ev":"archive","id":"T-0036","k":"task","ti":"langspec batch A: rust + java","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"82ee8871ef80687b","ag":"orchestrator","ev":"archive","id":"T-0037","k":"task","ti":"langspec batch B: typescript/tsx + ruby + php","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T09:02:07Z","eid":"456717295eeaab2b","ag":"orchestrator","ev":"archive","id":"T-0038","k":"task","ti":"langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain","dir":"internal/langspec","sum":"archived with parent P-0019"}
