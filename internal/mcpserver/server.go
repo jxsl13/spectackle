@@ -29,8 +29,9 @@ import (
 
 // Version is stamped into the MCP handshake and the CLI. Pre-1.0: anything
 // may break between versions; the schema stamp and cache generation rotate
-// with it instead of migrating.
-const Version = "0.2.0-dev"
+// with it instead of migrating. A var, not a const: release builds inject
+// the tag via -ldflags "-X .../internal/mcpserver.Version=v0.x.y".
+var Version = "0.2.0-dev"
 
 // instructions is the self-bootstrapping server manifest: it teaches a
 // connecting LLM the full lifecycle loop and tool order with zero extra docs.
