@@ -464,3 +464,10 @@
 {"t":"2026-07-24T18:36:19Z","eid":"1c4ceb5be91aedc0","ag":"orchestrator","ev":"move","id":"P-0061","fr":"draft","to":"active"}
 {"t":"2026-07-24T18:36:19Z","eid":"d2712c1e9b5d24e6","ag":"orchestrator","ev":"create","id":"T-0086","k":"task","ti":"direction-aware drift + one-call heal/audit reporting in check"}
 {"t":"2026-07-24T18:36:19Z","eid":"20d566fef11fec22","ag":"orchestrator","ev":"move","id":"T-0086","fr":"draft","to":"active"}
+{"t":"2026-07-24T18:46:29Z","eid":"f846321708c70e02","ag":"orchestrator","ev":"create","id":"T-0087","k":"task","ti":"ADR part 2: full ADR fields (Context/Decision/Consequences/Status)"}
+{"t":"2026-07-24T18:46:29Z","eid":"5f21da0348589f45","ag":"orchestrator","ev":"create","id":"P-0062","k":"proposal","ti":"release artifacts: stable latest-download URLs so the Quickstart is copy-paste"}
+{"t":"2026-07-24T18:46:29Z","eid":"18d382110597da06","ag":"orchestrator","ev":"move","id":"T-0087","fr":"draft","to":"active"}
+{"t":"2026-07-24T18:46:29Z","eid":"154d1dbd3979c881","ag":"orchestrator","ev":"move","id":"P-0062","fr":"draft","to":"active"}
+{"t":"2026-07-24T18:46:52Z","eid":"15617d0cdad1af9b","ag":"orchestrator","ev":"grill","id":"P-0062","gr":"2026-07-24"}
+{"t":"2026-07-24T18:46:52Z","eid":"36e5181ab1a078f4","ag":"orchestrator","ev":"create","id":"T-0088","k":"task","ti":"goreleaser: version-free archive names + copy-paste README Quickstart"}
+{"t":"2026-07-24T18:46:52Z","eid":"21e3650ffa1eac19","ag":"orchestrator","ev":"move","id":"T-0088","fr":"draft","to":"active"}
