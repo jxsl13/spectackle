@@ -50,6 +50,7 @@ const (
 	LangMl     Lang = "ml"
 	LangR      Lang = "r"
 	LangF90    Lang = "f90"
+	LangGLSL   Lang = "glsl"
 )
 
 // NodeKind classifies a node.
