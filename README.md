@@ -266,18 +266,34 @@ server-written file carries a schema stamp, so a format change is a hard,
 obvious break instead of a silent divergence between what an old file
 contains and what new code expects.
 
-## Status (v0, pre-release — anything may break)
+## What it is (v0, pre-release — anything may break)
 
-| Component | State |
-|---|---|
-| EARS linter + cascading spec bundles | ✅ live |
-| Spec lifecycle: draft/move/archive, revocable rejections, journal corpus, ADRs as first-class structured records (context/decision/consequences/status, `find scope=adr`) | ✅ live |
-| Server-authored contracts (`rule`: slots → compose → lint gate → auto-ID, MCP elicitation) | ✅ live |
-| Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
-| Drift anchors + backprop (`check`/`compact`) | ✅ live |
-| **Multi-agent swarm**: scope leases, shared coord.db, realtime sibling learnings, git-worktree isolation (`work start/submit/abort`) with semantic replay merge | ✅ live |
-| Cross-language graph: `go/parser` + Plan 9 asm + CUDA chains, langspec (29 data-driven languages incl. ObjC/Metal, [cookbook](docs/cookbook-new-language.md)), gpupipe Metal launch + message-send edges, persistent parse cache | ✅ live (wazero/tree-sitter still future, for full C/C++) |
-| Self-hosting gate: CI runs lint + check + coverage (≥70%) + fuzz; features developed through the server's own lifecycle | ✅ live ([roadmap](docs/roadmap.md)) |
+An MCP server whose whole surface is built around one idea: the LLM names
+concepts, never file contents. It gives an agent
+
+- **EARS contracts that cascade by directory** — vague prose is a lint
+  error, and resolving the rules for one file walks only that file's
+  root-to-leaf spine, never the whole corpus;
+- **a lifecycle with a memory** — draft through archived, revocable
+  rejections, and an append-only journal that makes the rejection corpus
+  worth searching before repeating a failed approach;
+- **drift anchors** binding each rule to a code span by two independent
+  hashes, so a refactor and a reworded contract are told apart and only the
+  safe quadrant is ever healed mechanically;
+- **a cross-language graph** over 29 data-driven languages plus hand-written
+  Go, Plan 9 asm and CUDA parsers ([cookbook](docs/cookbook-new-language.md)),
+  with the cgo, FFI, launch and message-send edges that connect them;
+- **multi-agent coordination** — scope leases in a shared coordination DB,
+  realtime sibling learnings, and git-worktree isolation with a semantic
+  replay merge;
+- **portable knowledge** — a repository's rules, ADRs and intent prose
+  exported, condensed across repositories by recurrence, and applied back
+  additively.
+
+Everything above is implemented and exercised by this repository on itself;
+CI gates on lint, `check`, coverage and fuzzing. The one deliberate absence
+is a wazero/tree-sitter backend for full C/C++ fidelity, which waits on
+wasi-sdk grammars that do not exist yet (`get ADR-0010`).
 
 ## The chain, live
 
@@ -672,7 +688,6 @@ look like a local contract, which structurally it is not.
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)
 - [docs/cookbook-new-language.md](docs/cookbook-new-language.md) — adding a language: one Spec value + two one-line registrations
 - [docs/example-go-cuda.md](docs/example-go-cuda.md) — worked Go → CUDA lifecycle transcript
-- [docs/roadmap.md](docs/roadmap.md) — milestones to self-hosting
 
 ## Dogfooding
 
