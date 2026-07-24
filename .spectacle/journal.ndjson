@@ -161,3 +161,5 @@
 {"t":"2026-07-24T12:17:35Z","eid":"73ba58620c60c25e","ag":"orchestrator","ev":"decide","id":"D-0003","note":"full — Binary+Servername+Docs+Modulpfad+.spectackle-Ordner (mit .spectacle-Legacy-Fallback); du benennst das GitHub-Repo um"}
 {"t":"2026-07-24T12:17:57Z","eid":"c256a36ab56630b3","ag":"orchestrator","ev":"create","id":"P-0028","k":"proposal","ti":"full rebrand spectacle → spectackle (D-0003: full)"}
 {"t":"2026-07-24T12:19:28Z","eid":"db01f32894a97185","ag":"orchestrator","ev":"move","id":"P-0028","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:24:11Z","eid":"f2e5af4bb13199a3","ag":"orchestrator","ev":"create","id":"T-0050","k":"task","ti":"full rebrand spectacle → spectackle — hard rename, NO fallbacks (pre-release)"}
+{"t":"2026-07-24T12:24:28Z","eid":"45acd75e07964523","ag":"orchestrator","ev":"move","id":"T-0050","fr":"draft","to":"approved"}
