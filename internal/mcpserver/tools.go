@@ -741,16 +741,13 @@ func (s *Server) ruleRetire(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, an
 		return text("! ARG E - " + err.Error())
 	}
 	s.journalRule("retire", in.ID, old.Text, old.Applies, in.Item, ruleCtx(file))
-	// drop anchors of the retired rule
+	// a retired rule keeps no anchors at all: reconcile against an empty
+	// keep set so every row for in.ID is dropped, not just the ones that
+	// happen to match the rule's last-known applies.
 	anchors, _ := drift.Load(s.ws)
-	var keep []drift.Anchor
-	for _, a := range anchors {
-		if a.Rule != in.ID {
-			keep = append(keep, a)
-		}
-	}
-	if len(keep) != len(anchors) {
-		if err := drift.Save(s.ws, keep); err != nil {
+	reconciled := drift.Reconcile(anchors, in.ID, nil)
+	if len(reconciled) != len(anchors) {
+		if err := drift.Save(s.ws, reconciled); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -765,12 +762,22 @@ func (s *Server) journalRule(op, id, txt string, applies []string, itemID, ctx s
 	_ = s.cd.Emit("rule", id, op+": "+txt)
 }
 
-// stampAnchors writes/refreshes anchors for a rule's applies list.
+// stampAnchors writes/refreshes anchors for a rule's applies list. It first
+// reconciles anchors.tsv down to exactly this applies set for ruleID, so a
+// node dropped from applies (or replaced after a mistyped one) loses its
+// anchor row here instead of lingering as a permanently-stale one — this
+// makes add idempotent too: adding the same rule again reconciles to
+// exactly the applies passed this time.
 func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string {
 	if len(applies) == 0 {
 		return ""
 	}
 	anchors, _ := drift.Load(s.ws)
+	keep := make([]graph.NodeID, len(applies))
+	for i, node := range applies {
+		keep[i] = graph.NodeID(node)
+	}
+	anchors = drift.Reconcile(anchors, ruleID, keep)
 	var b strings.Builder
 	for _, node := range applies {
 		a := drift.Stamp(s.ws, s.g, ruleID, sentence, graph.NodeID(node))

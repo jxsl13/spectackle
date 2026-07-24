@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jxsl13/spectacle/internal/drift"
+	"github.com/jxsl13/spectacle/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -249,6 +251,75 @@ func TestRuleLifecycle(t *testing.T) {
 	out = callText(t, sess, "find", map[string]any{"q": "cudaGetLastError", "scope": "history"})
 	if !strings.Contains(out, "CUDA-KRN-001") {
 		t.Fatalf("retired rule text lost from journal: %q", out)
+	}
+}
+
+// TestRuleAnchorsReconcileOnEditAndRetire is the regression test for T-0044
+// (DRF-001): a rule add anchors every node in applies; editing the rule to a
+// smaller applies set must drop the anchor rows of the nodes that fell out,
+// not just add rows for the ones that stayed — otherwise a mistyped node
+// (e.g. IDX-001's original go:index.Indexer.IndexAll) leaves a permanently
+// stale row once the typo is corrected via edit. Retiring a rule must drop
+// every one of its remaining anchor rows.
+func TestRuleAnchorsReconcileOnEditAndRetire(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "drift_probe", "pattern": "U", "stem": "DRF-PRB",
+		"system":   "the drift prober",
+		"response": "anchor to two nodes for the reconcile regression test",
+		"applies":  []string{"go:pkg.A", "go:pkg.B"},
+	})
+	if !strings.Contains(out, "ok DRF-PRB-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+
+	anchors, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := func(anchors []drift.Anchor, rule string) map[string]bool {
+		m := map[string]bool{}
+		for _, a := range anchors {
+			if a.Rule == rule {
+				m[string(a.Node)] = true
+			}
+		}
+		return m
+	}
+	if got := rows(anchors, "DRF-PRB-001"); len(got) != 2 || !got["go:pkg.A"] || !got["go:pkg.B"] {
+		t.Fatalf("add should anchor both nodes: %v", got)
+	}
+
+	// edit: drop go:pkg.A from applies
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "edit", "id": "DRF-PRB-001",
+		"applies": []string{"go:pkg.B"},
+	})
+	if !strings.Contains(out, "ok DRF-PRB-001") {
+		t.Fatalf("rule edit: %q", out)
+	}
+	anchors, err = drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(anchors, "DRF-PRB-001"); len(got) != 1 || !got["go:pkg.B"] {
+		t.Fatalf("edit must reconcile away the dropped node, leaving only go:pkg.B: %v", got)
+	}
+
+	// retire: every remaining anchor for the rule must go, not just the last applies
+	out = callText(t, sess, "rule", map[string]any{"op": "retire", "id": "DRF-PRB-001"})
+	if !strings.Contains(out, "retired") {
+		t.Fatalf("rule retire: %q", out)
+	}
+	anchors, err = drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(anchors, "DRF-PRB-001"); len(got) != 0 {
+		t.Fatalf("retire must drop all anchors of the rule: %v", got)
 	}
 }
 

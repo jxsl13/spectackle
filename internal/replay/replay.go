@@ -242,6 +242,15 @@ func stampAnchors(main workspace.Root, g graph.Graph, rule, text string, applies
 	if err != nil {
 		return err
 	}
+	// reconcile before stamping, same as the live tool path: a worktree
+	// replay must converge main's anchors.tsv to exactly this applies set,
+	// not merely add to it, or a rule edit that drops a node leaves that
+	// node's stale row behind on main forever.
+	keep := make([]graph.NodeID, len(applies))
+	for i, node := range applies {
+		keep[i] = graph.NodeID(node)
+	}
+	anchors = drift.Reconcile(anchors, rule, keep)
 	for _, node := range applies {
 		anchors = drift.Upsert(anchors, drift.Stamp(main, g, rule, text, graph.NodeID(node)))
 	}

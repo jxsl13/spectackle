@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jxsl13/spectacle/internal/coord"
+	"github.com/jxsl13/spectacle/internal/drift"
 	"github.com/jxsl13/spectacle/internal/graph"
 	"github.com/jxsl13/spectacle/internal/item"
 	"github.com/jxsl13/spectacle/internal/journal"
@@ -158,5 +159,59 @@ func TestRunSyncsItemOnDecideOnlyDelta(t *testing.T) {
 	}
 	if !ok || got.State != item.StateActive || !got.Override {
 		t.Fatalf("decide-only delta not reconciled onto main: %+v ok=%v", got, ok)
+	}
+}
+
+// TestRunReconcilesStaleAnchorsOnRuleEdit is the regression test for T-0044
+// (DRF-001): replaying a worktree journal that adds a rule anchored to two
+// nodes and then edits it down to one node must converge main's
+// anchors.tsv to exactly the final applies set — not merely upsert the
+// surviving node and leave the dropped one's row stale forever, which is
+// what left IDX-001's mistyped go:index.Indexer.IndexAll row behind live in
+// this repo.
+func TestRunReconcilesStaleAnchorsOnRuleEdit(t *testing.T) {
+	main, base := mainRepo(t)
+
+	wtDir := t.TempDir()
+	wtWS := workspace.Root{Dir: wtDir}
+	if err := wtWS.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+
+	const sentence = "The system SHALL persist the snapshot to `disk.log`."
+	if err := journal.Append(wtWS, "", journal.Event{
+		Ev: journal.EvRule, Op: "add", Rule: "DRF-PRB-001", Txt: sentence,
+		Ap: []string{"go:pkg.A", "go:pkg.B"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(wtWS, "", journal.Event{
+		Ev: journal.EvRule, Op: "edit", Rule: "DRF-PRB-001", Txt: sentence,
+		Ap: []string{"go:pkg.B"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cd := openCoord(t, main)
+	rep, err := Run(main, wtWS, "DRF-PRB-001", base, cd, graph.NewMem())
+	if err != nil {
+		t.Fatalf("Run returned error replaying a rule add+edit: %v", err)
+	}
+	if rep.Rules != 2 {
+		t.Fatalf("Rules = %d, want 2", rep.Rules)
+	}
+
+	anchors, err := drift.Load(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]bool{}
+	for _, a := range anchors {
+		if a.Rule == "DRF-PRB-001" {
+			rows[string(a.Node)] = true
+		}
+	}
+	if len(rows) != 1 || !rows["go:pkg.B"] {
+		t.Fatalf("replayed edit must reconcile away go:pkg.A, leaving only go:pkg.B: %v", rows)
 	}
 }

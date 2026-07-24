@@ -78,3 +78,74 @@ func TestClassify(t *testing.T) {
 		t.Fatalf("empty graph should degrade to Pending, got %s", rs[0].Class)
 	}
 }
+
+// TestReconcile: DRF-001 regression — a rule edit (or retire) must drop the
+// anchor rows of nodes no longer in its applies set, not just add the new
+// ones, or a mistyped-then-corrected node leaves a permanently stale row.
+func TestReconcile(t *testing.T) {
+	mk := func(rule string, node graph.NodeID) Anchor {
+		return Anchor{Rule: rule, Node: node, File: "-", CHash: "-", RHash: "x"}
+	}
+	cases := []struct {
+		name    string
+		anchors []Anchor
+		rule    string
+		keep    []graph.NodeID
+		want    []Anchor
+	}{
+		{
+			name: "drop one of two",
+			anchors: []Anchor{
+				mk("X-001", "go:pkg.A"),
+				mk("X-001", "go:pkg.B"),
+			},
+			rule: "X-001",
+			keep: []graph.NodeID{"go:pkg.B"},
+			want: []Anchor{mk("X-001", "go:pkg.B")},
+		},
+		{
+			name: "keep all",
+			anchors: []Anchor{
+				mk("X-001", "go:pkg.A"),
+				mk("X-001", "go:pkg.B"),
+			},
+			rule: "X-001",
+			keep: []graph.NodeID{"go:pkg.A", "go:pkg.B"},
+			want: []Anchor{mk("X-001", "go:pkg.A"), mk("X-001", "go:pkg.B")},
+		},
+		{
+			name: "rule absent leaves other rules untouched",
+			anchors: []Anchor{
+				mk("X-001", "go:pkg.A"),
+				mk("Y-002", "go:pkg.C"),
+			},
+			rule: "X-001",
+			keep: nil,
+			want: []Anchor{mk("Y-002", "go:pkg.C")},
+		},
+		{
+			name: "empty keep drops all rows of the rule",
+			anchors: []Anchor{
+				mk("X-001", "go:pkg.A"),
+				mk("X-001", "go:pkg.B"),
+				mk("Y-002", "go:pkg.C"),
+			},
+			rule: "X-001",
+			keep: nil,
+			want: []Anchor{mk("Y-002", "go:pkg.C")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Reconcile(tc.anchors, tc.rule, tc.keep)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %d anchors, want %d: %+v", len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("anchor %d = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
