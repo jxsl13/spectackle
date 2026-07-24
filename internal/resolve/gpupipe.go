@@ -22,9 +22,16 @@ import (
 //     newFunctionWithName: (ObjC) is matched against [[kernel]] entry points
 //     of the same name in .metal files -> ELaunch edge from the enclosing host
 //     function to "msl:<name>".
-//   - Vulkan: string literals / VkPipelineShaderStageCreateInfo pName values
-//     near vkCreate*Pipelines calls are matched against SPIR-V / GLSL entry
-//     points (still future).
+//   - Vulkan: host code binds a compiled SPIR-V module blob by FILE PATH via
+//     vkCreateShaderModule and names the entry point through
+//     VkPipelineShaderStageCreateInfo.pName (almost always the literal "main") —
+//     unlike Metal's newFunctionWithName:@"<kernelName>", there is no
+//     host-side kernel-name literal to string-match against a glsl entry point.
+//     A meaningful Vulkan launch edge needs module-provenance tracking (which
+//     .spv/.comp compiles into which module handle), a separate harder problem
+//     than the line-scanner name-match this resolver does for Metal. GLSL shader
+//     SOURCE is now parsed (glsl: nodes, P-0046) so the target nodes exist;
+//     only the host->module binding is unresolved.
 //   - These edges are heuristic string matches (RSV-002): the resolver
 //     emits edges only — it never mints or mutates nodes (RSV-001).
 type GpuPipeResolver struct{}
