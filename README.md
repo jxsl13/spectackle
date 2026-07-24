@@ -406,7 +406,26 @@ warm cache instead. (A single `call` invocation with a multi-line stdin
 batch already shares one session and one index — this section is for
 sharing that index *across* invocations too.)
 
-Start it bound to localhost, with a pidfile so it has a stoppable handle:
+**Recommended: `make dev`.** In this repo, `make dev` builds the binary,
+stops any resident server already running for this workspace (recovering
+cleanly from a stale pidfile if one is left over), starts a fresh one bound
+to localhost with a pidfile, and blocks until it actually answers a real
+`call state` — not just until the port is listening — before returning.
+Idempotent: run it again after every change and it leaves exactly one
+resident server, never two:
+
+```sh
+make dev         # build + (re)start, blocks until ready
+make dev-status   # is one running right now?
+make dev-stop      # stop it
+```
+
+Override the address or pidfile path with `DEV_ADDR=...` /
+`DEV_PIDFILE=...` if the defaults (`127.0.0.1:7331`,
+`bin/spectackle-dev.pid`) collide with something else on your machine.
+
+Not using make? Start it bound to localhost by hand, with a pidfile so it
+has a stoppable handle:
 
 ```sh
 ./bin/spectackle serve -root . -http 127.0.0.1:7331 -pidfile .spectackle/serve.pid &

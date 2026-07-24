@@ -46,6 +46,24 @@ before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml
 re-runs the same steps plus `make fuzz` and the self-hosting `check` gate, and does not
 merge red.
 
+## Rebuild and restart the resident server after every merged change
+
+This repository develops itself with itself: the resident `spectackle
+serve -http` process an implementer or orchestrator talks to over MCP *is*
+the product under change, not a bystander to it. After every merged
+feature or fix, run `make dev` to rebuild the binary and restart that
+resident server against the code currently in the tree. The reason to do
+this is stronger than "keep things tidy": a stale binary doesn't fail
+loudly — it keeps answering plausibly, from tools, code paths, and bug
+fixes that no longer exist in the tree, and a wrong-but-plausible answer
+from the very server coordinating the swarm reads as a defect in whatever
+feature you just shipped, not as what it actually is (a rebuild you
+skipped). `make dev` is idempotent (safe to run again even if a server is
+already resident) and blocks until the new process actually answers a real
+tool call, so there is no window where you believe you're talking to fresh
+code but aren't. Use `make dev-status` to check what's currently resident,
+and `make dev-stop` to tear it down without restarting.
+
 ## `.spectackle/` is server-written only
 
 Never hand-edit files under `.spectackle/` — they are the server's
