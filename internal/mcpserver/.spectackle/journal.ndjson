@@ -111,3 +111,9 @@
 {"t":"2026-07-24T18:59:14Z","eid":"33074c44758319d2","ag":"orchestrator","ev":"drift","dir":"internal/mcpserver","rule":"MCP-001","node":"go:mcpserver.Server.decideAsk","cls":"healed","oh":"9bcb77c28bd01671","nh":"96fe1a22c9573980"}
 {"t":"2026-07-24T18:59:14Z","eid":"a880a3efd804622b","ag":"orchestrator","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"6b1c3d1fa2f29855","nh":"1a91bee040496860"}
 {"t":"2026-07-24T19:30:37Z","eid":"ab00490f89716963","ag":"ag-08df","ev":"drift","dir":"internal/mcpserver","rule":"MCP-005","node":"go:mcpserver.Server.compact","cls":"healed","oh":"47a4d5e4cde3e53c","nh":"6278cc977ba47715"}
+{"t":"2026-07-24T20:27:46Z","eid":"c143230f978707a0","ag":"orchestrator","ev":"create","id":"P-0071","k":"proposal","ti":"records are written in American English: mandate it in the manifest and the generated harness surfaces","dir":"internal/mcpserver"}
+{"t":"2026-07-24T20:28:02Z","eid":"f18e92016fdfa387","ag":"orchestrator","ev":"grill","id":"P-0071","dir":"internal/mcpserver","gr":"2026-07-24"}
+{"t":"2026-07-24T20:29:02Z","eid":"b59a024c07cd599b","ag":"orchestrator","ev":"rule","dir":"internal/mcpserver","op":"add","rule":"MCP-007","txt":"The server instructions manifest SHALL carry a RECORDS paragraph requiring American English, compacted substance, and no verbatim quotes in every item body.","item":"P-0071"}
+{"t":"2026-07-24T20:29:02Z","eid":"a5bd8b5c376f4bf9","ag":"orchestrator","ev":"create","id":"T-0101","k":"task","ti":"RECORDS paragraph mandates American English; regenerate the harness surfaces","dir":"internal/mcpserver"}
+{"t":"2026-07-24T20:29:09Z","eid":"fcbc04187ab0ece8","ag":"orchestrator","ev":"move","id":"P-0071","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T20:29:09Z","eid":"ffe4d727fb033828","ag":"orchestrator","ev":"move","id":"T-0101","dir":"internal/mcpserver","fr":"draft","to":"active"}
