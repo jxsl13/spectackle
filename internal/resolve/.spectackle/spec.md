@@ -10,3 +10,13 @@ The Binding resolvers SHALL only add cross-language edges between nodes the pars
 
 ## RSV-002 {applies: go:resolve.GpuPipeResolver.Resolve}
 WHEN an Objective-C host body contains a newFunctionWithName string literal, the gpupipe resolver SHALL emit one deduplicated ELaunch edge from the enclosing host symbol to the msl kernel of that name and never mint or mutate nodes.
+
+## RSV-003
+WHEN a host file binds a SPIR-V shader path through vkCreateShaderModule to a VkPipelineShaderStageCreateInfo pName, the vulkan resolver SHALL emit one ELaunch edge to the single glsl node found by graph lookup, never by minting an ID.
+
+Rationale: GLSL is QualFlat: shader mains collide to glsl:main~N in file order, so only a lookup filtered by name and file stem yields the right target. RSV-001 forbids minting.
+
+## RSV-004
+IF the chain from shader file to entry point is incomplete or resolves to more than one glsl node, THEN the vulkan resolver SHALL return zero `graph.Edge` values for that dispatch.
+
+Rationale: Silence beats a wrong cross-language edge; ambiguity is not a binding.

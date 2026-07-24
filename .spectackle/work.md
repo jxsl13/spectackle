@@ -61,3 +61,60 @@ option: adopt malivvan/tree-sitter (wazero/wasm) as-is for the C parser
 option: invest in a wasi-sdk build pipeline and a batched-read binding now
 option: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
 choice: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
+
+## P-0070 purge stale pre-rename D-000x references from prose and comments
+kind: proposal
+state: active
+created: 2026-07-24
+grilled: 2026-07-24
+targets: docs/roadmap.md, docs/design-wasm-parsers.md, internal/mcpserver/decide.go
+
+The D->ADR rename (P-0056, T-0084) and the hand migration under P-0066 rewrote the records, but three prose sites still name identifiers that no longer resolve to anything: docs/roadmap.md M6 cell says "wazero deferred per D-0002"; docs/design-wasm-parsers.md heads a section "Re-measurement (D-0004, reopen-poc)" and repeats "reopening D-0004"; internal/mcpserver/decide.go carries a comment naming "this repo's D-0002" as its worked example. A reader following any of them gets nothing back from get or find.
+
+Two of the three also carry stale SUBSTANCE, not just a stale id: the M6 roadmap cell still describes wazero as deferred, which ADR-0011 (stay on cgo past M6) and then ADR-0010 (pursue wasi-sdk grammars for CUDA/ObjC first, correctness-first) have superseded. Correcting the id without correcting the verdict would leave the roadmap lying with a valid link.
+
+Scope is prose only. Test fixtures that use D-0001/D-0002 as arbitrary well-formed identifier strings (internal/journal, internal/item, internal/replay, internal/lifecycle tests) are NOT in scope: item.IDRe accepts any uppercase prefix by design, and those tests assert the grammar, not this repo's records.
+
+## T-0100 retire the three stale D-000x prose references and refresh the M6 roadmap verdict
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0070
+targets: docs/roadmap.md, docs/design-wasm-parsers.md, internal/mcpserver/decide.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body before touching anything; do not explore beyond the files named here.
+
+GOAL
+The D->ADR rename and the authorized one-time hand migration rewrote the records but left three prose sites naming identifiers that no longer resolve. Fix the ids AND, where the surrounding sentence is also stale, the substance.
+
+SCOPE (disjoint, lease exactly these three)
+  docs/roadmap.md
+  docs/design-wasm-parsers.md
+  internal/mcpserver/decide.go   (comment text only, no code change)
+Do NOT touch internal/resolve — a sibling task owns that whole directory right now. Do NOT touch test fixtures in internal/journal, internal/item, internal/replay or internal/lifecycle: they use D-0001/D-0002 as arbitrary well-formed identifier strings to assert item.IDRe's grammar, which accepts any uppercase prefix by design. Rewriting them would weaken a grammar test to chase a cosmetic match. .spectackle files are server-owned: never edit them by hand.
+
+GROUND TRUTH (read these two records first, via the MCP get tool, not by grepping files)
+  get id=ADR-0010  -> question: cgo vs wazero for C/C++ vs wasi-sdk grammars for CUDA/ObjC first. choice: secure or hand-compile wasi-sdk grammar wasm for CUDA/ObjC as the first buildable slice, then adopt wazero/tree-sitter for fidelity. status accepted. It explicitly supersedes the earlier defer verdict.
+  get id=ADR-0011  -> question: adopt malivvan/tree-sitter now, invest in a wasi-sdk pipeline, or stay on cgo past M6. choice: stay on cgo past M6. status accepted, and its own consequences field records that it is SUPERSEDED by the correctness-first re-reading in ADR-0010.
+The two together are the current position: cgo stays for now, wazero is not abandoned and not merely deferred — the blocking work is named and scoped (wasi-sdk-era grammar wasm for CUDA and ObjC does not exist yet).
+
+EDITS
+1. docs/roadmap.md, the M6 row's parenthetical. It currently ends "wazero deferred per D-0002". Replace that clause so it states the real position: cgo stays past M6 per ADR-0011, and wazero adoption is gated on wasi-sdk-era CUDA/ObjC grammar wasm existing per ADR-0010. Keep the cell's existing terse style and the rest of its content (cookbook live, Fortran/ObjC/Metal parsers shipped, GLSL parsed, 30 languages, Vulkan host-binding resolver). Note that the Vulkan clause is being changed by a sibling task in a separate worktree — leave the Vulkan wording exactly as it is so the two patches merge cleanly.
+2. docs/design-wasm-parsers.md line ~141, the heading "## Re-measurement (D-0004, reopen-poc)", and line ~191 "reopening D-0004". D-0004 was the reopen-the-PoC decision; in the migrated records that line of decision is carried by ADR-0011 (the PoC scoring) feeding ADR-0010 (the correctness-first re-read). Point both mentions at the ADR that actually holds the content the sentence is making a claim about; if one sentence spans both, name both. Do not restructure the document.
+3. internal/mcpserver/decide.go around line 229, the comment naming "this repo's D-0002" as a worked example of an item whose option set changed without migration. Update the identifier to whichever migrated ADR is that example, or, if no migrated ADR matches the described shape, rewrite the sentence to describe the shape without naming a record at all. Verify by actually reading the four ADRs (get id=ADR-0008 .. ADR-0011) — do not guess a number. This is a comment-only edit: the surrounding code must be byte-identical.
+
+VERIFY
+  go build ./...
+  go test ./... 
+  ./bin/spectackle lint
+  grep -rn "D-00[0-9][0-9]" docs/ internal/mcpserver/   -> must return nothing
+  grep -rn "ADR-00" docs/roadmap.md docs/design-wasm-parsers.md internal/mcpserver/decide.go   -> every id printed must exist; confirm each with get id=<ADR-id>
+
+EXIT CRITERION
+The two greps above behave as stated, every ADR id named in prose resolves through get, ./... green, lint clean. Then move the task to done.
+
+ROLLBACK
+Prose and one comment only; git checkout of the three files restores the prior state. No code path, schema, record or anchor is touched — the anchors.tsv rows for internal/mcpserver are keyed on code spans, and a comment-only edit inside a function body may still shift a span hash, so if check reports drift on an internal/mcpserver rule after this change, report it rather than healing it yourself.
+
+HANDOFF
+lease claim the three paths under this task id, work op=start, implement, run the verify block, work op=submit, then lease release. Report the exact grep output.
