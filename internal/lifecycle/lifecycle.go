@@ -5,13 +5,21 @@
 // loop (dense records, plain language — no encoding tricks).
 //
 // States: draft -> submitted -> approved -> active -> done -> archived,
-// plus rejected. Guards are enforced here, server-side:
-//   - rejected REQUIRES a note (the rejection corpus is a product feature);
+// plus rejected. Transitions follow a total order over the six main states
+// (draft < submitted < approved < active < done < archived): forward jumps
+// are always legal — every hop is optional, so draft->active or
+// approved->archived is a single move call. Guards are enforced here,
+// server-side:
+//   - rejected is reachable from any of the six states except archived, and
+//     REQUIRES a note (the rejection corpus is a product feature);
 //   - rejected is REVOCABLE (e.g. the rejection lacked information): the
 //     reject journal event snapshots the full item, so `move` can restore it
-//     into any previous state — and reject events survive every compaction,
-//     so revocability is permanent;
-//   - archived only from done, and a proposal only without open children;
+//     into draft, submitted, approved or active (never done/archived) — and
+//     reject events survive every compaction, so revocability is permanent;
+//   - done -> active (reopen) is the one backward hop kept outside rejection;
+//   - archived requires no open children; skipping straight to archived
+//     (e.g. from active) implies done and runs the archive effects once;
+//   - archived is terminal;
 //   - rejected/archived items leave work.md — their summaries live in the
 //     journal, searchable via `find scope=rejection|history`.
 package lifecycle
@@ -28,23 +36,52 @@ import (
 	"github.com/jxsl13/spectacle/internal/workspace"
 )
 
-// transitions is the allowed state machine (same for all kinds; proposals
-// are steered through submitted/approved by the server description).
-var transitions = map[string][]string{
-	item.StateDraft:     {item.StateSubmitted, item.StateActive, item.StateRejected},
-	item.StateSubmitted: {item.StateApproved, item.StateRejected},
-	item.StateApproved:  {item.StateActive},
-	item.StateActive:    {item.StateDone, item.StateRejected},
-	item.StateDone:      {item.StateArchived, item.StateActive},
-	// revocation: a rejection made with too little information can be undone
-	item.StateRejected: {item.StateDraft, item.StateSubmitted, item.StateApproved, item.StateActive},
+// stateOrder is the total order over the six main states: any move from an
+// earlier state to a later one is legal in one call (skips allowed).
+// rejected sits outside the order — it is handled separately below.
+var stateOrder = map[string]int{
+	item.StateDraft:     0,
+	item.StateSubmitted: 1,
+	item.StateApproved:  2,
+	item.StateActive:    3,
+	item.StateDone:      4,
+	item.StateArchived:  5,
 }
 
-// Allowed returns the transitions available from a state.
-func Allowed(from string) []string { return transitions[from] }
+// orderedStates lists the six main states in ascending order, for building
+// Allowed() results and error messages.
+var orderedStates = []string{
+	item.StateDraft, item.StateSubmitted, item.StateApproved,
+	item.StateActive, item.StateDone, item.StateArchived,
+}
+
+// Allowed returns the transitions available from a state, in order:
+// remaining forward states, then the done->active reopen special case,
+// then rejected (unless from is archived or already rejected). rejected
+// itself only allows revocation into draft/submitted/approved/active.
+func Allowed(from string) []string {
+	if from == item.StateRejected {
+		return []string{item.StateDraft, item.StateSubmitted, item.StateApproved, item.StateActive}
+	}
+	var out []string
+	if ord, ok := stateOrder[from]; ok {
+		for _, s := range orderedStates {
+			if stateOrder[s] > ord {
+				out = append(out, s)
+			}
+		}
+	}
+	if from == item.StateDone {
+		out = append(out, item.StateActive) // reopen: the one kept backward hop
+	}
+	if from != item.StateArchived {
+		out = append(out, item.StateRejected)
+	}
+	return out
+}
 
 func allowed(from, to string) bool {
-	for _, t := range transitions[from] {
+	for _, t := range Allowed(from) {
 		if t == to {
 			return true
 		}

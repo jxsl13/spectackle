@@ -56,22 +56,127 @@ func TestMoveGuards(t *testing.T) {
 	root := ws(t)
 	Draft(root, nil, "proposal", "p", "", "", "", nil)
 
-	// illegal transition names the allowed set
-	if _, err := Move(root, "P-0001", item.StateDone, ""); err == nil || !strings.Contains(err.Error(), "allowed") {
-		t.Fatalf("illegal transition: %v", err)
+	// forward skips are legal now (draft -> done in one call)
+	if it, err := Move(root, "P-0001", item.StateDone, ""); err != nil || it.State != item.StateDone {
+		t.Fatalf("forward skip draft->done: %+v, %v", it, err)
+	}
+	// backward, non-revocation transitions still name the allowed set
+	if _, err := Move(root, "P-0001", item.StateSubmitted, ""); err == nil || !strings.Contains(err.Error(), "allowed") {
+		t.Fatalf("illegal backward transition: %v", err)
 	}
 	// rejection requires a note
 	if _, err := Move(root, "P-0001", item.StateRejected, " "); err == nil || !strings.Contains(err.Error(), "note") {
 		t.Fatalf("noteless rejection: %v", err)
 	}
-	// archive requires done
-	Move(root, "P-0001", item.StateSubmitted, "")
-	if _, err := Move(root, "P-0001", item.StateArchived, ""); err == nil {
-		t.Fatal("archive from submitted accepted")
-	}
 	// unknown item
 	if _, err := Move(root, "P-4242", item.StateActive, ""); err == nil {
 		t.Fatal("unknown item accepted")
+	}
+}
+
+// TestForwardSkipShortPath drives a proposal straight from draft to archived
+// in two calls (draft->active, active->archived) and checks the archive
+// effects fire exactly once even though `done` was never visited explicitly.
+func TestForwardSkipShortPath(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "proposal", "fast path", "Delta text.", "gpu", "", nil)
+
+	if it, err := Move(root, "P-0001", item.StateActive, ""); err != nil || it.State != item.StateActive {
+		t.Fatalf("draft->active: %+v, %v", it, err)
+	}
+	if it, err := Move(root, "P-0001", item.StateArchived, "shipped fast"); err != nil || it.State != item.StateArchived {
+		t.Fatalf("active->archived (implies done): %+v, %v", it, err)
+	}
+	// intent line merged into spec.md
+	raw, _ := os.ReadFile(root.SpecPath("gpu"))
+	if !strings.Contains(string(raw), "P-0001 fast path: shipped fast") {
+		t.Fatalf("intent merge missing:\n%s", raw)
+	}
+	// item left work.md
+	if _, ok, _ := item.Get(root, "P-0001"); ok {
+		t.Fatal("archived item still in work.md")
+	}
+	// archive effect ran exactly once
+	archived := 0
+	events, _ := journal.ReadAll(root)
+	for _, e := range events {
+		if e.Ev == journal.EvArchive {
+			archived++
+		}
+	}
+	if archived != 1 {
+		t.Fatalf("expected 1 archive event, got %d", archived)
+	}
+}
+
+// TestForwardSkipSingleCall checks that a single move can jump two states
+// ahead (draft -> approved), skipping submitted.
+func TestForwardSkipSingleCall(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "proposal", "skip submitted", "", "", "", nil)
+	it, err := Move(root, "P-0001", item.StateApproved, "")
+	if err != nil || it.State != item.StateApproved {
+		t.Fatalf("draft->approved: %+v, %v", it, err)
+	}
+}
+
+// TestDoneRejectAndRevoke checks done items can be rejected (with a note),
+// that the rejection snapshots the item, and that it can be revoked back
+// into active (never straight back into done).
+func TestDoneRejectAndRevoke(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "task", "flaky check", "", "", "", nil)
+	Move(root, "T-0001", item.StateDone, "")
+
+	if _, err := Move(root, "T-0001", item.StateRejected, ""); err == nil {
+		t.Fatal("noteless done->rejected accepted")
+	}
+	if it, err := Move(root, "T-0001", item.StateRejected, "flaked in CI"); err != nil || it.State != item.StateRejected {
+		t.Fatalf("done->rejected: %+v, %v", it, err)
+	}
+	events, _ := journal.ReadAll(root)
+	var rej *journal.Event
+	for i := range events {
+		if events[i].Ev == journal.EvReject {
+			rej = &events[i]
+		}
+	}
+	if rej == nil || rej.Note != "flaked in CI" {
+		t.Fatalf("reject snapshot incomplete: %+v", rej)
+	}
+	// rejected -> done stays forbidden
+	if _, err := Move(root, "T-0001", item.StateDone, ""); err == nil {
+		t.Fatal("rejected->done accepted")
+	}
+	// revocation lands back in active, not done
+	it, err := Move(root, "T-0001", item.StateActive, "")
+	if err != nil || it.State != item.StateActive {
+		t.Fatalf("rejected->active revocation: %+v, %v", it, err)
+	}
+}
+
+// TestArchivedIsTerminal checks archived items reject every further move.
+func TestArchivedIsTerminal(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "task", "terminal", "", "", "", nil)
+	Move(root, "T-0001", item.StateArchived, "")
+
+	for _, to := range []string{item.StateDraft, item.StateSubmitted, item.StateApproved, item.StateActive, item.StateDone, item.StateRejected} {
+		if _, err := Move(root, "T-0001", to, "note"); err == nil {
+			t.Fatalf("archived->%s accepted", to)
+		}
+	}
+}
+
+// TestDoneActiveReopen checks the one preserved backward hop still works
+// alongside the new forward-skip rules.
+func TestDoneActiveReopen(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "task", "reopen me", "", "", "", nil)
+	Move(root, "T-0001", item.StateDone, "")
+	it, err := Move(root, "T-0001", item.StateActive, "")
+	if err != nil || it.State != item.StateActive {
+		t.Fatalf("done->active reopen: %+v, %v", it, err)
 	}
 }
 

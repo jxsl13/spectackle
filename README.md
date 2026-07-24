@@ -39,6 +39,34 @@ self-bootstrapping, no docs needed):
 6. `move to=done` → `to=archived` — the delta merges into the living spec;
    `compact` folds noise (rejections are never lost).
 
+### Lifecycle — the finite automaton
+
+Every hop is optional: any forward jump is a single move call (token
+economy); only rejection needs a note and only archive has a guard (no open
+children).
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> draft: draft tool
+    draft --> submitted
+    submitted --> approved
+    approved --> active
+    active --> done: check ok
+    done --> archived: delta merges into spec.md
+    done --> active: reopen
+    draft --> active: fast path (skips legal from every state)
+    active --> archived: implies done
+    draft --> rejected
+    submitted --> rejected
+    approved --> rejected
+    active --> rejected
+    done --> rejected: note required
+    rejected --> draft: revocable
+    rejected --> active
+    archived --> [*]
+```
+
 The LLM **never writes spec files**: everything lives in versioned
 `.spectacle/` folders (max three bundle files per context dir — no file
 sprawl), written exclusively by the server; the SQLite/FTS5 cache underneath

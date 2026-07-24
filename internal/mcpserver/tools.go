@@ -132,7 +132,7 @@ func (s *Server) registerTools() {
 		})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "move",
-		Description: "Transition a lifecycle item. rejected REQUIRES note (item leaves work.md; summary stays searchable via find scope=rejection) and is revocable: move the rejected ID back to any previous state. archived requires done + no open children; merges the delta into spec.md. approve/reject only on explicit user instruction."},
+		Description: "Transition a lifecycle item. States are totally ordered (draft<submitted<approved<active<done<archived): ANY forward skip is one call (draft→active, active→archived implies done). rejected REQUIRES note (item leaves work.md; summary stays searchable via find scope=rejection) and is revocable back to draft/submitted/approved/active. archived needs no open children; merges the delta into spec.md. approve/reject only on explicit user instruction."},
 		gate(s, s.move))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "check",
@@ -428,12 +428,15 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		return text(b.String())
 	}
 
-	// context pack
+	// context pack — sections are omitted entirely when empty (no filler
+	// lines); root-scoped rules collapse to one ID-only r-root record since
+	// their full text is stable knowledge available via get.
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	b.WriteString("#impact\n")
+
+	var impact strings.Builder
 	var seeds []graph.NodeID
 	for _, t := range targets {
 		if !strings.ContainsAny(t, "/") && strings.Contains(t, ":") {
@@ -441,57 +444,78 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	nodes, edges := s.g.Impact(seeds, 2, graph.Both, nil)
-	if len(nodes) == 0 {
-		b.WriteString("ok radius empty (no indexed nodes among targets; path targets still resolve contracts)\n")
-	}
 	for _, n := range nodes {
-		b.WriteString(nodeLine(n) + "\n")
+		impact.WriteString(nodeLine(n) + "\n")
 	}
 	for _, e := range edges {
-		fmt.Fprintf(&b, "e %s %s %s via=%s:%d\n", e.Src, e.Kind, e.Dst, e.File, e.Line)
+		fmt.Fprintf(&impact, "e %s %s %s via=%s:%d\n", e.Src, e.Kind, e.Dst, e.File, e.Line)
+	}
+	if impact.Len() > 0 {
+		b.WriteString("#impact\n")
+		b.WriteString(impact.String())
 	}
 
-	b.WriteString("#contracts\n")
 	seen := map[string]bool{}
+	rootSeen := map[string]bool{}
 	var rl []string
+	var rootIDs []string
 	for _, t := range targets {
 		if p, ok := targetPath(t); ok {
-			for _, r := range c.ForPath(p) {
-				if !seen[r.ID] {
-					seen[r.ID] = true
-					rl = append(rl, ruleLine(r))
-				}
-			}
+			splitContractRules(c.ForPath(p), seen, rootSeen, &rl, &rootIDs)
 		}
 	}
-	if len(rl) == 0 {
+	if len(rl) == 0 && len(rootIDs) == 0 {
 		probe := it.Dir + "/_"
 		if it.Dir == "" {
 			probe = "_"
 		}
-		for _, r := range c.ForPath(probe) {
-			rl = append(rl, ruleLine(r))
-		}
+		splitContractRules(c.ForPath(probe), nil, rootSeen, &rl, &rootIDs)
 	}
-	if len(rl) == 0 {
-		b.WriteString("ok no applicable rules\n")
+	var contracts strings.Builder
+	if len(rootIDs) > 0 {
+		contracts.WriteString("r-root " + strings.Join(rootIDs, " ") + "\n")
 	}
 	for _, l := range rl {
-		b.WriteString(l + "\n")
+		contracts.WriteString(l + "\n")
+	}
+	if contracts.Len() > 0 {
+		b.WriteString("#contracts\n")
+		b.WriteString(contracts.String())
 	}
 
-	b.WriteString("#rejections\n")
 	docs, err := s.cache.Search(in.Title+" "+strings.Join(targets, " "), []string{"rejection"}, 5)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(docs) == 0 {
-		b.WriteString("ok none similar\n")
-	}
-	for _, d := range docs {
-		fmt.Fprintf(&b, "j %s %s :: %s\n", d.ID, d.Title, d.Body)
+	if len(docs) > 0 {
+		b.WriteString("#rejections\n")
+		for _, d := range docs {
+			fmt.Fprintf(&b, "j %s %s :: %s\n", d.ID, d.Title, d.Body)
+		}
 	}
 	return text(b.String())
+}
+
+// splitContractRules buckets resolved rules into full r-lines (rl) and
+// root-scoped IDs (rootIDs), each deduped by rule ID. seen may be nil to
+// skip non-root dedup (fresh probe list); rootSeen must not be nil.
+func splitContractRules(rules []spec.ResolvedRule, seen, rootSeen map[string]bool, rl, rootIDs *[]string) {
+	for _, r := range rules {
+		if r.ScopeDir == "." {
+			if !rootSeen[r.ID] {
+				rootSeen[r.ID] = true
+				*rootIDs = append(*rootIDs, r.ID)
+			}
+			continue
+		}
+		if seen != nil {
+			if seen[r.ID] {
+				continue
+			}
+			seen[r.ID] = true
+		}
+		*rl = append(*rl, ruleLine(r))
+	}
 }
 
 // ---- rule ----

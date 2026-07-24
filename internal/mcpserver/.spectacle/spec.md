@@ -21,3 +21,8 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 ## intent
 - P-0003 code search matches file paths and signatures; drop stale M1 placeholder texts: find scope=code matches file paths and signatures (SPX-GRA-003); stale M1 placeholder texts removed
 - P-0004 swarm registry hygiene: sweep removes stale agents, close deregisters, lease guidance: sweep deletes stale agent rows (SPX-SWM-006), close deregisters, heartbeat re-registers, lease release guidance in manifest+description
+
+## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
+WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
+
+Rationale: root rules are stable knowledge after the first get; empty sections are pure filler.

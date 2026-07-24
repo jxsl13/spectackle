@@ -14,6 +14,7 @@ func (g *memGraph) Impact(seeds []NodeID, depth int, dir Direction, kinds []Edge
 		dist int
 	}
 	seen := map[NodeID]bool{}
+	seenEdge := map[Edge]bool{}
 	var nodes []Node
 	var edges []Edge
 	queue := make([]qitem, 0, len(seeds))
@@ -31,7 +32,10 @@ func (g *memGraph) Impact(seeds []NodeID, depth int, dir Direction, kinds []Edge
 			continue
 		}
 		for _, e := range g.neighborsLocked(cur.id, dir, kinds) {
-			edges = append(edges, e)
+			if !seenEdge[e] {
+				seenEdge[e] = true
+				edges = append(edges, e)
+			}
 			next := e.Dst
 			if e.Dst == cur.id { // incoming edge during In/Both traversal
 				next = e.Src

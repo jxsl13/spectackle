@@ -1,4 +1,5 @@
 # rule	node	file	span	chash	rhash
 SXP-API-002	go:saxpy.Saxpy	examples/saxpy/saxpy/saxpy.go	21-36	1eda819b08a12401	0b71e9ee68c0437c
 SPX-GRA-003	go:graph.memGraph.Find	internal/graph/graph.go	172-212	272529e2294be215	91c932df861f8ea6
-SPX-SWM-006	go:coord.DB.Sweep	internal/coord/coord.go	206-254	98b5195b2813ba92	a7e101002bd5cdba
+SPX-SWM-006	go:coord.DB.Sweep	internal/coord/coord.go	208-256	98b5195b2813ba92	a7e101002bd5cdba
+SPX-MCP-004	go:mcpserver.Server.draft	internal/mcpserver/tools.go	413-497	b4cc6814eb43abf1	323843ad5b0aa462

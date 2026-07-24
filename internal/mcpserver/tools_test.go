@@ -90,9 +90,18 @@ func TestLifecycleE2E(t *testing.T) {
 	if !strings.Contains(out, "i P-0001 proposal draft") {
 		t.Fatalf("draft: %q", out)
 	}
+	// output diet (T-0015): empty sections are omitted entirely, not filled
+	// with "ok ..." filler — an empty tempdir workspace has no indexed nodes,
+	// no applicable rules and no similar rejections, so none of the three
+	// context-pack headers should appear.
 	for _, sec := range []string{"#impact", "#contracts", "#rejections"} {
-		if !strings.Contains(out, sec) {
-			t.Fatalf("draft missing context pack section %s: %q", sec, out)
+		if strings.Contains(out, sec) {
+			t.Fatalf("draft emitted empty context pack section %s: %q", sec, out)
+		}
+	}
+	for _, filler := range []string{"ok radius empty", "ok no applicable rules", "ok none similar"} {
+		if strings.Contains(out, filler) {
+			t.Fatalf("draft emitted filler line %q: %q", filler, out)
 		}
 	}
 
@@ -114,15 +123,11 @@ func TestLifecycleE2E(t *testing.T) {
 		}
 	}
 
-	// archive blocked while proposal not done; done blocked? active->done ok
-	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived"})
-	if !strings.Contains(out, "! ARG E") {
-		t.Fatalf("archive from active must fail: %q", out)
-	}
-	callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "done"})
+	// archive is a legal forward skip straight from active (implies done);
+	// the only guard left is open children, and T-0001 is already done
 	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived"})
 	if !strings.Contains(out, "archived") {
-		t.Fatalf("archive: %q", out)
+		t.Fatalf("archive from active (forward skip, implies done): %q", out)
 	}
 
 	// work.md is empty again; intent carries the merged delta
@@ -286,6 +291,53 @@ func TestCheckOnOwnRepo(t *testing.T) {
 	out := callText(t, sess, "check", map[string]any{})
 	if strings.Contains(out, "! E") || strings.Contains(out, "d changed") || strings.Contains(out, "d gone") {
 		t.Fatalf("check on own repo not clean:\n%s", out)
+	}
+}
+
+// TestDraftContextPackElision (T-0015): root-scoped rules collapse to one
+// r-root ID record (no full text repeated), and a draft with no similar
+// rejections omits the #rejections header entirely.
+func TestDraftContextPackElision(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	// author one root-scoped rule (dir="" => root context)
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "SPX-ARC",
+		"system":   "the test workspace root",
+		"response": "log every write to a file named `audit.log`",
+	})
+	if !strings.Contains(out, "ok SPX-ARC-001") {
+		t.Fatalf("root rule add: %q", out)
+	}
+
+	// a path target with no nested .spectacle context resolves only the
+	// root-scoped rule above
+	out = callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "output diet probe",
+		"targets": []string{"pkg/nested/file.go"},
+	})
+	if strings.Contains(out, "#rejections") {
+		t.Fatalf("draft with no similar rejections must omit #rejections: %q", out)
+	}
+	if !strings.Contains(out, "#contracts") {
+		t.Fatalf("draft missing #contracts: %q", out)
+	}
+	lines := strings.Split(out, "\n")
+	var rootLines []string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "r-root ") {
+			rootLines = append(rootLines, l)
+		}
+		if strings.HasPrefix(l, "r SPX-ARC-001 ") {
+			t.Fatalf("root rule leaked full text instead of r-root: %q", out)
+		}
+	}
+	if len(rootLines) != 1 {
+		t.Fatalf("expected exactly one r-root line, got %d: %q", len(rootLines), out)
+	}
+	if !strings.Contains(rootLines[0], "SPX-ARC-001") {
+		t.Fatalf("r-root line missing SPX-ARC-001: %q", rootLines[0])
 	}
 }
 
