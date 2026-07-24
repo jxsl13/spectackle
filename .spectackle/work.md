@@ -61,3 +61,69 @@ option: adopt malivvan/tree-sitter (wazero/wasm) as-is for the C parser
 option: invest in a wasi-sdk build pipeline and a batched-read binding now
 option: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
 choice: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
+
+## P-0093 docs drift again: install-hooks undocumented, and agent-workflow knows none of the last six features
+kind: proposal
+state: active
+created: 2026-07-24
+grilled: 2026-07-24
+targets: docs/tools.md, docs/agent-workflow.md
+
+SPX-REPO-001 requires docs/tools.md to track the Go structs. It drifted again within one round: commands gained an install-hooks op that the document does not mention at all. That is the second occurrence, which makes it a pattern rather than an oversight — every task whose lease excludes docs leaves a gap behind, and nothing collects them.
+
+docs/agent-workflow.md is worse off and under no contract at all. It is the document the orchestrator/implementer division of labor is defined in, and it knows nothing about six things that shipped since: the claimable-queue records that answer what an orchestrator can start right now, item citations, the generated pre-commit hook that keeps records off worktree branches, the rebuild-and-restart command, the stale-binary hint, and the default-versus-explicit command generation. An agent following that document as written would hand-derive the claimable set and would not know the hook exists.
+
+Measured: zero mentions of q free, q held, refs, install-hooks, make dev or the stale hint in that file.
+
+Rejected: putting agent-workflow under SPX-REPO-001 as well. That contract is about schema-to-document consistency, which is mechanically checkable; prose about how agents divide labor is not, and a contract nobody can verify is worse than none.
+
+Rejected: folding both documents into one task per file. They drift for the same reason and are read together; splitting them would double the reading of the same source code.
+
+## T-0127 docs: install-hooks in tools.md, six shipped features into agent-workflow.md
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0093
+targets: docs/tools.md, docs/agent-workflow.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This is a documentation task: no Go code changes at all.
+
+SCOPE (lease exactly these two)
+  docs/tools.md
+  docs/agent-workflow.md
+Do NOT touch internal/, cmd/, Makefile, README.md or any other docs file. .spectackle files are server-owned: never edit them by hand.
+
+RESEARCH FIRST. Every claim must be true of the code as written. Read the source, do not trust this brief's summaries — where they differ from the code, the code wins and you say so in your report.
+
+PART 1 — docs/tools.md: the install-hooks op
+SPX-REPO-001 requires this file to match the Go structs. commands gained an op the document does not mention (measured: zero occurrences). Read internal/mcpserver/commands.go for commandsIn's op enum and the install-hooks implementation, and internal/mcpserver/templates/hooks/pre-commit.tmpl for what the hook does.
+Document, in the existing commands section: the op, where it writes (the repository's COMMON git dir, so one install covers every worktree), the 0o755 mode and why it matters (git silently ignores a non-executable hook), the refusal when a foreign pre-commit hook exists without the generated marker, and the success record shape. Add the success record to the grammar table if it is a new record kind.
+Also document what the hook enforces: a commit inside a LINKED worktree that stages any .spectackle path is rejected; code-only worktree commits and every commit in the main checkout pass. Name the reason — .spectackle is server-owned and SPX-SWM-001 already confines agent branch commits to code — and the two limits: hooks are not versioned, and --no-verify bypasses them.
+
+PART 2 — docs/agent-workflow.md: six features it predates
+This file defines the orchestrator/implementer division of labor and knows none of the following (measured: zero mentions of each). For each, read the source before writing, then work it into the section where it belongs rather than appending a list at the end:
+  1. swarm's claimable queue (internal/mcpserver/swarm.go): q free and q held records. This changes the fan-out section materially — the document currently implies the orchestrator derives the claimable set itself, and it no longer has to.
+  2. item citations (internal/item/item.go Refs, internal/mcpserver/tools.go draftIn): what refs mean versus parent and needs, and that unknown ids are refused at the write path.
+  3. the generated pre-commit hook: why an implementer's commit must not carry .spectackle paths.
+  4. make dev (Makefile): the repository develops itself with itself, so the resident server must be rebuilt and restarted after every merged change.
+  5. the stale-binary hint (internal/mcpserver/swarm.go): what it means when an agent sees it.
+  6. default versus explicit command generation (internal/mcpserver/commands.go): three commands by default, the exploration set on request.
+Also check the grill section: grill gained a deliberation question for proposals. Document it as a question and not a gate, because that distinction is the whole design.
+
+WHAT NOT TO DO
+Do not document anything unshipped. If you find something in this brief that the code does not do, report it instead of writing it.
+Do not restructure either document. Both have a settled shape; additions go where their neighbors already are.
+
+VERIFY
+  go build ./... && go test ./...    (must still pass — you changed no code; this is the guard that you did not)
+  /home/user/spectackle/bin/spectackle lint
+  For every claim you write, name the file you read it from in your report.
+
+EXIT CRITERION
+install-hooks and the hook's rule documented in tools.md; all six features plus the grill question worked into agent-workflow.md; nothing unshipped documented; no file other than the two leased ones modified; tests and lint unchanged and green.
+
+ROLLBACK
+Documentation only. git checkout of the two files restores the prior state; no code, schema, record or anchor is touched.
+
+REPORT BACK
+For each item, the source file you verified it against and anything the code does differently from this brief, whether any grammar-table row was needed, and anything you deliberately did NOT do.
