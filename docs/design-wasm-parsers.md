@@ -161,14 +161,32 @@ for those, incompatible with §2's wasi-sdk assumption).
 
 ### Recommendation (orchestrator)
 
-**Keep deferred — now on fresh evidence, not the old measurement.** The
-binary tax (9.24 MB) is acceptable and C parity is bit-level, but the two
-blockers that mattered in R-0004 both persist and one is worse than the
-size question: (1) latency fails the M4 envelope — 0.9× worst-case headroom
-against langspec's 33×, with structural GC variance no tuning removes at
-this binding's allocation profile; (2) the WASI grammar `.wasm` files for
-M6's own targets (CUDA, ObjC) do not exist, so wazero could not even cover
-the languages spectackle already parses via langspec today. The
-"decide-on-data" outcome of reopening D-0004 is therefore to **confirm the
-deferral with current data**: revisit only if a WASI-native multi-grammar
-distribution appears AND a binding with a flat (non-allocating) walk lands.
+**Evaluation axis (user steer, 2026-07-24): correctness first, performance
+second.** The point of a real tree-sitter grammar over langspec's
+line/regex approximation is *fidelity* on the hard C/C++ constructs the
+regex chain can only approximate (macros, multi-line declarators,
+templates); latency is amortizable because spectackle already caches parse
+blobs and re-indexes incrementally, so the wazero parse cost is paid once
+on initial read, not per query. Re-reading the data through that lens:
+
+- **Correctness** — bit-level parity with the cSpec oracle on the C corpus
+  (1,151 symbols, 0 regressions), and strictly *more* correct on the
+  grammar-level constructs a line scanner cannot see. This is the axis that
+  matters, and wazero/tree-sitter wins or ties it.
+- **Latency** — the 2.0–5.4 s/100k-LOC figure is **not decisive**: it is a
+  one-time initial-read cost the parse-blob cache (M2) amortizes, exactly
+  the "optimize via caching after the initial read" the user calls out.
+  Note it, don't gate on it.
+- **Binary size** — 9.24 MB, within budget. Not a blocker.
+
+**The one remaining real blocker is grammar availability, not
+performance.** No WASI-sdk grammar `.wasm` for CUDA or ObjC was published at
+research time (only Emscripten builds, incompatible with §2's wasi-sdk host
+ABI), so a wazero backend cannot today cover the native-binding languages
+that are spectackle's whole reason for existing. So the honest,
+correctness-first outcome of reopening D-0004: **the approach is sound and
+latency is not the obstacle — the blocker is a WASI-native multi-grammar
+distribution for C/C++/CUDA/ObjC.** The first buildable slice is therefore
+to secure or hand-compile (wasi-sdk) those grammar `.wasm` files; once they
+exist, tree-sitter fidelity is worth adopting and the cache absorbs the
+parse cost.
