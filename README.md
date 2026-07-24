@@ -187,12 +187,13 @@ This repo is developed the way it's meant to be used: **one strong
 orchestrator plus a swarm of fresh, minimal-context implementer agents on a
 cheaper model.** The two roles never overlap:
 
-- **Orchestrator** (strong model, persistent context) — drafts proposals,
-  writes exhaustive task bodies, reviews implementer output, runs the final
-  gate/verify, merges, and is the *only* role that commits or opens PRs.
-- **Implementer** (cheap model, e.g. Claude Sonnet, zero prior context) —
-  pulls exactly one approved task, does no exploration, implements it,
-  tests it, and hands it back.
+- **Orchestrator** (complex/strong model, persistent context) — drafts
+  proposals, writes exhaustive task bodies, reviews implementer output, runs
+  the final gate/verify, merges, and is the *only* role that commits or
+  opens PRs.
+- **Implementer** (simpler/cheaper model, zero prior context) — pulls
+  exactly one approved task, does no exploration, implements it, tests it,
+  and hands it back.
 
 Each implementer is spawned fresh with nothing but two inputs: (a) the
 task's full brief (`get <T-id>` — exact files, APIs, commands, constraints,
@@ -213,12 +214,20 @@ Why this shape: **exploration is the most expensive part of agentic
 coding**, not editing — so the server replaces it for the orchestrator
 (`find`/`get`/context packs instead of grepping the tree) and the task body
 replaces it for the implementer (nothing to discover, only to execute).
-**Disjointness** across concurrently running implementers is enforced by
-scope leases, not by convention — two agents can never legally touch the
-same paths at once. The shared `.spectacle/cache/coord.db` (leases,
-learnings, rejections, journal) is the swarm's common brain: every sibling
-sees claims and rejections in real time via `swarm`, so failed approaches
-are never retried blind.
+Because the brief is written by the complex model, the simple model never
+explores; that keeps the complex model's own context free of implementation
+noise, and it makes token cost scale with the number of tasks, not the size
+of the codebase. **Disjointness** across concurrently running implementers
+is enforced by scope leases, not by convention — two agents can never
+legally touch the same paths at once. The shared `.spectacle/cache/coord.db`
+(leases, learnings, rejections, journal) is the swarm's common brain: every
+sibling sees claims and rejections in real time via `swarm`, so failed
+approaches are never retried blind.
+
+**Fan-out**: once a batch of tasks is approved, the orchestrator partitions
+them by disjoint scope (leases prove disjointness), spawns one fresh
+implementer per task in parallel, and serializes only the shared-file
+wiring itself.
 
 For long-running swarms, run the server as a **resident service**
 (`spectacle serve -http <addr>`, see [docs/architecture.md](docs/architecture.md)

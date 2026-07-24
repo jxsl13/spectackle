@@ -12,18 +12,33 @@ A model that has to grep the tree, read five files to find the right API,
 and reconstruct constraints from scratch burns far more tokens than the
 edit itself costs. spectacle attacks this from both ends — `find`/`get`/
 context packs replace exploration for the agent that plans, and an
-exhaustive task body replaces it for the agent that implements.
+exhaustive task body replaces it for the agent that implements. Because the
+brief is written by the complex model, the simple model never has to
+explore; that keeps the complex model's own context free of implementation
+noise, and it makes token cost scale with the number of tasks rather than
+the size of the codebase.
 
 ## Roles
 
+The two roles are defined by capability tier, not by vendor or specific
+model — an orchestrator is whatever model is complex/strong enough to plan
+and brief exhaustively (e.g. a frontier model orchestrating small, fast
+models); an implementer is whatever model is cheap enough to run one
+disjoint task at a time in parallel.
+
 | | Orchestrator | Implementer |
 |---|---|---|
-| Model class | strong (e.g. Claude Opus) | cheap (e.g. Claude Sonnet) |
+| Model class | complex/strong | simpler/cheaper |
 | Context | persistent across the whole item, full repo familiarity | fresh per task — nothing but the task brief + driver recipe |
 | Responsibility | draft proposals, write exhaustive task bodies, review implementer output, run gate/verify, merge, archive | pull one approved task, implement it, test it, hand it back |
 | git rights | commits, opens PRs, merges | none — never commits, never pushes |
 | Tool calls it owns | `draft`, `rule`, `check`, `work op=submit`/`abort`, `move to=approved\|rejected\|archived` | `lease`, `move active\|done`, `find`/`get` (read-only, scoped to its own task) |
 | Exploration budget | as much as needed to write a task body that needs none | zero — if it has to explore, the task body was insufficient |
+
+*(Historical note: this repo was originally built and dogfooded with one
+specific pairing — Claude Opus as orchestrator, Claude Sonnet as
+implementer. The shape generalizes to any strong/cheap pairing, including
+mixed-vendor ones; the table above is the definition, this note is not.)*
 
 Only the orchestrator has git write access. Implementers edit files and run
 tests inside their leased scope; landing the result (commit, PR, merge) is
@@ -109,6 +124,22 @@ must contain:
 Task bodies that meet this bar turn a cheap, context-free model into a
 reliable implementer, because the hard part (deciding *what* to change and
 *why*) already happened in the orchestrator's proposal review.
+
+## Fan-out
+
+A single approved task is the unit of work, but the orchestrator rarely has
+only one at a time. Once a batch of tasks is approved, it **partitions them
+by disjoint scope** — the same declared paths that back each `lease claim`
+are also the proof that two tasks don't collide — and **spawns one fresh
+implementer per task, in parallel**, instead of running them one at a time.
+Each implementer only ever sees and touches its own leased paths; the
+orchestrator itself **serializes only the shared-file wiring** — the small
+amount of glue (a registry entry, a router hookup, an import list) that
+legitimately spans more than one task's scope and so cannot be leased apart.
+This is what makes token cost scale with the number of approved tasks
+instead of the size of the codebase: the orchestrator's context stays busy
+briefing and reviewing, never blocked waiting on one implementer to finish
+before starting the next.
 
 ## Failure modes
 

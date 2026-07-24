@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0027 generalize orchestration wording + fanout guidance (docs, manifest, workflow prompt)
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0015
 

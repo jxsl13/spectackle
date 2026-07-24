@@ -39,3 +39,4 @@
 {"t":"2026-07-24T06:29:20Z","eid":"9e43ce9f26b0fb72","ag":"orchestrator","ev":"archive","id":"T-0025","k":"task","ti":"implement prompts.go: workflow + next (no server.go wiring)","dir":"internal/mcpserver","sum":"archived with parent P-0014"}
 {"t":"2026-07-24T06:31:24Z","eid":"6f79b792ef306504","ag":"orchestrator","ev":"create","id":"T-0027","k":"task","ti":"generalize orchestration wording + fanout guidance (docs, manifest, workflow prompt)","dir":"internal/mcpserver"}
 {"t":"2026-07-24T06:32:19Z","eid":"73378170dc621b57","ag":"agent-agnostic","ev":"move","id":"T-0027","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T06:36:17Z","eid":"c200b57151b79698","ag":"agent-agnostic","ev":"move","id":"T-0027","dir":"internal/mcpserver","fr":"active","to":"done"}
