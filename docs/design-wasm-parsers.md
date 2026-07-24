@@ -133,3 +133,42 @@ call-graph fidelity (C/C++/CUDA/ObjC's existing cgo backends,
 docs/architecture.md §2) rather than langspec's line/regex-level symbol
 extraction. Neither track blocks the other; M6 can ship the langspec
 cookbook on schedule while this WASM question stays open past it.
+
+## Re-measurement (D-0004, reopen-poc)
+
+T-0081, 2026-07-24. Reproduced T-0040's measurements
+(poc/wasmparse/cmd/{poc,sizewith,sizewithout}) in isolation on this repo to
+verify the numbers hold as a fresh baseline now that langspec spans 30
+languages.
+
+**Binary size (CGO_ENABLED=0)**:
+- `sizewithout` (minimal baseline): 2,266,712 bytes
+- `sizewith` (malivvan/tree-sitter v0.0.1 embedded + wazero runtime): 11,511,469 bytes
+- **Δ = 9,244,757 bytes (9.24 MB)** — **PASS** on the ≤10 MB budget.
+
+**Parity (tree-sitter C grammar via wazero vs. cSpec oracle)**:
+- Corpus: 51 files (50 synthetic + 1 real C header), 9,621 LOC.
+- Matches (within ±1 line): 1,151; regressions: 0; gains: 0 — **PASS**.
+
+**Latency (warm parse, 5 passes)**:
+- cSpec oracle (production baseline): 145–151 ms for the corpus → **145–151 ms per 100k LOC** (33.2×–34.4× headroom vs. M4's 5 s budget).
+- tree-sitter wasm (malivvan binding): 194–517 ms → **2.0–5.4 s per 100k LOC** (0.9×–2.5× headroom) — **FAIL**. Worst-case warm parse leaves < 1.0× margin to the 5 s limit; the ~2× run-to-run variance is structural (Go GC pauses from the binding's per-call `[]uint64` allocation churn).
+
+**Availability**: malivvan/tree-sitter v0.0.1 embeds and exports only
+`language_c`/`language_cpp`. No wasi-sdk grammar `.wasm` for CUDA or ObjC
+was published at research time (Emscripten builds remain the only option
+for those, incompatible with §2's wasi-sdk assumption).
+
+### Recommendation (orchestrator)
+
+**Keep deferred — now on fresh evidence, not the old measurement.** The
+binary tax (9.24 MB) is acceptable and C parity is bit-level, but the two
+blockers that mattered in R-0004 both persist and one is worse than the
+size question: (1) latency fails the M4 envelope — 0.9× worst-case headroom
+against langspec's 33×, with structural GC variance no tuning removes at
+this binding's allocation profile; (2) the WASI grammar `.wasm` files for
+M6's own targets (CUDA, ObjC) do not exist, so wazero could not even cover
+the languages spectackle already parses via langspec today. The
+"decide-on-data" outcome of reopening D-0004 is therefore to **confirm the
+deferral with current data**: revisit only if a WASI-native multi-grammar
+distribution appears AND a binding with a flat (non-allocating) walk lands.
