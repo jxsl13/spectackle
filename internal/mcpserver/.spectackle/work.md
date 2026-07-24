@@ -146,3 +146,81 @@ One input field, one validation branch, one render line, one grill question. Rev
 
 REPORT BACK
 The draftIn field and its description, the exact refusal record, the grill heuristic and why you chose it, each test's real output, the live transcript, and anything you deliberately did NOT do.
+
+## P-0087 generate only the two lifecycle commands by default; everything else on explicit request
+kind: proposal
+state: active
+created: 2026-07-24
+grilled: 2026-07-24
+targets: internal/mcpserver/commands.go
+
+The generator emits eight commands today. Six of them — find, get, research, swarm, export, merge — exist for a user exploring or debugging the state machine and its records. Useful, but not part of the lifecycle a repository needs in order to work, and every one of them is a file checked into the consuming repository's harness directory whether that repository wanted it or not.
+
+Split the set by whether the command is load-bearing. The lifecycle entry point and the state snapshot are: without them the workflow has no front door. The exploration commands are not: the same operations remain fully available as MCP tools, which is how an agent reaches them anyway. Generating six files into someone's .claude directory to expose tools their agent already has is a cost with no matching benefit.
+
+So the default set becomes the entry point, the state snapshot, and one more that has to be in the default set for the scheme to work at all: the generator command itself. Without it a user cannot ask for the rest, and a feature reachable only by reading documentation about a tool call is not reachable.
+
+All templates stay in the repository. Nothing is deleted, no capability is removed, and the exploration commands remain one explicit request away. What changes is who decides they exist: the consuming repository, rather than this one on its behalf.
+
+Rejected: dropping the six templates. They are wanted, just not by default, and deleting them would turn an opt-in into a rewrite.
+
+Rejected: a flag on the existing generate operation rather than a command. The point is that a user without an agent session, reading a list of slash commands, can discover that more exist — a flag on a tool call is invisible to exactly the person this is for.
+
+This repository will keep all eight generated, because it is the one place where exploring and debugging the state machine is the daily work. That is not a contradiction of the default; it is the default working as intended, with an explicit request behind it.
+
+## T-0120 default generation is the three lifecycle commands; the rest on explicit request
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0087
+targets: internal/mcpserver/commands.go, internal/mcpserver/commands_test.go, internal/mcpserver/templates/commands/generate.md.tmpl
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Read internal/mcpserver/commands.go and the existing templates before writing anything — the generator became data-driven in the previous round and you are extending that, not redesigning it.
+
+GOAL
+Split the generated command set by whether a command is load-bearing for the lifecycle. Default generation emits the entry point, the state snapshot, and the generator command itself. The six exploration commands — find, get, research, swarm, export, merge — are generated only when explicitly requested.
+
+SCOPE (lease exactly these three)
+  internal/mcpserver/commands.go
+  internal/mcpserver/commands_test.go
+  internal/mcpserver/templates/commands/generate.md.tmpl   NEW
+Do NOT touch internal/mcpserver/tools.go, grill.go, decide.go, knowledge.go (siblings hold all four right now), internal/knowledge, internal/journal, internal/item, cmd/, README.md or docs/. The regenerated harness surfaces are written BY THE TOOL, never by hand. .spectackle files are server-owned: never edit them by hand.
+
+THE SPLIT
+commandSpecs already describes every command. Add a field marking which are in the default set. Default: the workflow entry point, state, and generate. Opt-in: find, get, research, swarm, export, merge.
+Why generate must be in the default set: without it a user cannot ask for the others, and a capability reachable only by reading documentation about a tool call is not reachable by the person this is for.
+All six templates STAY in the repository. Nothing is deleted; what changes is who decides they exist.
+
+HOW A USER ASKS
+commands op=gen keeps its current meaning but emits only the default set. Requesting more is an explicit argument on the same operation — pick a shape that fits the existing input struct (a list of command names, or an all switch, or both) and document it in the tool description. Do NOT add a second tool.
+The new generate.md.tmpl is the slash command that drives it: it tells the agent to call commands with the argument that requests the exploration set, and it should list which commands that adds so a reader knows what they are getting.
+
+IDEMPOTENCE AND ALREADY-GENERATED FILES
+A repository that already has the six exploration files and then runs a default gen must NOT have them deleted — generation adds and overwrites, it has never removed, and silently deleting a file a user has in git would be the worst possible behavior here. Verify this explicitly and state it in your report.
+The AGENTS.md managed block is different: it is rewritten wholesale between its markers. Decide what happens to already-present exploration sections there, implement the non-destructive choice, and say what you chose and why.
+
+THIS REPOSITORY KEEPS ALL EIGHT
+After your change, regenerate with the explicit request so this repo's own .claude/commands, .github/prompts and AGENTS.md still carry every command — this is the one place where exploring and debugging the state machine is the daily work. Report the ok gen lines for both the default run and the explicit run, so the difference is visible.
+
+TESTS (commands_test.go — extend, do not add parallel files)
+  1. default gen writes exactly the three default commands for claude and copilot, and no others.
+  2. explicit request writes all eight.
+  3. default gen over a directory that already contains the six exploration files leaves them intact.
+  4. the generate template renders, is non-empty, carries the do-not-edit header and names the commands it unlocks.
+  5. the existing assertions about file sets are updated in place rather than duplicated.
+
+VERIFY (run every one; report real output, never predicted)
+  go build ./...
+  go test ./internal/mcpserver/... -race
+  go test ./...
+  go vet ./internal/mcpserver/...
+  /home/user/spectackle/bin/spectackle lint
+
+EXIT CRITERION
+Five tests green under -race, default gen provably emitting three commands and explicit gen eight, already-generated files provably untouched by a default run, ./... green, vet clean, lint clean, and this repository regenerated with all eight present.
+
+ROLLBACK
+One field on commandSpecs, one branch in the writers, one new template. Reverting restores the previous behavior, and because generation never deletes, no consuming repository loses a file either way.
+
+REPORT BACK
+The argument shape you chose and why, the AGENTS.md decision and why, both ok gen lists, each test's real output, and anything you deliberately did NOT do.

@@ -1,0 +1,5 @@
+{"t":"2026-07-24T22:22:13Z","eid":"58c3c58cacb50e70","ag":"ag-67d9","ev":"create","id":"P-0086","k":"proposal","ti":"redundant rejections are superseded, never dropped: cluster the learning, retarget the references","dir":"internal/journal"}
+{"t":"2026-07-24T22:22:13Z","eid":"a12ecff8bf78701f","ag":"ag-67d9","ev":"grill","id":"P-0086","dir":"internal/journal","gr":"2026-07-24"}
+{"t":"2026-07-24T22:23:14Z","eid":"ce7af043654d4467","ag":"ag-67d9","ev":"create","id":"T-0119","k":"task","ti":"journal: cluster redundant rejections and represent supersession, as pure functions","dir":"internal/journal"}
+{"t":"2026-07-24T22:23:14Z","eid":"c1586b78c3579f73","ag":"ag-67d9","ev":"move","id":"P-0086","dir":"internal/journal","fr":"draft","to":"active"}
+{"t":"2026-07-24T22:23:14Z","eid":"70b5865b91d594dc","ag":"ag-67d9","ev":"move","id":"T-0119","dir":"internal/journal","fr":"draft","to":"active"}
