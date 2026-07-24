@@ -18,7 +18,7 @@ Rollback: additive files only. Exit: go build/vet, go test -race ./internal/lang
 
 ## T-0041 langspec batch D: kotlin + swift
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0023
 
@@ -63,7 +63,7 @@ EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langs
 
 ## T-0043 langspec batch F: shell + lua + zig + perl
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0023
 
