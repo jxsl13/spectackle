@@ -10,3 +10,6 @@
 {"t":"2026-07-24T08:44:33Z","eid":"5c043d3e76eedce0","ag":"orchestrator","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-24T08:50:47Z","eid":"5deaf0863a931238","ag":"agent-rustjava","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"approved","to":"active"}
 {"t":"2026-07-24T08:50:50Z","eid":"aa4a4ca60eba8b85","ag":"agent-tsweb","ev":"move","id":"T-0037","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:53:41Z","eid":"30cda3418a25a2a8","ag":"agent-tsweb","ev":"move","id":"T-0037","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T08:54:01Z","eid":"b62a9a14907a1f1a","ag":"agent-cheader","ev":"move","id":"T-0038","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:55:09Z","eid":"cc7d73eb72dfaaa7","ag":"agent-rustjava","ev":"move","id":"T-0036","dir":"internal/langspec","fr":"active","to":"done"}

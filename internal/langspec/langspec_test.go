@@ -197,12 +197,19 @@ func TestSpecParserHashMatchesContent(t *testing.T) {
 
 func TestAllReturnsOneParserPerRegisteredSpec(t *testing.T) {
 	parsers := All()
-	if len(parsers) != 2 {
-		t.Fatalf("All() returned %d parsers, want 2 (python, javascript)", len(parsers))
+	// One parser per registered spec, no fixed count: languages register
+	// themselves via init() in their own file, so this test must not pin
+	// the roster — only the invariants (1:1 with registry, distinct langs,
+	// and the two reference specs present).
+	if len(parsers) != len(registry) {
+		t.Fatalf("All() returned %d parsers, want %d (one per registered spec)", len(parsers), len(registry))
 	}
 	langs := map[graph.Lang]bool{}
 	for _, p := range parsers {
 		langs[p.Lang()] = true
+	}
+	if len(langs) != len(parsers) {
+		t.Errorf("All() has duplicate langs: %v", langs)
 	}
 	if !langs[graph.LangPy] || !langs[graph.LangJS] {
 		t.Errorf("All() langs = %v, want py and js present", langs)
