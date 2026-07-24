@@ -14,3 +14,4 @@ MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	57-151	f39069
 LCY-001	go:mcpserver.Server.getItem	internal/mcpserver/tools.go	282-312	146170c57148073d	5d9979347e50633c
 LCY-002	go:mcpserver.Server.openNeeds	internal/mcpserver/tools.go	858-873	3c1960be3d038fd9	6dc63df43e762566
 LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	272-286	57a8b3258a54c016	6dc63df43e762566
+SPX-LSP-001	go:langspec.All	internal/langspec/langspec.go	152-158	69ca8c863ade4c01	fb88dafbdb30ed78

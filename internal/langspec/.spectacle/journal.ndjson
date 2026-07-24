@@ -18,3 +18,16 @@
 {"t":"2026-07-24T09:02:07Z","eid":"2a5b8cfd494b2923","ag":"orchestrator","ev":"archive","id":"T-0036","k":"task","ti":"langspec batch A: rust + java","dir":"internal/langspec","sum":"archived with parent P-0019"}
 {"t":"2026-07-24T09:02:07Z","eid":"82ee8871ef80687b","ag":"orchestrator","ev":"archive","id":"T-0037","k":"task","ti":"langspec batch B: typescript/tsx + ruby + php","dir":"internal/langspec","sum":"archived with parent P-0019"}
 {"t":"2026-07-24T09:02:07Z","eid":"456717295eeaab2b","ag":"orchestrator","ev":"archive","id":"T-0038","k":"task","ti":"langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain","dir":"internal/langspec","sum":"archived with parent P-0019"}
+{"t":"2026-07-24T10:05:31Z","eid":"efb7d377e32001d5","ag":"orchestrator","ev":"create","id":"P-0023","k":"proposal","ti":"langspec wave 2: kotlin, swift, c#, scala, shell, lua, zig, perl — 20 languages total","dir":"internal/langspec"}
+{"t":"2026-07-24T10:05:40Z","eid":"489de8dc3a88fbec","ag":"orchestrator","ev":"grill","id":"P-0023","dir":"internal/langspec","gr":"2026-07-24"}
+{"t":"2026-07-24T10:06:31Z","eid":"c5ba640b6632ab45","ag":"orchestrator","ev":"rule","dir":"internal/langspec","op":"edit","rule":"SPX-LSP-001","txt":"The langspec registry SHALL define a language purely as one `Spec` data value so adding a language never modifies the indexing pipeline.","ap":["go:langspec.All"],"item":"P-0023"}
+{"t":"2026-07-24T10:06:31Z","eid":"b15a362cdea58902","ag":"orchestrator","ev":"create","id":"T-0041","k":"task","ti":"langspec batch D: kotlin + swift","dir":"internal/langspec"}
+{"t":"2026-07-24T10:06:31Z","eid":"4bc0927aecdd6dc9","ag":"orchestrator","ev":"create","id":"T-0042","k":"task","ti":"langspec batch E: c# + scala","dir":"internal/langspec"}
+{"t":"2026-07-24T10:06:31Z","eid":"ee6c130ed4dfdf0f","ag":"orchestrator","ev":"create","id":"T-0043","k":"task","ti":"langspec batch F: shell + lua + zig + perl","dir":"internal/langspec"}
+{"t":"2026-07-24T10:06:42Z","eid":"63f83283dbe9c08c","ag":"orchestrator","ev":"move","id":"P-0023","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T10:06:42Z","eid":"4e91196dc1d730ab","ag":"orchestrator","ev":"move","id":"T-0041","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T10:06:42Z","eid":"553dc4e2878329d1","ag":"orchestrator","ev":"move","id":"T-0042","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T10:06:42Z","eid":"eb3a7c38a2f9074c","ag":"orchestrator","ev":"move","id":"T-0043","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T10:07:34Z","eid":"918df87ae14e6eec","ag":"agent-ktswift","ev":"move","id":"T-0041","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T10:07:41Z","eid":"f776a240a6bbce74","ag":"agent-csscala","ev":"move","id":"T-0042","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T10:07:54Z","eid":"abac6355b2074240","ag":"agent-scripts","ev":"move","id":"T-0043","dir":"internal/langspec","fr":"approved","to":"active"}
