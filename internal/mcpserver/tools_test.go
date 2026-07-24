@@ -951,9 +951,10 @@ func TestInstructionsTeachTokenEconomy(t *testing.T) {
 	}
 }
 
-// TestInstructionsTeachBrownfieldImportAndRecords (T-0098) asserts that the
-// server's instructions const teaches brownfield-repo onboarding and the
-// records token-economy guardrail.
+// TestInstructionsTeachBrownfieldImportAndRecords (T-0098, T-0101) asserts
+// that the server's instructions const teaches brownfield-repo onboarding
+// and the records token-economy guardrail, including the American English
+// language mandate (MCP-007).
 func TestInstructionsTeachBrownfieldImportAndRecords(t *testing.T) {
 	if !strings.Contains(instructions, "BROWNFIELD IMPORT") {
 		t.Errorf("instructions missing BROWNFIELD IMPORT paragraph")
@@ -966,6 +967,9 @@ func TestInstructionsTeachBrownfieldImportAndRecords(t *testing.T) {
 	}
 	if !strings.Contains(instructions, "Never paste verbatim") {
 		t.Errorf("instructions missing 'Never paste verbatim' guardrail")
+	}
+	if !strings.Contains(instructions, "American English") {
+		t.Errorf("instructions missing American English language mandate")
 	}
 }
 

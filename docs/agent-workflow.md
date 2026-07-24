@@ -125,6 +125,20 @@ Task bodies that meet this bar turn a cheap, context-free model into a
 reliable implementer, because the hard part (deciding *what* to change and
 *why*) already happened in the orchestrator's proposal review.
 
+### How record bodies are written
+
+Every item body — proposal, task, ADR, research — follows the same three
+rules, which the server also states in its instructions manifest (MCP-007):
+
+- **Compacted substance.** Constraints, decisions, measurements, rejected
+  alternatives and why. Not a narrative of how the requirement arrived.
+- **No verbatim quotes.** Never paste user quotes or transcript excerpts.
+  They bloat every later read of the record without adding information —
+  compact the input instead, losing nothing.
+- **American English.** Spelling variants (behavior/behaviour,
+  initialize/initialise) fragment full-text matches exactly like a language
+  mix does, and `find`/`research` are FTS queries over these bodies.
+
 ## Fan-out
 
 A single approved task is the unit of work, but the orchestrator rarely has

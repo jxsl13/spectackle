@@ -51,7 +51,9 @@ Records: write every item body — proposal, task, ADR, research — as
 compacted substance: constraints, decisions, measurements, rejected
 alternatives and why. Never paste verbatim user quotes or transcript
 excerpts; they bloat every later read of the record without adding
-information. Compact the input, lose nothing.
+information. Write every item body in American English: spelling variants
+(behavior/behaviour, initialize/initialise) fragment full-text matches
+exactly like a language mix does. Compact the input, lose nothing.
 
 Requirement: $ARGUMENTS
 
