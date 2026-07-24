@@ -141,6 +141,32 @@ instead of the size of the codebase: the orchestrator's context stays busy
 briefing and reviewing, never blocked waiting on one implementer to finish
 before starting the next.
 
+## Worktree isolation & who writes lifecycle state
+
+Two rules keep a parallel fan-out from corrupting shared state:
+
+1. **Each implementer runs in a dedicated git worktree**, never the shared
+   main working tree — so no two implementers (nor the orchestrator) ever
+   write the same source file, spec bundle, or `work.md` at once. The
+   server's `work op=start` provides this: it re-roots the agent into a
+   fresh worktree and semantic-replays that worktree's `.spectackle` state
+   back on `submit`. A headless driver must replicate it — one worktree per
+   implementer — rather than pointing every agent at the same root.
+
+2. **The orchestrator owns every lifecycle `move`** (`draft → submitted →
+   … → done → archived`). Implementers only claim and release their scope
+   lease and edit code inside their worktree, then *report* completion —
+   they never `move` items themselves.
+
+The reason is a concurrency asymmetry. Item state lives in per-directory
+`.spectackle/work.md`, a plain file: two processes doing read-modify-write
+on it race (last writer wins) and silently drop item records. Scope leases
+do **not** have this problem — they live in the shared `coord.db` (WAL,
+cross-process safe). So leasing from an implementer is fine; moving items
+from one is not. Keeping every `move` in the single orchestrator process
+removes the item-record race by construction, and worktree isolation
+removes it for code and spec files too.
+
 ## Decisions, grill & bounded feedback loops
 
 Three additions close gaps in the loop above: research must happen before
