@@ -32,3 +32,4 @@ SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-148	b22279d1973d0f49
 SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	203-253	0fa34a1f18005e98	12a13a8c05a928ed
 SPX-EARS-004	go:ears.StripFrontMatter	internal/ears/ears.go	269-281	45da9a4aa569b9e8	12a13a8c05a928ed
 MCP-006	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	115-199	e142d33f9cc5fb76	dc3914bfaa235c28
+RSV-002	go:resolve.GpuPipeResolver.Resolve	internal/resolve/gpupipe.go	33-35	4cd1df4773cb6524	2a844dd5c561d2dc
