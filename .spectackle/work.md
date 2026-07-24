@@ -61,3 +61,80 @@ option: adopt malivvan/tree-sitter (wazero/wasm) as-is for the C parser
 option: invest in a wasi-sdk build pipeline and a batched-read binding now
 option: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
 choice: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
+
+## P-0081 README: a mermaid diagram of the whole flow and a reference for every persisted structure
+kind: proposal
+state: active
+created: 2026-07-24
+grilled: 2026-07-24
+targets: README.md
+
+Two documentation gaps that cost every newcomer, human or agent, the same rediscovery.
+
+First: nothing shows the flow. The lifecycle (research, draft, grill, decide, approve, fan out, check, archive), the orchestrator/implementer split with worktrees and leases, and the backprop path from archive into spec.md plus anchors all exist as prose spread over README, docs/agent-workflow.md and the instructions manifest. A reader has to assemble the picture. A mermaid diagram renders natively on the forge, costs nothing to keep next to the prose, and is the one artifact that makes the state machine and the agent topology legible at a glance.
+
+Second: the persisted structures are undocumented as a set. Each file is described where it happens to be mentioned, never together, and never with the reason it exists as its own file rather than a field of another. That reason is the interesting part: journal.ndjson is append-only because rejections must survive compaction; work.md holds ACTIVE items only because archived ones would grow it without bound; anchors.tsv is separate from spec.md because rule text and code position drift independently and the two-hash design depends on that separation; the cache is derived and gitignored because it must be rebuildable from the versioned files alone.
+
+Scope note: this documents what exists TODAY, including the knowledge artifact format that just landed. It does not wait for the knowledge tool, which is being built in parallel and adds no new persisted structure — the artifact is a portable interchange file, not workspace state.
+
+Rejected: a separate docs/ page. The data-structure reference belongs where someone first meets the repository, and the README already carries the quickstart and the headless recipes; splitting it would leave the README describing a system whose state nobody can see.
+
+## T-0112 README: mermaid flow diagram and a reference for every persisted structure
+kind: task
+state: active
+created: 2026-07-24
+parent: P-0081
+targets: README.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This is a documentation task: no Go code changes at all.
+
+SCOPE (lease exactly one file)
+  README.md
+Do NOT touch docs/, internal/, cmd/, AGENTS.md, .claude/ or .github/ — two sibling tasks own internal/mcpserver and the command generator right now. .spectackle files are server-owned: never edit them by hand.
+Do not restructure the README or move existing sections. Both additions go in as NEW sections: the diagram directly after the short explanation near the top (before or right after Quickstart, wherever it reads naturally), the data-structure reference further down.
+
+RESEARCH FIRST, then write. Everything below must describe what the code ACTUALLY does. Read, do not assume:
+  internal/workspace/workspace.go   the bundle layout, SchemaStamp, Config (Ignore, IgnoreRegex, Compact), scaffolding
+  internal/item/item.go             work.md format, Item fields incl. Parent/Needs/Refs and the ADR fields
+  internal/journal/journal.go       journal.ndjson, append-only, event kinds
+  internal/drift/drift.go           anchors.tsv columns, CHash vs RHash, the classification table
+  internal/spec/cascade.go          spec.md, front matter, cascade/override/scope resolution
+  internal/knowledge/artifact.go    the portable artifact (NOT workspace state — say so)
+  internal/lifecycle/lifecycle.go   the state machine and its ordering
+  internal/coord (coord.db)         leases, agent registry, ID counters
+  docs/agent-workflow.md, docs/lifecycle.md, docs/spec-cascade.md for prose that already exists
+If a claim you want to make is not verifiable from the code, leave it out. A wrong README is worse than a thin one.
+
+PART 1 — THE DIAGRAM
+One mermaid diagram (the forge renders it natively; use a fenced ```mermaid block). It must make three things legible at a glance, and it is fine to use subgraphs to keep them in one picture:
+  a) the lifecycle path: research, draft, grill, decide, approve, fan out, check, archive — and the state machine's ordering draft < submitted < approved < active < done < archived, plus rejected (revocable) and blocked (server-only side state, exits via decide: rescope, reject, override-once).
+  b) the agent topology: a strong orchestrator that drafts and reviews, cheap implementers each in their own git worktree holding leases over disjoint scope, and the submit path back to main.
+  c) the backprop path: archive merges the delta into spec.md, check stamps anchors.tsv, drift classification feeds the next round.
+Keep it readable. If one diagram becomes unreadable, use two, but say why in a sentence between them. Verify the syntax parses rather than eyeballing it — a broken mermaid block renders as an error box on the forge, which is worse than no diagram.
+
+PART 2 — THE DATA-STRUCTURE REFERENCE
+One section covering EVERY persisted structure. For each: where it lives, its format, what it holds, and — the part that matters most — WHY it is its own file rather than a field of something else. Cover at least:
+  .spectackle/spec.md        EARS rules + prose sections; cascades by directory; front matter (schema, prefix, scope, inherits, overrides)
+  .spectackle/work.md        ACTIVE items only. Say why: archived items would grow it without bound, and the journal already carries their history.
+  .spectackle/journal.ndjson append-only event log. Say why append-only: rejections must survive compaction, which is what makes the rejection corpus trustworthy.
+  .spectackle/anchors.tsv    rule-to-node bindings with two hashes. Explain CHash vs RHash and why they are separate: code position and rule text drift independently, and the whole four-way classification (ok/moved, evolved, tightened, diverged) exists only because both axes are tracked. Note that only the evolved quadrant is ever auto-healed, and why.
+  .spectackle/config.yaml    ignore globs, ignore_regex, compact thresholds; auto-generated with defaults
+  .spectackle/cache/         derived, gitignored, rebuildable from the versioned files alone — say that this is the invariant that makes it safe to delete
+  coord.db                   cross-process coordination: agent registry, scope leases, global ID counters. Say why SQLite/WAL rather than a file: multiple server processes write it concurrently, and a plain file is a read-modify-write race.
+  the knowledge artifact     portable interchange between repositories, NOT workspace state. Make that distinction explicit.
+Also state the two cross-cutting invariants, because they explain the shape of everything above: the schema stamp rotates on format breakage and there is no migration mechanism anywhere; and the LLM never writes these files — every capability is a server-side write path.
+
+VERIFY
+  Confirm the mermaid block parses. If no renderer is available, at minimum check the syntax carefully against the mermaid grammar and say in your report how you validated it.
+  go build ./... && go test ./...   (must still pass — you changed no code, this is the guard that you did not)
+  /home/user/spectackle/bin/spectackle lint
+  Re-read your data-structure section against the source files and confirm every claim.
+
+EXIT CRITERION
+Both sections present, the diagram parses, every structural claim traceable to code you read, tests and lint unchanged and green, and no file other than README.md modified.
+
+ROLLBACK
+Documentation only. git checkout README.md restores the prior state; no code, schema, record or anchor is touched.
+
+REPORT BACK
+How you validated the mermaid syntax, the list of source files you read to ground the reference, any claim you WANTED to make but dropped because the code did not support it, and anything you deliberately did NOT do.

@@ -67,3 +67,8 @@ Rationale: Records are read across sessions, agents and harnesses. A corpus mixi
 The server instructions manifest SHALL carry a paragraph naming the module's `https://` repository URL, derived via `debug.ReadBuildInfo`, as the place to report server defects with an analysis and not with a fix PR.
 
 Rationale: An agent driving the server sees its defects first. Without a stated destination it either works around them silently or patches the server it is using. A hardcoded URL rots when the module moves; the build-info path cannot.
+
+## MCP-009
+WHEN the knowledge tool runs `op=apply`, the server SHALL add only entries the workspace lacks, route every write through the existing `rule op=add` and `decide` paths, and report the counts of entries added and coverage gaps opened.
+
+Rationale: Additive-only keeps a fleet rollout safe to re-run; routing through existing composers preserves the invariant that no new .spectackle write path enters the codebase. An applied rule arrives unanchored, so the gap count is the adoption worklist and must not be a later surprise.
