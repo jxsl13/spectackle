@@ -74,6 +74,42 @@ Strictly read-only — never draft, move, or otherwise write anything.
 Optional path scope: $ARGUMENTS. If non-empty, pass it as the `path`
 argument to `state`; if empty, call `state` with its defaults (whole repo).
 
+## spectackle generate
+
+Call the spectackle `commands` MCP tool with `op=gen` (or, if no spectackle MCP
+server is registered in this session, drive it headlessly per the "Headless
+quickstart" recipe in this repo's README.md).
+
+Bare `op=gen` (no `all`, no `commands=`) regenerates only the default three
+commands — the entry point (`/spectackle`), `state`, and this command
+itself (`generate`) — for every harness already detected in the repo. That
+default set is what a fresh clone gets: enough to run the full lifecycle and
+enough to ask for the rest, nothing else assumed on your behalf.
+
+If `$ARGUMENTS` is empty: run the default gen — `op=gen` with neither `all`
+nor `commands` set.
+
+If `$ARGUMENTS` is non-empty: request more than the default set. Either
+`op=gen all=true` for everything, or `op=gen commands=<names>` for a subset,
+where `<names>` is `$ARGUMENTS` split on whitespace/commas. Both forms unlock
+whichever of these six opt-in exploration commands they name:
+
+- `find` — search records: code, rules, spec prose, or lifecycle items
+- `get` — read one record by ID (item, rule, node, dir, file, or section)
+- `research` — server-aggregated, read-only research pack for a topic
+- `swarm` — sibling awareness: agents, leases, worktrees, recent learnings
+- `export` — export this workspace's knowledge as a portable artifact
+- `merge` — merge several knowledge artifacts into one condensate
+
+Regeneration only adds and overwrites; it never deletes a command file that
+already exists on disk, and it never drops an AGENTS.md section for a
+command this particular run didn't ask for — asking for the default set
+after previously asking for everything leaves the other six sections
+exactly as they were.
+
+Requested commands (empty = default three, `all` = everything, otherwise a
+name list): $ARGUMENTS
+
 ## spectackle find
 
 Parse `$ARGUMENTS` as `[scope] query` — an optional leading scope token
