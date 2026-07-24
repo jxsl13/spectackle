@@ -2,3 +2,5 @@
 {"t":"2026-07-24T02:39:00Z","eid":"584de645e1eac354","ag":"agent-fsm","ev":"move","id":"T-0014","dir":"internal/lifecycle","fr":"draft","to":"active"}
 {"t":"2026-07-24T02:42:50Z","eid":"493a90a2f3a50812","ag":"agent-fsm","ev":"move","id":"T-0014","dir":"internal/lifecycle","fr":"active","to":"done"}
 {"t":"2026-07-24T02:51:34Z","eid":"5f457d69b7fe8d35","ag":"orchestrator","ev":"archive","id":"T-0014","k":"task","ti":"implement forward-skip transitions + Mermaid automaton in README","dir":"internal/lifecycle","sum":"archived with parent P-0009"}
+{"t":"2026-07-24T07:45:07Z","eid":"5db6a03268e3a9ed","ag":"orchestrator","ev":"create","id":"T-0030","k":"task","ti":"foundation: item fields + blocked state + rounds/escalation in lifecycle + journal/replay","dir":"internal/lifecycle"}
+{"t":"2026-07-24T07:46:01Z","eid":"c2f31ff3fa36a2d9","ag":"agent-foundation","ev":"move","id":"T-0030","dir":"internal/lifecycle","fr":"draft","to":"active"}
