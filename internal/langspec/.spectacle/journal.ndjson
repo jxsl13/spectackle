@@ -1,0 +1,4 @@
+{"t":"2026-07-24T08:34:20Z","eid":"9b7c54eaf59fa9bb","ag":"orchestrator","ev":"create","id":"T-0034","k":"task","ti":"langspec framework + python/javascript reference specs","dir":"internal/langspec"}
+{"t":"2026-07-24T08:35:31Z","eid":"0775b1bb6f47d5b3","ag":"agent-langspec","ev":"move","id":"T-0034","dir":"internal/langspec","fr":"draft","to":"active"}
+{"t":"2026-07-24T08:38:59Z","eid":"7a3b350bc3c5bddd","ag":"agent-langspec","ev":"rule","dir":"internal/langspec","op":"add","rule":"SPX-LSP-001","txt":"The langspec registry SHALL define a language purely as one `Spec` data value so adding a language never modifies the indexing pipeline.","ap":["go:langspec.SpecParser.Parse"],"item":"P-0019"}
+{"t":"2026-07-24T08:39:08Z","eid":"99f21620088db4de","ag":"agent-langspec","ev":"move","id":"T-0034","dir":"internal/langspec","fr":"active","to":"done"}

@@ -26,6 +26,8 @@ const (
 	LangAsm  Lang = "asm"
 	LangObjC Lang = "objc"
 	LangMSL  Lang = "msl"
+	LangPy   Lang = "py"
+	LangJS   Lang = "js"
 )
 
 // NodeKind classifies a node.

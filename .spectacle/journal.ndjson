@@ -136,3 +136,4 @@
 {"t":"2026-07-24T08:34:20Z","eid":"279cd6249a9dc502","ag":"orchestrator","ev":"grill","id":"P-0019","gr":"2026-07-24"}
 {"t":"2026-07-24T08:34:38Z","eid":"ff72e0b3e6b9716f","ag":"orchestrator","ev":"move","id":"R-0004","fr":"draft","to":"approved"}
 {"t":"2026-07-24T08:35:16Z","eid":"a55cfa4fbd52f0f2","ag":"agent-wasm","ev":"move","id":"R-0004","fr":"approved","to":"active"}
+{"t":"2026-07-24T08:40:47Z","eid":"92ceeda5a0f72301","ag":"agent-wasm","ev":"move","id":"R-0004","fr":"active","to":"done"}

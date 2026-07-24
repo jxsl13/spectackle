@@ -25,6 +25,9 @@ var extLang = map[string]graph.Lang{
 	".m":     graph.LangObjC,
 	".mm":    graph.LangObjC,
 	".metal": graph.LangMSL,
+	".py":    graph.LangPy,
+	".js":    graph.LangJS,
+	".mjs":   graph.LangJS,
 }
 
 // LangOf returns the language for a path, or "" if unrecognized.
