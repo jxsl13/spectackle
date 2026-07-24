@@ -2,3 +2,10 @@
 {"t":"2026-07-24T01:54:14Z","eid":"f22038e4d2ce6314","ag":"agent-resolve","ev":"move","id":"T-0008","dir":"internal/resolve","fr":"draft","to":"active"}
 {"t":"2026-07-24T01:56:11Z","eid":"69acd06154549587","ag":"agent-resolve","ev":"move","id":"T-0008","dir":"internal/resolve","fr":"active","to":"done"}
 {"t":"2026-07-24T01:59:27Z","eid":"903406b9dcb6a959","ag":"orchestrator","ev":"archive","id":"T-0008","k":"task","ti":"unit tests for CgoResolver (internal/resolve)","dir":"internal/resolve","sum":"archived with parent P-0001"}
+{"t":"2026-07-24T02:33:51Z","eid":"caa656e21f320f76","ag":"orchestrator","ev":"create","id":"P-0008","k":"proposal","ti":"CUDA chain live: CudaParser + launch edges - saxpy triple-hop reproduces","dir":"internal/resolve"}
+{"t":"2026-07-24T02:34:15Z","eid":"539fead881820a45","ag":"orchestrator","ev":"move","id":"P-0008","dir":"internal/resolve","fr":"draft","to":"submitted"}
+{"t":"2026-07-24T02:34:15Z","eid":"305506b79b3cd51c","ag":"orchestrator","ev":"move","id":"P-0008","dir":"internal/resolve","fr":"submitted","to":"approved"}
+{"t":"2026-07-24T02:34:15Z","eid":"17e1f357e1922ff9","ag":"orchestrator","ev":"move","id":"P-0008","dir":"internal/resolve","fr":"approved","to":"active"}
+{"t":"2026-07-24T02:34:15Z","eid":"f8c17dd711a47bbf","ag":"orchestrator","ev":"create","id":"T-0013","k":"task","ti":"cuda: CudaParser (line scanner) + launch-edge resolver, saxpy triple-hop","dir":"internal/resolve"}
+{"t":"2026-07-24T02:35:36Z","eid":"5df94554b9f03bd5","ag":"agent-cuda","ev":"move","id":"T-0013","dir":"internal/resolve","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:39:26Z","eid":"478e0408c11cce91","ag":"agent-cuda","ev":"move","id":"T-0013","dir":"internal/resolve","fr":"active","to":"done"}
