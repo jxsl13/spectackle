@@ -47,6 +47,12 @@ If any task escalates to `blocked` (rounds limit hit), resolve the
 auto-minted ADR-item via `decide` — `rescope`, `reject`, or `override-once`
 — before continuing that task's line of work.
 
+Records: write every item body — proposal, task, ADR, research — as
+compacted substance: constraints, decisions, measurements, rejected
+alternatives and why. Never paste verbatim user quotes or transcript
+excerpts; they bloat every later read of the record without adding
+information. Compact the input, lose nothing.
+
 Requirement: $ARGUMENTS
 
 ## spectackle state
