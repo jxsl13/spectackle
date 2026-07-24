@@ -11,7 +11,7 @@ FUZZTIME ?= 10s
 # Baseline at introduction: 75.0%; kept below to absorb noise, ratchet upward.
 COVER_MIN ?= 70
 
-all: build vet test lint-specs smoke
+all: build vet test lint-specs smoke cover
 
 build:
 	CGO_ENABLED=0 $(GO) build -o $(BIN) ./cmd/spectackle
