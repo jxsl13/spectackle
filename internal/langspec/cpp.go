@@ -45,6 +45,11 @@ var cppSpec = Spec{
 			Name: 1,
 		},
 	},
+
+	// CallRe/Stop (LSP-001): same shape as cSpec — see its comment. Shared
+	// Stop list: cFamilyCallStop (defined in c.go).
+	CallRe: regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`),
+	Stop:   cFamilyCallStop,
 }
 
 func init() {

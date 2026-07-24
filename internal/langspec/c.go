@@ -61,6 +61,21 @@ var cSpec = Spec{
 			Name: 1,
 		},
 	},
+
+	// CallRe/Stop (LSP-001): any `name(` inside a KFunc def's brace-counted
+	// body span is a call edge unless name is the def's own name (recursion,
+	// including the def line's own self-match) or one of Stop's control-flow
+	// keywords/operators that structurally look like a call.
+	CallRe: regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`),
+	Stop:   cFamilyCallStop,
+}
+
+// cFamilyCallStop is the Stop list shared by cSpec and cppSpec's CallRe: C
+// keywords and standard-library macros whose `name (` syntax structurally
+// matches CallRe but is never a call into a repo symbol.
+var cFamilyCallStop = []string{
+	"if", "for", "while", "switch", "return",
+	"sizeof", "defined", "static_assert", "alignof", "typeof",
 }
 
 func init() {

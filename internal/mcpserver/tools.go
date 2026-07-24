@@ -180,6 +180,18 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "state",
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
 		gate(s, s.state))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
+		Description: "Generate harness-native slash-command/prompt files from the spectacle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves a decision item open (need decision …) instead of blocking."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if err := s.preCall(); err != nil {
+				return nil, nil, err
+			}
+			res, out, err := s.commands(ctx, req, in)
+			return s.postCall(res), out, err
+		})
 }
 
 // ---- find ----
@@ -1152,7 +1164,12 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 // ---- shared helpers ----
 
 func nodeLine(n graph.Node) string {
-	l := fmt.Sprintf("n %s %s %s:%d", n.ID, n.Kind, n.File, n.Line)
+	var l string
+	if n.EndLine > n.Line {
+		l = fmt.Sprintf("n %s %s %s:%d-%d", n.ID, n.Kind, n.File, n.Line, n.EndLine)
+	} else {
+		l = fmt.Sprintf("n %s %s %s:%d", n.ID, n.Kind, n.File, n.Line)
+	}
 	if n.Sig != "" {
 		l += " sig=" + n.Sig
 	}

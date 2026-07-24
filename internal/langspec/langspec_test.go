@@ -157,17 +157,57 @@ func TestJavascriptSpecNodes(t *testing.T) {
 
 // --- cross-cutting: no edges, determinism, hash, All() -------------------
 
-func TestSpecParserNoEdges(t *testing.T) {
+// TestSpecParserNoEdgesWithoutCallRe is the framework-default half of
+// LSP-001: every registered Spec that leaves CallRe unset — every language
+// except C/C++ as of T-0048 — must never emit edges, regardless of source
+// content. This is what "CallRe unset = zero behavior change" (see
+// langspec.go's Spec.CallRe doc) actually guarantees.
+func TestSpecParserNoEdgesWithoutCallRe(t *testing.T) {
 	for _, p := range All() {
+		sp, ok := p.(SpecParser)
+		if !ok || sp.S.CallRe != nil {
+			continue
+		}
 		pr, err := p.Parse("x", []byte("def f():\n  pass\n"))
 		if err != nil {
 			t.Fatalf("%v Parse: %v", p.Lang(), err)
 		}
 		if len(pr.Edges) != 0 {
-			t.Errorf("%v Parse must not emit edges, got %+v", p.Lang(), pr.Edges)
+			t.Errorf("%v Parse must not emit edges with CallRe unset, got %+v", p.Lang(), pr.Edges)
 		}
 	}
 }
+
+// TestSpecParserCallEdgesWithCallRe is LSP-001's positive sibling: a Spec
+// that does set CallRe emits ECall edges from a Def's brace-counted body
+// span. cSpec is the reference (see c_test.go/cpp_test.go for exhaustive
+// per-language coverage); this test only proves the framework wiring itself.
+func TestSpecParserCallEdgesWithCallRe(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("x.c", []byte("static void helper(void) {\n    other();\n}\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Edges) != 1 {
+		t.Fatalf("want exactly 1 ECall edge, got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	e := pr.Edges[0]
+	if e.Src != "c:helper" || e.Dst != "c:other" || e.Kind != graph.ECall {
+		t.Errorf("edge = %+v, want c:helper -ECall-> c:other", e)
+	}
+	if e.File != "x.c" || e.Line != 2 {
+		t.Errorf("edge File/Line = %q/%d, want x.c/2", e.File, e.Line)
+	}
+}
+
+// T-0053's Allman-style brace-span regression table (formerly
+// TestBraceSpanAllman, driving the package-private braceSpan directly) has
+// moved verbatim to internal/cspan/cspan_test.go's TestSpanAllman as part
+// of T-0054's extraction of that scanner into the internal/cspan leaf
+// package. langspec.go now delegates to cspan.Span (see its Parse method);
+// this file keeps only the integration-level tests below, which exercise
+// SpecParser end to end with real Spec/Def/CallRe wiring — see
+// c_test.go/cpp_test.go for the exhaustive per-language coverage.
 
 func TestSpecParserDeterministic(t *testing.T) {
 	p := SpecParser{S: pythonSpec}

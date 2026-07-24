@@ -24,6 +24,8 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - P-0010 output diet: elide root-rule text in packs, no sw replay for fresh agents, edge dedup, drop empty sections: output diet: r-root eliding, no sw replay, edge dedup, empty sections omitted (~77% smaller packs)
 - P-0014 MCP prompts: /spectacle workflow entry points (workflow + next): workflow+next MCP prompts live: slash-command entry with live state, implementer protocol briefing
 - P-0017 state tool + /spectacle-state prompt: one structured, read-only full picture: state tool + prompt live: sectioned read-only full picture, SPX-MCP-005 anchored
+- P-0027 find/get node records show the definition span — start AND end line: n records render file:start-end via the single nodeLine formatter (MCP-002)
+- P-0029 commands tool: harness detection + slash-command generation (claude/copilot/codex/kimi) from one server-side source: commands tool live: detect+gen for claude/copilot/codex/kimi from one embedded template source; .claude commands migrated to generated output (MCP-003)
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
@@ -42,3 +44,9 @@ WHEN the grill tool completes its critique pack, the server SHALL stamp the item
 WHEN `decide op=ask` stores a decision's option set, the spectacle server SHALL persist each option as its own `option:` body line so `decideOptions` reproduces every option byte-identically.
 
 Rationale: comma-joined storage shattered comma-containing options — no byte-identical answer could ever match (found live on D-0002)
+
+## MCP-002 {applies: go:graph.Node}
+WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL emit the definition span as `file:start-end` so agents see where a function ends without reading the file.
+
+## MCP-003 {applies: go:mcpserver.Server.registerTools}
+WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectacle server SHALL elicit the harness choice via `Session.Elicit` (one boolean per harness) and, headless, mint an open `decision` item instead of guessing.

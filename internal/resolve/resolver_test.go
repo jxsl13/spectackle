@@ -9,7 +9,7 @@ import (
 
 func TestDefaultRegistry(t *testing.T) {
 	r := Default()
-	want := map[string]bool{"cgo": false, "plan9asm": false, "cuda": false, "gpupipe": false}
+	want := map[string]bool{"cgo": false, "ffi": false, "plan9asm": false, "cuda": false, "gpupipe": false}
 	for _, b := range r.All() {
 		if _, ok := want[b.Name()]; !ok {
 			t.Errorf("unexpected resolver %q", b.Name())
