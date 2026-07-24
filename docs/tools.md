@@ -25,6 +25,7 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 n <id> <kind> <file>:<line> [sig=<sig>]          node
 e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|use|link)
 r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
+r-root <ID> <ID> ...                             root-scoped rules, IDs only (full text via get)
 i <id> <kind> <state> <dir> <title>              lifecycle item
 s sec:<dir>#<name> <text>                        prose section
 j <ref> <summary> :: <snippet>                   journal/history record
@@ -84,7 +85,11 @@ rules+items; file→resolved contracts; unknown→`nf`.
 Server assigns ID (`P-0001`…) and context dir (targets→deepest common
 context, else root). With `targets` the response is the **context pack**:
 `#impact` (radius), `#contracts` (binding EARS rules), `#rejections`
-(similar past failures) — the synergy moment, one round trip.
+(similar past failures) — the synergy moment, one round trip. Root-scoped
+rules collapse into a single `r-root` ID-only line instead of repeating
+their full text every draft, and any of the three sections with nothing to
+report is omitted outright rather than filled with an `ok` placeholder
+(SPX-MCP-004).
 
 ### 4. `rule` — author EARS contracts (the only rule write path)
 
@@ -116,11 +121,18 @@ survives in the journal.
   "to":  {"enum":["submitted","approved","rejected","active","done","archived"]},
   "note":{"type":"string"}}}
 ```
-`rejected` REQUIRES `note` (the rejection corpus) and is **revocable**: move
-the rejected ID back to any previous state — the reject event snapshots the
-full item. `archived` requires `done` + no open children; merges the delta
-into spec.md `## intent`. Illegal transition → `!` with the allowed set.
-Approve/reject only on explicit user instruction.
+States are totally ordered (`draft < submitted < approved < active < done <
+archived`); **any forward skip is legal in one call** — `draft` straight to
+`active`, or `approved` straight to `archived`, cost one `move` each, not a
+walk through every state in between. `rejected` is reachable from any state
+except `archived`, REQUIRES `note` (the rejection corpus), and is
+**revocable**: move the rejected ID back to `draft`/`submitted`/`approved`/
+`active` (never `done`/`archived`) — the reject event snapshots the full
+item. `done → active` (reopen) is the one backward hop outside rejection.
+`archived` requires no open children; a skip straight to `archived` implies
+`done` and runs the archive effects once — merges the delta into spec.md
+`## intent`. `archived` is terminal. Illegal transition → `!` with the
+allowed set. Approve/reject only on explicit user instruction.
 
 ### 6. `check` — verify (drift, coverage, lint, compact-due)
 

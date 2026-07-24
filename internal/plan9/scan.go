@@ -1,14 +1,23 @@
-package index
+// Package plan9 scans Plan 9 assembly (Go's asm dialect) source for TEXT and
+// GLOBL symbol definitions.
+//
+// Plan 9 asm has no viable tree-sitter grammar: existing asm grammars target
+// GAS/NASM, while Plan 9 uses TEXT ·name(SB), pseudo-registers
+// (SB/FP/SP/PC) and the middle dot. We only need symbol definitions, so a
+// line scanner is more robust and dependency-free.
+//
+// This package is intentionally dependency-free (no graph/index/resolve
+// imports): both internal/index (AsmParser, same-language nodes) and
+// internal/resolve (Plan9AsmResolver, the Go<->asm EAsm edge) need this
+// scanner, and internal/index already imports internal/resolve — a shared
+// leaf package is the only way to give both sides the scanner without an
+// import cycle.
+package plan9
 
 import (
 	"regexp"
 	"strings"
 )
-
-// Plan 9 assembly (Go's asm dialect) has no viable tree-sitter grammar:
-// existing asm grammars target GAS/NASM, while Plan 9 uses TEXT ·name(SB),
-// pseudo-registers (SB/FP/SP/PC) and the middle dot. We only need symbol
-// definitions, so a line scanner is more robust and dependency-free.
 
 // AsmSym is one TEXT or GLOBL definition in a .s file.
 type AsmSym struct {
@@ -24,8 +33,8 @@ var (
 	reGlobl = regexp.MustCompile(`^GLOBL\s+(?:[\w]+)?·([\w·]+)\(SB\)`)
 )
 
-// ScanPlan9Asm extracts symbol definitions from Plan 9 asm source.
-func ScanPlan9Asm(src []byte) []AsmSym {
+// Scan extracts symbol definitions from Plan 9 asm source.
+func Scan(src []byte) []AsmSym {
 	var syms []AsmSym
 	for i, line := range strings.Split(string(src), "\n") {
 		l := strings.TrimSpace(line)

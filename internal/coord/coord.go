@@ -109,7 +109,8 @@ func Open(path, agent string, pid int) (*DB, error) {
 	}
 	now := time.Now().Unix()
 	err = d.retry(func() error {
-		_, err := d.db.Exec(`INSERT INTO agents(name,pid,started,hb) VALUES(?,?,?,?)
+		_, err := d.db.Exec(`INSERT INTO agents(name,pid,started,hb,cursor)
+			VALUES(?,?,?,?,COALESCE((SELECT MAX(seq) FROM events),0))
 			ON CONFLICT(name) DO UPDATE SET pid=excluded.pid, hb=excluded.hb`, agent, pid, now, now)
 		return err
 	})
@@ -167,7 +168,8 @@ func (d *DB) retry(f func() error) error {
 func (d *DB) Heartbeat() error {
 	now := time.Now().Unix()
 	return d.retry(func() error {
-		_, err := d.db.Exec(`INSERT INTO agents(name,pid,started,hb) VALUES(?,?,?,?)
+		_, err := d.db.Exec(`INSERT INTO agents(name,pid,started,hb,cursor)
+			VALUES(?,?,?,?,COALESCE((SELECT MAX(seq) FROM events),0))
 			ON CONFLICT(name) DO UPDATE SET hb=excluded.hb`, d.Agent, d.pid, now, now)
 		return err
 	})

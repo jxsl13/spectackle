@@ -109,6 +109,35 @@ func TestImpactBFS(t *testing.T) {
 	if len(edges) != 4 {
 		t.Fatalf("depth-2 edges: %d", len(edges))
 	}
+	// T-0015: every edge must appear exactly once, even though Out-direction
+	// BFS never revisits an edge here (each node is dequeued once).
+	edgeCount := map[Edge]int{}
+	for _, e := range edges {
+		edgeCount[e]++
+	}
+	for e, n := range edgeCount {
+		if n != 1 {
+			t.Fatalf("edge %+v counted %d times", e, n)
+		}
+	}
+	// Both direction is where duplicates used to sneak in: the diamond's a->b
+	// and a->c edges are visible both as out-edges of a and in-edges of b/c.
+	bothNodes, bothEdges := g.Impact([]NodeID{"go:a"}, 2, Both, nil)
+	if len(bothNodes) != 4 {
+		t.Fatalf("both-direction radius: %d nodes", len(bothNodes))
+	}
+	if len(bothEdges) != 4 {
+		t.Fatalf("both-direction edges: %d, want 4 distinct edges (no duplicates)", len(bothEdges))
+	}
+	bothCount := map[Edge]int{}
+	for _, e := range bothEdges {
+		bothCount[e]++
+	}
+	for e, n := range bothCount {
+		if n != 1 {
+			t.Fatalf("both-direction edge %+v counted %d times, want 1", e, n)
+		}
+	}
 	// edge-kind filter cuts the cgo branch
 	nodes, _ = g.Impact([]NodeID{"go:a"}, 2, Out, []EdgeKind{ECall, ELaunch})
 	for _, n := range nodes {

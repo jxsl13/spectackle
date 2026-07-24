@@ -1,8 +1,8 @@
-package index
+package plan9
 
 import "testing"
 
-func TestScanPlan9Asm(t *testing.T) {
+func TestScan(t *testing.T) {
 	src := []byte(`#include "textflag.h"
 
 // func mulVec(dst, a, b []float32)
@@ -12,7 +12,7 @@ TEXT ·mulVec(SB), NOSPLIT, $0-72
 
 GLOBL ·shuffleMask(SB), RODATA, $16
 `)
-	syms := ScanPlan9Asm(src)
+	syms := Scan(src)
 	if len(syms) != 2 {
 		t.Fatalf("got %d syms, want 2: %+v", len(syms), syms)
 	}

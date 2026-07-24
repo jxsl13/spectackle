@@ -226,6 +226,75 @@ func TestEventsCursorAndSearch(t *testing.T) {
 	}
 }
 
+// TestFreshAgentNoReplay (T-0015): an agent that registers for the first
+// time must not replay events emitted before it ever connected — its cursor
+// starts at the current MAX(seq), not 0.
+func TestFreshAgentNoReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "coord.db")
+	a, err := Open(path, "alice", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { a.Close() })
+
+	a.Emit("rule", "SPX-ARC-001", "add: first event")
+	a.Emit("rule", "SPX-ARC-002", "add: second event")
+
+	// charlie registers only now, after both events already exist
+	charlie, err := Open(path, "charlie", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { charlie.Close() })
+
+	cur, err := charlie.Cursor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := charlie.After(cur, 10); len(ev) != 0 {
+		t.Fatalf("fresh agent replayed pre-existing events: %+v", ev)
+	}
+
+	// an event emitted after charlie's Open must still reach it
+	a.Emit("rule", "SPX-ARC-003", "add: third event")
+	ev, err := charlie.After(cur, 10)
+	if err != nil || len(ev) != 1 || ev[0].Ref != "SPX-ARC-003" {
+		t.Fatalf("charlie missed a post-registration event: %+v, %v", ev, err)
+	}
+}
+
+// TestReRegisterAfterSweepNoReplay (T-0015): a sibling's sweep deletes an
+// idle agent's registry row; its next Heartbeat re-registers it, and that
+// re-registration must set cursor to the current MAX(seq) too — otherwise
+// the whole event history replays into a long-idle-but-alive agent.
+func TestReRegisterAfterSweepNoReplay(t *testing.T) {
+	a, b := open2(t)
+	// age alice's heartbeat so she looks stale to a sweep
+	if _, err := a.db.Exec(`UPDATE agents SET hb=? WHERE name='alice'`, time.Now().Add(-2*time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	b.Emit("rule", "SPX-ARC-001", "event before alice re-registers")
+	if _, err := b.Sweep(15 * time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	// alice is still alive; her next heartbeat re-registers her row
+	if err := a.Heartbeat(); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := a.Cursor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev, _ := a.After(cur, 10); len(ev) != 0 {
+		t.Fatalf("re-registered agent replayed pre-existing history: %+v", ev)
+	}
+	b.Emit("rule", "SPX-ARC-002", "event after alice re-registers")
+	ev, err := a.After(cur, 10)
+	if err != nil || len(ev) != 1 || ev[0].Ref != "SPX-ARC-002" {
+		t.Fatalf("re-registered agent missed a post-registration event: %+v, %v", ev, err)
+	}
+}
+
 func mustCursor(t *testing.T, d *DB) int64 {
 	t.Helper()
 	c, err := d.Cursor()

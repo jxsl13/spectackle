@@ -1,0 +1,3 @@
+{"t":"2026-07-24T02:37:56Z","eid":"2eea23186b251f09","ag":"orchestrator","ev":"create","id":"T-0014","k":"task","ti":"implement forward-skip transitions + Mermaid automaton in README","dir":"internal/lifecycle"}
+{"t":"2026-07-24T02:39:00Z","eid":"584de645e1eac354","ag":"agent-fsm","ev":"move","id":"T-0014","dir":"internal/lifecycle","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:42:50Z","eid":"493a90a2f3a50812","ag":"agent-fsm","ev":"move","id":"T-0014","dir":"internal/lifecycle","fr":"active","to":"done"}

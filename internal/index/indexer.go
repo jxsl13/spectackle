@@ -3,10 +3,10 @@
 //
 // Parser backends are pluggable behind LanguageParser. The target picture is
 // cgo-free: Go is parsed with the stdlib go/parser (never tree-sitter), Plan 9
-// asm with a custom scanner (this package), and C/C++/CUDA start on cgo
-// tree-sitter bindings in M1/M2 with a planned migration to tree-sitter
-// grammars compiled to WASM executed via wazero (pure Go). See
-// docs/architecture.md §2 and docs/roadmap.md.
+// asm with a custom scanner (internal/plan9, shared with internal/resolve),
+// and C/C++/CUDA start on cgo tree-sitter bindings in M1/M2 with a planned
+// migration to tree-sitter grammars compiled to WASM executed via wazero
+// (pure Go). See docs/architecture.md §2 and docs/roadmap.md.
 package index
 
 import (

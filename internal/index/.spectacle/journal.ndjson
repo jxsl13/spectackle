@@ -2,3 +2,6 @@
 {"t":"2026-07-24T01:54:04Z","eid":"835754bdc2daf734","ag":"agent-index","ev":"move","id":"T-0007","dir":"internal/index","fr":"draft","to":"active"}
 {"t":"2026-07-24T01:56:24Z","eid":"bcd2d15780657d07","ag":"agent-index","ev":"move","id":"T-0007","dir":"internal/index","fr":"active","to":"done"}
 {"t":"2026-07-24T01:59:27Z","eid":"63a83d4af857f426","ag":"orchestrator","ev":"archive","id":"T-0007","k":"task","ti":"unit tests for GoParser + IndexAll (internal/index)","dir":"internal/index","sum":"archived with parent P-0001"}
+{"t":"2026-07-24T02:34:15Z","eid":"890b987335e49bad","ag":"orchestrator","ev":"create","id":"T-0012","k":"task","ti":"plan9 asm: internal/plan9 scanner pkg + AsmParser + EAsm resolver","dir":"internal/index"}
+{"t":"2026-07-24T02:35:14Z","eid":"2b338c13f7198f97","ag":"agent-plan9","ev":"move","id":"T-0012","dir":"internal/index","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:37:56Z","eid":"e473d8b36791f711","ag":"agent-plan9","ev":"move","id":"T-0012","dir":"internal/index","fr":"active","to":"done"}

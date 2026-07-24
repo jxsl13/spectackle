@@ -20,3 +20,9 @@
 {"t":"2026-07-24T02:28:34Z","eid":"91a2983b54f9e3fd","ag":"agent-workflow","ev":"move","id":"T-0011","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-24T02:30:15Z","eid":"000c4cf20f38536e","ag":"agent-workflow","ev":"move","id":"T-0011","dir":"internal/mcpserver","fr":"active","to":"done"}
 {"t":"2026-07-24T02:31:59Z","eid":"8ee62dd8d091b8da","ag":"orchestrator","ev":"archive","id":"T-0011","k":"task","ti":"document + embed orchestrator/fresh-subagent workflow","dir":"internal/mcpserver","sum":"archived with parent P-0006"}
+{"t":"2026-07-24T02:41:41Z","eid":"9e61254abe79f207","ag":"orchestrator","ev":"create","id":"P-0010","k":"proposal","ti":"output diet: elide root-rule text in packs, no sw replay for fresh agents, edge dedup, drop empty sections","dir":"internal/mcpserver"}
+{"t":"2026-07-24T02:41:41Z","eid":"4fdf2c2ffadc6d01","ag":"orchestrator","ev":"move","id":"P-0010","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:41:41Z","eid":"bbafbeae44a11141","ag":"orchestrator","ev":"create","id":"T-0015","k":"task","ti":"implement output diet (packs, sw cursor, edge dedup, empty sections)","dir":"internal/mcpserver"}
+{"t":"2026-07-24T02:43:16Z","eid":"f4967dbcda208735","ag":"agent-diet","ev":"move","id":"T-0015","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:47:36Z","eid":"9d296611511c7ec5","ag":"agent-diet","ev":"rule","dir":"internal/mcpserver","op":"add","rule":"SPX-MCP-004","txt":"WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.","ap":["go:mcpserver.Server.draft"],"item":"P-0010"}
+{"t":"2026-07-24T02:48:19Z","eid":"f6249c73cdf5f15a","ag":"agent-diet","ev":"move","id":"T-0015","dir":"internal/mcpserver","fr":"active","to":"done"}

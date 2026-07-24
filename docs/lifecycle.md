@@ -117,15 +117,26 @@ plain language everywhere, *no* caveman encoding.
 ```
 
 States: `draft → submitted → approved → active → done → archived`, plus
-`rejected` from draft/submitted/active. Server-enforced guards:
-- `rejected` **requires a note** — that note is the searchable corpus that
-  prevents rework;
+`rejected`. Transitions follow a total order over those six states
+(`draft`(0) < `submitted`(1) < `approved`(2) < `active`(3) < `done`(4) <
+`archived`(5)): **any forward jump is legal in a single `move` call** — every
+hop is optional, so `draft → active` or `approved → archived` costs one
+tool call, not a walk through every intermediate state. Server-enforced
+guards:
+- `rejected` is reachable from any of the six states **except `archived`**,
+  and **requires a note** — that note is the searchable corpus that prevents
+  rework;
 - rejections are **revocable**: the reject journal event snapshots the full
   item (body, targets, parent, rules), so `move` can restore a rejected ID
-  into any previous state — and reject events survive every compaction;
-- `archived` only from `done`, proposals only without open children; archive
-  merges the outcome into `## intent`, journals a summary, folds done
-  children, removes the blocks from work.md.
+  into `draft`, `submitted`, `approved` or `active` (never `done`/`archived`)
+  — and reject events survive every compaction;
+- `done → active` (reopen) is the one backward hop kept outside rejection;
+- `archived` requires no open children (proposals: no open child items); a
+  skip straight to `archived` (e.g. from `active`) **implies `done`** and
+  runs the archive effects exactly once — merges the outcome into `##
+  intent`, journals a summary, folds done children, removes the blocks from
+  work.md;
+- `archived` is terminal — no further transitions.
 
 ### Compacting — hybrid, and why
 
