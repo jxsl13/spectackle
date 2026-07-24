@@ -64,7 +64,7 @@ func connectDecide(t *testing.T, root string, elicit func(context.Context, *mcp.
 
 // TestDecideAskHeadlessNeedPath: an in-memory client with no elicitation
 // handler cannot render the native UI — req.Session.Elicit errors, so
-// decideAsk must NOT block; it leaves the D-item open (state=submitted) and
+// decideAsk must NOT block; it leaves the ADR-item open (state=submitted) and
 // returns the "need decision" record so the orchestrator can keep working
 // other disjoint tasks.
 func TestDecideAskHeadlessNeedPath(t *testing.T) {
@@ -74,20 +74,20 @@ func TestDecideAskHeadlessNeedPath(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 	})
-	if !strings.Contains(out, "need decision D-0001 which backend? | grpc, rest") {
+	if !strings.Contains(out, "need decision ADR-0001 which backend? | grpc, rest") {
 		t.Fatalf("headless ask should return the need record, got: %q", out)
 	}
 
-	d, ok, err := item.Get(s.ws, "D-0001")
+	d, ok, err := item.Get(s.ws, "ADR-0001")
 	if err != nil || !ok {
-		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
 	}
 	if d.State != item.StateSubmitted {
 		t.Fatalf("undelivered decision state = %s, want submitted", d.State)
 	}
 
 	out = callText(t, sess, "decide", map[string]any{"op": "ls"})
-	if !strings.Contains(out, "D-0001") {
+	if !strings.Contains(out, "ADR-0001") {
 		t.Fatalf("ls should list the still-open decision: %q", out)
 	}
 }
@@ -104,12 +104,12 @@ func TestDecideAskAcceptResolvesImmediately(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 	})
-	if !strings.Contains(out, "ok D-0001 rest") {
+	if !strings.Contains(out, "ok ADR-0001 rest") {
 		t.Fatalf("accepted ask should resolve immediately: %q", out)
 	}
-	d, ok, err := item.Get(s.ws, "D-0001")
+	d, ok, err := item.Get(s.ws, "ADR-0001")
 	if err != nil || !ok || d.State != item.StateDone {
-		t.Fatalf("D-0001 not done: %+v %v %v", d, ok, err)
+		t.Fatalf("ADR-0001 not done: %+v %v %v", d, ok, err)
 	}
 }
 
@@ -128,12 +128,12 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	})
 
 	blocked, ok, err := item.Get(s.ws, "T-0001")
-	if err != nil || !ok || len(blocked.Needs) != 1 || blocked.Needs[0] != "D-0001" {
-		t.Fatalf("T-0001 Needs not linked to D-0001: %+v %v", blocked, err)
+	if err != nil || !ok || len(blocked.Needs) != 1 || blocked.Needs[0] != "ADR-0001" {
+		t.Fatalf("T-0001 Needs not linked to ADR-0001: %+v %v", blocked, err)
 	}
 
-	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": "D-0001", "choose": "grpc"})
-	if !strings.Contains(out, "ok D-0001 grpc") {
+	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": "ADR-0001", "choose": "grpc"})
+	if !strings.Contains(out, "ok ADR-0001 grpc") {
 		t.Fatalf("answer should resolve: %q", out)
 	}
 
@@ -141,7 +141,7 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	// (forced to yes/no regardless of what ask was called with) must
 	// actually constrain answer=
 	callText(t, sess, "decide", map[string]any{"op": "ask", "question": "yes or no?", "kind": "confirm", "item": "T-0001"})
-	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": "D-0002", "choose": "maybe"})
+	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": "ADR-0002", "choose": "maybe"})
 	if !strings.Contains(out, "! ARG E") {
 		t.Fatalf("confirm answer outside yes|no must be rejected: %q", out)
 	}
@@ -150,8 +150,8 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("T-0001 gone: %v", err)
 	}
-	if len(resolved.Needs) != 1 || resolved.Needs[0] != "D-0002" {
-		t.Fatalf("D-0001 should be cleared from Needs, D-0002 still open: %+v", resolved.Needs)
+	if len(resolved.Needs) != 1 || resolved.Needs[0] != "ADR-0002" {
+		t.Fatalf("ADR-0001 should be cleared from Needs, ADR-0002 still open: %+v", resolved.Needs)
 	}
 
 	events, err := journal.ReadAll(s.ws)
@@ -160,12 +160,12 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	}
 	found := false
 	for _, e := range events {
-		if e.Ev == journal.EvDecide && e.ID == "D-0001" && e.Note == "grpc" {
+		if e.Ev == journal.EvDecide && e.ID == "ADR-0001" && e.Note == "grpc" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("no ev=decide journal event for D-0001's resolution")
+		t.Fatal("no ev=decide journal event for ADR-0001's resolution")
 	}
 }
 
@@ -188,16 +188,16 @@ func TestDecideAskArchivedItemProvenanceOnly(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "ask", "question": "still relevant?", "kind": "confirm", "item": it.ID,
 	})
-	if !strings.Contains(out, "need decision D-0001") {
+	if !strings.Contains(out, "need decision ADR-0001") {
 		t.Fatalf("ask on archived item should still succeed: %q", out)
 	}
 
-	d, ok, err := item.Get(s.ws, "D-0001")
+	d, ok, err := item.Get(s.ws, "ADR-0001")
 	if err != nil || !ok {
-		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
 	}
 	if !strings.Contains(d.Body, "blocks: "+it.ID) {
-		t.Fatalf("D-0001 body missing blocks provenance: %q", d.Body)
+		t.Fatalf("ADR-0001 body missing blocks provenance: %q", d.Body)
 	}
 
 	// the archived item itself is gone from work.md and Tombstone must still
@@ -215,9 +215,8 @@ func TestDecideAskArchivedItemProvenanceOnly(t *testing.T) {
 // TestDecideOptionFidelityAndLegacyCompat: options containing commas must
 // round-trip byte-identical through ask -> answer (MCP-001's one `option: `
 // line per option, not the old comma-joined `options: ` line which would
-// shatter them); a legacy comma-joined body (as decideAsk used to write, and
-// as D-0002 in this repo's own work.md still carries) must remain answerable
-// via its comma-split fragments without any migration.
+// shatter them); a legacy comma-joined body (as decideAsk used to write) must
+// remain answerable via its comma-split fragments without any migration.
 func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
@@ -226,26 +225,26 @@ func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 		"op": "ask", "question": "pick one", "kind": "radio",
 		"options": []string{"defer, revisit later", "go now"},
 	})
-	d, ok, err := item.Get(s.ws, "D-0001")
+	d, ok, err := item.Get(s.ws, "ADR-0001")
 	if err != nil || !ok {
-		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
 	}
 	if !strings.Contains(d.Body, "option: defer, revisit later\n") || !strings.Contains(d.Body, "option: go now") {
-		t.Fatalf("D-0001 body missing per-line option: %q", d.Body)
+		t.Fatalf("ADR-0001 body missing per-line option: %q", d.Body)
 	}
 	if strings.Contains(d.Body, "options: ") {
-		t.Fatalf("D-0001 body still uses the legacy comma-joined line: %q", d.Body)
+		t.Fatalf("ADR-0001 body still uses the legacy comma-joined line: %q", d.Body)
 	}
 
 	out := callText(t, sess, "decide", map[string]any{
-		"op": "answer", "id": "D-0001", "choose": "defer, revisit later",
+		"op": "answer", "id": "ADR-0001", "choose": "defer, revisit later",
 	})
-	if !strings.Contains(out, "ok D-0001 defer, revisit later") {
+	if !strings.Contains(out, "ok ADR-0001 defer, revisit later") {
 		t.Fatalf("byte-identical comma-containing option should resolve: %q", out)
 	}
 
 	// legacy body shape (comma-joined) must still be answerable, unmigrated.
-	legacy, err := lifecycle.Draft(s.ws, s.minter(), "decision", "legacy ask",
+	legacy, err := lifecycle.Draft(s.ws, s.minter(), "adr", "legacy ask",
 		"kind: radio\noptions: alpha, beta", "", "", nil)
 	if err != nil {
 		t.Fatal(err)

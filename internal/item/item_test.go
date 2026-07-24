@@ -129,18 +129,30 @@ func TestUpsertLoadRoundtripFeedbackFields(t *testing.T) {
 	}
 }
 
-func TestDecisionKindAndIDs(t *testing.T) {
-	if !ValidKind("decision") {
-		t.Fatal("decision not a valid kind")
+func TestADRKindAndIDs(t *testing.T) {
+	if !ValidKind("adr") {
+		t.Fatal("adr not a valid kind")
 	}
-	if Letter("decision") != "D" {
-		t.Fatalf("Letter(decision) = %q, want D", Letter("decision"))
+	if Letter("adr") != "ADR" {
+		t.Fatalf("Letter(adr) = %q, want ADR", Letter("adr"))
 	}
+	if !IDRe.MatchString("ADR-0001") {
+		t.Fatal("IDRe rejects ADR- ids")
+	}
+	if NextID("adr", 0) != "ADR-0001" {
+		t.Fatalf("NextID(adr, 0) = %s", NextID("adr", 0))
+	}
+	if Num("ADR-0007") != 7 {
+		t.Fatalf("Num(ADR-0007) = %d, want 7", Num("ADR-0007"))
+	}
+	// legacy: D was the ID letter for adr items before the decision->adr
+	// rename; existing D-xxxx items in .spectackle files are not migrated,
+	// so IDRe and Num must keep reading them.
 	if !IDRe.MatchString("D-0001") {
-		t.Fatal("IDRe rejects D- ids")
+		t.Fatal("IDRe must still tolerate legacy D- ids")
 	}
-	if NextID("decision", 0) != "D-0001" {
-		t.Fatalf("NextID(decision, 0) = %s", NextID("decision", 0))
+	if Num("D-0007") != 7 {
+		t.Fatalf("Num(D-0007) = %d, want 7", Num("D-0007"))
 	}
 }
 

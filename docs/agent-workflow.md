@@ -212,13 +212,13 @@ enumerated choices, a confirm dialog for yes/no, free text otherwise. Two
 outcomes:
 
 - **The host renders it and the user answers immediately** — the decision
-  is persisted (`D-xxxx` → `done`) and the orchestrator has its answer in
+  is persisted (`ADR-xxxx` → `done`) and the orchestrator has its answer in
   the same call.
 - **No elicitation support, declined, or a different harness entirely** —
-  the `D-xxxx` item stays open; the orchestrator does **not** block on it.
+  the `ADR-xxxx` item stays open; the orchestrator does **not** block on it.
   It keeps working other disjoint tasks and picks the answer up later —
   from `state`, from `swarm`'s sw piggyback, or because someone (any
-  session, any harness) called `decide op=answer id=D-xxxx choose=…`. A
+  session, any harness) called `decide op=answer id=ADR-xxxx choose=…`. A
   decision made hours or days later, from an entirely different session,
   is a first-class re-entry, not a special case.
 
@@ -240,11 +240,11 @@ implementer                    server                       orchestrator
     │                               │  rounds == max_rounds (default 3):
     │                               │  server side-steps the item
     │                               │    T-x -> blocked
-    │                               │  and mints D-xxxx
+    │                               │  and mints ADR-xxxx
     │                               │    (rescope | reject | override-once)
-    │                               │    T-x needs: D-xxxx, sw escalate
+    │                               │    T-x needs: ADR-xxxx, sw escalate
     │                               │                              │
-    │                               │◄──── decide op=answer D-xxxx │
+    │                               │◄──── decide op=answer ADR-xxxx │
     │                               │                              │
     │             rescope       -> draft     (mandatory rescoping)│
     │             reject        -> rejected  (note = decide reason)

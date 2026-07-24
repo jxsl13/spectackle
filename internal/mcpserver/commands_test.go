@@ -63,7 +63,7 @@ func TestCommandsDetectClaudeMarker(t *testing.T) {
 
 // TestCommandsGenNoHarnessHeadlessMintsDecision: detect finds nothing (empty
 // tempdir) and gen is called with no harness= and no elicitation handler —
-// the headless/no-UI fallback must mint an open `decision` item instead of
+// the headless/no-UI fallback must mint an open `adr` item instead of
 // blocking, mirroring decideAsk's own no-UI behavior.
 func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	root := t.TempDir()
@@ -75,15 +75,15 @@ func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	}
 
 	out = callText(t, sess, "commands", map[string]any{"op": "gen"})
-	if !strings.Contains(out, "need decision D-0001") {
+	if !strings.Contains(out, "need decision ADR-0001") {
 		t.Fatalf("expected a need-decision fallback: %q", out)
 	}
-	d, ok, err := item.Get(s.ws, "D-0001")
+	d, ok, err := item.Get(s.ws, "ADR-0001")
 	if err != nil || !ok {
-		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
 	}
-	if d.Kind != "decision" {
-		t.Fatalf("minted item is not kind=decision: %+v", d)
+	if d.Kind != "adr" {
+		t.Fatalf("minted item is not kind=adr: %+v", d)
 	}
 	if d.State != item.StateSubmitted {
 		t.Fatalf("undelivered decision state = %s, want submitted", d.State)

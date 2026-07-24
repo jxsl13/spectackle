@@ -33,8 +33,8 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 // ---- input structs (JSON Schemas are inferred from these) ----
 
 type findIn struct {
-	Q     string `json:"q" jsonschema:"text or ID fragment"`
-	Scope string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|rejection|history|all, default all"`
+	Q      string `json:"q" jsonschema:"text or ID fragment"`
+	Scope  string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|adr|rejection|history|all, default all"`
 	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
 	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
@@ -114,7 +114,7 @@ func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(co
 
 func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "find",
-		Description: "Unified search. scope: code→nodes(n), rule→EARS(r), spec→prose(s), proposal|task|bug|research→items(i), rejection→past rejections(j), history→journal(j), all→mixed. ALWAYS search rejection+history before drafting."},
+		Description: "Unified search. scope: code→nodes(n), rule→EARS(r), spec→prose(s), proposal|task|bug|research|adr→items(i), rejection→past rejections(j), history→journal(j), all→mixed. ALWAYS search rejection+history before drafting."},
 		gate(s, s.find))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "get",
@@ -170,7 +170,7 @@ func (s *Server) registerTools() {
 		gate(s, s.grill))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
-		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the D-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
+		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the ADR-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -186,7 +186,7 @@ func (s *Server) registerTools() {
 		gate(s, s.state))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
-		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves a decision item open (need decision …) instead of blocking."},
+		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -208,6 +208,7 @@ var scopeKinds = map[string][]string{
 	"task":      {"task"},
 	"bug":       {"bug"},
 	"research":  {"research"},
+	"adr":       {"adr"},
 	"rejection": {"rejection"},
 	"history":   {"journal", "rejection"},
 }
@@ -870,7 +871,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		var rex lifecycle.ErrRoundsExhausted
 		if errors.As(err, &rex) {
 			// anti-ping-pong: the reopen budget is spent — server-side
-			// escalation to the blocked side state + auto-minted decision.
+			// escalation to the blocked side state + auto-minted adr item.
 			blocked, dec, eErr := lifecycle.Escalate(s.ws, s.minter(), rex.Item)
 			if eErr != nil {
 				return nil, nil, eErr

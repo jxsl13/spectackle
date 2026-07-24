@@ -205,7 +205,7 @@ func TestPromptNextSkipsBlockedAndOpenNeeds(t *testing.T) {
 	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "needs a decision first"})
 	callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "approved"})
-	d, err := lifecycle.Draft(s.ws, nil, "decision", "which approach", "", "", "", nil)
+	d, err := lifecycle.Draft(s.ws, nil, "adr", "which approach", "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

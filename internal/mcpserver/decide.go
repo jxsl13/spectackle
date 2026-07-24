@@ -21,7 +21,7 @@ import (
 // (tools.go), since `ask` needs req.Session for elicitation.
 type decideIn struct {
 	Op       string   `json:"op" jsonschema:"ask|answer|ls"`
-	ID       string   `json:"id,omitempty" jsonschema:"D-id (answer) — omit for ask"`
+	ID       string   `json:"id,omitempty" jsonschema:"ADR-id (answer) — omit for ask"`
 	Question string   `json:"question,omitempty" jsonschema:"ask: the decision to make"`
 	Kind     string   `json:"kind,omitempty" jsonschema:"radio|confirm|text, default radio"`
 	Options  []string `json:"options,omitempty" jsonschema:"radio choices, 2-5"`
@@ -43,7 +43,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 	return text("! ARG E - op must be ask|answer|ls")
 }
 
-// decideAsk mints a `decision` item (state=draft, kind=decision) recording
+// decideAsk mints an `adr` item (state=draft, kind=adr) recording
 // the question, its kind/options and — if in.Item is set — which item it
 // blocks (appended to that item's Needs, exactly like lifecycle.Escalate
 // links its auto-minted decisions). It then tries MCP elicitation
@@ -51,7 +51,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 // in production, see elicitSlots in tools.go): the host renders a
 // radio/confirm/text form and, on accept, the answer resolves immediately
 // (same path as `answer`). No elicitation support, decline/cancel, or any
-// transport error leaves the D-item open (state=submitted) — the caller is
+// transport error leaves the ADR-item open (state=submitted) — the caller is
 // NOT meant to block on it; it can keep working other disjoint tasks and the
 // decision gets answered later, from anywhere, via `answer`.
 func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
@@ -110,7 +110,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		bodyLines = append(bodyLines, "blocks: "+blocksID)
 	}
 
-	d, err := lifecycle.Draft(s.ws, s.minter(), "decision", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
@@ -185,7 +185,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ok || d.Kind != "decision" {
+	if !ok || d.Kind != "adr" {
 		return text("! ARG E - unknown decision " + in.ID)
 	}
 	if d.State == item.StateDone {
@@ -336,7 +336,7 @@ func (s *Server) decideLs() (*mcp.CallToolResult, any, error) {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		if it.Kind != "decision" || it.State == item.StateDone {
+		if it.Kind != "adr" || it.State == item.StateDone {
 			continue
 		}
 		b.WriteString(item.Record(it) + "\n")

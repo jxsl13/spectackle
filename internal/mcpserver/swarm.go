@@ -499,7 +499,7 @@ func (s *Server) maxRounds() int {
 // failure instead of a reopen; lifecycle.Move itself is not involved (the
 // item's state does not change on a gate fail, only its Rounds counter).
 // At the configured limit the item is escalated into item.StateBlocked
-// (lifecycle.Escalate mints the decision item that is the only way out)
+// (lifecycle.Escalate mints the adr item that is the only way out)
 // instead of just returning the gate output. Either way the worktree is
 // left open — work op=abort remains available, and once the block clears
 // via decide, submit can be retried.

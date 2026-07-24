@@ -222,7 +222,7 @@ func TestRejectionSnapshotAndRevocation(t *testing.T) {
 // two reopens succeed and increment Rounds, the third exhausts the
 // (deliberately small) round budget — Move returns ErrRoundsExhausted and
 // leaves the item on done, and the caller (simulated here, mcpserver in a
-// later task) escalates it into blocked with a linked D- decision item.
+// later task) escalates it into blocked with a linked ADR- adr item.
 func TestReopenIncrementsAndEscalates(t *testing.T) {
 	root := ws(t)
 	root.Cfg.Feedback.MaxRounds = 2
@@ -263,7 +263,7 @@ func TestReopenIncrementsAndEscalates(t *testing.T) {
 	if escalated.State != item.StateBlocked {
 		t.Fatalf("escalated state = %s, want blocked", escalated.State)
 	}
-	if decision.Kind != "decision" || decision.ID != "D-0001" || decision.State != item.StateDraft {
+	if decision.Kind != "adr" || decision.ID != "ADR-0001" || decision.State != item.StateDraft {
 		t.Fatalf("decision item = %+v", decision)
 	}
 	if len(escalated.Needs) != 1 || escalated.Needs[0] != decision.ID {
@@ -288,7 +288,7 @@ func TestReopenIncrementsAndEscalates(t *testing.T) {
 	for _, e := range events {
 		if e.Ev == journal.EvEscalate && e.ID == "T-0001" {
 			found = true
-			if len(e.Nd) != 1 || e.Nd[0] != "D-0001" {
+			if len(e.Nd) != 1 || e.Nd[0] != "ADR-0001" {
 				t.Fatalf("escalate event Nd = %+v", e.Nd)
 			}
 		}
@@ -299,7 +299,7 @@ func TestReopenIncrementsAndEscalates(t *testing.T) {
 
 	// blocked items refuse every move, naming the linked decision
 	if _, err := Move(root, "T-0001", item.StateActive, ""); err == nil ||
-		!strings.Contains(err.Error(), "blocked — resolve via decide D-0001") {
+		!strings.Contains(err.Error(), "blocked — resolve via decide ADR-0001") {
 		t.Fatalf("blocked item movable or wrong message: %v", err)
 	}
 	if _, err := Move(root, "T-0001", item.StateDraft, ""); err == nil ||

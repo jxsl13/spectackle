@@ -17,11 +17,12 @@ import (
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
-// Kinds and their ID letters. decision items are minted by
-// lifecycle.Escalate (see internal/lifecycle) to record the way out of a
-// rounds-exhausted feedback loop — never drafted directly by an agent.
+// Kinds and their ID letters. adr items (architecture decision records,
+// formerly "decision") are minted by lifecycle.Escalate (see
+// internal/lifecycle) to record the way out of a rounds-exhausted feedback
+// loop — never drafted directly by an agent.
 var kindLetter = map[string]string{
-	"proposal": "P", "task": "T", "bug": "B", "research": "R", "decision": "D",
+	"proposal": "P", "task": "T", "bug": "B", "research": "R", "adr": "ADR",
 }
 
 // States of the lifecycle state machine (see internal/lifecycle).
@@ -65,8 +66,12 @@ type Item struct {
 	Override bool     // override-once already spent — cannot be spent again
 }
 
-// IDRe matches item IDs like P-0007 or D-0007 (decision).
-var IDRe = regexp.MustCompile(`^[PTBRD]-\d{4}$`)
+// IDRe matches item IDs like P-0007 or ADR-0007 (adr). D-0007 is also
+// accepted: the legacy ID letter for adr items before the decision->adr
+// rename — existing D-xxxx items in .spectackle files are not migrated by
+// this change, so the regex must keep reading them. New adr items are
+// always minted as ADR-NNNN (see kindLetter above); D is legacy-only.
+var IDRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-\d{4}$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
@@ -77,10 +82,15 @@ func NextID(kind string, maxSeen int) string {
 	return fmt.Sprintf("%s-%04d", kindLetter[kind], maxSeen+1)
 }
 
-// Num extracts the numeric part of an item ID (0 if malformed).
+// Num extracts the numeric part of an item ID (0 if malformed). Handles both
+// single-letter (P-0007) and multi-letter (ADR-0007) prefixes.
 func Num(id string) int {
+	i := strings.IndexByte(id, '-')
+	if i < 0 {
+		return 0
+	}
 	var n int
-	if _, err := fmt.Sscanf(id[2:], "%d", &n); err != nil {
+	if _, err := fmt.Sscanf(id[i+1:], "%d", &n); err != nil {
 		return 0
 	}
 	return n
@@ -89,7 +99,7 @@ func Num(id string) int {
 // Letter returns the ID letter for a kind ("" if unknown).
 func Letter(kind string) string { return kindLetter[kind] }
 
-var reItemHeading = regexp.MustCompile(`^## +([PTBRD]-\d{4}) +(.+?) *$`)
+var reItemHeading = regexp.MustCompile(`^## +((?:ADR|[PTBRD])-\d{4}) +(.+?) *$`)
 
 // LoadWork parses a work.md file (missing file = no items).
 func LoadWork(path, ctx string) ([]Item, error) {

@@ -283,8 +283,8 @@ func lastNeed(needs []string) string {
 }
 
 // Escalate transitions a done item that has exhausted its feedback rounds
-// (see ErrRoundsExhausted) into the item.StateBlocked side state and mints a
-// decision item (kind=decision) recording the ways out: rescope, reject, or
+// (see ErrRoundsExhausted) into the item.StateBlocked side state and mints an
+// adr item (kind=adr) recording the ways out: rescope, reject, or
 // override-once (omitted once it.Override has already been spent once).
 // Move cannot do this itself since it has no Minter; callers that catch
 // ErrRoundsExhausted from Move are expected to call this with one. Returns
@@ -297,7 +297,7 @@ func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Ite
 	optStr := strings.Join(options, "|")
 	body := fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide %s outcome=%s.",
 		it.ID, it.Rounds, it.ID, optStr)
-	d, err := Draft(ws, mint, "decision", "escalate "+it.ID+": "+optStr, body, it.Dir, it.ID, nil)
+	d, err := Draft(ws, mint, "adr", "escalate "+it.ID+": "+optStr, body, it.Dir, it.ID, nil)
 	if err != nil {
 		return it, item.Item{}, err
 	}

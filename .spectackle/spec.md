@@ -148,6 +148,5 @@ Rationale: the swarm view must show who is actually there; short-lived driver se
 
 ## SPX-SWM-007 {applies: go:lifecycle.Escalate}
 WHEN an item exhausts `feedback.max_rounds` reopen or gate-fail rounds, the server SHALL set the item to the `blocked` side state and mint a linked `decision` item whose only exits are rescope, reject and override-once.
-
 ## SPX-ARC-006
 WHEN a tool receives a cur argument, the server SHALL resume output at the record offset decoded by budget.Resume so consecutive pages concatenate without overlap or gap.

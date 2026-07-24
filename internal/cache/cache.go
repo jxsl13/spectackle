@@ -19,7 +19,7 @@ import (
 
 // gen stamps the cache format; any change to the DDL or the doc feeding
 // logic must bump it. Mismatch => full rebuild.
-const gen = "v0-4"
+const gen = "v0-5"
 
 const ddl = `
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
@@ -28,7 +28,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(kind, id, dir, title, body);
 `
 
 // Doc is one searchable record. Kinds: rule, section, proposal, task, bug,
-// research, journal, rejection.
+// research, adr, journal, rejection.
 type Doc struct {
 	Kind, ID, Dir, Title, Body string
 }

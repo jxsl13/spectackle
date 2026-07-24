@@ -25,7 +25,7 @@ import (
 // the repo from filesystem markers. gen: (re)write the dialect files for a
 // harness set resolved arg > detection > elicitation (MCP-003 family): the
 // user answers a native checkbox form, or — no UI, decline, or a different
-// harness — a `decision` item is minted and left open exactly like
+// harness — an `adr` item is minted and left open exactly like
 // decideAsk (decide.go), never blocking the caller.
 type commandsIn struct {
 	Op      string   `json:"op" jsonschema:"detect|gen"`
@@ -215,7 +215,7 @@ func dedupHarnessHits(hits []harnessHit) []string {
 // the same req.Session.Elicit mechanism elicitSlots (tools.go) and decideAsk
 // (decide.go) use — and returns the harnesses the user checked. ok is false
 // on any non-accept outcome (no elicitation capability, decline, cancel,
-// transport error): the caller falls back to minting a decision instead of
+// transport error): the caller falls back to minting an adr item instead of
 // blocking.
 func (s *Server) commandsElicit(ctx context.Context, req *mcp.CallToolRequest) ([]string, bool) {
 	props := map[string]any{
@@ -243,14 +243,14 @@ func (s *Server) commandsElicit(ctx context.Context, req *mcp.CallToolRequest) (
 }
 
 // commandsMintDecision is the elicitation-declined/no-UI fallback: mint a
-// free-text `decision` item and leave it open (state=submitted), exactly
+// free-text `adr` item and leave it open (state=submitted), exactly
 // like decideAsk (decide.go) does when its own elicitation attempt fails —
 // duplicated minimally here rather than calling decideAsk itself, since that
 // would fire a second, differently-shaped elicitation round after ours
 // already came back empty.
 func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 	body := "kind: text\noptions: free text — comma-separated subset of claude,copilot,codex,kimi"
-	d, err := lifecycle.Draft(s.ws, s.minter(), "decision", commandsQuestion, body, "", "", nil)
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", commandsQuestion, body, "", "", nil)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
