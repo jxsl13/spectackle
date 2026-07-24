@@ -53,3 +53,5 @@
 {"t":"2026-07-24T06:59:53Z","eid":"517aff811b1469a1","ag":"orchestrator","ev":"archive","id":"T-0029","k":"task","ti":"implement state tool + prompt (read-only, sectioned)","dir":"internal/mcpserver","sum":"archived with parent P-0017"}
 {"t":"2026-07-24T07:45:07Z","eid":"62df70a83e36b3cb","ag":"orchestrator","ev":"create","id":"T-0031","k":"task","ti":"research + grill tools (handlers only, no registration)","dir":"internal/mcpserver"}
 {"t":"2026-07-24T07:45:07Z","eid":"1f46e7656c3e58da","ag":"orchestrator","ev":"create","id":"T-0032","k":"task","ti":"decide tool + gate-fail rounds + prompt updates (no registration)","dir":"internal/mcpserver"}
+{"t":"2026-07-24T07:58:03Z","eid":"6104e8870a03fdaf","ag":"agent-repack","ev":"move","id":"T-0031","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T07:58:20Z","eid":"e8d55297f9f0744c","ag":"agent-decide","ev":"move","id":"T-0032","dir":"internal/mcpserver","fr":"draft","to":"active"}
