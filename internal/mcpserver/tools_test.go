@@ -63,7 +63,7 @@ func TestToolSurface(t *testing.T) {
 		"find": false, "get": false, "draft": false, "rule": false,
 		"move": false, "check": false, "compact": false,
 		"lease": false, "work": false, "swarm": false, "state": false,
-		"research": false, "grill": false, "decide": false,
+		"research": false, "grill": false, "decide": false, "commands": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {

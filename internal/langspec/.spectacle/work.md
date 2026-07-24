@@ -53,3 +53,22 @@ STEPS:
 5. Lifecycle: lease claim paths=["docs/validation-ddnet.md"], move active, write, move done, release.
 
 EXIT CRITERION: docs/validation-ddnet.md exists with real measured numbers (no placeholders); the three probes show at least one c:<name> node with File/Line and at least one edge crossing cpp:->c: or c: in-edges from another file. Constraints: do NOT modify the ddnet clone besides its scaffolded .spectacle; do NOT touch any Go source; never commit/push.
+
+## T-0053 Allman-style brace spans: ddnet's C++ must scan — then re-validate
+kind: task
+state: approved
+created: 2026-07-24
+parent: P-0026
+
+ROOT CAUSE (from docs/validation-ddnet.md, T-0051): braceSpan in internal/langspec/langspec.go only tracks a body when the DEF LINE itself opens '{'. ddnet (and huge parts of the C/C++/C# world) put the brace on the NEXT line (Allman style) — result: zero C++ bodies scanned, zero call edges, zero cpp:->c: FFI crossings in a 335-file C++ tree.
+
+SCOPE: internal/langspec/langspec.go (braceSpan + its call site only), langspec_test.go, c_test.go, cpp_test.go, docs/validation-ddnet.md (append a '## re-validation' section with fresh measured numbers).
+
+FIX: in braceSpan, when the def line contains no '{': look ahead over subsequent lines, skipping blank lines and pure '//'-comment lines, for at most 3 lines; if the first significant line's first non-space rune is '{', start depth tracking there; if it is anything else (e.g. the def was a prototype ending in ';' — check the def line for a trailing ';' FIRST and bail early), return ok=false as today. Multi-line parameter lists (def line ends with ',' or '(') : keep scanning the header until the line containing the closing ')' — THEN apply the same-line-or-Allman brace search from that line. Keep the existing early-exit semantics for prototypes/macros byte-identical.
+
+TESTS: langspec_test.go table: K&R same-line (regression), Allman next-line, Allman with blank line between, prototype 'void f(int);' (no span), multi-line param header ending in Allman brace, '#define F(x) (x)' unaffected. cpp_test.go: an Allman fixture mirroring ddnet style — 'void CClass::Render()\n{\n\tstr_copy(...);\n}' asserting the ECall edge and the EndLine span. c_test.go: one Allman C function regression.
+
+RE-VALIDATION (dogfooding, after the fix): rebuild bin/spectacle, delete the ddnet clone's .spectacle (fresh cold run), index /tmp/claude-0/-home-user-spectacle/4c40537b-65eb-5824-86a6-6c853d4e1c78/scratchpad/ddnet via the driver (root argument = that path), and append to docs/validation-ddnet.md: new node/edge counts (edges MUST rise dramatically from 506), cold/warm times, and at least ONE verbatim probe showing a cpp: node with call edges and — if present — a cpp:->c: crossing (str_copy/mem_zero/dbg_msg are C functions in base/system.c heavily called from C++). If the FFI crossing still does not materialize, root-cause WHY in the appendix (e.g. indexer present[] pruning of dangling edges — document, do not fix outside scope).
+
+ROLLBACK: single revert; heuristic extension only.
+EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langspec/ green; make lint-specs clean; docs appendix has real re-measured numbers with edges >> 506. Constraints: never edit .spectacle/ directly; never commit/push; do NOT touch resolve/, mcpserver/, index/ — if the present[]-filter blocks FFI edges, DOCUMENT it as the next slice instead of fixing it here.
