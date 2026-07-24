@@ -82,3 +82,4 @@
 {"t":"2026-07-24T12:44:32Z","eid":"9889857d22088139","ag":"orchestrator","ev":"move","id":"T-0052","dir":"internal/mcpserver","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:48:32Z","eid":"cbc88388b6b62fc0","ag":"agent-commands","ev":"move","id":"T-0052","dir":"internal/mcpserver","fr":"approved","to":"active"}
 {"t":"2026-07-24T12:52:00Z","eid":"3e7129c3df0462fb","ag":"agent-commands","ev":"rule","dir":"internal/mcpserver","op":"edit","rule":"MCP-003","txt":"WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectacle server SHALL elicit the harness choice via `Session.Elicit` (one boolean per harness) and, headless, mint an open `decision` item instead of guessing.","ap":["go:mcpserver.Server.registerTools"]}
+{"t":"2026-07-24T12:53:50Z","eid":"69b5fbf39572c59a","ag":"agent-commands","ev":"move","id":"T-0052","dir":"internal/mcpserver","fr":"active","to":"done"}
