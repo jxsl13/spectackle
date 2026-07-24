@@ -1,0 +1,640 @@
+package spec
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/workspace"
+)
+
+// TestAddRuleCreatesBundleAndMintsID: empty root, AddRule Dir="pkg" Stem="PKG-API"
+// valid sentence -> res.Written true, res.ID=="PKG-API-001", res.Path=="pkg/.spectackle/spec.md";
+// re-Load finds the rule; file has front matter with prefix PKG.
+func TestAddRuleCreatesBundleAndMintsID(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !res.Written {
+		t.Errorf("res.Written = false, want true")
+	}
+	if res.ID != "PKG-API-001" {
+		t.Errorf("res.ID = %q, want %q", res.ID, "PKG-API-001")
+	}
+	if res.Path != "pkg/.spectackle/spec.md" {
+		t.Errorf("res.Path = %q, want %q", res.Path, "pkg/.spectackle/spec.md")
+	}
+
+	// re-Load and verify rule persisted
+	c2, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := c2.Rule("PKG-API-001")
+	if !ok {
+		t.Fatal("rule PKG-API-001 not found after re-load")
+	}
+	if rule.File != "pkg/.spectackle/spec.md" {
+		t.Errorf("rule.File = %q, want %q", rule.File, "pkg/.spectackle/spec.md")
+	}
+
+	// Check front matter has prefix
+	abs := filepath.Join(root, "pkg", ".spectackle", "spec.md")
+	content, _ := os.ReadFile(abs)
+	if !strings.Contains(string(content), "prefix: PKG") {
+		t.Errorf("file front matter missing prefix: PKG")
+	}
+}
+
+// TestAddRuleLintErrorBlocksWrite: invalid sentence -> res.Written false,
+// res.Findings has a Severity==ears.Error, no file written (Load has no such rule).
+func TestAddRuleLintErrorBlocksWrite(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "do stuff", // invalid EARS
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Written {
+		t.Errorf("res.Written = true, want false (due to lint error)")
+	}
+
+	// Check that at least one finding has Error severity
+	hasError := false
+	for _, f := range res.Findings {
+		if f.Severity == ears.Error {
+			hasError = true
+			break
+		}
+	}
+	if !hasError {
+		t.Errorf("no Error-severity finding in res.Findings: %v", res.Findings)
+	}
+
+	// re-Load and verify no rule written
+	c2, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, found := c2.Rule("PKG-API-001")
+	if found {
+		t.Fatal("rule should not have been written due to lint error")
+	}
+}
+
+// TestAddRuleAppliesAndRationale: Applies []{"go:pkg.A"} + Rationale set ->
+// reloaded rule heading has {applies: go:pkg.A}, Rationale line present.
+func TestAddRuleAppliesAndRationale(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := AuthorReq{
+		Dir:       "pkg",
+		Stem:      "PKG-API",
+		Sentence:  "The system SHALL log to `stderr` only.",
+		Rationale: "Logging to stderr ensures output reaches the terminal.",
+		Applies:   []string{"go:pkg.A"},
+	}
+	_, err = AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// re-Load and verify applies and rationale
+	c2, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := c2.Rule("PKG-API-001")
+	if !ok {
+		t.Fatal("rule PKG-API-001 not found after re-load")
+	}
+
+	if len(rule.Applies) == 0 || rule.Applies[0] != "go:pkg.A" {
+		t.Errorf("rule.Applies = %v, want [go:pkg.A]", rule.Applies)
+	}
+
+	if rule.Rationale != "Logging to stderr ensures output reaches the terminal." {
+		t.Errorf("rule.Rationale = %q, want %q", rule.Rationale, "Logging to stderr ensures output reaches the terminal.")
+	}
+
+	// verify in file
+	abs := filepath.Join(root, "pkg", ".spectackle", "spec.md")
+	content, _ := os.ReadFile(abs)
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "{applies: go:pkg.A}") {
+		t.Errorf("file missing {applies: go:pkg.A} in heading")
+	}
+	if !strings.Contains(contentStr, "Rationale:") {
+		t.Errorf("file missing Rationale line")
+	}
+}
+
+// TestAddRuleForceIDReplay: ForceID "PKG-API-042" -> res.ID that exact, no minting.
+func TestAddRuleForceIDReplay(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		ForceID:  "PKG-API-042",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.ID != "PKG-API-042" {
+		t.Errorf("res.ID = %q, want %q", res.ID, "PKG-API-042")
+	}
+}
+
+// TestAddRuleStemInference: add PKG-API-001 first, then AddRule same Dir with
+// empty Stem -> infers PKG-API and mints -002.
+func TestAddRuleStemInference(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First rule
+	req1 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	_, err = AddRule(ws, c, req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// re-Load to reflect first rule
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second rule with empty Stem, same Dir
+	req2 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "", // empty, should infer PKG-API
+		Sentence: "The system SHALL validate input carefully.",
+	}
+	res2, err := AddRule(ws, c, req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res2.ID != "PKG-API-002" {
+		t.Errorf("res2.ID = %q, want %q", res2.ID, "PKG-API-002")
+	}
+}
+
+// TestAddRuleMissingStemErrors: empty Dir with no existing file and empty Stem
+// -> non-nil error.
+func TestAddRuleMissingStemErrors(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := AuthorReq{
+		Dir:      "new",
+		Stem:     "", // no stem, no existing file
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	_, err = AddRule(ws, c, req)
+	if err == nil {
+		t.Fatal("expected error for missing stem, got nil")
+	}
+}
+
+// TestMaxNumAndNextID: after adding PKG-API-001/002, c.MaxNum("PKG-API")==2
+// and c.NextID("PKG-API")=="PKG-API-003" (reload c first).
+func TestMaxNumAndNextID(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add two rules
+	req1 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	_, err = AddRule(ws, c, req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req2 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL validate input carefully.",
+	}
+	_, err = AddRule(ws, c, req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// reload
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	max := c.MaxNum("PKG-API")
+	if max != 2 {
+		t.Errorf("c.MaxNum(PKG-API) = %d, want 2", max)
+	}
+
+	nextID := c.NextID("PKG-API")
+	if nextID != "PKG-API-003" {
+		t.Errorf("c.NextID(PKG-API) = %q, want %q", nextID, "PKG-API-003")
+	}
+}
+
+// TestEditRuleReplacesSentence: add a rule, EditRule new valid sentence ->
+// reloaded rule.Text changed, Written true.
+func TestEditRuleReplacesSentence(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add rule
+	req := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := res.ID
+
+	// re-Load to reflect added rule
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Edit rule with new sentence
+	editRes, err := EditRule(ws, c, id, "The system SHALL validate input strictly.", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !editRes.Written {
+		t.Errorf("editRes.Written = false, want true")
+	}
+
+	// re-Load and verify sentence changed
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := c.Rule(id)
+	if !ok {
+		t.Fatal("rule not found after re-load")
+	}
+	if rule.Text != "The system SHALL validate input strictly." {
+		t.Errorf("rule.Text = %q, want %q", rule.Text, "The system SHALL validate input strictly.")
+	}
+}
+
+// TestEditRuleEmptyKeepsOld: EditRule with sentence="" rationale="" applies=nil
+// -> old text/rationale/applies preserved.
+func TestEditRuleEmptyKeepsOld(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add rule with rationale and applies
+	req := AuthorReq{
+		Dir:       "pkg",
+		Stem:      "PKG-API",
+		Sentence:  "The system SHALL log to `stderr` only.",
+		Rationale: "For auditing purposes.",
+		Applies:   []string{"go:pkg.A"},
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := res.ID
+
+	// re-Load to reflect added rule
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Edit with empty fields
+	_, err = EditRule(ws, c, id, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// re-Load and verify old values preserved
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := c.Rule(id)
+	if !ok {
+		t.Fatal("rule not found after re-load")
+	}
+
+	if rule.Text != "The system SHALL log to `stderr` only." {
+		t.Errorf("rule.Text changed when editing with empty sentence")
+	}
+	if rule.Rationale != "For auditing purposes." {
+		t.Errorf("rule.Rationale changed when editing with empty rationale")
+	}
+	if len(rule.Applies) == 0 || rule.Applies[0] != "go:pkg.A" {
+		t.Errorf("rule.Applies changed when editing with nil applies")
+	}
+}
+
+// TestEditRuleLintErrorKeepsFile: EditRule invalid sentence -> Written false,
+// Findings error, reloaded rule still old text.
+func TestEditRuleLintErrorKeepsFile(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add rule
+	req := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	res, err := AddRule(ws, c, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := res.ID
+	oldText := "The system SHALL log to `stderr` only."
+
+	// re-Load to reflect added rule
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Edit with invalid sentence
+	editRes, err := EditRule(ws, c, id, "do stuff", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if editRes.Written {
+		t.Errorf("editRes.Written = true, want false (due to lint error)")
+	}
+
+	// Check for error finding
+	hasError := false
+	for _, f := range editRes.Findings {
+		if f.Severity == ears.Error {
+			hasError = true
+			break
+		}
+	}
+	if !hasError {
+		t.Errorf("no Error-severity finding in editRes.Findings: %v", editRes.Findings)
+	}
+
+	// re-Load and verify text unchanged
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule, ok := c.Rule(id)
+	if !ok {
+		t.Fatal("rule not found after re-load")
+	}
+	if rule.Text != oldText {
+		t.Errorf("rule.Text = %q, want %q (should be unchanged)", rule.Text, oldText)
+	}
+}
+
+// TestEditRuleUnknownID: non-nil error.
+func TestEditRuleUnknownID(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = EditRule(ws, c, "UNKNOWN-999", "The system SHALL log to `stderr` only.", "", nil)
+	if err == nil {
+		t.Fatal("expected error for unknown rule ID, got nil")
+	}
+}
+
+// TestRetireRuleDeletesBlock: add two rules, RetireRule the first ->
+// reload: first gone, second present, returned path correct.
+func TestRetireRuleDeletesBlock(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add two rules
+	req1 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL log to `stderr` only.",
+	}
+	res1, err := AddRule(ws, c, req1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req2 := AuthorReq{
+		Dir:      "pkg",
+		Stem:     "PKG-API",
+		Sentence: "The system SHALL validate input carefully.",
+	}
+	res2, err := AddRule(ws, c, req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Retire first rule
+	retirePath, err := RetireRule(ws, c, res1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if retirePath != "pkg/.spectackle/spec.md" {
+		t.Errorf("retirePath = %q, want %q", retirePath, "pkg/.spectackle/spec.md")
+	}
+
+	// re-Load and verify first gone, second present
+	c, err = Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, found1 := c.Rule(res1.ID)
+	if found1 {
+		t.Fatal("first rule should be retired")
+	}
+
+	_, found2 := c.Rule(res2.ID)
+	if !found2 {
+		t.Fatal("second rule should still exist")
+	}
+}
+
+// TestRetireRuleUnknownID: non-nil error.
+func TestRetireRuleUnknownID(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = RetireRule(ws, c, "UNKNOWN-999")
+	if err == nil {
+		t.Fatal("expected error for unknown rule ID, got nil")
+	}
+}
+
+// TestAppendIntentCreatesAndInserts: AppendIntent ctx="" 'first line' then 'second line' ->
+// reloaded spec.md '## intent' section contains both lines in order
+// (read the file bytes to assert; intent is a prose section).
+func TestAppendIntentCreatesAndInserts(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+
+	// First intent
+	err := AppendIntent(ws, "", "first line")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Second intent
+	err = AppendIntent(ws, "", "second line")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// re-Load and verify intent section
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sf, ok := c.File("")
+	if !ok {
+		t.Fatal("root spec file not loaded")
+	}
+
+	// Find intent section
+	var intentText string
+	for _, sec := range sf.Sections {
+		if sec.Name == "intent" {
+			intentText = sec.Text
+			break
+		}
+	}
+
+	if intentText == "" {
+		t.Fatal("intent section not found in spec file")
+	}
+
+	// Check both lines are present in order
+	lines := strings.Split(intentText, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines in intent section, got %d", len(lines))
+	}
+
+	// The intent section text should contain both lines
+	// Note: lines are trimmed, so first line should be at start
+	if !strings.Contains(intentText, "first line") {
+		t.Errorf("intent section missing 'first line'")
+	}
+	if !strings.Contains(intentText, "second line") {
+		t.Errorf("intent section missing 'second line'")
+	}
+
+	// Verify order: first line should come before second line
+	firstIdx := strings.Index(intentText, "first line")
+	secondIdx := strings.Index(intentText, "second line")
+	if firstIdx < 0 || secondIdx < 0 || firstIdx >= secondIdx {
+		t.Errorf("lines not in expected order in intent section")
+	}
+}
