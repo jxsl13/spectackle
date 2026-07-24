@@ -127,9 +127,9 @@ func (s *Scanner) feedJournal(ctx, path string) ([]cache.Doc, error) {
 			kind = "rejection"
 		}
 		docs = append(docs, cache.Doc{
-			Kind: kind,
-			ID:   fmt.Sprintf("j:%s#%d", orDot(ctx), i+1),
-			Dir:  ctx,
+			Kind:  kind,
+			ID:    fmt.Sprintf("j:%s#%d", orDot(ctx), i+1),
+			Dir:   ctx,
 			Title: strings.TrimSpace(strings.Join(fields(e.Ev, e.ID, e.Rule, e.Ti), " ")),
 			Body: strings.TrimSpace(strings.Join([]string{
 				e.Ev, e.ID, e.K, e.Ti, e.To, e.Note, e.Sum, e.Rule, e.Txt, e.Cls,
