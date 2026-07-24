@@ -2,16 +2,30 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/jxsl13/spectacle/internal/item"
+	"github.com/jxsl13/spectacle/internal/lifecycle"
 )
 
 // connectRootWithPrompts is connectRoot (tools_test.go) plus registerPrompts
 // — New does not wire prompts yet (orchestrator's job), so tests that need
 // them call it directly on the freshly built server.
 func connectRootWithPrompts(t *testing.T, root string) *mcp.ClientSession {
+	t.Helper()
+	_, sess := connectRootWithPromptsServer(t, root)
+	return sess
+}
+
+// connectRootWithPromptsServer is connectRootWithPrompts but also returns
+// the *Server — some tests (open-needs/blocked skip logic) need direct
+// access to s.ws to set up item state the wire has no path to yet (e.g.
+// item.StateBlocked, only ever entered via lifecycle.Escalate).
+func connectRootWithPromptsServer(t *testing.T, root string) (*Server, *mcp.ClientSession) {
 	t.Helper()
 	s, err := New(root)
 	if err != nil {
@@ -31,7 +45,7 @@ func connectRootWithPrompts(t *testing.T, root string) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	return sess
+	return s, sess
 }
 
 func getPromptText(t *testing.T, sess *mcp.ClientSession, name string, args map[string]string) string {
@@ -85,5 +99,101 @@ func TestPromptNextApprovedTask(t *testing.T) {
 	}
 	if !strings.Contains(out, "lease") {
 		t.Fatalf("next missing the implementer protocol's lease step: %q", out)
+	}
+}
+
+// TestPromptWorkflowTaskArgument: with task set, the response prepends a
+// LIFECYCLE block carrying the task text (the MCP-native form of
+// `/spectacle <task>`, .claude/commands/spectacle.md) ahead of the usual
+// live-state snapshot; bare (no task) stays exactly as before.
+func TestPromptWorkflowTaskArgument(t *testing.T) {
+	sess := connectRootWithPrompts(t, t.TempDir())
+
+	out := getPromptText(t, sess, "workflow", map[string]string{"task": "add retry to the sync client"})
+	if !strings.Contains(out, "LIFECYCLE add retry to the sync client") {
+		t.Fatalf("workflow task arg missing LIFECYCLE block: %q", out)
+	}
+	if !strings.Contains(out, "decide op=ask") || !strings.Contains(out, "fanout") {
+		t.Fatalf("LIFECYCLE block missing decide/fanout steps: %q", out)
+	}
+	if strings.Index(out, "LIFECYCLE") > strings.Index(out, "spectacle workflow - state below is live") {
+		t.Fatalf("LIFECYCLE block must be prepended, not appended: %q", out)
+	}
+
+	bare := getPromptText(t, sess, "workflow", nil)
+	if strings.Contains(bare, "LIFECYCLE") {
+		t.Fatalf("bare workflow (no task) must not carry a LIFECYCLE block: %q", bare)
+	}
+}
+
+// TestPromptNextSkipsBlockedAndOpenNeeds: `next`'s auto-pick must structurally
+// skip (a) an approved item that is still blocked on an open decide op=ask
+// need, and (b) an item escalated into item.StateBlocked (lifecycle.Escalate)
+// — surfacing the next actually-actionable approved item instead.
+func TestPromptNextSkipsBlockedAndOpenNeeds(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectRootWithPromptsServer(t, root)
+
+	// T-0001: approved, but still has an open need (decide op=ask on any
+	// item — not necessarily an escalated one — appends to Needs).
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "needs a decision first"})
+	callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "approved"})
+	d, err := lifecycle.Draft(s.ws, nil, "decision", "which approach", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it1, ok, err := item.Get(s.ws, "T-0001")
+	if err != nil || !ok {
+		t.Fatalf("T-0001 missing: %v %v", ok, err)
+	}
+	it1.Needs = append(it1.Needs, d.ID)
+	if err := item.Upsert(s.ws, it1); err != nil {
+		t.Fatal(err)
+	}
+
+	// T-0002: escalated into item.StateBlocked directly via lifecycle.Escalate
+	// (the wire has no path there yet outside work op=submit's gate-fail
+	// rounds, see swarm.go gateFail — out of this test's concern).
+	s.ws.Cfg.Feedback.MaxRounds = 1
+	it2, err := lifecycle.Draft(s.ws, nil, "task", "flaky feedback loop", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(s.ws, it2.ID, item.StateDone, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, err = lifecycle.Move(s.ws, it2.ID, item.StateActive, "")
+	var exhausted lifecycle.ErrRoundsExhausted
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("expected ErrRoundsExhausted, got %v", err)
+	}
+	if _, _, err := lifecycle.Escalate(s.ws, nil, exhausted.Item); err != nil {
+		t.Fatal(err)
+	}
+	// blocked items are not "approved" so they wouldn't normally reach
+	// promptNext's candidate loop at all; approve it anyway to prove the
+	// explicit item.StateBlocked check (not just the state!=approved
+	// filter) is what is doing the skipping here — reaching into work.md
+	// directly since blocked refuses every lifecycle.Move transition.
+	blocked, ok, err := item.Get(s.ws, it2.ID)
+	if err != nil || !ok || blocked.State != item.StateBlocked {
+		t.Fatalf("setup: item not blocked: %+v %v", blocked, err)
+	}
+
+	// T-0003: plain approved task with no needs — the one `next` should pick.
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "actionable work"})
+	callText(t, sess, "move", map[string]any{"id": "T-0003", "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": "T-0003", "to": "approved"})
+
+	out := getPromptText(t, sess, "next", nil)
+	if strings.Contains(out, "T-0001") {
+		t.Fatalf("next surfaced an item with an open need: %q", out)
+	}
+	if strings.Contains(out, it2.ID) {
+		t.Fatalf("next surfaced a blocked item: %q", out)
+	}
+	if !strings.Contains(out, "T-0003") {
+		t.Fatalf("next skipped past the actionable item: %q", out)
 	}
 }

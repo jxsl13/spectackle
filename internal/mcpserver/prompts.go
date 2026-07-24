@@ -32,7 +32,10 @@ func (s *Server) registerPrompts() {
 	s.mcp.AddPrompt(&mcp.Prompt{
 		Name:        "workflow",
 		Title:       "spectacle workflow",
-		Description: "Live swarm state (agents, leases) + active items + the lifecycle loop — read before picking work.",
+		Description: "Live swarm state (agents, leases) + active items + the lifecycle loop — read before picking work. With task, prepends the full SDD lifecycle instruction for that requirement (same loop /spectacle <task> drives).",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "task", Description: "requirement/task text; when set, prepends the research->draft->grill->decide->approve->fanout->check->archive lifecycle instruction for it"},
+		},
 	}, s.promptWorkflow)
 
 	s.mcp.AddPrompt(&mcp.Prompt{
@@ -54,10 +57,34 @@ func (s *Server) registerPrompts() {
 	}, s.promptState)
 }
 
+// lifecycleLines renders the full research->draft->grill->decide->approve->
+// fanout->check->archive loop the `/spectacle <task>` repo command drives
+// (.claude/commands/spectacle.md) as one dense LIFECYCLE block with the task
+// text embedded — the MCP-native form of that same two-mode entry point, so
+// it works identically in any MCP harness, not only Claude Code's repo
+// commands.
+func lifecycleLines(task string) []string {
+	return []string{
+		"LIFECYCLE " + task,
+		"1 research q=\"" + task + "\" - impact/contracts/rejections/history/docs/gaps; draft kind=research + a fresh cheap subagent only if the pack doesn't answer it, never ad hoc exploration",
+		"2 draft kind=proposal targets=<ids from research> - mints the proposal, returns the context pack (#impact #contracts #rejections)",
+		"3 grill id=<P-id> - close what it surfaces: unanchored targets get rule op=add, thin child-task bodies get rewritten exhaustively (files, APIs, verification commands, scope)",
+		"4 decide op=ask on any decision that actually needs the user - never unstructured chat; no UI/declined/cancelled: keep working other disjoint tasks, the answer arrives later via decide op=answer",
+		"5 on explicit user approval: move to=approved (or straight to=active, one call)",
+		"6 fanout: partition approved tasks by disjoint scope (leases prove disjointness), spawn one fresh cheap-model implementer per task in parallel, serialize only shared-file wiring yourself",
+		"7 check until ok; review diffs, run the declared gate/verify commands - never trust a done you haven't checked",
+		"8 move to=done then to=archived (active->archived in one call implies done, merges spec.md); if a task escalates to blocked (rounds limit), resolve the auto-minted D-item via decide (rescope|reject|override-once) before continuing that task's line of work",
+	}
+}
+
 // promptWorkflow does not go through gate() (prompts/get is not a tool
 // call) — lock s.mu ourselves and refresh the scan so the snapshot below is
-// current, exactly like preCall does for tools.
-func (s *Server) promptWorkflow(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+// current, exactly like preCall does for tools. With the optional task
+// argument set, a LIFECYCLE block (see lifecycleLines) is prepended — the
+// same instruction the `/spectacle <task>` repo command drives, so an MCP
+// client with no access to Claude Code's repo commands still gets the full
+// two-mode entry point natively.
+func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.scan.Refresh(); err != nil {
@@ -65,6 +92,11 @@ func (s *Server) promptWorkflow(_ context.Context, _ *mcp.GetPromptRequest) (*mc
 	}
 
 	var b strings.Builder
+	if task := strings.TrimSpace(req.Params.Arguments["task"]); task != "" {
+		for _, l := range lifecycleLines(task) {
+			b.WriteString(l + "\n")
+		}
+	}
 	b.WriteString("spectacle workflow - state below is live\n")
 
 	b.WriteString("AGENTS/LEASES\n")
@@ -140,10 +172,17 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 		if err != nil {
 			return nil, err
 		}
+		byID := itemsByID(items)
 		picked := false
 		var fallback item.Item
 		haveFallback := false
 		for _, cand := range items {
+			// blocked items (item.StateBlocked, set by lifecycle.Escalate) and
+			// items still blocked on an open need (see hasOpenNeeds) are not
+			// actionable work — decide first, via the linked D-item.
+			if cand.State == item.StateBlocked || hasOpenNeeds(cand, byID) {
+				continue
+			}
 			if cand.State != item.StateApproved {
 				continue
 			}
@@ -211,6 +250,32 @@ func (s *Server) promptState(_ context.Context, req *mcp.GetPromptRequest) (*mcp
 			{Role: "user", Content: &mcp.TextContent{Text: txt}},
 		},
 	}, nil
+}
+
+// itemsByID indexes a loaded item list by ID for Needs resolution below.
+func itemsByID(items []item.Item) map[string]item.Item {
+	m := make(map[string]item.Item, len(items))
+	for _, it := range items {
+		m[it.ID] = it
+	}
+	return m
+}
+
+// hasOpenNeeds reports whether cand is still blocked on any of its Needs
+// (decision items minted by decide op=ask or lifecycle.Escalate). A need is
+// resolved when the referenced item is done/archived, or gone entirely —
+// archived items leave work.md, so "missing" counts as resolved too.
+func hasOpenNeeds(cand item.Item, byID map[string]item.Item) bool {
+	for _, n := range cand.Needs {
+		need, ok := byID[n]
+		if !ok {
+			continue // archived (or otherwise gone) = resolved
+		}
+		if need.State != item.StateDone && need.State != item.StateArchived {
+			return true
+		}
+	}
+	return false
 }
 
 func textPrompt(s string) *mcp.GetPromptResult {
