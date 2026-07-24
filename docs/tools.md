@@ -33,6 +33,7 @@ e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|
 r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
 r-root <ID> <ID> ...                             root-scoped rules, IDs only (full text via get)
 i <id> <kind> <state> <dir> <title>              lifecycle item (state: draft|submitted|approved|active|done|archived|rejected|blocked)
+refs <id> <id> ...                               item citations (draft refs=; get renders when non-empty, MCP-012)
 s sec:<dir>#<name> <text>                        prose section
 j <ref> <summary> :: <snippet>                   journal/history record
 a <rule> <node> <file>:<s>-<e> <chash>           anchor
@@ -43,6 +44,7 @@ g <kind> <ref> <msg>                             gap (uncovered|orphan)
 cf <kind> <key> n=<count>                        knowledge merge conflict (same identity, different substance)
 cf> count=<n> <preview> sources=<repo,...>        one conflicting answer inside a cf record
 c <dir> <reason> <n>                             compact candidate
+sb <msg>                                         stale-binary hint (postCall piggyback, T-0115)
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
 l <path> <agent> <item|-> <exp>s                 scope lease
@@ -51,6 +53,9 @@ sw <seq> <agent> <ev> <ref|-> <msg>              swarm event (sibling learning, 
 wt <item> <state> <root>                         worktree (open|gating|integrating|conflict|replaying)
 need <slot> <question>                           missing input (elicitation fallback)
 q <ref> <question>                               open question (research #open, grill #questions)
+q free <id> <title>                              swarm claimable queue: approved item, no lease collision
+q held <id> <agent> <path>                       swarm claimable queue: item blocked by <agent>'s lease on <path>
+q more n=<count>                                 swarm claimable queue truncated (cap 20)
 b <id> <issue>                                   brief-quality finding (grill #briefs: child task body fails the exhaustiveness heuristic)
 nf <id> <id> <id>                                not found — nearest matches
 cur <token>                                      more results; pass back as cur
@@ -98,7 +103,8 @@ record — consecutive pages concatenate without overlap or gap
   "budget":{"type":"integer","default":2000},
   "cur":   {"type":"string"}}}
 ```
-Dispatch on ID shape: item→header+body; rule→text+rationale+`a` anchors;
+Dispatch on ID shape: item→header+body (plus a `refs <ids>` line when the
+item carries citations — see `draft`); rule→text+rationale+`a` anchors;
 node with `depth>0`→cross-language impact radius (`n`/`e`, BFS); dir→scoped
 rules+items; file→resolved contracts; unknown→`nf`. Node results end with
 the requested node's binding contracts (SPX-SPC-007): applies-bound and
@@ -114,6 +120,7 @@ file-cascade rules as `r` records, root-scoped ones collapsed to one
   "body":   {"type":"string"},
   "targets":{"type":"array","items":{"type":"string"}},
   "parent": {"type":"string"},
+  "refs":   {"type":"array","items":{"type":"string"}},
   "dir":    {"type":"string"}}}
 ```
 Server assigns ID (`P-0001`…) and context dir (targets→deepest common
@@ -124,6 +131,14 @@ rules collapse into a single `r-root` ID-only line instead of repeating
 their full text every draft, and any of the three sections with nothing to
 report is omitted outright rather than filled with an `ok` placeholder
 (SPX-MCP-004).
+
+`refs` cites other items — any kind to any kind, no lifecycle meaning of its
+own, unlike `parent` (structural ownership) or `needs` (blocked-on, see
+`move`). Every ID is validated against the items the server can currently
+load (MCP-012); unknown, malformed or self-referencing IDs reject the whole
+call and roll it back — the freshly minted item and its create event are
+removed, so nothing is persisted — returning `! ARG E - unknown refs:
+<ids>`. `get` renders a `refs <ids>` line whenever the item carries any.
 
 ### 4. `rule` — author EARS contracts (the only rule write path)
 
@@ -175,8 +190,8 @@ op=submit` gate failure, each increment the item's `rounds` header field
 max_rounds` the server (never the LLM) side-steps the item to **`blocked`**
 — a side-state like `rejected`: outside the total order, never visited on
 the happy path, absent from `to`'s enum (no tool call can enter or leave it
-directly) — and mints a `decision` item (`D-xxxx`, options exactly
-`rescope`/`reject`/`override-once`) linked via `needs: D-xxxx`; `i`/`state`
+directly) — and mints an `adr` item (`ADR-xxxx`, options exactly
+`rescope`/`reject`/`override-once`) linked via `needs: ADR-xxxx`; `i`/`state`
 show it, `next` and fanout skip it structurally. The only exits, applied by
 the server from the matching `decide` answer: `rescope` → `draft`
 (mandatory rescoping), `reject` → `rejected` (note = the decide rationale),
@@ -287,10 +302,24 @@ approved.
 ```json
 {"type":"object","properties":{}}
 ```
-→ `ag` agents, `l` leases, `wt` open worktrees, `sw` recent learnings.
-Unseen `sw` events are additionally prepended to every tool result
-(realtime piggyback); `find scope=rejection` unions live sibling rejections
-before they ever merge (SPX-SWM-002).
+→ `ag` agents, `l` leases, `wt` open worktrees, a claimable-work queue, `sw`
+recent learnings. The queue (T-0121, MCP-013) is one record per candidate —
+every `approved` item, plus every `active` item that carries no live lease
+of its own (a crashed or abandoned agent's work, otherwise invisible): `q
+free <id> <title>` when no held lease collides with the item's scope
+(targets, or its context dir if it has none), `q held <id> <agent> <path>`
+naming the holder and the colliding path when one does; sorted by ID,
+truncated at 20 with a trailing `q more n=<count>` line. `find
+scope=rejection` unions live sibling rejections before they ever merge
+(SPX-SWM-002).
+
+Two more proactive hints piggyback onto **every** tool result via `postCall`
+(not only `swarm`'s own), each prepended at most once per crossing: unseen
+`sw` events (realtime piggyback), and — once the running binary is older
+than the newest `.go` file under a workspace that is spectackle's own
+module checkout — `sb stale — code changed since build; rebuild+restart:
+make dev` (T-0115). The hint re-arms only after a rebuild; it never fires
+against a workspace serving a third-party module.
 
 ### 11. `state` — one read-only structured snapshot
 
@@ -403,39 +432,57 @@ unstructured chat.
 
 ```json
 {"type":"object","required":["op"],"properties":{
-  "op":     {"enum":["detect","gen"]},
-  "harness":{"type":"array","items":{"enum":["claude","copilot","codex","kimi"]},"description":"omit to auto-detect"}}}
+  "op":      {"enum":["detect","gen"]},
+  "harness": {"type":"array","items":{"enum":["claude","copilot","codex","kimi"]},"description":"omit to auto-detect"},
+  "commands":{"type":"array","items":{"type":"string"},"description":"gen only: opt-in command names to add on top of the default three (find|get|research|swarm|export|merge) — omit for defaults only"},
+  "all":     {"type":"boolean","description":"gen only: generate every command (default three plus all six opt-in exploration commands)"}}}
 ```
-Regenerates the two-mode (`$ARGUMENTS` empty → state snapshot, non-empty →
-full SDD lifecycle) entry point — the same content
-`.claude/commands/spectackle.md`/`spectackle-state.md` carry — for every
-supported coding-agent harness, from the two templates
-(`internal/mcpserver/templates/commands/{workflow,state}.md.tmpl`, `go:embed` +
-`text/template`) instead of hand-maintaining N per-harness copies. `detect`:
-sniff root markers and emit one `h <harness> <marker>` line per hit — `.claude/`
-→ claude; `.github/prompts/` or `.github/copilot-instructions.md` → copilot;
-`.codex/` → codex; `.kimi/` → kimi; `AGENTS.md` → both codex and kimi (they
-share it); no hits → `nf harness — pass harness=... or answer the decision`.
+Regenerates harness-native entry points from nine templates
+(`internal/mcpserver/templates/commands/*.md.tmpl`, `go:embed` +
+`text/template`) instead of hand-maintaining N per-harness copies. `gen`'s
+command set defaults to the three load-bearing commands: the two-mode
+(`$ARGUMENTS` empty → state snapshot, non-empty → full SDD lifecycle) entry
+point (the same content `.claude/commands/spectackle.md`/`spectackle-state.md`
+carry today), `state`, and `generate` itself — `generate` has to be in the
+default set, otherwise nobody with only the default install can ask for the
+rest. `all=true`, or `commands=` naming any of the six opt-in exploration
+commands (`find`, `get`, `research`, `swarm`, `export`, `merge` — each
+exposing a tool the calling agent already has, so generating them into
+every consuming repo's harness directory is opt-in on purpose), adds those
+on top of the default three — the requested set **unions** with the
+defaults, it never replaces them. `detect`: sniff root markers and emit one
+`h <harness> <marker>` line per hit — `.claude/` → claude; `.github/prompts/`
+or `.github/copilot-instructions.md` → copilot; `.codex/` → codex; `.kimi/`
+→ kimi; `AGENTS.md` → both codex and kimi (they share it); no hits → `nf
+harness — pass harness=... or answer the decision`.
 `gen`: the harness set resolves **arg > detection > elicitation** — an
 explicit `harness=` wins, else `detect`'s hits, else a native checkbox form
 (`Session.Elicit`, one boolean per harness — the same mechanism `elicitSlots`
 in `tools.go` and `decide op=ask` in `decide.go` use); no elicitation
 capability, decline, cancel, or a different harness leaves a free-text
-`decision` item open (`need decision D-x …`) exactly like `decide op=ask`'s
+`adr` item open (`need decision ADR-x …`) exactly like `decide op=ask`'s
 own no-UI fallback — `commands gen` never blocks or guesses. Per-dialect
-output: **claude** → `.claude/commands/spectackle.md` +
-`spectackle-state.md` (`description:` frontmatter, as today). **copilot** →
-`.github/prompts/spectackle.prompt.md` + `spectackle-state.prompt.md`
-(`mode: agent` frontmatter). **codex**/**kimi** → one managed section in
-`AGENTS.md`, delimited by `<!-- spectackle:commands:begin -->`/`<!-- …:end
--->`, containing both command descriptions — created if `AGENTS.md` is
-missing, otherwise only that section is replaced, never the rest of the
-file. Every generated artifact carries a `<!-- generated by spectackle
-\`commands\` — edit internal/mcpserver/templates, not this file -->` header.
-Re-running `gen` with the same harness set is idempotent (byte-identical
-output). Writes go straight to disk (`os.WriteFile`) — these are generated
-repo files, not `.spectackle/` lifecycle state: no journal event, just one
-coord `commands` emit so siblings see it happened in realtime.
+output, one file per selected command: **claude** → `.claude/commands/spectackle.md`
+(the unnamed entry point) plus `spectackle-<name>.md` for every other
+selected command — `spectackle-state.md` and `spectackle-generate.md` by
+default, plus `spectackle-find.md`/`-get.md`/`-research.md`/`-swarm.md`/
+`-export.md`/`-merge.md` when requested (`description:` frontmatter, as
+today). **copilot** → the same set as
+`.github/prompts/spectackle[-<name>].prompt.md` (`mode: agent`
+frontmatter). **codex**/**kimi** → one managed section in `AGENTS.md`,
+delimited by `<!-- spectackle:commands:begin -->`/`<!-- …:end -->`, one `##
+spectackle <heading>` subsection per selected command — created if
+`AGENTS.md` is missing, otherwise only the managed section is replaced,
+never the rest of the file; a subsection an earlier run wrote that this
+run's command set doesn't ask for again is carried forward unchanged rather
+than dropped, so a default-only run after an `all=true` run leaves the
+opt-in subsections intact. Every generated artifact carries a `<!--
+generated by spectackle \`commands\` — edit internal/mcpserver/templates,
+not this file -->` header. Re-running `gen` with the same harness+command
+set is idempotent (byte-identical output). Writes go straight to disk
+(`os.WriteFile`) — these are generated repo files, not `.spectackle/`
+lifecycle state: no journal event, just one coord `commands` emit so
+siblings see it happened in realtime.
 
 ### 16. `knowledge` — fleet-portable knowledge (export, merge, apply)
 
