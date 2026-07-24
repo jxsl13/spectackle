@@ -42,3 +42,6 @@ WHEN the grill tool completes its critique pack, the server SHALL stamp the item
 WHEN `decide op=ask` stores a decision's option set, the spectacle server SHALL persist each option as its own `option:` body line so `decideOptions` reproduces every option byte-identically.
 
 Rationale: comma-joined storage shattered comma-containing options — no byte-identical answer could ever match (found live on D-0002)
+
+## MCP-002 {applies: go:graph.Node}
+WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL emit the definition span as `file:start-end` so agents see where a function ends without reading the file.

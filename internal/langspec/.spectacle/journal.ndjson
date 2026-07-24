@@ -59,3 +59,9 @@
 {"t":"2026-07-24T12:15:21Z","eid":"10521ba2d1e118c1","ag":"orchestrator","ev":"archive","id":"T-0045","k":"task","ti":"langspec batch G: dart + groovy","dir":"internal/langspec","sum":"archived with parent P-0025"}
 {"t":"2026-07-24T12:15:21Z","eid":"5c074213474553cd","ag":"orchestrator","ev":"archive","id":"T-0046","k":"task","ti":"langspec batch H: elixir + erlang + julia","dir":"internal/langspec","sum":"archived with parent P-0025"}
 {"t":"2026-07-24T12:15:21Z","eid":"2bb7329bc7f16349","ag":"orchestrator","ev":"archive","id":"T-0047","k":"task","ti":"langspec batch I: haskell + ocaml + r","dir":"internal/langspec","sum":"archived with parent P-0025"}
+{"t":"2026-07-24T12:17:35Z","eid":"3750b71879ff48f1","ag":"orchestrator","ev":"create","id":"P-0026","k":"proposal","ti":"langspec call edges + C/C++ FFI resolution — validated on ddnet","dir":"internal/langspec"}
+{"t":"2026-07-24T12:17:57Z","eid":"c022be39230b5bc1","ag":"orchestrator","ev":"grill","id":"P-0026","dir":"internal/langspec","gr":"2026-07-24"}
+{"t":"2026-07-24T12:19:14Z","eid":"0e8f7e5ca555cfc7","ag":"orchestrator","ev":"rule","dir":"internal/langspec","op":"add","rule":"LSP-001","txt":"WHEN a `Spec` sets `CallRe`, the SpecParser SHALL emit `ECall` edges from each Def's brace-counted body span, callee IDs minted in the same language — destinations may be dangling exactly like Go's syntactic pass.","ap":["go:langspec.SpecParser.Parse"],"item":"P-0026"}
+{"t":"2026-07-24T12:19:14Z","eid":"a75c427c0c732ab5","ag":"orchestrator","ev":"create","id":"T-0048","k":"task","ti":"langspec call edges (CallRe framework) + C/C++ enable + FFI resolver","dir":"internal/langspec"}
+{"t":"2026-07-24T12:19:28Z","eid":"21e2710148ba4cc6","ag":"orchestrator","ev":"move","id":"P-0026","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:19:28Z","eid":"cb4097b47fe5faa6","ag":"orchestrator","ev":"move","id":"T-0048","dir":"internal/langspec","fr":"draft","to":"approved"}
