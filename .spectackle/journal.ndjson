@@ -506,3 +506,8 @@
 {"t":"2026-07-24T19:21:59Z","eid":"6ab2050a196f7859","ag":"orchestrator","ev":"move","id":"T-0092","fr":"draft","to":"active"}
 {"t":"2026-07-24T19:25:58Z","eid":"9fcfb94d032b63de","ag":"orchestrator","ev":"move","id":"T-0092","fr":"active","to":"archived"}
 {"t":"2026-07-24T19:25:58Z","eid":"2c70acdbc09be7e7","ag":"orchestrator","ev":"archive","id":"T-0092","k":"task","ti":"typespass: mirror IndexAll's nested-git-boundary skip in moduleHashKey","sum":"task typespass: mirror IndexAll's nested-git-boundary skip in moduleHashKey — IMPLEMENTER IN A DEDICATED WORKTREE (pre-created at .claude/worktrees/impl-b, based on HEAD); NO lifecycle moves; only lease claim, code+test, lease release, report. Scope (disjoint, ONE file plus its test if one exists): internal/index/typespass.go, and internal/index/typespass_test.go if a test file is present. A sib"}
+{"t":"2026-07-24T19:27:17Z","eid":"fa425b6b34813205","ag":"orchestrator","ev":"create","id":"P-0065","k":"proposal","ti":"proactive compact hint at 300 journal events + self-documenting generated config"}
+{"t":"2026-07-24T19:27:17Z","eid":"909c6dbcd6c12f88","ag":"orchestrator","ev":"grill","id":"P-0065","gr":"2026-07-24"}
+{"t":"2026-07-24T19:27:17Z","eid":"09377528d353e189","ag":"orchestrator","ev":"move","id":"P-0065","fr":"draft","to":"active"}
+{"t":"2026-07-24T19:27:50Z","eid":"1d96926af4017653","ag":"orchestrator","ev":"create","id":"T-0093","k":"task","ti":"compact hint at 300 + full default config template"}
+{"t":"2026-07-24T19:27:50Z","eid":"4a6a08a672eeac45","ag":"orchestrator","ev":"move","id":"T-0093","fr":"draft","to":"active"}
