@@ -866,7 +866,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 		}
 	}
-	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note)
+	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note, s.auditGateOpts()...)
 	if err != nil {
 		var rex lifecycle.ErrRoundsExhausted
 		if errors.As(err, &rex) {
@@ -881,6 +881,13 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
 				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
 		}
+		if strings.HasPrefix(err.Error(), "! GATE E") {
+			// auditGate's refusal is already a dense record (one line per
+			// offending anchor) — return it verbatim as the tool result,
+			// not wrapped in another "! ARG E -" prefix that would corrupt
+			// the record grammar callers parse.
+			return text(err.Error() + "\n")
+		}
 		return text("! ARG E - " + err.Error())
 	}
 	if in.To == item.StateRejected {
@@ -889,6 +896,24 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	}
 	s.scan.MarkDirty()
 	return text(warns + item.Record(it) + "\n")
+}
+
+// auditGateOpts loads the spec cascade and, if that succeeds, returns a
+// lifecycle.WithAuditGate option wired exactly like check builds its
+// rule-text resolver (s.g plus a closure over c.Rule) — this is what arms
+// the done-state audit gate (see lifecycle.Move's doc comment) at the
+// server's move call sites. spec.Load failing is not a move failure: the
+// cascade is simply unavailable, so the returned slice is empty and Move
+// runs with the gate skipped, exactly as it did before this option existed.
+func (s *Server) auditGateOpts() []lifecycle.MoveOption {
+	c, err := spec.Load(s.ws.Dir)
+	if err != nil {
+		return nil
+	}
+	return []lifecycle.MoveOption{lifecycle.WithAuditGate(s.g, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
+	})}
 }
 
 // forwardState reports whether a move target is a forward position in the
@@ -1325,9 +1350,11 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		return text(b.String())
 	}
 
-	// archive done items (skipping ones with open children)
+	// archive done items (skipping ones with open children) — same audit
+	// gate as the move tool; the cascade is loaded once for the whole batch.
+	gateOpts := s.auditGateOpts()
 	for _, it := range doneItems {
-		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact"); err != nil {
+		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
 			fmt.Fprintf(&b, "! SKIP W %s %s\n", it.ID, err.Error())
 		} else {
 			fmt.Fprintf(&b, "ok archived %s\n", it.ID)

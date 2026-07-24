@@ -511,3 +511,5 @@
 {"t":"2026-07-24T19:27:17Z","eid":"09377528d353e189","ag":"orchestrator","ev":"move","id":"P-0065","fr":"draft","to":"active"}
 {"t":"2026-07-24T19:27:50Z","eid":"1d96926af4017653","ag":"orchestrator","ev":"create","id":"T-0093","k":"task","ti":"compact hint at 300 + full default config template"}
 {"t":"2026-07-24T19:27:50Z","eid":"4a6a08a672eeac45","ag":"orchestrator","ev":"move","id":"T-0093","fr":"draft","to":"active"}
+{"t":"2026-07-24T19:30:39Z","eid":"377a00445b07676f","ag":"orchestrator","ev":"move","id":"T-0091","fr":"active","to":"archived"}
+{"t":"2026-07-24T19:30:39Z","eid":"6614fcb810d77b4f","ag":"orchestrator","ev":"archive","id":"T-0091","k":"task","ti":"arm the audit gate: pass WithAuditGate from the server's move path","sum":"task arm the audit gate: pass WithAuditGate from the server's move path — IMPLEMENTER IN A DEDICATED WORKTREE (pre-created at .claude/worktrees/impl-a, based on HEAD); NO lifecycle moves (orchestrator owns them); only lease claim, code+tests, lease release, report. Scope (disjoint): internal/mcpserver/tools.go (the move handler / lifecycle.Move call sites ONLY), internal/mcpserver/tools_test.go."}

@@ -490,6 +490,86 @@ func TestCheckAuditsTightenedNeverHeals(t *testing.T) {
 	}
 }
 
+// TestMoveGateBlocksDoneOnTightenedAnchor (T-0091): arms the audit gate at
+// the move tool's lifecycle.Move call site. A rule anchored to an indexed
+// node, an active item targeting that node, then the rule sentence drifts
+// (op=edit without applies — the Tightened class per
+// TestCheckAuditsTightenedNeverHeals above) must refuse `move to=done` with
+// the dense "! GATE E" record, leave the item active, and let the same move
+// through once the anchor is reconciled (rule op=edit re-passing applies,
+// which re-stamps the rule hash).
+func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
+	root := t.TempDir()
+	src := "package demo\n\nfunc F() int {\n\treturn 1\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "GATE-TST",
+		"system":   "the move-gate test workspace",
+		"response": "always return the constant 1 from F",
+		"applies":  []string{"go:demo.F"},
+	})
+	if !strings.Contains(out, "ok GATE-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+
+	// draft + activate an item whose targets include the anchored node
+	out = callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "touch F", "targets": []string{"go:demo.F"},
+	})
+	if !strings.Contains(out, "i T-0001 task draft") {
+		t.Fatalf("draft: %q", out)
+	}
+	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "active"})
+	if !strings.Contains(out, "active") {
+		t.Fatalf("move to active: %q", out)
+	}
+
+	// tighten: edit only the rule sentence, no applies -> anchors.tsv keeps
+	// the old rule hash, code untouched -> drift.Tightened.
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "edit", "id": "GATE-TST-001", "pattern": "U",
+		"system":   "the move-gate test workspace",
+		"response": "always return the constant 2 from F",
+	})
+	if !strings.Contains(out, "ok GATE-TST-001") {
+		t.Fatalf("rule edit: %q", out)
+	}
+
+	// move to=done must refuse with the dense audit-gate record naming the
+	// rule and the node, not silently succeed (the gate was dormant before
+	// T-0091 wired WithAuditGate at this call site).
+	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "done"})
+	want := "! GATE E T-0001 audit GATE-TST-001 go:demo.F tightened"
+	if !strings.Contains(out, want) {
+		t.Fatalf("expected the audit-gate refusal %q, got: %q", want, out)
+	}
+
+	// the item must still be active — the refusal did not let the move land
+	out = callText(t, sess, "get", map[string]any{"id": "T-0001"})
+	if !strings.Contains(out, "i T-0001 task active") {
+		t.Fatalf("item must still be active after the gate refused done: %q", out)
+	}
+
+	// reconcile: re-pass applies on the same (already-tightened) sentence,
+	// which re-stamps the anchor's rule hash and clears the drift.
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "edit", "id": "GATE-TST-001", "applies": []string{"go:demo.F"},
+	})
+	if !strings.Contains(out, "ok GATE-TST-001") {
+		t.Fatalf("rule edit (reconcile): %q", out)
+	}
+
+	// the same move now succeeds
+	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "done"})
+	if !strings.Contains(out, "i T-0001 task done") {
+		t.Fatalf("move to=done must succeed once the anchor is reconciled: %q", out)
+	}
+}
+
 // TestCompactKeepsRejections: journal folds drop noise but never reject lines.
 func TestCompactKeepsRejections(t *testing.T) {
 	root := t.TempDir()
