@@ -19,69 +19,6 @@ Rejected, again and deliberately: turning grill into a plan-and-grill step. Its 
 
 So grill gains a question, not a gate: a proposal that records no weighing — no refs to an ADR or research item, and nothing in its body naming a rejected alternative — gets asked about it, alongside the questions it already raises. A question the orchestrator can answer or dismiss is the cheap version of demanding a plan; a hard gate would block work on the many proposals whose choice really is obvious.
 
-## P-0085 close two follow-ups left open by the knowledge work: duplicated option parser, colliding prose sections
-kind: proposal
-state: active
-created: 2026-07-24
-grilled: 2026-07-24
-targets: internal/mcpserver/decide.go, internal/knowledge/extract.go
-
-Two limitations both implementers flagged rather than hid, each deliberately deferred because the file they needed was held by a sibling task. Both files are free now.
-
-One: the option parser exists twice, byte for byte. T-0110 needed it in internal/knowledge, which must not import internal/mcpserver, so it exported item.ParseOptions with the same three-form fallback logic decide.go's decideOptions has. The duplication was confirmed exact by diffing the two function bodies. Two copies of a parser drift the moment one grows a fourth accepted form, and the failure mode is silent: an ADR whose options parse in one code path and not the other.
-
-Two: every whitelisted prose section maps onto a single entry kind, so two differently-named sections carrying identical text collapse into one entry. The content key is derived from the text alone, which is right for rules — identical text IS the same rule — but wrong for prose, where the section name is part of the identity. An intent paragraph and a design paragraph that happen to read alike are not the same knowledge, and merging them across repositories would silently drop one of the two.
-
-Both are small, and neither is urgent in this repository — it uses only intent sections, and decide.go's copy works. They are worth closing precisely because they are the kind of defect that costs nothing now and is expensive to diagnose later, once a second repository with a design section joins the fleet or someone adds a fourth option form to one copy.
-
-## T-0117 delete the duplicated option parser; give prose entries a section-aware key
-kind: task
-state: active
-created: 2026-07-24
-parent: P-0085
-targets: internal/mcpserver/decide.go, internal/knowledge/extract.go, internal/knowledge/artifact.go, internal/knowledge/extract_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first; do not explore beyond the files named here. Two independent fixes; do them in either order.
-
-SCOPE (lease exactly these four)
-  internal/mcpserver/decide.go            delete decideOptions, call item.ParseOptions
-  internal/knowledge/extract.go           section-aware prose key
-  internal/knowledge/artifact.go          only if the entry needs a section field
-  internal/knowledge/extract_test.go
-Do NOT touch internal/mcpserver/tools.go, grill.go or their tests (a sibling task owns all four right now), internal/mcpserver/knowledge.go, internal/item/item.go or options.go (finished), internal/drift, cmd/, README.md or docs/. .spectackle files are server-owned: never edit them by hand.
-
-FIX 1 — one option parser, not two
-internal/item.ParseOptions was created because internal/knowledge cannot import internal/mcpserver. Its body is byte-identical to decide.go's decideOptions, confirmed by diffing the two function bodies. Delete decideOptions and its reOutcome regex from decide.go and call item.ParseOptions instead.
-Before deleting, diff the two yourself and confirm they are still identical. If they have diverged since — if decide.go's copy grew a form ParseOptions lacks — STOP and report rather than silently dropping a case: that difference would be exactly the bug this fix exists to prevent, already realized.
-The three accepted forms and their fallback ORDER are behavior, not implementation detail: repeated `option: <text>` lines first, then the legacy comma-joined `options: a, b, c` line, then the escalation sentence's outcome list. Existing items depend on all three. decide.go's own tests must pass unchanged — if one fails, the parsers were not identical and you have found something worth reporting.
-
-FIX 2 — prose entries keyed by section, not by text alone
-Extract maps every whitelisted prose section onto one entry kind, and the content key is derived from the text alone. For rules that is right: identical text IS the same rule. For prose it is wrong — the section name is part of the identity. An intent paragraph and a design paragraph that happen to read alike are not the same knowledge, and merging them across repositories silently drops one.
-Make the prose key depend on the section name as well as the text, and carry the section name on the entry so a reader can see which section it came from. Keep rule and ADR keying exactly as it is: rules keyed by normalized text, ADRs keyed by question only (that is what makes two repos answering the same question differently collide into one conflict — do not disturb it).
-Watch the round-trip and determinism tests that already exist; a new field must marshal and parse back, and ordering must stay stable.
-
-TESTS (extract_test.go — extend, do not add parallel files)
-  1. two sections with different names but identical text produce TWO entries with different keys.
-  2. the same section name and text in two sources still produces ONE entry with a pooled count — the dedup that must keep working.
-  3. the section name survives marshal and parse.
-  4. rule and ADR keys are unchanged by this edit: assert a rule's key and an ADR's key equal what they were before, using literal expected values so the test fails if keying shifts.
-
-VERIFY (run every one; report real output, never predicted)
-  go build ./...
-  go test ./internal/knowledge/... ./internal/mcpserver/... ./internal/item/... -race
-  go test ./...
-  go vet ./internal/knowledge/... ./internal/mcpserver/...
-  /home/user/spectackle/bin/spectackle lint
-
-EXIT CRITERION
-Four tests green under -race, decide.go's pre-existing tests green WITHOUT modification, ./... green, vet clean, lint clean, and only one option parser left in the tree — prove it with a grep showing no decideOptions remains.
-
-ROLLBACK
-Fix 1 is a deletion plus a call; restoring the function restores the prior state. Fix 2 changes how one entry kind is keyed, which changes artifact bytes for prose entries only — an artifact written before this change still parses, but its prose entries will not dedup against newly written ones. Say so in your report; it is the one non-cosmetic consequence here and it matters for anyone who already exported an artifact.
-
-REPORT BACK
-The diff evidence that the two parsers were still identical, the new prose key derivation, each test's real output, the compatibility consequence for already-exported artifacts, and anything you deliberately did NOT do.
-
 ## T-0118 wire item.Refs through draft and get; grill asks for the recorded weighing
 kind: task
 state: active
