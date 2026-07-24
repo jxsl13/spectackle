@@ -24,6 +24,8 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - P-0010 output diet: elide root-rule text in packs, no sw replay for fresh agents, edge dedup, drop empty sections: output diet: r-root eliding, no sw replay, edge dedup, empty sections omitted (~77% smaller packs)
 - P-0014 MCP prompts: /spectacle workflow entry points (workflow + next): workflow+next MCP prompts live: slash-command entry with live state, implementer protocol briefing
 - P-0017 state tool + /spectacle-state prompt: one structured, read-only full picture: state tool + prompt live: sectioned read-only full picture, SPX-MCP-005 anchored
+- P-0027 find/get node records show the definition span — start AND end line: n records render file:start-end via the single nodeLine formatter (MCP-002)
+- P-0029 commands tool: harness detection + slash-command generation (claude/copilot/codex/kimi) from one server-side source: commands tool live: detect+gen for claude/copilot/codex/kimi from one embedded template source; .claude commands migrated to generated output (MCP-003)
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.

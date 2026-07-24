@@ -100,6 +100,57 @@ func TestFFIResolverBridgesDanglingCppToC(t *testing.T) {
 	}
 }
 
+// TestFFIResolverBridgesAllmanCppToC is T-0054's acceptance case: before
+// this task, ffi.go's body-span scanning (ffiBraceSpan) was an independent,
+// unfixed, K&R-only copy of internal/langspec's pre-T-0053 braceSpan, so an
+// Allman-bodied method def (the opening '{' on its own following line, the
+// universal style in real-world codebases like ddnet — see
+// docs/validation-ddnet.md) was never scanned at all: ffiBraceSpan bailed
+// immediately because the def line itself had no '{'. T-0054 switched
+// ffi.go to internal/cspan.Span (the same, already-Allman-aware scanner the
+// primary langspec pass uses), so this now bridges exactly like the
+// existing K&R fixture above. cpp:Engine.Render's body is Allman
+// (`Render()` then `{` on the next line); c:str_copy is itself defined
+// Allman-style too (included for realism, though the resolver only needs
+// the pre-minted c:str_copy graph node, not to re-derive it from strutil.c
+// — same as every other fixture in this file).
+func TestFFIResolverBridgesAllmanCppToC(t *testing.T) {
+	cppSrc := `void Engine::Render()
+{
+    str_copy(dst, src);
+}
+`
+	cSrc := `void str_copy(char *dst, const char *src)
+{
+    dst[0] = src[0];
+}
+`
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{
+		{ID: "cpp:Render", Kind: graph.KFunc, Lang: graph.LangCpp, File: "engine.cpp", Line: 1, EndLine: 4},
+		{ID: "c:str_copy", Kind: graph.KFunc, Lang: graph.LangC, File: "strutil.c", Line: 1, EndLine: 3},
+	}, []graph.Edge{
+		{Src: "cpp:Render", Dst: "cpp:str_copy", Kind: graph.ECall, File: "engine.cpp", Line: 3},
+	})
+
+	fs := ffiFS{
+		cpp: map[string]string{"engine.cpp": cppSrc},
+		c:   map[string]string{"strutil.c": cSrc},
+	}
+	edges := resolveFFI(t, g, fs)
+
+	if len(edges) != 1 {
+		t.Fatalf("want exactly 1 bridged edge, got %d: %+v", len(edges), edges)
+	}
+	e := edges[0]
+	if e.Src != "cpp:Render" || e.Dst != "c:str_copy" || e.Kind != graph.ECall {
+		t.Errorf("edge = %+v, want cpp:Render -ECall-> c:str_copy", e)
+	}
+	if e.File != "engine.cpp" || e.Line != 3 {
+		t.Errorf("edge File/Line = %q/%d, want engine.cpp/3", e.File, e.Line)
+	}
+}
+
 // TestFFIResolverBridgesDanglingCToCpp mirrors the above for the c: -> cpp:
 // direction.
 func TestFFIResolverBridgesDanglingCToCpp(t *testing.T) {

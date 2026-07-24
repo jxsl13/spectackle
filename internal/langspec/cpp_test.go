@@ -196,8 +196,9 @@ func TestCppSpecCallEdgesOutOfLineMethod(t *testing.T) {
 // universal brace style: the opening '{' sits on the line *after* the def
 // line instead of on it. cppSpec's out-of-line method Def (`Foo::Bar(`, see
 // cpp.go) has no trailing-anchor requirement, so it already minted a
-// cpp:Render node for this shape before T-0053 — what braceSpan's Allman
-// extension fixes is that the body (and its call edge to str_copy, a C
+// cpp:Render node for this shape before T-0053 — what the Allman extension
+// (originally langspec.braceSpan, extracted verbatim into internal/cspan by
+// T-0054) fixes is that the body (and its call edge to str_copy, a C
 // function from ddnet's base/system.c that's heavily called across the
 // cpp:/c: FFI boundary) now actually gets scanned instead of collapsing to
 // EndLine == Line with zero edges.

@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jxsl13/spectacle/internal/cspan"
 	"github.com/jxsl13/spectacle/internal/graph"
 	"github.com/jxsl13/spectacle/internal/ids"
 	"github.com/jxsl13/spectacle/internal/index"
@@ -136,7 +137,7 @@ func (p SpecParser) Parse(path string, src []byte) (index.ParseResult, error) {
 			id := graph.NodeID(ids.Mint(string(p.S.Lang), p.qualify(path, name)))
 			endLine := lineNo
 			if p.S.CallRe != nil && (def.Kind == graph.KFunc || def.Kind == graph.KMethod) {
-				if bodyEnd, ok := braceSpan(lines, i); ok {
+				if bodyEnd, ok := cspan.Span(lines, i); ok {
 					endLine = bodyEnd + 1
 					edges = append(edges, p.callEdges(id, name, path, lines, i, bodyEnd, stop)...)
 				}
@@ -166,124 +167,6 @@ func scanLines(src []byte) ([]string, error) {
 		return nil, err
 	}
 	return lines, nil
-}
-
-// braceSpan finds the end of the body opened for the Def hit on
-// lines[start]. K&R style (the def line itself opens '{') is handled first
-// and is byte-identical to the pre-T-0053 behavior: depth-count forward
-// ('{' +1, '}' -1) until depth returns to <= 0, single-line bodies included.
-//
-// When the def line has no '{' at all, T-0053 extends the search rather
-// than bailing immediately:
-//   - a def line ending in ';' is a prototype/forward-declaration (or a
-//     function-like macro whose expansion has no body) — no body exists, ok
-//     is false, and no forward line is ever touched (same early-exit
-//     invariant as before this extension).
-//   - a def line ending in ',' or '(' is a multi-line parameter list — the
-//     header is scanned forward to the line containing the closing ')',
-//     and the brace search (same-line or Allman) resumes from there.
-//   - otherwise the def is Allman style: the opening '{' lives on one of
-//     the next few source lines instead of the def line itself (ddnet's
-//     universal C/C++ brace placement). braceSpan looks ahead over
-//     subsequent lines, skipping blank lines and pure '//'-comment lines,
-//     for at most 3 lines; if the first significant line found begins with
-//     '{' (ignoring leading whitespace), depth tracking starts there.
-//     Anything else — including finding no significant line within the
-//     3-line window — means no body, ok is false, and (as with the K&R
-//     no-brace case) lines beyond the window are never touched, so a
-//     braceless def can never wander into the next, unrelated def's lines.
-func braceSpan(lines []string, start int) (end int, ok bool) {
-	if depth, opened := braceDelta(lines[start]); opened {
-		return braceSpanFrom(lines, start, depth)
-	}
-
-	defLine := strings.TrimRight(lines[start], " \t")
-	if strings.HasSuffix(defLine, ";") {
-		// Prototype, forward declaration, or a function-like macro with no
-		// body — bail early exactly as before this extension.
-		return 0, false
-	}
-
-	header := start
-	if strings.HasSuffix(defLine, ",") || strings.HasSuffix(defLine, "(") {
-		// Multi-line parameter list: keep scanning the header until the
-		// line that closes it, then treat that line as the new header for
-		// the same-line-or-Allman brace search below.
-		closed := -1
-		for i := start + 1; i < len(lines); i++ {
-			if strings.Contains(lines[i], ")") {
-				closed = i
-				break
-			}
-		}
-		if closed == -1 {
-			return 0, false
-		}
-		header = closed
-	}
-
-	if header != start {
-		headerLine := lines[header]
-		if depth, opened := braceDelta(headerLine); opened {
-			// K&R brace placed on the header's closing-paren line.
-			return braceSpanFrom(lines, header, depth)
-		}
-		if strings.HasSuffix(strings.TrimRight(headerLine, " \t"), ";") {
-			// A multi-line prototype — no body.
-			return 0, false
-		}
-	}
-
-	// Allman: the opening '{' lives on a following line. Bounded lookahead
-	// (skip blank/`//`-comment lines, at most 3 lines) keeps a braceless
-	// def from ever consuming a later, unrelated def's lines.
-	sig := -1
-	for i := header + 1; i < len(lines) && i <= header+3; i++ {
-		t := strings.TrimSpace(lines[i])
-		if t == "" || strings.HasPrefix(t, "//") {
-			continue
-		}
-		sig = i
-		break
-	}
-	if sig == -1 || strings.TrimSpace(lines[sig])[0] != '{' {
-		return 0, false
-	}
-	depth, _ := braceDelta(lines[sig])
-	return braceSpanFrom(lines, sig, depth)
-}
-
-// braceSpanFrom depth-counts forward from lines[start], whose own
-// braceDelta contribution is already folded into depth, until depth returns
-// to <= 0 (single-line bodies included, matching braceSpan's pre-T-0053
-// K&R-only behavior).
-func braceSpanFrom(lines []string, start, depth int) (end int, ok bool) {
-	if depth <= 0 {
-		return start, true
-	}
-	for i := start + 1; i < len(lines); i++ {
-		d, _ := braceDelta(lines[i])
-		depth += d
-		if depth <= 0 {
-			return i, true
-		}
-	}
-	return 0, false
-}
-
-// braceDelta returns the net brace-depth change contributed by line ('{' is
-// +1, '}' is -1) and whether the line contains at least one '{'.
-func braceDelta(line string) (delta int, opened bool) {
-	for _, r := range line {
-		switch r {
-		case '{':
-			delta++
-			opened = true
-		case '}':
-			delta--
-		}
-	}
-	return delta, opened
 }
 
 // callEdges applies Spec.CallRe to every line in [start, end] (a Def hit's

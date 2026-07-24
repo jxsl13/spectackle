@@ -200,100 +200,14 @@ func TestSpecParserCallEdgesWithCallRe(t *testing.T) {
 	}
 }
 
-// --- T-0053: Allman-style brace spans -------------------------------------
-//
-// braceSpan originally only found a body when the def line itself opened
-// '{' (K&R). ddnet — and huge parts of the C/C++/C# world — put the brace
-// on the next line (Allman), which meant zero bodies scanned, zero call
-// edges, in an Allman codebase (see docs/validation-ddnet.md, T-0051). This
-// table drives braceSpan directly (it's unexported but this file is in the
-// same package) so each case is independent of whether any *registered*
-// Spec's Def regex would itself produce the given start line — see
-// c_test.go/cpp_test.go for the end-to-end, real-regex-driven fixtures.
-func TestBraceSpanAllman(t *testing.T) {
-	tests := []struct {
-		name    string
-		src     string
-		start   int // 0-indexed line of the Def hit
-		wantEnd int // 0-indexed line of the closing brace, only checked if wantOK
-		wantOK  bool
-	}{
-		{
-			name:    "K&R same-line (regression)",
-			src:     "void f() {\n    g();\n}\n",
-			start:   0,
-			wantEnd: 2,
-			wantOK:  true,
-		},
-		{
-			name:    "Allman next-line",
-			src:     "void f()\n{\n    g();\n}\n",
-			start:   0,
-			wantEnd: 3,
-			wantOK:  true,
-		},
-		{
-			name:    "Allman with blank line between",
-			src:     "void f()\n\n{\n    g();\n}\n",
-			start:   0,
-			wantEnd: 4,
-			wantOK:  true,
-		},
-		{
-			name:   "prototype 'void f(int);' has no span",
-			src:    "void f(int);\n",
-			start:  0,
-			wantOK: false,
-		},
-		{
-			name:    "multi-line param header ending in Allman brace",
-			src:     "void f(int a,\n       int b)\n{\n    g();\n}\n",
-			start:   0,
-			wantEnd: 4,
-			wantOK:  true,
-		},
-		{
-			name:    "multi-line param header ending in K&R brace",
-			src:     "void f(int a,\n       int b) {\n    g();\n}\n",
-			start:   0,
-			wantEnd: 3,
-			wantOK:  true,
-		},
-		{
-			name:   "multi-line param header that is actually a prototype",
-			src:    "void f(int a,\n       int b);\n",
-			start:  0,
-			wantOK: false,
-		},
-		{
-			name:   "'#define F(x) (x)' unaffected",
-			src:    "#define F(x) (x)\n",
-			start:  0,
-			wantOK: false,
-		},
-		{
-			name:   "brace never arrives within the lookahead window",
-			src:    "void f()\n\n\n\n{\n    g();\n}\n",
-			start:  0,
-			wantOK: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			lines, err := scanLines([]byte(tt.src))
-			if err != nil {
-				t.Fatalf("scanLines: %v", err)
-			}
-			end, ok := braceSpan(lines, tt.start)
-			if ok != tt.wantOK {
-				t.Fatalf("braceSpan ok = %v, want %v (end=%d)", ok, tt.wantOK, end)
-			}
-			if ok && end != tt.wantEnd {
-				t.Errorf("braceSpan end = %d, want %d (0-indexed line of closing brace)", end, tt.wantEnd)
-			}
-		})
-	}
-}
+// T-0053's Allman-style brace-span regression table (formerly
+// TestBraceSpanAllman, driving the package-private braceSpan directly) has
+// moved verbatim to internal/cspan/cspan_test.go's TestSpanAllman as part
+// of T-0054's extraction of that scanner into the internal/cspan leaf
+// package. langspec.go now delegates to cspan.Span (see its Parse method);
+// this file keeps only the integration-level tests below, which exercise
+// SpecParser end to end with real Spec/Def/CallRe wiring — see
+// c_test.go/cpp_test.go for the exhaustive per-language coverage.
 
 func TestSpecParserDeterministic(t *testing.T) {
 	p := SpecParser{S: pythonSpec}

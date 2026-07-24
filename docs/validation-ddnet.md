@@ -336,3 +336,193 @@ cannot import `langspec`). This is a precise, reproducible, and now
 fully root-caused gap — not a vague "C++ is hard" — and the fix is a
 same-shaped, small, separate follow-up task in `internal/resolve/ffi.go`,
 explicitly out of scope here.
+
+## ffi re-validation
+
+T-0054 did three things: (1) extracted `braceSpan`/`braceSpanFrom`/
+`braceDelta` out of `internal/langspec/langspec.go` verbatim into a new
+leaf package, `internal/cspan` (`Span`/`SpanFrom`/`Delta`, zero
+non-stdlib imports — no semantic change, byte-for-byte the same T-0053
+logic, just relocated so a lower layer can reach it); (2) switched
+`langspec.go`'s `SpecParser.Parse` to call `cspan.Span` instead of the
+now-deleted local copy; (3) deleted `internal/resolve/ffi.go`'s
+independent, unfixed, K&R-only `ffiBraceSpan`/`ffiBraceDelta` and switched
+`ffiScanFile` to call `cspan.Span` too — the exact follow-up the previous
+section's Verdict named. `internal/resolve/`'s mirrored Def/CallRe/Stop
+regexes (`ffiPlainFuncRe`, `ffiMethodRe`, `ffiCallRe`, `ffiStop`) are
+untouched, per the task's scope — only the span logic was the bug.
+
+Same clone, same commit, unchanged since the last re-validation
+(`0ab9158ff59d0d8f64f9dc72a3680aed7042dd65`; `find src -type f` still
+reports 779 files: 367 `.cpp`, 335 `.h`, 24 `.c`, 18 `.rs`). Re-indexed
+fresh (`.spectacle/` deleted, cold run) via the same driver against
+`/tmp/claude-0/-home-user-spectacle/4c40537b-65eb-5824-86a6-6c853d4e1c78/scratchpad/ddnet`.
+
+### Measured numbers (post-T-0054)
+
+| run | wall time (`time`, real) | nodes | edges |
+|---|---|---|---|
+| cold (`.spectacle` deleted first) | 1.313s | 10524 | 35080 |
+| warm (immediately after) | 0.708s | 10524 | 35080 |
+| warm (again) | 0.665s | 10524 | 35080 |
+
+Nodes are unchanged (10524 → 10524, same as T-0053): this task never
+touches a Def regex, only body-span scanning. Edges rose from 30627
+(post-T-0053, pre-fix `FFIResolver`) to **35080** — a **+4453** delta —
+and, unlike the primary pass's 60.5x jump, this entire delta is new
+`cpp:`↔`c:` bridging edges emitted by `FFIResolver`, since RSV-001
+guarantees resolvers only add and nothing else in the pipeline changed.
+Cold time crept up slightly (1.059s → 1.313s: `FFIResolver` now actually
+scans thousands of previously-skipped Allman bodies instead of bailing on
+the def line); warm times (0.708s/0.665s vs. 0.417s/0.453s) show the same
+small, expected increase — graph-rebuild-from-cache work proportional to
+the larger edge set, not re-parsing (`.spectacle/cache/parse.db`'s
+content-hash cache still skips unchanged file bytes). Still well under
+1.5s cold, well under a second warm.
+
+### Programmatic cross-language edge count
+
+A throwaway diagnostic (`cmd/zzzdiag/main.go` — built, run, and deleted
+before this task finished; not part of the committed diff) instantiated
+the exact same pipeline `internal/mcpserver.Server.reindex` uses
+(`index.New` with `index.GoParser{}, index.AsmParser{}, index.CudaParser{}`
+plus `langspec.All()`, resolved with `resolve.Default().All()`) directly
+over the ddnet clone, then walked every `KFunc` node's outgoing `ECall`
+edges (`g.Find("", 0, graph.KFunc)` + `g.Neighbors(id, Out, [ECall])`,
+the same `Find("")`-samples-everything technique T-0053's re-validation
+used) counting same-name-space crossings:
+
+```
+ZZZ nodes=10524 edges=35080 files=807 skipped=0
+ZZZ sampled 9923 KFunc node ids via Find
+ZZZ sample: cpp:Render~12 -call-> c:str_copy via=src/game/editor/envelope_editor.cpp:487
+ZZZ sample: cpp:Render~12 -call-> c:str_copy via=src/game/editor/envelope_editor.cpp:570
+ZZZ sample: cpp:Render~12 -call-> c:str_copy via=src/game/editor/envelope_editor.cpp:583
+...
+ZZZ sample: cpp:RenderPopupFullscreen -call-> c:time_get via=src/game/client/components/menus.cpp:1241
+ZZZ cross-language cpp<->c ECall edges found: 4453 (cpp->c=4453, c->cpp=0)
+ZZZ c:str_copy: 612 total in-edges, 612 from cpp:
+ZZZ c:io_open: 3 total in-edges, 3 from cpp:
+ZZZ c:net_init: 0 total in-edges, 0 from cpp:
+ZZZ c:str_format_int: 0 total in-edges, 0 from cpp:
+```
+
+4453, matching the edge-count delta above exactly (35080 − 30627 =
+4453) — confirmation that every new edge in this run is a `FFIResolver`
+bridge, none of them going the other direction (`c:` → `cpp:`): ddnet's
+own C-family headers/prototypes never call into C++ definitions, so
+`cpp->c=4453, c->cpp=0` is the expected shape, not a bug.
+
+### The three named probes (verbatim driver output)
+
+**`c:str_copy`** — the task brief's own running example, and by far the
+largest single bridge target: `str_copy`'s prototype lives in `str.h`
+(mints `c:str_copy`, per `cSpec.Exts` claiming `.h`), its definition in
+`str.cpp` (mints `cpp:str_copy`, which — being itself K&R/Allman-shaped —
+doesn't matter for this direction). `get {"id":"c:str_copy","depth":1}`
+returns 100+ real `cpp:` callers before the response's own pagination
+cursor cuts it off (`cur b2ZmPTExOA`); the diagnostic's precise count is
+612 total in-edges, all from `cpp:`, e.g.:
+
+```
+> get {"id":"c:str_copy","depth":1}
+n c:str_copy fn src/base/str.h:45
+n cpp:InitOpenGL fn src/engine/client/backend/opengl/backend_opengl.cpp:325-606
+n cpp:RconAuth fn src/engine/client/client.cpp:288-311
+n cpp:Connect fn src/engine/client/client.cpp:617-728
+n cpp:ProcessServerPacket fn src/engine/client/client.cpp:1592-2378
+...
+```
+
+**`c:io_open`** — a smaller, hand-checkable bridge: `io_open`'s prototype
+lives in `io.h`, three real out-of-line-method callers survive
+brace-scanning and bridge:
+
+```
+> get {"id":"c:io_open","depth":1}
+n c:io_open fn src/base/io.h:83
+n cpp:Dump~2 fn src/engine/shared/assertion_logger.cpp:54-76
+n cpp:BeforeInit fn src/engine/shared/http.cpp:122-149
+n cpp:OnCompletionInternal fn src/engine/shared/http.cpp:374-481
+e cpp:Dump~2 call c:io_open via=src/engine/shared/assertion_logger.cpp:61
+e cpp:BeforeInit call c:io_open via=src/engine/shared/http.cpp:141
+e cpp:OnCompletionInternal call c:io_open via=src/engine/shared/http.cpp:443
+```
+
+**`c:net_init`** — a negative result, root-caused rather than left as a
+mystery: `find {"q":"net_init","scope":"code"}` shows `c:net_init` (its
+`net.h` prototype), but `get {"id":"c:net_init","depth":1}` returns zero
+neighbors:
+
+```
+> find {"q":"net_init","scope":"code"}
+n c:net_init fn src/base/net.h:162
+
+> get {"id":"c:net_init","depth":1}
+n c:net_init fn src/base/net.h:162
+```
+
+`net_init()`'s only non-test, non-tool call site in the tree is
+`src/engine/shared/engine.cpp:74`, inside `CEngine`'s constructor — but
+that constructor is defined **inline inside the class body**
+(`CEngine(bool Test, ...) : m_pFutureLogger(...) { ... net_init(); ... }`),
+not as an out-of-line `CEngine::CEngine(...)` definition. `ffi.go`'s
+mirrored def shapes (`ffiMethodRe` for `Foo::bar(`, `ffiPlainFuncRe` for
+a plain function) — deliberately unchanged by this task, mirroring
+`cppSpec`'s own Def list — have no shape for an in-class inline method or
+constructor body, so that call site is never scanned by `FFIResolver` at
+all (independent of `cspan.Span`, which never gets a chance to run on it).
+This is the same class of pre-existing, out-of-scope limitation as
+`c:str_format`: `str_format`'s own prototype in `str.h` is prefixed with
+a `[[gnu::format(printf, 3, 4)]]` attribute, so `cSpec`'s column-zero-
+anchored Def never matches that line at all —
+`find {"q":"str_format","scope":"code"}` mints only `c:str_format_int`
+(the unattributed overload), never `c:str_format` itself:
+
+```
+> find {"q":"str_format","scope":"code"}
+n c:str_format_int fn src/base/str.h:159
+```
+
+`c:str_format_int` does exist as a node but has zero in-edges (checked
+programmatically above) — not further root-caused here, since neither of
+these gaps is `cspan`/`ffi.go`'s span-scanning logic (this task's exit
+criterion), they are the def-regex-anchor and in-class-method blockers the
+previous section's Verdict already named as separate, larger, riskier
+follow-ups.
+
+### Test tail (this task's suite)
+
+```
+$ go test -race ./internal/cspan/ ./internal/langspec/ ./internal/resolve/
+ok  	github.com/jxsl13/spectacle/internal/cspan	1.014s
+ok  	github.com/jxsl13/spectacle/internal/langspec	1.105s
+ok  	github.com/jxsl13/spectacle/internal/resolve	1.021s
+$ go vet ./...
+$ go build ./...
+$ make lint-specs
+CGO_ENABLED=0 go build -o bin/spectacle ./cmd/spectacle
+./bin/spectacle lint .
+14 spec files, 50 rules, 0 findings (0 errors)
+```
+
+### Verdict (post-T-0054)
+
+The last blocker named by the previous section's Verdict is closed:
+`internal/resolve/ffi.go` no longer carries its own K&R-only brace-span
+copy, it calls the same `internal/cspan.Span` the primary `langspec` pass
+uses, and `FFIResolver` now emits real, file:line-accurate `cpp:`→`c:`
+bridging edges on real, unmodified ddnet — **4453 of them**, verified two
+independent ways (the `state` edge-count delta and a from-scratch
+programmatic walk of every cross-language `ECall` edge in the graph), not
+one hand-picked probe. `c:str_copy` alone accounts for 612 of them — a
+single C-family helper called from 612 real C++ call sites across the
+tree, exactly the FFI-boundary chain the original write-up (T-0051) set
+out to demonstrate and the T-0053 re-validation confirmed was blocked by
+this exact resolver. The two residual gaps this task did not touch
+(`net_init`'s only call site being an in-class inline constructor body,
+and `str_format`'s attribute-prefixed prototype defeating the def-regex
+anchor) are both `internal/resolve/`'s mirrored Def-shape limitations —
+architecturally separate from `cspan`'s span-scanning contract, and
+explicitly out of this task's scope, same as the previous section left
+them.

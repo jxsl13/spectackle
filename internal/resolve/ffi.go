@@ -6,6 +6,7 @@ import (
 	"context"
 	"regexp"
 
+	"github.com/jxsl13/spectacle/internal/cspan"
 	"github.com/jxsl13/spectacle/internal/graph"
 	"github.com/jxsl13/spectacle/internal/ids"
 )
@@ -22,7 +23,15 @@ import (
 //     CallRe/Stop (see internal/langspec/c.go, cpp.go): resolve is a lower
 //     layer than internal/index, which internal/langspec imports, so
 //     resolve cannot depend on langspec (same reason CudaResolver mirrors
-//     index.cudaExternCRe instead of importing internal/index).
+//     index.cudaExternCRe instead of importing internal/index). Body-span
+//     scanning itself does NOT carry this restriction: T-0054 extracted
+//     that logic into internal/cspan, a leaf package with zero non-stdlib
+//     imports that both langspec and resolve depend on directly, so this
+//     resolver's brace-span handling (K&R, prototypes, multi-line headers,
+//     Allman) is byte-for-byte the same code the primary langspec pass
+//     runs — not a second, independently-maintained copy (see
+//     docs/validation-ddnet.md's "## ffi re-validation" section for why
+//     that duplication used to block the cpp:->c: FFI crossing entirely).
 //   - For every c:/cpp: function def found this way, every call inside its
 //     brace-counted body that is neither Stop-listed nor the def's own name
 //     is a callee candidate exactly like the primary langspec pass. If the
@@ -129,7 +138,7 @@ func ffiScanFile(g graph.Graph, path string, src []byte, lang, sibling graph.Lan
 		if name == "" {
 			continue
 		}
-		end, ok := ffiBraceSpan(lines, i)
+		end, ok := cspan.Span(lines, i)
 		if !ok {
 			continue // prototype / bodyless def: nothing to scan
 		}
@@ -173,39 +182,4 @@ func ffiSplitLines(src []byte) []string {
 		lines = append(lines, sc.Text())
 	}
 	return lines
-}
-
-// ffiBraceSpan mirrors langspec.braceSpan: if lines[start] has no '{' at
-// all, the def has no body (ok=false). Otherwise depth-counts forward until
-// depth returns to <= 0, single-line bodies included.
-func ffiBraceSpan(lines []string, start int) (end int, ok bool) {
-	depth, opened := ffiBraceDelta(lines[start])
-	if !opened {
-		return 0, false
-	}
-	if depth <= 0 {
-		return start, true
-	}
-	for i := start + 1; i < len(lines); i++ {
-		d, _ := ffiBraceDelta(lines[i])
-		depth += d
-		if depth <= 0 {
-			return i, true
-		}
-	}
-	return 0, false
-}
-
-// ffiBraceDelta mirrors langspec.braceDelta.
-func ffiBraceDelta(line string) (delta int, opened bool) {
-	for _, r := range line {
-		switch r {
-		case '{':
-			delta++
-			opened = true
-		case '}':
-			delta--
-		}
-	}
-	return delta, opened
 }

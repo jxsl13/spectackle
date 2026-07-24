@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jxsl13/spectacle/internal/cspan"
 	"github.com/jxsl13/spectacle/internal/graph"
 	"github.com/jxsl13/spectacle/internal/index"
 	"github.com/jxsl13/spectacle/internal/resolve"
@@ -218,21 +219,22 @@ func TestCSpecCallEdgesKernelLaunch(t *testing.T) {
 }
 
 // TestCSpecAllmanBraceSpanRegression is T-0053's C-side regression for
-// braceSpan (the function this task extends): a bare Allman-style body
-// (opening '{' on the line after the def line, ddnet's universal C/C++
-// style) is now found and depth-counted correctly.
+// cspan.Span (the scanner T-0053 extended, and T-0054 extracted out of this
+// package into internal/cspan): a bare Allman-style body (opening '{' on
+// the line after the def line, ddnet's universal C/C++ style) is now found
+// and depth-counted correctly.
 //
-// This drives braceSpan directly rather than through cSpec.Parse: cSpec's
+// This drives cspan.Span directly rather than through cSpec.Parse: cSpec's
 // plain-function Def (see c.go) is anchored `[;{]\s*$`, requiring the def
 // line itself to end in ';' or '{' — a bare Allman signature line like
 // `static void helper(void)` ends in ')' and so never matches that Def at
-// all, independent of braceSpan. That anchor is a separate, pre-existing
+// all, independent of cspan.Span. That anchor is a separate, pre-existing
 // limitation of c.go's regex (not touched here per T-0053's scope: only
-// langspec.go's braceSpan + its call site); it means ddnet's own top-level
-// Allman C functions still won't mint nodes even after this fix — see
-// docs/validation-ddnet.md's re-validation appendix. cppSpec's out-of-line
-// method Def (`Foo::Bar(`, see cpp.go) has no such end anchor, so the C++
-// side benefits from this fix end-to-end (see
+// braceSpan + its call site, now cspan.Span); it means ddnet's own
+// top-level Allman C functions still won't mint nodes even after this fix
+// — see docs/validation-ddnet.md's re-validation appendix. cppSpec's
+// out-of-line method Def (`Foo::Bar(`, see cpp.go) has no such end anchor,
+// so the C++ side benefits from this fix end-to-end (see
 // TestCppSpecAllmanMethodCallEdges in cpp_test.go).
 func TestCSpecAllmanBraceSpanRegression(t *testing.T) {
 	src := "static void helper(void)\n{\n    do_something(1, 2);\n}\n"
@@ -240,12 +242,12 @@ func TestCSpecAllmanBraceSpanRegression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scanLines: %v", err)
 	}
-	end, ok := braceSpan(lines, 0)
+	end, ok := cspan.Span(lines, 0)
 	if !ok {
-		t.Fatal("braceSpan ok = false, want true (Allman brace on line 2)")
+		t.Fatal("cspan.Span ok = false, want true (Allman brace on line 2)")
 	}
 	if end != 3 {
-		t.Errorf("braceSpan end = %d (0-indexed), want 3 (line 4, the closing '}')", end)
+		t.Errorf("cspan.Span end = %d (0-indexed), want 3 (line 4, the closing '}')", end)
 	}
 }
 
