@@ -1,9 +1,11 @@
 package item
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -341,6 +343,55 @@ func TestADRKindAndIDs(t *testing.T) {
 	}
 }
 
+// TestIDReDualForm checks that IDRe (T-0125 / ITM-001) accepts both the
+// legacy four-digit form and the new 26-char ULID form, and rejects
+// near-miss lengths and Crockford-forbidden characters in the ULID body.
+func TestIDReDualForm(t *testing.T) {
+	for _, id := range []string{
+		"P-0084", "ADR-0012", "D-0001", // legacy, still accepted
+		"P-01HZQK8X7VYB3EJ8M9N2R4T6WA", // 26-char Crockford ULID form
+	} {
+		if !IDRe.MatchString(id) {
+			t.Fatalf("IDRe rejects %q, want accept", id)
+		}
+	}
+
+	// 25-char body (one short) and 27-char body (one long) both rejected.
+	if IDRe.MatchString("P-01HZQK8X7VYB3EJ8M9N2R4T6W") { // 25 chars
+		t.Fatal("IDRe accepts a 25-char ULID body, want reject")
+	}
+	if IDRe.MatchString("P-01HZQK8X7VYB3EJ8M9N2R4T6WAX") { // 27 chars
+		t.Fatal("IDRe accepts a 27-char ULID body, want reject")
+	}
+
+	// A body containing I, L, O or U (all excluded from Crockford base32)
+	// is rejected even at the correct length.
+	for _, bad := range []string{
+		"P-I1HZQK8X7VYB3EJ8M9N2R4T6WA", // I
+		"P-01HZQK8X7VYBLEJ8M9N2R4T6WA", // L
+		"P-01HZQK8X7VYB3EJ8M9N2ROT6WA", // O
+		"P-01HZQK8X7VYB3EJ8M9N2R4T6WU", // U
+	} {
+		if IDRe.MatchString(bad) {
+			t.Fatalf("IDRe accepts %q containing a forbidden Crockford character, want reject", bad)
+		}
+	}
+}
+
+// TestNumULIDForm checks Num's documented behavior for a ULID-form id: 0,
+// same as any other id whose suffix isn't all digits. See the comment on
+// Num in item.go for why 0 is correct for both of Num's callers.
+func TestNumULIDForm(t *testing.T) {
+	if got := Num("P-01HZQK8X7VYB3EJ8M9N2R4T6WA"); got != 0 {
+		t.Fatalf("Num(ULID) = %d, want 0", got)
+	}
+	// A ULID suffix starting with digits must not be truncated into a
+	// partial number (regression guard for the Sscanf-prefix trap).
+	if got := Num("P-01234ABCDEFGHJKMNPQRSTVWX"); got != 0 {
+		t.Fatalf("Num(digit-prefixed ULID) = %d, want 0", got)
+	}
+}
+
 func TestIDHelpers(t *testing.T) {
 	if !ValidKind("proposal") || ValidKind("epic") {
 		t.Fatal("ValidKind broken")
@@ -356,5 +407,35 @@ func TestIDHelpers(t *testing.T) {
 	}
 	if got := Record(Item{ID: "P-0001", Kind: "proposal", State: "draft", Dir: "", Title: "t"}); got != "i P-0001 proposal draft . t" {
 		t.Fatalf("Record = %q", got)
+	}
+}
+
+// TestWorkRoundTripULIDHeading closes the gap T-0125 flagged but could not
+// fix inside its lease: IDRe accepted the ULID form while reItemHeading did
+// not, so such an item would have been written to work.md and never parsed
+// back. Without this the minter switch would lose every item it minted.
+func TestWorkRoundTripULIDHeading(t *testing.T) {
+	root := ws(t)
+	g := Generator{
+		Now:    func() time.Time { return time.UnixMilli(1_700_000_000_000) },
+		Random: bytes.NewReader(make([]byte, 10)),
+	}
+	id, err := g.NewULIDID("proposal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Item{ID: id, Kind: "proposal", State: StateDraft, Title: "ulid item", Created: "2026-07-24"}
+	if err := Upsert(root, want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := Get(root, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatalf("ULID-form item %q written but not parsed back from work.md", id)
+	}
+	if got.ID != want.ID || got.Title != want.Title || got.Kind != want.Kind {
+		t.Fatalf("round trip lost fields: got %+v, want %+v", got, want)
 	}
 }

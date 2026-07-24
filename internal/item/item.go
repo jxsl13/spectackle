@@ -96,7 +96,15 @@ type Item struct {
 // rename — existing D-xxxx items in .spectackle files are not migrated by
 // this change, so the regex must keep reading them. New adr items are
 // always minted as ADR-NNNN (see kindLetter above); D is legacy-only.
-var IDRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-\d{4}$`)
+//
+// It also accepts the ULID form <KIND>-<26-char Crockford base32> (see
+// ulid.go), so records written before and after the switch to ULID ids
+// both resolve (T-0125 / ITM-001). The character class is built from the
+// same crockford alphabet constant NewULID encodes with, so the accepted
+// grammar and the generator can never drift apart. Nothing mints a ULID
+// id yet — internal/lifecycle's minter still calls NextID and produces
+// only the legacy \d{4} form — this regex just widens what resolves.
+var IDRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-(?:\d{4}|[` + crockford + `]{26})$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
@@ -107,15 +115,46 @@ func NextID(kind string, maxSeen int) string {
 	return fmt.Sprintf("%s-%04d", kindLetter[kind], maxSeen+1)
 }
 
-// Num extracts the numeric part of an item ID (0 if malformed). Handles both
-// single-letter (P-0007) and multi-letter (ADR-0007) prefixes.
+// Num extracts the numeric part of an item ID (0 if malformed, and 0 for a
+// ULID-form id — see below). Handles both single-letter (P-0007) and
+// multi-letter (ADR-0007) prefixes.
+//
+// For a ULID-form id (T-0125), Num deliberately returns 0 rather than
+// erroring or trying to derive a number from the ULID's timestamp bits.
+// Verified against both existing callers before choosing this: maxNum in
+// internal/lifecycle/lifecycle.go calls Num twice, once over journal
+// events and once over active items, purely to find the highest number
+// already used for a kind so NextID can mint one past it — i.e. Num's
+// result is only ever compared against a running max as a floor for the
+// legacy numeric sequence. A ULID id was never part of that sequence, so
+// it must contribute neither a false floor nor a false ceiling; 0 is a
+// correct no-op there in both call sites. A future caller that needs to
+// order or compare ULID ids should sort the raw ID string instead — a
+// Crockford ULID's lexicographic string order equals its creation order by
+// construction (see ulid.go) — rather than reading a number out of Num.
+//
+// The suffix must be entirely digits: fmt.Sscanf's "%d" verb stops at the
+// first non-digit rather than requiring the whole string to match, so a
+// naive Sscanf-based parse would silently return a truncated number for a
+// ULID suffix that happens to start with digits (most do, since the
+// timestamp half sorts through the low end of the alphabet early on).
+// Rejecting any non-digit byte up front avoids that trap.
 func Num(id string) int {
 	i := strings.IndexByte(id, '-')
 	if i < 0 {
 		return 0
 	}
-	var n int
-	if _, err := fmt.Sscanf(id[i+1:], "%d", &n); err != nil {
+	suffix := id[i+1:]
+	if suffix == "" {
+		return 0
+	}
+	for j := 0; j < len(suffix); j++ {
+		if suffix[j] < '0' || suffix[j] > '9' {
+			return 0
+		}
+	}
+	n, err := strconv.Atoi(suffix)
+	if err != nil {
 		return 0
 	}
 	return n
@@ -124,7 +163,13 @@ func Num(id string) int {
 // Letter returns the ID letter for a kind ("" if unknown).
 func Letter(kind string) string { return kindLetter[kind] }
 
-var reItemHeading = regexp.MustCompile(`^## +((?:ADR|[PTBRD])-\d{4}) +(.+?) *$`)
+// reItemHeading accepts the same two ID forms IDRe does (ITM-001), and for
+// the same reason: work.md is where items round-trip, so a heading grammar
+// narrower than the ID grammar would let a ULID-form item be written and
+// then never read back. It shares the crockford alphabet constant with the
+// generator so the two can never drift apart.
+var reItemHeading = regexp.MustCompile(
+	`^## +((?:ADR|[PTBRD])-(?:\d{4}|[` + crockford + `]{26})) +(.+?) *$`)
 
 // LoadWork parses a work.md file (missing file = no items).
 func LoadWork(path, ctx string) ([]Item, error) {
