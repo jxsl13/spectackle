@@ -1,0 +1,2 @@
+# rule	node	file	span	chash	rhash
+SXP-API-002	go:saxpy.Saxpy	examples/saxpy/saxpy/saxpy.go	21-36	1eda819b08a12401	0b71e9ee68c0437c

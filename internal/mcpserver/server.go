@@ -7,6 +7,8 @@
 package mcpserver
 
 import (
+	"context"
+	"log"
 	"os"
 	stdsync "sync"
 	"time"
@@ -16,6 +18,9 @@ import (
 	"github.com/jxsl13/spectacle/internal/cache"
 	"github.com/jxsl13/spectacle/internal/coord"
 	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectacle/internal/index"
+	"github.com/jxsl13/spectacle/internal/resolve"
+	"github.com/jxsl13/spectacle/internal/store"
 	"github.com/jxsl13/spectacle/internal/sync"
 	"github.com/jxsl13/spectacle/internal/workspace"
 	"github.com/jxsl13/spectacle/internal/wt"
@@ -104,6 +109,7 @@ func New(root string) (*Server, error) {
 		cd:    cd,
 		agent: agent,
 	}
+	s.reindex()
 	s.mcp = mcp.NewServer(&mcp.Implementation{
 		Name:    "spectacle",
 		Title:   "spectacle — spec-driven cross-language code intelligence",
@@ -111,6 +117,22 @@ func New(root string) (*Server, error) {
 	}, &mcp.ServerOptions{Instructions: instructions})
 	s.registerTools()
 	return s, nil
+}
+
+// reindex rebuilds the symbol graph from the active root (startup and after
+// every reroot — worktree code diverges from main). A failed index run keeps
+// the previous graph: lifecycle tools must survive unparseable trees.
+func (s *Server) reindex() {
+	g := graph.NewMem()
+	ix := index.New(g, store.NewMem(),
+		[]index.LanguageParser{index.GoParser{}}, resolve.Default().All())
+	st, err := ix.IndexAll(context.Background(), s.ws.Dir)
+	if err != nil {
+		log.Printf("index: %v (keeping previous graph)", err)
+		return
+	}
+	s.g = g
+	log.Printf("index: %d files, %d nodes, %d edges (%d skipped)", st.Files, st.Nodes, st.Edges, st.Skipped)
 }
 
 // MCP returns the underlying protocol server (for transports and tests).
@@ -148,5 +170,6 @@ func (s *Server) reroot(dir, item string) error {
 	s.ws, s.cache = nws, nc
 	s.scan = &sync.Scanner{Root: nws, Cache: nc}
 	s.wtItem = item
+	s.reindex() // the graph must reflect the newly active root
 	return s.cd.SetActive(item, map[bool]string{true: "", false: dir}[item == ""])
 }

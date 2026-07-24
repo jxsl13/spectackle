@@ -1,0 +1,4 @@
+{"t":"2026-07-24T01:52:42Z","eid":"2c07abe420e238c5","ag":"orchestrator","ev":"create","id":"T-0008","k":"task","ti":"unit tests for CgoResolver (internal/resolve)","dir":"internal/resolve"}
+{"t":"2026-07-24T01:54:14Z","eid":"f22038e4d2ce6314","ag":"agent-resolve","ev":"move","id":"T-0008","dir":"internal/resolve","fr":"draft","to":"active"}
+{"t":"2026-07-24T01:56:11Z","eid":"69acd06154549587","ag":"agent-resolve","ev":"move","id":"T-0008","dir":"internal/resolve","fr":"active","to":"done"}
+{"t":"2026-07-24T01:59:27Z","eid":"903406b9dcb6a959","ag":"orchestrator","ev":"archive","id":"T-0008","k":"task","ti":"unit tests for CgoResolver (internal/resolve)","dir":"internal/resolve","sum":"archived with parent P-0001"}

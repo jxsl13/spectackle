@@ -10,7 +10,7 @@ IF a CUDA wrapper returns a non-zero status, THEN the Go binding SHALL wrap the 
 
 Rationale: Go callers must be able to switch on the code without parsing prose.
 
-## SXP-API-002
+## SXP-API-002 {applies: go:saxpy.Saxpy}
 WHEN Saxpy is called with n less than 1 or a slice shorter than n, the Go binding SHALL return a non-nil `error` before crossing the cgo boundary.
 
 Rationale: fail fast on the host; never hand invalid extents to the GPU.

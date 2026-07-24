@@ -1,0 +1,4 @@
+{"t":"2026-07-24T01:52:42Z","eid":"0416738d70f29ff6","ag":"orchestrator","ev":"create","id":"T-0007","k":"task","ti":"unit tests for GoParser + IndexAll (internal/index)","dir":"internal/index"}
+{"t":"2026-07-24T01:54:04Z","eid":"835754bdc2daf734","ag":"agent-index","ev":"move","id":"T-0007","dir":"internal/index","fr":"draft","to":"active"}
+{"t":"2026-07-24T01:56:24Z","eid":"bcd2d15780657d07","ag":"agent-index","ev":"move","id":"T-0007","dir":"internal/index","fr":"active","to":"done"}
+{"t":"2026-07-24T01:59:27Z","eid":"63a83d4af857f426","ag":"orchestrator","ev":"archive","id":"T-0007","k":"task","ti":"unit tests for GoParser + IndexAll (internal/index)","dir":"internal/index","sum":"archived with parent P-0001"}

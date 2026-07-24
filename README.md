@@ -84,6 +84,59 @@ Register with Claude Code (or any MCP client):
 The workspace root is auto-detected (`.spectacle/config.yaml` marker, then
 git root, then `-root`).
 
+## Headless quickstart (driving the server from a coding agent / CI)
+
+No MCP client at hand? The server is plain JSON-RPC 2.0 over stdio — one
+frame per line, stdout carries only JSON-RPC, logs go to stderr. The three
+things that cost time on first contact:
+
+1. **Handshake first**: send `initialize` (with `protocolVersion`), wait for
+   the response, then send the `notifications/initialized` notification.
+   Only then are `tools/call` requests answered.
+2. **One JSON object per line**, no framing headers.
+3. **Name your agent**: set `SPECTACLE_AGENT=<name>` in the environment so
+   swarm identity (leases, heartbeats, sw learnings) is stable across
+   otherwise short-lived driver sessions — coordination state lives in the
+   shared `.spectacle/cache/coord.db`, not in the process.
+
+Minimal Python driver (each stdin line = one tool call):
+
+```python
+#!/usr/bin/env python3
+# usage: mcp_call.py <root> <<'JSON'
+# {"name": "swarm", "arguments": {}}
+# {"name": "find", "arguments": {"q": "saxpy", "scope": "code"}}
+# JSON
+import json, subprocess, sys
+
+proc = subprocess.Popen(["./bin/spectacle", "serve", "-root", sys.argv[1]],
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL, text=True, bufsize=1)
+send = lambda o: (proc.stdin.write(json.dumps(o) + "\n"), proc.stdin.flush())
+def recv():
+    while True:
+        line = proc.stdout.readline()
+        if not line: return None
+        try: return json.loads(line)
+        except json.JSONDecodeError: continue
+
+send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+      "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                 "clientInfo": {"name": "driver", "version": "0"}}})
+recv()
+send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+for rid, call in enumerate(map(json.loads, filter(str.strip, sys.stdin)), 100):
+    send({"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": call})
+    r = recv()
+    print(f"\n===> {call['name']}")
+    for c in r.get("result", {}).get("content", []):
+        if c.get("type") == "text": print(c["text"])
+```
+
+First calls of any session: `swarm {}` (who else is working, fresh
+learnings), then `get {"id": "."}` (root rules + active items) — the server
+instructions returned by `initialize` teach the rest of the loop.
+
 ## Documentation
 
 - [docs/lifecycle.md](docs/lifecycle.md) — **the lifecycle architecture**: storage, search, state machine, compacting, drift/backprop
