@@ -15,6 +15,34 @@ corpus. See [lifecycle.md](lifecycle.md) for the full storage architecture.
 Each context folder also holds `work.md` (active lifecycle items) and
 `journal.ndjson` (history) — three bundle files max, no file sprawl.
 
+## What the walk skips
+
+Discovering bundles (`spec.Cascade.Load`, `workspace.Root.ContextDirs`, and
+the coverage-gap walk behind `check`/`research`) never descends into:
+
+- **A nested git boundary.** Any subdirectory below the workspace root that
+  has its own `.git` entry — a directory (a nested/vendored clone) or a file
+  holding a `gitdir: ...` pointer (a linked worktree or a submodule) — is a
+  separate git checkout and is skipped wholesale. This is what makes agent
+  worktrees invisible to the cascade regardless of which harness created
+  them (Claude Code, Copilot, Codex, …, or a bare `git worktree add`): a
+  linked worktree always carries a `.git` file, so there is nothing
+  harness-specific to special-case.
+- **Built-in defaults**: `.git`, `node_modules`, `testdata`, `bin`, `vendor`,
+  `.spectackle` (spectackle's own state folder — never source, and handled
+  specially anyway since it's what the walk is looking *for*).
+- **`.spectackle/config.yaml` → `ignore`**: glob patterns matched against the
+  repo-relative slash path of the directory, e.g. `generated/**`. Defaults to
+  `[".git/**", "bin/**"]`.
+- **`.spectackle/config.yaml` → `ignore_regex`**: RE2 patterns matched
+  against the same repo-relative slash path, for shapes globs can't express,
+  e.g. `["^vendor-[a-z]+$"]`. Empty by default. A malformed pattern is a
+  config error at load time (`workspace: config.yaml: ignore_regex ...`).
+
+All four sources are combined by `workspace.Root.SkipDir`, the single matcher
+every walk shares — there is no per-tool or per-harness skip list to keep in
+sync.
+
 ## spec.md format
 
 Markdown, YAML front matter, flat `##` anchors — either a whitelisted prose

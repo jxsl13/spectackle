@@ -1118,9 +1118,13 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		if err != nil {
 			return err
 		}
+		rel, _ := filepath.Rel(s.ws.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "testdata", "bin", ".spectackle", ".claude":
+			if s.ws.SkipDir(rel, d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1128,8 +1132,6 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		if index.LangOf(p) == "" {
 			return nil
 		}
-		rel, _ := filepath.Rel(s.ws.Dir, p)
-		rel = filepath.ToSlash(rel)
 		if len(c.ForPath(rel)) == 0 {
 			uncovered[filepath.ToSlash(filepath.Dir(rel))] = true
 		}

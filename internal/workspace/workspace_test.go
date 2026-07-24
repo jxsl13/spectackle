@@ -91,13 +91,21 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 		t.Fatalf("NearestContext fallback = %q", got)
 	}
 
-	// .claude/worktrees/*/.spectackle bundles are agent worktree state, not
-	// project spec content — ContextDirs must skip the whole .claude subtree.
-	claudeBundle := filepath.Join(root, ".claude", "worktrees", "x", ".spectackle")
-	if err := os.MkdirAll(claudeBundle, 0o755); err != nil {
+	// A bundle nested under any subdirectory that is itself a separate git
+	// boundary (a linked worktree, submodule, or nested clone — signaled by
+	// its own .git entry, file or dir) is agent/tooling worktree state, not
+	// project spec content — ContextDirs must skip the whole subtree. This is
+	// the generic, harness-independent mechanism that replaced a hardcoded
+	// '.claude' name check: no literal '.claude' appears anywhere below.
+	gitFileBundle := filepath.Join(root, "tmp", "worktrees", "x", ".spectackle")
+	if err := os.MkdirAll(gitFileBundle, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(claudeBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(gitFileBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tmp", "worktrees", "x", ".git"),
+		[]byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ctxs2, err := ws.ContextDirs()
@@ -105,7 +113,83 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ctxs2) != 2 || ctxs2[0] != "" || ctxs2[1] != "gpu/kernels" {
-		t.Fatalf("ContextDirs after .claude bundle = %v, want unchanged %v", ctxs2, ctxs)
+		t.Fatalf("ContextDirs after .git-FILE worktree bundle = %v, want unchanged %v", ctxs2, ctxs)
+	}
+
+	// same, but the nested boundary is a .git DIRECTORY (a full nested clone
+	// rather than a linked worktree) — also skipped.
+	gitDirBundle := filepath.Join(root, "vendored-repo", ".spectackle")
+	if err := os.MkdirAll(gitDirBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDirBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendored-repo", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctxs3, err := ws.ContextDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ctxs3) != 2 || ctxs3[0] != "" || ctxs3[1] != "gpu/kernels" {
+		t.Fatalf("ContextDirs after .git-DIR nested clone bundle = %v, want unchanged %v", ctxs3, ctxs)
+	}
+}
+
+// TestSkipDirConfigIgnore proves Root.SkipDir — the single shared entry point
+// behind ContextDirs, spec.Load, the coverage-gap walk, and (via
+// DefaultSkipName/IsNestedGitBoundary) the indexer — honors both
+// user-extensible ignore mechanisms in config.yaml: Ignore globs and the new
+// IgnoreRegex RE2 patterns, on top of the built-in defaults and the
+// nested-git-boundary check.
+func TestSkipDirConfigIgnore(t *testing.T) {
+	root := t.TempDir()
+	ws := Root{Dir: root, Cfg: Config{
+		Ignore:      []string{"generated/**"},
+		IgnoreRegex: []string{`^vendor-[a-z]+$`},
+	}}
+
+	cases := []struct {
+		name string
+		rel  string
+		dir  string
+		want bool
+	}{
+		{"built-in default name", "node_modules", "node_modules", true},
+		{"configured glob", "generated", "generated", true},
+		{"configured glob, nested dir", "generated/sub", "sub", true},
+		{"configured regex", "vendor-acme", "vendor-acme", true},
+		{"regex must match whole rel, not a substring of an unrelated dir", "src/vendor-acme-extra", "vendor-acme-extra", false},
+		{"ordinary dir", "pkg", "pkg", false},
+	}
+	for _, tc := range cases {
+		if got := ws.SkipDir(tc.rel, tc.dir); got != tc.want {
+			t.Errorf("%s: SkipDir(%q, %q) = %v, want %v", tc.name, tc.rel, tc.dir, got, tc.want)
+		}
+	}
+
+	// end-to-end through ContextDirs: a glob-ignored dir and a regex-ignored
+	// dir both hide their .spectackle bundles from discovery.
+	mk := func(rel string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("generated/.spectackle")
+	mk("vendor-acme/.spectackle")
+	mk(".spectackle") // the one bundle that must survive
+
+	ctxs, err := ws.ContextDirs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ctxs) != 1 || ctxs[0] != "" {
+		t.Fatalf("ContextDirs = %v, want only the root bundle (glob/regex ignores must prune generated/ and vendor-acme/)", ctxs)
 	}
 }
 

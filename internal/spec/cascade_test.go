@@ -144,17 +144,17 @@ WHEN a kernel exits, the wrapper SHALL synchronize the stream.
 	}
 }
 
-// TestLoadSkipsClaudeDir: a duplicate spec bundle nested under an agent
-// worktree at .claude/worktrees/*/.spectackle must NOT be discovered — the
-// walk skips the whole .claude subtree, so it can't double-count files or
-// collide on rule IDs.
-func TestLoadSkipsClaudeDir(t *testing.T) {
+// TestLoadSkipsNestedGitWorktree: a duplicate spec bundle nested under a
+// directory that is itself a separate git boundary — a linked worktree
+// (signaled by a .git FILE holding a `gitdir:` pointer, e.g. what any agent
+// harness's worktrees look like, .claude included) or a nested clone
+// (signaled by a .git DIRECTORY) — must NOT be discovered. This is the
+// generic, harness-independent mechanism (workspace.Root.SkipDir /
+// IsNestedGitBoundary) that replaced a hardcoded '.claude' name check: no
+// literal '.claude' appears anywhere in this test.
+func TestLoadSkipsNestedGitWorktree(t *testing.T) {
 	root := buildTree(t)
 
-	claudeBundle := filepath.Join(root, ".claude", "worktrees", "x", ".spectackle")
-	if err := os.MkdirAll(claudeBundle, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	dup := `---
 schema: v0
 prefix: GLB
@@ -162,7 +162,18 @@ prefix: GLB
 ## GLB-ARC-001
 The system SHALL log to ` + "`stderr`" + ` only.
 `
-	if err := os.WriteFile(filepath.Join(claudeBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+
+	// a .git FILE worktree (tmp/worktrees/x), same shape git itself writes
+	// for `git worktree add`.
+	fileWorktreeBundle := filepath.Join(root, "tmp", "worktrees", "x", ".spectackle")
+	if err := os.MkdirAll(fileWorktreeBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fileWorktreeBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "tmp", "worktrees", "x", ".git"),
+		[]byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,10 +182,81 @@ The system SHALL log to ` + "`stderr`" + ` only.
 		t.Fatal(err)
 	}
 	if fs := c.Findings(); len(fs) != 0 {
-		t.Fatalf(".claude bundle must not be discovered, got findings %v", fs)
+		t.Fatalf(".git-FILE worktree bundle must not be discovered, got findings %v", fs)
 	}
 	if len(c.All()) != 3 {
-		t.Fatalf("Load discovered %d spec files, want 3 (.claude subtree must be skipped): %+v", len(c.All()), c.All())
+		t.Fatalf("Load discovered %d spec files, want 3 (.git-FILE worktree subtree must be skipped): %+v", len(c.All()), c.All())
+	}
+
+	// a .git DIRECTORY nested clone (vendored-repo), also skipped.
+	dirCloneBundle := filepath.Join(root, "vendored-repo", ".spectackle")
+	if err := os.MkdirAll(dirCloneBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirCloneBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "vendored-repo", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c2, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs := c2.Findings(); len(fs) != 0 {
+		t.Fatalf(".git-DIR nested clone bundle must not be discovered, got findings %v", fs)
+	}
+	if len(c2.All()) != 3 {
+		t.Fatalf("Load discovered %d spec files, want 3 (.git-DIR nested clone subtree must be skipped): %+v", len(c2.All()), c2.All())
+	}
+}
+
+// TestLoadHonorsConfigIgnore proves spec.Load consults the same Config.Ignore
+// globs and Config.IgnoreRegex patterns as workspace.Root.ContextDirs and the
+// coverage-gap walk (all four share workspace.Root.SkipDir), by reading
+// root/.spectackle/config.yaml itself (via workspace.LoadRoot).
+func TestLoadHonorsConfigIgnore(t *testing.T) {
+	root := buildTree(t)
+
+	dup := `---
+schema: v0
+prefix: GLB
+---
+## GLB-ARC-001
+The system SHALL log to ` + "`stderr`" + ` only.
+`
+	globBundle := filepath.Join(root, "generated", ".spectackle")
+	if err := os.MkdirAll(globBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	regexBundle := filepath.Join(root, "vendor-acme", ".spectackle")
+	if err := os.MkdirAll(regexBundle, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(regexBundle, "spec.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "schema: v0\nignore: [\"generated/**\"]\nignore_regex: [\"^vendor-[a-z]+$\"]\n"
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fs := c.Findings(); len(fs) != 0 {
+		t.Fatalf("ignore glob/regex bundles must not be discovered, got findings %v", fs)
+	}
+	if len(c.All()) != 3 {
+		t.Fatalf("Load discovered %d spec files, want 3 (generated/ and vendor-acme/ must be pruned by config.yaml ignore): %+v", len(c.All()), c.All())
 	}
 }
 
