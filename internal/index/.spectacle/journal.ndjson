@@ -6,3 +6,8 @@
 {"t":"2026-07-24T02:35:14Z","eid":"2b338c13f7198f97","ag":"agent-plan9","ev":"move","id":"T-0012","dir":"internal/index","fr":"draft","to":"active"}
 {"t":"2026-07-24T02:37:56Z","eid":"e473d8b36791f711","ag":"agent-plan9","ev":"move","id":"T-0012","dir":"internal/index","fr":"active","to":"done"}
 {"t":"2026-07-24T02:51:34Z","eid":"a3fdee10e4ee8e27","ag":"orchestrator","ev":"archive","id":"T-0012","k":"task","ti":"plan9 asm: internal/plan9 scanner pkg + AsmParser + EAsm resolver","dir":"internal/index","sum":"archived with parent P-0007"}
+{"t":"2026-07-24T03:18:11Z","eid":"7187a450bff6e994","ag":"orchestrator","ev":"create","id":"P-0012","k":"proposal","ti":"M3 slice 1: go/types call-edge upgrade pass (two-tier per R-0002)","dir":"internal/index"}
+{"t":"2026-07-24T03:18:11Z","eid":"d8a8f78ffc2944bf","ag":"orchestrator","ev":"move","id":"P-0012","dir":"internal/index","fr":"draft","to":"approved"}
+{"t":"2026-07-24T03:18:11Z","eid":"181396e29468a2f9","ag":"orchestrator","ev":"create","id":"T-0021","k":"task","ti":"implement index.ResolveTypedCalls + tests (no server wiring)","dir":"internal/index"}
+{"t":"2026-07-24T03:18:49Z","eid":"2c42233f10ece993","ag":"agent-typespass","ev":"move","id":"T-0021","dir":"internal/index","fr":"draft","to":"active"}
+{"t":"2026-07-24T03:26:47Z","eid":"d6e9c7c2d1840530","ag":"agent-typespass","ev":"move","id":"T-0021","dir":"internal/index","fr":"active","to":"done"}

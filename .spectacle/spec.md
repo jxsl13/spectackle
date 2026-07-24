@@ -17,6 +17,9 @@ LLM plans against structure and contracts instead of file contents.
 - P-0009 forward-skip state machine: every forward jump is one move call: forward-skip state machine: total order, any forward jump one call, Mermaid automaton in README
 - P-0011 persistent parse-blob store: warm graph start across sessions (M2 slice): sqlite parse-blob store: second IndexAll = zero parses, wired per active root
 - T-0017 gofmt legacy debt: five files: gofmt debt: 5 files whitespace-only; rest (sync.go, sync_test.go, workspace.go) noted
+- T-0019 docs refresh: status table, saxpy transcript footnote, roadmap ticks: docs live-status verified against running graph
+- T-0020 gofmt rest: sync.go, sync_test.go, workspace.go: gofmt -l clean repo-wide
+- R-0002 design sketch: go/types-based call resolution (M3): two-tier design recommended: syntax pass stays, cached go/types pass upgrades call edges additively; exit criterion go:coord.DB.Sweep shows real callers
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
