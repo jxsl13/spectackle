@@ -1,9 +1,9 @@
-// Package workspace implements root detection and the .spectacle folder
-// contract: every file the server writes lives inside a .spectacle/ folder
+// Package workspace implements root detection and the .spectackle folder
+// contract: every file the server writes lives inside a .spectackle/ folder
 // (root or nested context dirs); the rest of the workspace is never touched.
 //
-// Root detection order: walk up from the start dir for .spectacle/config.yaml
-// (the root marker — nested context dirs also have .spectacle/ folders, so the
+// Root detection order: walk up from the start dir for .spectackle/config.yaml
+// (the root marker — nested context dirs also have .spectackle/ folders, so the
 // folder alone is ambiguous), then for .git, then fall back to the -root flag.
 package workspace
 
@@ -18,7 +18,7 @@ import (
 )
 
 // Dot is the folder name every server write is confined to.
-const Dot = ".spectacle"
+const Dot = ".spectackle"
 
 // SchemaStamp is injected into every server-written file's frontmatter.
 // It marks the file format of a pre-1.0 codebase: the format may break at any
@@ -26,7 +26,7 @@ const Dot = ".spectacle"
 // stamp is a tool error ("regenerate"), caches simply rebuild.
 const SchemaStamp = "v0"
 
-// Config is .spectacle/config.yaml (root only).
+// Config is .spectackle/config.yaml (root only).
 type Config struct {
 	Schema        string      `yaml:"schema"`
 	Langs         []string    `yaml:"langs"`
@@ -35,7 +35,7 @@ type Config struct {
 	Compact       CompactCfg  `yaml:"compact"`
 	Verify        []string    `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
 	Swarm         SwarmCfg    `yaml:"swarm"`
-	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectacle/wt (abs or root-relative)
+	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectackle/wt (abs or root-relative)
 	Feedback      FeedbackCfg `yaml:"feedback"`
 }
 
@@ -153,18 +153,18 @@ func load(dir string) (Root, error) {
 	return r, nil
 }
 
-// SpectacleDir maps a repo-relative context dir ("" = root) to the absolute
-// path of its .spectacle folder.
-func (r Root) SpectacleDir(ctx string) string {
+// SpectackleDir maps a repo-relative context dir ("" = root) to the absolute
+// path of its .spectackle folder.
+func (r Root) SpectackleDir(ctx string) string {
 	return filepath.Join(r.Dir, filepath.FromSlash(ctx), Dot)
 }
 
 // SpecPath / WorkPath / JournalPath locate the three bundle files of a
 // context dir, repo-relative ("" = root).
-func (r Root) SpecPath(ctx string) string { return filepath.Join(r.SpectacleDir(ctx), "spec.md") }
-func (r Root) WorkPath(ctx string) string { return filepath.Join(r.SpectacleDir(ctx), "work.md") }
+func (r Root) SpecPath(ctx string) string { return filepath.Join(r.SpectackleDir(ctx), "spec.md") }
+func (r Root) WorkPath(ctx string) string { return filepath.Join(r.SpectackleDir(ctx), "work.md") }
 func (r Root) JournalPath(ctx string) string {
-	return filepath.Join(r.SpectacleDir(ctx), "journal.ndjson")
+	return filepath.Join(r.SpectackleDir(ctx), "journal.ndjson")
 }
 
 // AnchorsPath is root-only (workspace-wide bindings).
@@ -189,7 +189,7 @@ func (r Root) WtDir() string {
 }
 
 // ContextDirs returns every repo-relative dir (incl. "" for root) that has a
-// .spectacle folder with at least one bundle file, shallow before deep.
+// .spectackle folder with at least one bundle file, shallow before deep.
 func (r Root) ContextDirs() ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(r.Dir, func(p string, d os.DirEntry, err error) error {
@@ -252,11 +252,11 @@ func NearestContext(ctxs []string, rel string) string {
 	return best
 }
 
-// EnsureScaffold creates the .spectacle folder of a context dir with its
+// EnsureScaffold creates the .spectackle folder of a context dir with its
 // server-written housekeeping files. For the root it additionally writes
 // config.yaml, .gitignore (cache/) and the cache dir.
 func (r Root) EnsureScaffold(ctx string) error {
-	dot := r.SpectacleDir(ctx)
+	dot := r.SpectackleDir(ctx)
 	if err := os.MkdirAll(dot, 0o755); err != nil {
 		return err
 	}

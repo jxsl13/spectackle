@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jxsl13/spectacle/poc/wasmparse/corpus"
-	"github.com/jxsl13/spectacle/poc/wasmparse/cparser"
-	"github.com/jxsl13/spectacle/poc/wasmparse/triple"
-	"github.com/jxsl13/spectacle/poc/wasmparse/tswasm"
+	"github.com/jxsl13/spectackle/poc/wasmparse/corpus"
+	"github.com/jxsl13/spectackle/poc/wasmparse/cparser"
+	"github.com/jxsl13/spectackle/poc/wasmparse/triple"
+	"github.com/jxsl13/spectackle/poc/wasmparse/tswasm"
 )
 
 const seed = 42
@@ -312,7 +312,7 @@ func buildCorpus(root string) ([]corpusFile, error) {
 	return out, nil
 }
 
-// repoRoot locates the spectacle repo root from this source file's own
+// repoRoot locates the spectackle repo root from this source file's own
 // location (poc/wasmparse/cmd/poc/main.go is three directories below root),
 // independent of the process's current working directory.
 func repoRoot() (string, error) {

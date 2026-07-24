@@ -9,14 +9,14 @@ for; it does not re-litigate §1-§4, only executes the first slice and
 reports what happened.
 
 Code: `poc/wasmparse/` — its own Go module (`replace
-github.com/jxsl13/spectacle => ../..`), never added to the root module.
+github.com/jxsl13/spectackle => ../..`), never added to the root module.
 Reproduce with `cd poc/wasmparse && go run ./cmd/poc`.
 
 ## 1. Setup
 
 `poc/wasmparse/go.mod` requires `github.com/malivvan/tree-sitter v0.0.1`
 (pulls `tetratelabs/wazero v1.8.2`, embeds a 4.2MB WASI `ts.wasm` exporting
-`tree_sitter_c`/`tree_sitter_cpp`) and `github.com/jxsl13/spectacle`
+`tree_sitter_c`/`tree_sitter_cpp`) and `github.com/jxsl13/spectackle`
 (replaced to `../..`) to reach `internal/langspec`'s production `cSpec` as
 the oracle. Both module fetches succeeded through the preconfigured proxy
 on the first `go mod tidy` — no retries needed, nothing hand-vendored.
@@ -116,7 +116,7 @@ rebuilding the vendor's own wasm from source). A from-scratch single-C-only
 build would likely be smaller, but that number doesn't exist without doing
 the wasi-sdk build ourselves — out of scope for this PoC.
 
-For context, `bin/spectacle` (root `make build`, `CGO_ENABLED=0`, current
+For context, `bin/spectackle` (root `make build`, `CGO_ENABLED=0`, current
 full production binary with cgo tree-sitter C/C++/CUDA/ObjC/MSL backends
 already linked in) is **22,174,377 bytes (≈21.2 MB)** as of this run — so
 the wasm engine's marginal 8.82MB single-language cost is already ~40% of

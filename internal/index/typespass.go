@@ -16,9 +16,9 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // loadPackages is packages.Load, indirected through a package-level var so

@@ -9,7 +9,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jxsl13/spectacle/poc/wasmparse/tswasm"
+	"github.com/jxsl13/spectackle/poc/wasmparse/tswasm"
 )
 
 func main() {

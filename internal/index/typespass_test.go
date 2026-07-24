@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // TestResolveTypedCallsChainedSelector reproduces the design doc's exit
@@ -226,7 +226,7 @@ func (d *D) Sweep() {}
 }
 
 // TestResolveTypedCallsRepo is the design doc's real-world regression test
-// (§4/§1): the actual spectacle repo has s.cd.Sweep() in
+// (§4/§1): the actual spectackle repo has s.cd.Sweep() in
 // internal/mcpserver/swarm.go, a chained selector through a *coord.DB field,
 // which the syntactic pass silently drops. Skipped under -short because it
 // type-checks the whole repo module.

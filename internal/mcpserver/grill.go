@@ -9,12 +9,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/budget"
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/spec"
 )
 
 // grill is the critique pack: close an item's gaps before promoting it (the

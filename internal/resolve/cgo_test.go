@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // memFS is a tiny in-memory FileSet: every entry in files is treated as a Go

@@ -1,9 +1,9 @@
 // Package spec implements the topological pillar: cascading, directory-scoped
-// spec bundles. Rules live next to the code they govern, inside .spectacle
+// spec bundles. Rules live next to the code they govern, inside .spectackle
 // folders:
 //
-//	.spectacle/spec.md           root scope (repo-wide architecture rules)
-//	<dir>/.spectacle/spec.md     rules scoped to <dir> and everything below
+//	.spectackle/spec.md           root scope (repo-wide architecture rules)
+//	<dir>/.spectackle/spec.md     rules scoped to <dir> and everything below
 //
 // Resolution for a path is root -> ancestor chain top-down -> nearest dir.
 // Deeper files extend the inherited set (union); they win only explicitly:
@@ -26,8 +26,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // SpecRel returns the repo-relative spec bundle path for a context dir
@@ -149,7 +149,7 @@ func (c *Cascade) parseFile(rel string) (SpecFile, error) {
 	rules, fs := ears.ParseRules(body, rel, bodyStart)
 	c.findings = append(c.findings, fs...)
 
-	// context dir = parent of the .spectacle folder
+	// context dir = parent of the .spectackle folder
 	dir := path.Dir(path.Dir(rel))
 	if dir == "." {
 		dir = ""

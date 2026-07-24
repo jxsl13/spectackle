@@ -20,7 +20,7 @@ import (
 
 	sitter "github.com/malivvan/tree-sitter"
 
-	"github.com/jxsl13/spectacle/poc/wasmparse/triple"
+	"github.com/jxsl13/spectackle/poc/wasmparse/triple"
 )
 
 // Extractor owns one wazero-backed TreeSitter engine plus one reusable

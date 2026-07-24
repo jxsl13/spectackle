@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/wt"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // twoAgents spins up two Server instances ("alice", "bob") on the SAME
@@ -17,9 +17,9 @@ import (
 // distinct SQLite connections.
 func twoAgents(t *testing.T, root string) (*mcp.ClientSession, *mcp.ClientSession) {
 	t.Helper()
-	t.Setenv("SPECTACLE_AGENT", "alice")
+	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
-	t.Setenv("SPECTACLE_AGENT", "bob")
+	t.Setenv("SPECTACKLE_AGENT", "bob")
 	bob := connectRoot(t, root)
 	return alice, bob
 }
@@ -28,10 +28,10 @@ func twoAgents(t *testing.T, root string) (*mcp.ClientSession, *mcp.ClientSessio
 func gitRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".spectacle"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".spectacle", "config.yaml"),
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
 		[]byte("schema: v0\nverify: [\"test -f ok.txt\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestSwarmRealtimeRejection(t *testing.T) {
 
 func TestWorkLifecycleE2E(t *testing.T) {
 	root := gitRoot(t)
-	t.Setenv("SPECTACLE_AGENT", "alice")
+	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 
 	callText(t, alice, "draft", map[string]any{
@@ -202,7 +202,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	root := gitRoot(t)
 	// no verify gate for this one
-	os.WriteFile(filepath.Join(root, ".spectacle", "config.yaml"), []byte("schema: v0\n"), 0o644)
+	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
 	alice, bob := twoAgents(t, root)
 
 	for i, sess := range []*mcp.ClientSession{alice, bob} {
@@ -263,7 +263,7 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	}
 	// journal deltas exactly once: count create events for each item in the
 	// main journal file itself
-	raw, err := os.ReadFile(filepath.Join(root, ".spectacle", "journal.ndjson"))
+	raw, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,8 +287,8 @@ func wtRootOf(t *testing.T, out, item string) string {
 
 func TestCompactBlockedInWorktree(t *testing.T) {
 	root := gitRoot(t)
-	os.WriteFile(filepath.Join(root, ".spectacle", "config.yaml"), []byte("schema: v0\n"), 0o644)
-	t.Setenv("SPECTACLE_AGENT", "alice")
+	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
+	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 	callText(t, alice, "draft", map[string]any{"kind": "proposal", "title": "x"})
 	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "submitted"})

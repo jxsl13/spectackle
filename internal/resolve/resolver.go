@@ -8,7 +8,7 @@ package resolve
 import (
 	"context"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // FileSet gives resolvers read access to the indexed source files without

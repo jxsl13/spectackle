@@ -3,7 +3,7 @@ package langspec
 import (
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // groovySpec covers .groovy files. Qualification is QualFileStem, mirroring

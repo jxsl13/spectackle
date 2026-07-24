@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // Spec bundles are server-managed artifacts: contracts are created through

@@ -9,8 +9,8 @@ import (
 	"go/token"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 )
 
 // GoParser is the stdlib-backed Go language parser (never tree-sitter for Go:

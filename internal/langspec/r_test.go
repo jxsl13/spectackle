@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/index"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/index"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // rSrc exercises both rSpec KFunc Defs (`<-` and `=` assignment forms,

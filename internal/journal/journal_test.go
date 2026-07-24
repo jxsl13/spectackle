@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 func TestAppendReadRoundtrip(t *testing.T) {

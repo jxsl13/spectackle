@@ -3,7 +3,7 @@ package langspec
 import (
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // elixirSpec covers .ex/.exs files. Qualification is QualFileStem, mirroring

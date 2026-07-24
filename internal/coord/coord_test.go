@@ -336,7 +336,7 @@ func TestAppliedAndWorktrees(t *testing.T) {
 	if len(m) != 3 || !m["aa"] || !m["cc"] {
 		t.Fatalf("Applied = %+v", m)
 	}
-	w := Worktree{Item: "T-0001", Agent: "alice", Branch: "spectacle/T-0001", Root: "/x", Base: "abc", State: "open"}
+	w := Worktree{Item: "T-0001", Agent: "alice", Branch: "spectackle/T-0001", Root: "/x", Base: "abc", State: "open"}
 	a.PutWorktree(w)
 	got, ok, _ := a.GetWorktree("T-0001")
 	if !ok || got.Branch != w.Branch || got.State != "open" {

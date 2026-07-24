@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/coord"
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/workspace"
-	"github.com/jxsl13/spectacle/internal/wt"
+	"github.com/jxsl13/spectackle/internal/coord"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // mainRepo sets up a git-backed main workspace so replay's baseline/recent

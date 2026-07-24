@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 )
 
 // CudaParser is a line-oriented regex scanner for .cu/.cuh files (no cgo

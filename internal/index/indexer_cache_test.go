@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // countingParser wraps a LanguageParser and counts Parse invocations, so

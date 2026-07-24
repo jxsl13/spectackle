@@ -1,5 +1,5 @@
 // Package sync keeps the non-versioned cache consistent with the versioned
-// .spectacle files (which are the source of truth). A debounced Refresh runs
+// .spectackle files (which are the source of truth). A debounced Refresh runs
 // before every tool call: mtime+size fast path per bundle file; on change the
 // file is re-parsed and its doc kinds replaced in the FTS index.
 package sync
@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jxsl13/spectacle/internal/cache"
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/cache"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // Scanner drives cache refreshes.
@@ -32,7 +32,7 @@ const debounce = 300 * time.Millisecond
 // very next tool call.
 func (s *Scanner) MarkDirty() { s.last = time.Time{} }
 
-// Refresh re-syncs changed .spectacle bundle files into the cache. Calls
+// Refresh re-syncs changed .spectackle bundle files into the cache. Calls
 // within the debounce window are no-ops.
 func (s *Scanner) Refresh() error {
 	if time.Since(s.last) < debounce {

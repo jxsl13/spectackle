@@ -6,9 +6,9 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/cspan"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/cspan"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 )
 
 // FFIResolver links the C <-> C++ FFI boundary left dangling by cSpec's and

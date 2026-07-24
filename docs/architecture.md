@@ -10,7 +10,7 @@ walk root ─→ hash (sha256) ─→ cache hit? ──yes──→ load ParseRe
                         └→ graph.Upsert  ─→ rank ─→ serve MCP tools
 ```
 
-- **Walk**: honors `.spectacle/config.yaml` `ignore` globs; skips `.git`.
+- **Walk**: honors `.spectackle/config.yaml` `ignore` globs; skips `.git`.
 - **Parse**: per-file, parallel workers; a single writer goroutine owns
   `graph.Upsert` (see §7).
 - **Resolve**: runs after parsing because binding edges need symbols from
@@ -103,7 +103,7 @@ a `LanguageParser`, and (if it has FFI surfaces) a `BindingResolver`.
 
 ## 6. Incremental cache
 
-The lifecycle cache already lives in `.spectacle/cache/index.db` (pure-Go
+The lifecycle cache already lives in `.spectackle/cache/index.db` (pure-Go
 SQLite via modernc.org/sqlite, FTS5; gitignored, generation-stamped, rebuilt
 on mismatch — see docs/lifecycle.md §2). The M1/M2 indexer adds parse-blob,
 node and edge tables to the same DB (`internal/store.Store` is the interim
@@ -116,7 +116,7 @@ language set.
 Parse workers fan out per file (results are pure functions of file bytes);
 one writer applies `Upsert` batches; readers take an RWMutex. Tool calls are
 read-only except the lifecycle write paths (`draft`, `rule`, `move`,
-`compact`), which are confined to `.spectacle/` folders.
+`compact`), which are confined to `.spectackle/` folders.
 
 ## 8. Server surface
 
@@ -124,8 +124,8 @@ read-only except the lifecycle write paths (`draft`, `rule`, `move`,
 (`github.com/modelcontextprotocol/go-sdk` v1.6.1): typed tool handlers,
 schemas inferred from Go structs. Two transports share the same tool code:
 stdio (`mcp.StdioTransport`, the default) and Streamable HTTP
-(`spectacle serve -http ADDR`, via `mcp.NewStreamableHTTPHandler`). `-http`
-is meant for running spectacle as a resident local service — graph and
+(`spectackle serve -http ADDR`, via `mcp.NewStreamableHTTPHandler`). `-http`
+is meant for running spectackle as a resident local service — graph and
 cache stay warm across agent sessions instead of being rebuilt on every
 stdio launch. v0 limitation: `NewStreamableHTTPHandler` is given a single
 `getServer` closure that always returns the same `*mcp.Server`, so one

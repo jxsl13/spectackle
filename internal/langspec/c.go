@@ -3,7 +3,7 @@ package langspec
 import (
 	"regexp"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // cSpec covers .c/.h files. Qualification is QualFlat (C's unit of

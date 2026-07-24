@@ -23,8 +23,8 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 	if err != nil || isWT || !samePath(main, root) {
 		t.Fatalf("CommonRoot(main) = %q %v %v", main, isWT, err)
 	}
-	wtRoot := filepath.Join(root, ".spectacle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectacle/T-0001", "HEAD"); err != nil {
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
 		t.Fatal(err)
 	}
 	main2, isWT2, err := CommonRoot(wtRoot)
@@ -36,20 +36,20 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 	}
 	// leftover recovery: Add over a stale dir succeeds
 	os.MkdirAll(wtRoot, 0o755)
-	if err := Add(root, wtRoot, "spectacle/T-0001", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
 		t.Fatalf("Add over leftover: %v", err)
 	}
 	Remove(root, wtRoot)
 }
 
-func TestCommitCodeExcludesSpectacle(t *testing.T) {
+func TestCommitCodeExcludesSpectackle(t *testing.T) {
 	root := repo(t)
-	// code change + .spectacle change side by side
+	// code change + .spectackle change side by side
 	os.WriteFile(filepath.Join(root, "b.go"), []byte("package a\n"), 0o644)
-	os.MkdirAll(filepath.Join(root, ".spectacle"), 0o755)
-	os.WriteFile(filepath.Join(root, ".spectacle", "work.md"), []byte("---\nschema: v0\n---\n"), 0o644)
-	os.MkdirAll(filepath.Join(root, "sub", ".spectacle"), 0o755)
-	os.WriteFile(filepath.Join(root, "sub", ".spectacle", "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644)
+	os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755)
+	os.WriteFile(filepath.Join(root, ".spectackle", "work.md"), []byte("---\nschema: v0\n---\n"), 0o644)
+	os.MkdirAll(filepath.Join(root, "sub", ".spectackle"), 0o755)
+	os.WriteFile(filepath.Join(root, "sub", ".spectackle", "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644)
 
 	committed, err := CommitCode(root, "code only")
 	if err != nil || !committed {
@@ -62,8 +62,8 @@ func TestCommitCodeExcludesSpectacle(t *testing.T) {
 	if !strings.Contains(out, "b.go") {
 		t.Fatalf("code missing from commit: %q", out)
 	}
-	if strings.Contains(out, ".spectacle") {
-		t.Fatalf("commit leaked .spectacle state — the whole merge strategy rests on this exclude: %q", out)
+	if strings.Contains(out, ".spectackle") {
+		t.Fatalf("commit leaked .spectackle state — the whole merge strategy rests on this exclude: %q", out)
 	}
 	// nothing left to commit -> committed=false
 	if committed, _ := CommitCode(root, "empty"); committed {
@@ -73,9 +73,9 @@ func TestCommitCodeExcludesSpectacle(t *testing.T) {
 
 func TestMergeConflictAndTouched(t *testing.T) {
 	root := repo(t)
-	wtRoot := filepath.Join(root, ".spectacle", "wt", "T-0002")
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0002")
 	base, _ := Head(root)
-	if err := Add(root, wtRoot, "spectacle/T-0002", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0002", "HEAD"); err != nil {
 		t.Fatal(err)
 	}
 	// conflicting edits to the same file on both sides
@@ -99,10 +99,10 @@ func TestMergeConflictAndTouched(t *testing.T) {
 	if committed, err := CommitCode(wtRoot, "resolve"); err != nil || !committed {
 		t.Fatalf("conclude merge: %v %v", committed, err)
 	}
-	if err := FFMain(root, "spectacle/T-0002"); err != nil {
+	if err := FFMain(root, "spectackle/T-0002"); err != nil {
 		t.Fatalf("FFMain: %v", err)
 	}
-	touched, _ := TouchedFiles(root, base, "spectacle/T-0002")
+	touched, _ := TouchedFiles(root, base, "spectackle/T-0002")
 	if len(touched) != 1 || touched[0] != "a.go" {
 		t.Fatalf("TouchedFiles = %v", touched)
 	}

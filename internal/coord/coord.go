@@ -1,6 +1,6 @@
 // Package coord is the shared multi-agent coordination DB — the "swarm
-// brain". It lives at <main>/.spectacle/cache/coord.db and is shared by all
-// spectacle processes (one per agent session) via WAL-mode SQLite.
+// brain". It lives at <main>/.spectackle/cache/coord.db and is shared by all
+// spectackle processes (one per agent session) via WAL-mode SQLite.
 //
 // It owns: the agent registry (heartbeats), scope leases, the global ID
 // counters (item AND rule IDs — the only collision-free mint across
@@ -661,5 +661,5 @@ func (d *DB) Worktrees() ([]Worktree, error) {
 	return out, err
 }
 
-// GenName generates an agent name when SPECTACLE_AGENT is unset.
+// GenName generates an agent name when SPECTACKLE_AGENT is unset.
 func GenName() string { return fmt.Sprintf("ag-%04x", rand.Intn(1<<16)) }

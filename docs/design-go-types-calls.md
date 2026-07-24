@@ -98,7 +98,7 @@ once per full `IndexAll`, never regressing to zero edges meanwhile; (b)
 invalidation the SQLite cache uses (lifecycle.md §2); (c) **cache by module
 hash** — reduce `TypesInfo.Uses`/`Selections` to a serializable
 `(call-site → callee-ID)` table keyed by a hash of `go.mod`+`go.sum` plus
-the changed file set, in `.spectacle/cache/`.
+the changed file set, in `.spectackle/cache/`.
 
 **Interface dispatch.** A call through an interface-typed receiver
 (`w.Write(...)`, `w io.Writer`) has no single concrete `*types.Func` — only

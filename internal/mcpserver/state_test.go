@@ -18,7 +18,7 @@ func TestStateEmptyWorkspace(t *testing.T) {
 	if !strings.Contains(out, "#version") {
 		t.Fatalf("state missing #version: %q", out)
 	}
-	if !strings.Contains(out, "ok spectacle") {
+	if !strings.Contains(out, "ok spectackle") {
 		t.Fatalf("state missing version summary line: %q", out)
 	}
 	for _, sec := range []string{"#items", "#rules", "#graph", "#drift", "#health"} {
@@ -73,7 +73,7 @@ func TestStateSeededSections(t *testing.T) {
 }
 
 // TestStateReadOnly is the read-only contract test: mtimes of every
-// versioned .spectacle bundle file, plus the journal's byte length, must be
+// versioned .spectackle bundle file, plus the journal's byte length, must be
 // bit-for-bit identical before and after any number of state calls.
 func TestStateReadOnly(t *testing.T) {
 	root := t.TempDir()
@@ -87,10 +87,10 @@ func TestStateReadOnly(t *testing.T) {
 	})
 
 	files := []string{
-		filepath.Join(root, ".spectacle", "spec.md"),
-		filepath.Join(root, ".spectacle", "work.md"),
-		filepath.Join(root, ".spectacle", "journal.ndjson"),
-		filepath.Join(root, ".spectacle", "anchors.tsv"),
+		filepath.Join(root, ".spectackle", "spec.md"),
+		filepath.Join(root, ".spectackle", "work.md"),
+		filepath.Join(root, ".spectackle", "journal.ndjson"),
+		filepath.Join(root, ".spectackle", "anchors.tsv"),
 	}
 	before := map[string]os.FileInfo{}
 	for _, f := range files {
@@ -100,7 +100,7 @@ func TestStateReadOnly(t *testing.T) {
 		}
 		before[f] = st
 	}
-	journalBefore, err := os.ReadFile(filepath.Join(root, ".spectacle", "journal.ndjson"))
+	journalBefore, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestStateReadOnly(t *testing.T) {
 				f, before[f].Size(), st.Size(), before[f].ModTime(), st.ModTime())
 		}
 	}
-	journalAfter, err := os.ReadFile(filepath.Join(root, ".spectacle", "journal.ndjson"))
+	journalAfter, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))
 	if err != nil {
 		t.Fatal(err)
 	}

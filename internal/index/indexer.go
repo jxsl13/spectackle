@@ -20,10 +20,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/ids"
-	"github.com/jxsl13/spectacle/internal/resolve"
-	"github.com/jxsl13/spectacle/internal/store"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/resolve"
+	"github.com/jxsl13/spectackle/internal/store"
 )
 
 // ParseResult is the per-file output of a LanguageParser, cacheable by
@@ -81,9 +81,9 @@ type indexer struct {
 }
 
 // ignoreDirs are never descended into (cache, VCS, build output, vendored or
-// generated trees). .spectacle is server-owned spec state, not source.
+// generated trees). .spectackle is server-owned spec state, not source.
 var ignoreDirs = map[string]bool{
-	".git": true, ".spectacle": true, "node_modules": true,
+	".git": true, ".spectackle": true, "node_modules": true,
 	"testdata": true, "bin": true, "vendor": true,
 }
 

@@ -26,12 +26,12 @@ jobs:
         run: go test -race ./...
 
       - name: lint specs
-        run: ./bin/spectacle lint .
+        run: ./bin/spectackle lint .
 
       - name: smoke
         run: make smoke
 
-      # Self-hosting gate: drive the MCP server headlessly (no ./bin/spectacle
+      # Self-hosting gate: drive the MCP server headlessly (no ./bin/spectackle
       # serve needed as a separate step — the driver below spawns and talks to
       # it over stdio) and require a clean `check`. Driver shape mirrors the
       # README "Headless quickstart" Python driver; see that section for the
@@ -41,7 +41,7 @@ jobs:
           python3 - <<'EOF'
           import json, subprocess, sys
 
-          proc = subprocess.Popen(["./bin/spectacle", "serve", "-root", "."],
+          proc = subprocess.Popen(["./bin/spectackle", "serve", "-root", "."],
               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
               stderr=subprocess.DEVNULL, text=True, bufsize=1)
           send = lambda o: (proc.stdin.write(json.dumps(o) + "\n"), proc.stdin.flush())

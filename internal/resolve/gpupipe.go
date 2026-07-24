@@ -3,7 +3,7 @@ package resolve
 import (
 	"context"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // GpuPipeResolver links pipeline-based GPU dispatch (Metal, Vulkan) where the

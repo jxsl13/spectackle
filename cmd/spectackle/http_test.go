@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/mcpserver"
+	"github.com/jxsl13/spectackle/internal/mcpserver"
 )
 
 func TestServeHTTPListTools(t *testing.T) {

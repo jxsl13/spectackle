@@ -1,12 +1,12 @@
-// Command spectacle is the spec-driven MCP server for cross-language
+// Command spectackle is the spec-driven MCP server for cross-language
 // codebases. Subcommands:
 //
-//	spectacle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
+//	spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
 //	                                         Streamable HTTP when -http is set
 //	                                         (workspace auto-detected)
-//	spectacle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-//	spectacle reindex [-root DIR] force a cache resync (debugging aid)
-//	spectacle version             print the version
+//	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
+//	spectackle reindex [-root DIR] force a cache resync (debugging aid)
+//	spectackle version             print the version
 package main
 
 import (
@@ -24,12 +24,12 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/cache"
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/mcpserver"
-	"github.com/jxsl13/spectacle/internal/spec"
-	syncpkg "github.com/jxsl13/spectacle/internal/sync"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/cache"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/mcpserver"
+	"github.com/jxsl13/spectackle/internal/spec"
+	syncpkg "github.com/jxsl13/spectackle/internal/sync"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // httpShutdownTimeout bounds how long runHTTPListener waits for in-flight
@@ -53,7 +53,7 @@ func main() {
 	case "reindex":
 		os.Exit(reindex(args[1:]))
 	case "version":
-		fmt.Println("spectacle " + mcpserver.Version)
+		fmt.Println("spectackle " + mcpserver.Version)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -65,12 +65,12 @@ func main() {
 
 func usage() {
 	log.Print(`usage:
-  spectacle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
+  spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
                                             Streamable HTTP when -http is set
                                             (workspace auto-detected)
-  spectacle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-  spectacle reindex [-root DIR] force a cache resync
-  spectacle version             print the version`)
+  spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
+  spectackle reindex [-root DIR] force a cache resync
+  spectackle version             print the version`)
 }
 
 func rootFlag(name string, args []string) string {
@@ -94,7 +94,7 @@ func serve(args []string) int {
 	defer s.Close()
 
 	if *httpAddr == "" {
-		log.Printf("spectacle %s serving over stdio", mcpserver.Version)
+		log.Printf("spectackle %s serving over stdio", mcpserver.Version)
 		if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			log.Printf("serve: %v", err)
 			return 1
@@ -108,7 +108,7 @@ func serve(args []string) int {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return s.MCP()
 	}, nil)
-	log.Printf("spectacle %s serving over http on %s", mcpserver.Version, *httpAddr)
+	log.Printf("spectackle %s serving over http on %s", mcpserver.Version, *httpAddr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

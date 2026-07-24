@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/cache"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/cache"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 func scaffold(t *testing.T) (workspace.Root, *Scanner) {
@@ -103,7 +103,7 @@ func TestNestedContextIndexed(t *testing.T) {
 	if err := ws.EnsureScaffold("gpu"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(ws.SpectacleDir("gpu"), "spec.md"), []byte(`---
+	if err := os.WriteFile(filepath.Join(ws.SpectackleDir("gpu"), "spec.md"), []byte(`---
 schema: v0
 ---
 ## GPU-KRN-001

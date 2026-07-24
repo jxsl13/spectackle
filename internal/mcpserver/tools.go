@@ -12,15 +12,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jxsl13/spectacle/internal/budget"
-	"github.com/jxsl13/spectacle/internal/drift"
-	"github.com/jxsl13/spectacle/internal/ears"
-	"github.com/jxsl13/spectacle/internal/graph"
-	"github.com/jxsl13/spectacle/internal/index"
-	"github.com/jxsl13/spectacle/internal/item"
-	"github.com/jxsl13/spectacle/internal/journal"
-	"github.com/jxsl13/spectacle/internal/lifecycle"
-	"github.com/jxsl13/spectacle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/index"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/spec"
 )
 
 // The 7-tool surface is documented in docs/tools.md; the structs below are
@@ -118,7 +118,7 @@ func (s *Server) registerTools() {
 		gate(s, s.get))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "draft",
-		Description: "Create a lifecycle item (state=draft) in the correct .spectacle/work.md — server assigns ID+scope. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Never edit .spectacle files yourself."},
+		Description: "Create a lifecycle item (state=draft) in the correct .spectackle/work.md — server assigns ID+scope. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Never edit .spectackle files yourself."},
 		gate(s, s.draft))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",
@@ -150,7 +150,7 @@ func (s *Server) registerTools() {
 		gate(s, s.lease))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "work",
-		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectacle paths stay repo-relative). submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectacle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
+		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectackle paths stay repo-relative). submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectackle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
 		gate(s, s.work))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
@@ -182,7 +182,7 @@ func (s *Server) registerTools() {
 		gate(s, s.state))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
-		Description: "Generate harness-native slash-command/prompt files from the spectacle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves a decision item open (need decision …) instead of blocking."},
+		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves a decision item open (need decision …) instead of blocking."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -606,7 +606,7 @@ func elicitSlots(ctx context.Context, req *mcp.CallToolRequest, in *ruleIn, miss
 		props[m] = p
 	}
 	res, err := req.Session.Elicit(ctx, &mcp.ElicitParams{
-		Message: "spectacle: complete the EARS contract",
+		Message: "spectackle: complete the EARS contract",
 		RequestedSchema: map[string]any{
 			"type": "object", "properties": props, "required": missing,
 		},
@@ -996,7 +996,7 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "testdata", "bin", ".spectacle":
+			case ".git", "node_modules", "testdata", "bin", ".spectackle":
 				return filepath.SkipDir
 			}
 			return nil

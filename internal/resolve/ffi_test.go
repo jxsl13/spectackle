@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/graph"
 )
 
 // ffiFS is a tiny in-memory FileSet exposing .c files under LangC and .cpp
