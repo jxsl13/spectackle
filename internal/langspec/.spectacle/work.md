@@ -28,7 +28,7 @@ Scope ONLY: new internal/langspec/typescript.go, ruby.go, php.go + one _test.go 
 
 ## T-0038 langspec batch C: C headers/sources + C++ - real c: nodes complete the cgo chain
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0019
 
