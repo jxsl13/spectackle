@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0031 research + grill tools (handlers only, no registration)
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0018
 
@@ -12,7 +12,7 @@ AFTER foundation task is done (needs new item fields). Scope ONLY: new internal/
 
 ## T-0032 decide tool + gate-fail rounds + prompt updates (no registration)
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0018
 

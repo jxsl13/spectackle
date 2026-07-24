@@ -55,3 +55,5 @@
 {"t":"2026-07-24T07:45:07Z","eid":"1f46e7656c3e58da","ag":"orchestrator","ev":"create","id":"T-0032","k":"task","ti":"decide tool + gate-fail rounds + prompt updates (no registration)","dir":"internal/mcpserver"}
 {"t":"2026-07-24T07:58:03Z","eid":"6104e8870a03fdaf","ag":"agent-repack","ev":"move","id":"T-0031","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-24T07:58:20Z","eid":"e8d55297f9f0744c","ag":"agent-decide","ev":"move","id":"T-0032","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T08:12:08Z","eid":"d9ecb6a58c7554c6","ag":"agent-repack","ev":"move","id":"T-0031","dir":"internal/mcpserver","fr":"active","to":"done"}
+{"t":"2026-07-24T08:13:27Z","eid":"31925b1e4438981b","ag":"agent-decide","ev":"move","id":"T-0032","dir":"internal/mcpserver","fr":"active","to":"done"}
