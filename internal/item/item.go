@@ -47,12 +47,26 @@ const (
 
 // Item is one lifecycle item.
 type Item struct {
-	ID      string
-	Kind    string
-	State   string
-	Title   string
-	Dir     string // context dir (repo-relative, "" = root)
-	Parent  string
+	ID     string
+	Kind   string
+	State  string
+	Title  string
+	Dir    string // context dir (repo-relative, "" = root)
+	Parent string
+
+	// Refs is a general citation set: item IDs this item cites, of any kind
+	// in either direction — research citing research, a proposal citing the
+	// research that produced it, an ADR naming the research that fed it.
+	// Order-preserving and duplicate-free (duplicates collapse on write).
+	// It differs from both other cross-item fields: Parent is a single
+	// structural owner (one task belongs to one proposal), Needs means
+	// blocked-on and drives the escalation exits, while Refs carries no
+	// lifecycle meaning at all — a plain citation the state machine never
+	// interprets. Shape and existence are validated at the write path (see
+	// UnknownRefs), never by Parse: a ref may legitimately point at an item
+	// archived out of work.md.
+	Refs []string
+
 	Created string // YYYY-MM-DD
 	Goal    string // optional shell command gating work-submit (benchmark/verify target)
 	Targets []string
@@ -146,6 +160,8 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Created = v
 			case "parent":
 				it.Parent = v
+			case "refs":
+				it.Refs = splitList(v)
 			case "goal":
 				it.Goal = v
 			case "targets":
@@ -269,6 +285,9 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		if it.Parent != "" {
 			b.WriteString("parent: " + it.Parent + "\n")
 		}
+		if refs := dedupeStrings(it.Refs); len(refs) > 0 {
+			b.WriteString("refs: " + strings.Join(refs, ", ") + "\n")
+		}
 		if it.Goal != "" {
 			b.WriteString("goal: " + it.Goal + "\n")
 		}
@@ -314,6 +333,46 @@ func splitList(v string) []string {
 	for _, s := range strings.Split(v, ",") {
 		if s = strings.TrimSpace(s); s != "" && s != "-" {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// dedupeStrings returns ss with duplicates removed, keeping the order of
+// first appearance. Used when rendering Refs so accidental repeats in a
+// proposed reference set don't get written twice.
+func dedupeStrings(ss []string) []string {
+	if len(ss) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// UnknownRefs validates a proposed reference set for item selfID against
+// known, the set of currently loadable item IDs, and reports — in refs'
+// input order — every entry that is unusable as a citation: malformed (does
+// not match IDRe), self-referential (equal to selfID, always a mistake), or
+// absent from known. An entry failing more than one check is reported once.
+//
+// UnknownRefs is deliberately not called from Parse: a work.md may
+// legitimately cite an item that has since been archived out of work.md,
+// and a parser that refused to load such a file would make a dangling
+// citation unrecoverable. Validation belongs at the write path, which
+// should call UnknownRefs before persisting and reject or warn on a
+// non-empty result.
+func UnknownRefs(selfID string, refs []string, known map[string]bool) []string {
+	var out []string
+	for _, r := range refs {
+		if !IDRe.MatchString(r) || r == selfID || !known[r] {
+			out = append(out, r)
 		}
 	}
 	return out
