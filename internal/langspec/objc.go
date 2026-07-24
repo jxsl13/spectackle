@@ -15,10 +15,12 @@ import (
 // (`@interface` and `@implementation`), and plain C functions defined
 // directly in the file (brace-delimited functions, not prototypes).
 //
-// CallRe stays nil: Objective-C bodies are brace-delimited, but capturing
-// call edges requires more specialized handling for Objective-C's message
-// syntax (`[obj message]`), which is beyond the current scope. Future
-// resolvers can handle message-send edges without parser changes.
+// CallRe captures Objective-C message send call sites (`[obj message]`),
+// extracting the first selector segment (before any colons in multi-part
+// selectors). Stop lists memory-management and identity keywords (alloc, init,
+// release, retain, autorelease, copy, dealloc, self, super) whose syntax
+// looks like a call but isn't an application-level call. Cross-file message
+// sends dangle until a future bridging resolver wires them.
 var objcSpec = Spec{
 	Lang: graph.LangObjC,
 	Exts: []string{".m", ".mm"},
@@ -49,6 +51,8 @@ var objcSpec = Spec{
 			Sig:  2,
 		},
 	},
+	CallRe: regexp.MustCompile(`\[\s*\w+\s+(\w+)`),
+	Stop:   []string{"alloc", "init", "release", "retain", "autorelease", "copy", "dealloc", "self", "super"},
 }
 
 func init() { registry = append(registry, objcSpec) }

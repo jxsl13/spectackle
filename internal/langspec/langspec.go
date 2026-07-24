@@ -175,6 +175,7 @@ func scanLines(src []byte) ([]string, error) {
 // the own-name check catches both the def line's self-match (e.g. `foo(...)
 // {` also matches CallRe as a call to "foo") and direct recursion in the
 // body. Destinations are minted in the same language and may be dangling,
+// qualified per the Spec QualMode (QualFlat: bare name, unchanged; QualFileStem: same-file resolution, cross-file dangles),
 // exactly like Go's syntactic pass — Impact tolerates it, and resolvers
 // (e.g. internal/resolve.FFIResolver) may later bridge them.
 func (p SpecParser) callEdges(defID graph.NodeID, defName, path string, lines []string, start, end int, stop map[string]bool) []graph.Edge {
@@ -190,7 +191,7 @@ func (p SpecParser) callEdges(defID graph.NodeID, defName, path string, lines []
 			}
 			edges = append(edges, graph.Edge{
 				Src:  defID,
-				Dst:  graph.NodeID(ids.Mint(string(p.S.Lang), callee)),
+				Dst:  graph.NodeID(ids.Mint(string(p.S.Lang), p.qualify(path, callee))),
 				Kind: graph.ECall,
 				File: path,
 				Line: i + 1,

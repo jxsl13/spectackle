@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -15,11 +16,16 @@ import (
 
 // objcSrc exercises all three objcSpec Defs (instance method, class method,
 // @interface, @implementation with different name, and plain C function)
-// plus negative lines that must NOT mint nodes: @end, message send call sites,
-// commented-out methods, and C function prototypes.
+// plus message send call sites and Stop-listed keywords.
+// Negative lines that must NOT mint nodes: @end, commented-out methods,
+// and C function prototypes.
 var objcSrc = []byte(`@interface ViewController : UIViewController
 - (void)viewDidLoad {
-  [super viewDidLoad];
+  [self helperMethod];
+}
+
+- (void)helperMethod {
+  return;
 }
 
 + (instancetype)sharedInstance {
@@ -35,6 +41,7 @@ int helper(int x) {
 
 static void initialize(void) {
   helper(42);
+  [obj retain];
 }
 
 @end
@@ -43,8 +50,6 @@ static void initialize(void) {
 // }
 
 int prototype(int x);
-
-[obj message];
 `)
 
 func TestObjcSpecLangExtensions(t *testing.T) {
@@ -66,15 +71,17 @@ func TestObjcSpecNodes(t *testing.T) {
 	byID := nodesByID(pr)
 
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind    graph.NodeKind
+		Line    int
+		EndLine int
 	}{
-		"objc:ViewController.ViewController": {graph.KType, 1},
-		"objc:ViewController.viewDidLoad":    {graph.KMethod, 2},
-		"objc:ViewController.sharedInstance": {graph.KMethod, 6},
-		"objc:ViewController.AppDelegate":    {graph.KType, 11},
-		"objc:ViewController.helper":         {graph.KFunc, 13},
-		"objc:ViewController.initialize":     {graph.KFunc, 17},
+		"objc:ViewController.ViewController": {graph.KType, 1, 1},
+		"objc:ViewController.viewDidLoad":    {graph.KMethod, 2, 4},
+		"objc:ViewController.helperMethod":   {graph.KMethod, 6, 8},
+		"objc:ViewController.sharedInstance": {graph.KMethod, 10, 12},
+		"objc:ViewController.AppDelegate":    {graph.KType, 15, 15},
+		"objc:ViewController.helper":         {graph.KFunc, 17, 19},
+		"objc:ViewController.initialize":     {graph.KFunc, 21, 24},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -90,6 +97,9 @@ func TestObjcSpecNodes(t *testing.T) {
 		if n.Line != w.Line {
 			t.Errorf("%s Line = %d, want %d", id, n.Line, w.Line)
 		}
+		if n.EndLine != w.EndLine {
+			t.Errorf("%s EndLine = %d, want %d", id, n.EndLine, w.EndLine)
+		}
 		if n.Lang != graph.LangObjC {
 			t.Errorf("%s Lang = %v, want objc", id, n.Lang)
 		}
@@ -102,9 +112,50 @@ func TestObjcSpecNodes(t *testing.T) {
 	}
 }
 
-// TestObjcSpecNegativeLines pins that @end, message send call sites
-// `[obj message];`, commented-out methods, and C function prototypes
-// mint nothing.
+// TestObjcSpecMessageSendEdges verifies that message send call sites generate
+// ECall edges. It asserts the expected edge from viewDidLoad to helperMethod
+// via [self helperMethod], that Stop-listed retain is not in edges, and that
+// no self-recursion edges are created.
+func TestObjcSpecMessageSendEdges(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("app/ViewController.m", objcSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	// Expected edge: viewDidLoad calls helperMethod via [self helperMethod]
+	wantSrc := graph.NodeID("objc:ViewController.viewDidLoad")
+	wantDst := graph.NodeID("objc:ViewController.helperMethod")
+	wantKind := graph.ECall
+
+	found := false
+	for _, e := range pr.Edges {
+		if e.Src == wantSrc && e.Dst == wantDst && e.Kind == wantKind {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected edge %s -> %s (ECall), got edges: %+v", wantSrc, wantDst, pr.Edges)
+	}
+
+	// Assert no edge for Stop-listed 'retain'
+	for _, e := range pr.Edges {
+		if strings.Contains(string(e.Dst), ".retain") {
+			t.Errorf("unexpected edge for Stop-listed 'retain': %+v", e)
+		}
+	}
+
+	// Assert no self-recursion edges (no caller calling itself)
+	for _, e := range pr.Edges {
+		if e.Src == e.Dst {
+			t.Errorf("unexpected self-recursion edge: %+v", e)
+		}
+	}
+}
+
+// TestObjcSpecNegativeLines pins that @end, commented-out methods,
+// and C function prototypes mint nothing.
 func TestObjcSpecNegativeLines(t *testing.T) {
 	p := SpecParser{S: objcSpec}
 	pr, err := p.Parse("neg.m", []byte(`@end
