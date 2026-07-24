@@ -2,11 +2,15 @@ package index
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/jxsl13/spectacle/internal/graph"
+	"github.com/jxsl13/spectacle/internal/store"
 )
 
 // TestResolveTypedCallsChainedSelector reproduces the design doc's exit
@@ -51,7 +55,7 @@ func (d *D) Sweep() {}
 		}
 	}
 
-	added, err := ResolveTypedCalls(context.Background(), g, root)
+	added, err := ResolveTypedCalls(context.Background(), g, root, nil)
 	if err != nil {
 		t.Fatalf("ResolveTypedCalls: %v", err)
 	}
@@ -109,7 +113,7 @@ func (d *D) Sweep() {}
 		t.Fatalf("IndexAll: %v", err)
 	}
 
-	first, err := ResolveTypedCalls(context.Background(), g, root)
+	first, err := ResolveTypedCalls(context.Background(), g, root, nil)
 	if err != nil {
 		t.Fatalf("ResolveTypedCalls (1st): %v", err)
 	}
@@ -117,7 +121,7 @@ func (d *D) Sweep() {}
 		t.Fatalf("first run added 0 edges, want >= 1")
 	}
 
-	second, err := ResolveTypedCalls(context.Background(), g, root)
+	second, err := ResolveTypedCalls(context.Background(), g, root, nil)
 	if err != nil {
 		t.Fatalf("ResolveTypedCalls (2nd): %v", err)
 	}
@@ -134,6 +138,90 @@ func (d *D) Sweep() {}
 	}
 	if n != 1 {
 		t.Errorf("go:a.S.Run -> go:b.D.Sweep appears %d times, want exactly 1 (in-pass + cross-run dedupe)", n)
+	}
+}
+
+// TestResolveTypedCallsCacheHitSkipsLoad is the module-hash cache's proof:
+// with a store and an unchanged tree, a second ResolveTypedCalls call must
+// reproduce the first call's result WITHOUT ever invoking packages.Load
+// again. Comparing timings would be flaky and comparing "still succeeds
+// after go.mod gets corrupted" wouldn't isolate the cache (the cache key
+// itself is derived from go.mod's contents, so corrupting it changes the key
+// and would force a real reload). Instead this stubs the package-level
+// loadPackages var — swapped in only for the second call — to unconditionally
+// fail; the second call succeeding proves loadPackages was never called.
+func TestResolveTypedCallsCacheHitSkipsLoad(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+	writeFile(t, root, "a/a.go", `package a
+
+import "example.com/m/b"
+
+type S struct {
+	d *b.D
+}
+
+func (s *S) Run() {
+	s.d.Sweep()
+}
+`)
+	writeFile(t, root, "b/b.go", `package b
+
+type D struct{}
+
+func (d *D) Sweep() {}
+`)
+
+	s := store.NewMem()
+	ctx := context.Background()
+
+	// First call: real loadPackages, populates the cache on success.
+	g1 := graph.NewMem()
+	if _, err := newTestIndexer(g1).IndexAll(ctx, root); err != nil {
+		t.Fatalf("IndexAll (1st): %v", err)
+	}
+	first, err := ResolveTypedCalls(ctx, g1, root, s)
+	if err != nil {
+		t.Fatalf("ResolveTypedCalls (1st, cold cache): %v", err)
+	}
+	if first == 0 {
+		t.Fatalf("first run added 0 edges, want >= 1")
+	}
+
+	// Sentinel: swap loadPackages with a stub that always fails. If the
+	// second call reaches it at all, the test fails with this exact error --
+	// making a cache miss (i.e. "the cache didn't work") unmistakable in the
+	// failure message rather than merely inferred from a mismatched count.
+	loadFailed := errors.New("sentinel: loadPackages must not be called on a cache hit")
+	prev := loadPackages
+	loadPackages = func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return nil, loadFailed
+	}
+	defer func() { loadPackages = prev }()
+
+	// Second call: same tree (same module hash key), fresh graph, same store.
+	// A cache hit decodes the cached edge list and applies it directly.
+	g2 := graph.NewMem()
+	if _, err := newTestIndexer(g2).IndexAll(ctx, root); err != nil {
+		t.Fatalf("IndexAll (2nd): %v", err)
+	}
+	second, err := ResolveTypedCalls(ctx, g2, root, s)
+	if err != nil {
+		t.Fatalf("ResolveTypedCalls (2nd, should be a cache hit): %v", err)
+	}
+	if second != first {
+		t.Errorf("second run (cache hit) added %d edges, want %d (same as cold run)", second, first)
+	}
+
+	edges := g2.Neighbors("go:a.S.Run", graph.Out, []graph.EdgeKind{graph.ECall})
+	found := false
+	for _, e := range edges {
+		if e.Dst == "go:b.D.Sweep" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("Neighbors(go:a.S.Run, Out, ECall) on the cache-hit graph = %+v, missing go:b.D.Sweep", edges)
 	}
 }
 
@@ -159,7 +247,7 @@ func TestResolveTypedCallsRepo(t *testing.T) {
 		t.Fatalf("IndexAll: %v", err)
 	}
 
-	added, err := ResolveTypedCalls(context.Background(), g, root)
+	added, err := ResolveTypedCalls(context.Background(), g, root, nil)
 	if err != nil {
 		t.Fatalf("ResolveTypedCalls: %v", err)
 	}
