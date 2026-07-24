@@ -31,4 +31,4 @@ SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ce
 SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-148	b22279d1973d0f49	12a13a8c05a928ed
 SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	203-253	0fa34a1f18005e98	12a13a8c05a928ed
 SPX-EARS-004	go:ears.StripFrontMatter	internal/ears/ears.go	269-281	45da9a4aa569b9e8	12a13a8c05a928ed
-MCP-006	go:mcpserver.registerTools	-	0-0	-	dc3914bfaa235c28
+MCP-006	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	115-199	e142d33f9cc5fb76	dc3914bfaa235c28

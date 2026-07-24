@@ -68,7 +68,7 @@ func (s *Server) registerPrompts() {
 func lifecycleLines(task string) []string {
 	return []string{
 		"LIFECYCLE " + task,
-		"1 research q=\"" + task + "\" - impact/contracts/rejections/history/docs/gaps; draft kind=research + a fresh cheap subagent only if the pack doesn't answer it, never ad hoc exploration",
+		"1 research q=\"" + task + "\" - impact/contracts/rejections/history/docs/gaps; draft kind=research + a fresh cheap subagent only if the pack doesn't answer it, never ad hoc exploration; token economy: find scope=code / get depth replace shell grep-find exploration, .spectackle/ never shell-edited",
 		"2 draft kind=proposal targets=<ids from research> - mints the proposal, returns the context pack (#impact #contracts #rejections)",
 		"3 grill id=<P-id> - close what it surfaces: unanchored targets get rule op=add, thin child-task bodies get rewritten exhaustively (files, APIs, verification commands, scope)",
 		"4 decide op=ask on any decision that actually needs the user - never unstructured chat; no UI/declined/cancelled: keep working other disjoint tasks, the answer arrives later via decide op=answer",

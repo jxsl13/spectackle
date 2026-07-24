@@ -19,6 +19,7 @@ spec-driven-development lifecycle to completion:
    doesn't answer what you need, `draft kind=research` an R-item with an
    exhaustive brief and delegate it to a fresh, cheap subagent. Never
    explore ad hoc, and never ask the user something the pack could answer.
+   Token economy: never shell-grep/find what the server can answer — `find scope=code` for symbols/paths, `find scope=rule|rejection|history` for specs and past failures, `get id=<node> depth=N` for impact. Shell reads raw bytes of one known file only; `.spectackle/` files are never grepped or sed-edited (server-owned).
 2. **Draft** — `draft kind=proposal targets=<ids from research>` to mint
    the proposal and get the context pack (impact/contracts/rejections).
 3. **Grill** — `grill id=<P-id>` and close what it surfaces: unanchored

@@ -693,6 +693,20 @@ func TestConcurrentDraftsMintUniqueIDs(t *testing.T) {
 	}
 }
 
+// TestInstructionsTeachTokenEconomy asserts that the server's instructions
+// const teaches token economy: prefer server tools over shell exploration.
+func TestInstructionsTeachTokenEconomy(t *testing.T) {
+	if !strings.Contains(instructions, "TOKEN ECONOMY") {
+		t.Errorf("instructions missing TOKEN ECONOMY paragraph")
+	}
+	if !strings.Contains(instructions, "scope=code") {
+		t.Errorf("instructions missing scope=code guidance")
+	}
+	if !strings.Contains(instructions, "NEVER grep or sed .spectackle/") {
+		t.Errorf("instructions missing .spectackle/ protection")
+	}
+}
+
 // TestFindCodeRendersEndLineSpan (T-0049, MCP-002): a node record renders
 // '<file>:<start>-<end>' once EndLine is known and > Line (Bar, a multi-line
 // func), and keeps the plain '<file>:<line>' form when EndLine == Line
