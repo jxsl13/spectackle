@@ -81,3 +81,8 @@ Rationale: Additive-only keeps a fleet rollout safe to re-run; routing through e
 WHEN a tool call arrives and the server executable is older than the newest source file under its root, the server SHALL append one debounced hint record naming the `make dev` rebuild-and-restart command, at most once per crossing.
 
 Rationale: This repo develops itself with itself, so a stale binary answers plausibly from code that no longer exists. Two instances this cycle: a shipped feature investigated as a defect against a 41-minute-old binary, and a resident graph that produced false drift heals. Same debounced shape as the compact hint.
+
+## MCP-012
+WHEN `draft` receives a `refs` list, the server SHALL reject the whole call with a dense `! ARG` record naming every id that `item.UnknownRefs` reports, and persist nothing.
+
+Rationale: Parse stays permissive because a citation may point at an item archived out of work.md; the writer is where a typo must be caught, or a dangling citation becomes unrecoverable noise.
