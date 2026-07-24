@@ -35,7 +35,7 @@ EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langs
 
 ## T-0051 ddnet validation: index the real thing, measure, prove a cross-language chain
 kind: task
-state: approved
+state: done
 created: 2026-07-24
 parent: P-0026
 

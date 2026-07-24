@@ -42,7 +42,7 @@ Rollback: additive tool; generated files are regenerable.
 
 ## T-0052 commands tool: detect + gen for claude/copilot/codex/kimi, template-driven, migration of .claude commands
 kind: task
-state: approved
+state: active
 created: 2026-07-24
 parent: P-0029
 
