@@ -8,6 +8,7 @@ schema: v0
 - P-0072 resident localhost HTTP is the default operating mode: document it and add -pidfile: delivered by T-0102.
 - T-0105 call subcommand over internal/mcpclient, README headless recipe rewritten: call subcommand live over both transports, byte-identical, refusal exits non-zero with text on stdout. README no longer documents a wrapper.
 - P-0075 wire the call subcommand: headless tool calls with no external wrapper: delivered by T-0105.
+- P-0073 self-contained Go MCP client: retire the external wrapper scripts for headless tool calls: delivered by T-0103 (internal/mcpclient) and T-0105 (call subcommand). The external wrapper is retired.
 
 ## CLI-001 {applies: go:main.main}
 WHEN `serve` runs on stdio, the spectacle CLI SHALL emit only JSON-RPC frames on stdout and route every log line to stderr, so a single misplaced print can never corrupt the MCP transport.
