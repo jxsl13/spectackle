@@ -29,16 +29,17 @@ topological │  cascading spec bundles      (.spectackle/spec.md)   │
 
 Grab a prebuilt binary — no build required. Download the archive for your
 OS/arch from the [latest release](https://github.com/jxsl13/spectackle/releases/latest);
-assets are named `spectackle_<version>_<os>_<arch>.tar.gz` (`.zip` on
-Windows), for `linux`/`darwin`/`windows` × `amd64`/`arm64`, alongside
-`checksums.txt`.
+assets are named `spectackle_<os>_<arch>.tar.gz` (`.zip` on Windows), for
+`linux`/`darwin`/`windows` × `amd64`/`arm64`, alongside `checksums.txt`.
 
 ```sh
-# pick your version + platform from the releases page, then:
-VERSION=0.1.0; OS=linux; ARCH=amd64        # or darwin / windows, arm64
-curl -L "https://github.com/jxsl13/spectackle/releases/download/v${VERSION}/spectackle_${VERSION}_${OS}_${ARCH}.tar.gz" | tar xz
+curl -L https://github.com/jxsl13/spectackle/releases/latest/download/spectackle_linux_amd64.tar.gz | tar xz
 sudo mv spectackle /usr/local/bin/          # onto your PATH
 ```
+
+To use a different platform, swap the `<os>` and `<arch>` segments in the URL:
+`spectackle_<os>_<arch>.tar.gz` for `<os>` ∈ {`linux`, `darwin`, `windows`} and
+`<arch>` ∈ {`amd64`, `arm64`}.
 
 Then point **any** MCP client at the binary — the standard `mcpServers`
 entry works across MCP clients:
