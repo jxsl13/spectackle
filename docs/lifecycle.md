@@ -56,7 +56,16 @@ dirs have `.spectackle/` folders too), falls back to the `.git` root, then to
 the `-root` flag. Context mapping for a new item: explicit `dir` param >
 deepest common directory of the `targets`, snapped to the nearest existing
 context dir > root. Scaffolding (`.gitignore`, `.gitattributes`,
-`config.yaml`, frontmatter) is created lazily and server-side.
+`config.yaml`, frontmatter) is created lazily and server-side. A **newly**
+created `config.yaml` is fully self-documenting: every setting (`schema`,
+`langs`, `ignore`, `ignore_regex`, `budget_default`, `compact.journal_max`,
+`compact.done_max`, `swarm.lease_ttl`, `swarm.agent_ttl`,
+`feedback.max_rounds`, `feedback.grill`, `worktrees_dir`) is written with its
+default value and a short trailing comment, so the file doubles as reference
+docs and an editable template (`workspace.scaffoldConfigYAML`,
+`internal/workspace/workspace.go`). An **existing** `config.yaml` is never
+regenerated or rewritten by this or any later scaffold call — hand edits are
+permanent until the user changes them.
 
 ### 1.4 Full abstraction
 
@@ -146,9 +155,22 @@ guards:
    natural review boundary.
 2. **Threshold-driven via `check`** (safety net): dirs where nothing archives
    still accrue noise. `check` (already in the loop) emits `c` records when
-   `journal_max`/`done_max` (config.yaml) trip; the LLM then runs `compact`
-   (dry-run → `apply=true`). Journal folds drop `create/move/rule/drift`
-   noise; `reject`/`archive`/`compact` lines are kept verbatim.
+   `journal_max`/`done_max` (`config.yaml`, `compact.journal_max` defaults to
+   **300** events since the last compact, `compact.done_max` to 8) trip; the
+   LLM then runs `compact` (dry-run → `apply=true`). Journal folds drop
+   `create/move/rule/drift` noise; `reject`/`archive`/`compact` lines are
+   kept verbatim.
+   - The server also surfaces this proactively, without waiting for an
+     explicit `check`: once the root journal crosses `journal_max`, EVERY
+     tool result carries a `c . journal <n> events since last compact` line
+     (`postCall`, `internal/mcpserver/swarm.go`) — the same record shape
+     `check` itself would emit, just piggybacked like the `sw` sibling-
+     learning lines. The hint fires **once per crossing**: it stays silent
+     on later calls until either a `compact` runs (the count drops back
+     below the threshold) or the journal grows by another full
+     `journal_max` without one. The underlying count is cached and only
+     re-read from disk at most once every 30s, so the nudge costs nothing on
+     the common call.
 3. **Continuous compaction: rejected.** It would mutate versioned files on
    read paths (git diff noise, destroyed review ergonomics), defeat
    `merge=union` by rewriting journals mid-branch, and compact without

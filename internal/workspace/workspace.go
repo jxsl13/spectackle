@@ -67,7 +67,7 @@ func defaultConfig() Config {
 		Langs:         []string{"go"},
 		Ignore:        []string{".git/**", "bin/**"},
 		BudgetDefault: 2000,
-		Compact:       CompactCfg{JournalMax: 500, DoneMax: 8},
+		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
 		Feedback:      FeedbackCfg{MaxRounds: 3},
 	}
@@ -144,7 +144,7 @@ func load(dir string) (Root, error) {
 		r.Cfg.BudgetDefault = 2000
 	}
 	if r.Cfg.Compact.JournalMax == 0 {
-		r.Cfg.Compact.JournalMax = 500
+		r.Cfg.Compact.JournalMax = 300
 	}
 	if r.Cfg.Compact.DoneMax == 0 {
 		r.Cfg.Compact.DoneMax = 8
@@ -391,15 +391,55 @@ func (r Root) EnsureScaffold(ctx string) error {
 		return err
 	}
 	if !fileExists(filepath.Join(dot, "config.yaml")) {
-		raw, err := yaml.Marshal(defaultConfig())
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dot, "config.yaml"), raw, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dot, "config.yaml"), scaffoldConfigYAML(), 0o644); err != nil {
 			return err
 		}
 	}
 	return os.MkdirAll(r.CacheDir(), 0o755)
+}
+
+// scaffoldConfigYAML renders a NEWLY created config.yaml documenting every
+// setting with its default value and a short trailing comment, generated
+// from defaultConfig() so the template can never drift from the actual
+// defaults it describes. This only ever runs on the create path
+// (EnsureScaffold's fileExists guard above) — an existing config.yaml is
+// never regenerated or touched.
+//
+// `verify` is intentionally left out: unlike every other field it has no
+// meaningful default (an empty list just means "no gate commands
+// configured"), so there is nothing to document — users add it explicitly
+// when they need a build/test gate. `ignore_regex` has no default patterns
+// either but IS documented (as an empty list literal) since it is one of
+// the two user-extensible prune mechanisms alongside `ignore`.
+//
+// The generated file must parse back through load() into a Config equal to
+// defaultConfig() field by field — see
+// TestEnsureScaffoldGeneratesSelfDocumentingConfig in workspace_test.go.
+func scaffoldConfigYAML() []byte {
+	d := defaultConfig()
+	var b strings.Builder
+	fmt.Fprintf(&b, "schema: %s  # server file-format stamp — do not edit; no migration exists, an unknown stamp is a tool error\n", d.Schema)
+	b.WriteString("langs:  # languages the indexer parses (see internal/langspec for the registry)\n")
+	for _, l := range d.Langs {
+		fmt.Fprintf(&b, "  - %s\n", l)
+	}
+	b.WriteString("ignore:  # glob prune patterns, repo-relative slash paths, on top of the built-in skip list\n")
+	for _, g := range d.Ignore {
+		fmt.Fprintf(&b, "  - %s\n", g)
+	}
+	b.WriteString("ignore_regex: []  # RE2 prune patterns, repo-relative slash paths (none by default)\n")
+	fmt.Fprintf(&b, "budget_default: %d  # default token budget for context-pack commands\n", d.BudgetDefault)
+	b.WriteString("compact:\n")
+	fmt.Fprintf(&b, "  journal_max: %d  # journal events since last compact before check/the swarm hint flags it due\n", d.Compact.JournalMax)
+	fmt.Fprintf(&b, "  done_max: %d  # done-but-unarchived items before check flags it due\n", d.Compact.DoneMax)
+	b.WriteString("swarm:\n")
+	fmt.Fprintf(&b, "  lease_ttl: %d  # seconds a scope lease lives without refresh\n", d.Swarm.LeaseTTL)
+	fmt.Fprintf(&b, "  agent_ttl: %d  # seconds without heartbeat before an agent counts as gone\n", d.Swarm.AgentTTL)
+	b.WriteString("feedback:\n")
+	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
+	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)
+	fmt.Fprintf(&b, "worktrees_dir: %q  # override for .spectackle/wt (abs or root-relative); empty = default location\n", d.WorktreesDir)
+	return []byte(b.String())
 }
 
 func writeIfAbsent(path, content string) error {

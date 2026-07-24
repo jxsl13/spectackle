@@ -55,8 +55,10 @@ func (s *Server) preCall() error {
 	return s.scan.Refresh()
 }
 
-// postCall prepends unseen sibling learnings (sw records) to a text result —
-// the piggyback realtime channel.
+// postCall prepends unseen sibling learnings (sw records) and a proactive
+// compact-due hint (c record, T-0093) to a text result — the piggyback
+// realtime channel. Either block may be empty; the result is only touched
+// when at least one of them has something to say.
 func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 	if res == nil || len(res.Content) == 0 {
 		return res
@@ -65,31 +67,86 @@ func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 	if !ok {
 		return res
 	}
-	cursor, err := s.cd.Cursor()
-	if err != nil {
-		return res
-	}
-	events, err := s.cd.After(cursor, 6)
-	if err != nil || len(events) == 0 {
-		return res
-	}
 	var b strings.Builder
-	shown := events
-	overflow := 0
-	if len(shown) > 5 {
-		shown, overflow = shown[:5], len(events)-5
+	if cursor, err := s.cd.Cursor(); err == nil {
+		if events, err := s.cd.After(cursor, 6); err == nil && len(events) > 0 {
+			shown := events
+			overflow := 0
+			if len(shown) > 5 {
+				shown, overflow = shown[:5], len(events)-5
+			}
+			last := cursor
+			for _, e := range shown {
+				b.WriteString(swLine(e) + "\n")
+				last = e.Seq
+			}
+			if overflow > 0 {
+				fmt.Fprintf(&b, "sw more n=%d (see swarm)\n", overflow)
+			}
+			_ = s.cd.SetCursor(last)
+		}
 	}
-	last := cursor
-	for _, e := range shown {
-		b.WriteString(swLine(e) + "\n")
-		last = e.Seq
+	if hint := s.compactHint(); hint != "" {
+		b.WriteString(hint + "\n")
 	}
-	if overflow > 0 {
-		fmt.Fprintf(&b, "sw more n=%d (see swarm)\n", overflow)
+	if b.Len() == 0 {
+		return res
 	}
-	_ = s.cd.SetCursor(last)
 	tc.Text = b.String() + tc.Text
 	return res
+}
+
+// compactHint returns a "c . journal <n> events since last compact" record
+// — the exact shape compactCandidates produces for the root context — once
+// the root journal crosses Compact.JournalMax, so the nudge surfaces on ANY
+// tool result instead of waiting for an explicit `check` call. Empty string
+// = nothing to say right now.
+//
+// CHEAP: the journal is only re-counted at most once per 30s (postCall runs
+// under s.mu, same as preCall, so no extra locking is needed for the cached
+// fields on Server) — every other call within the window reuses the cached
+// count instead of re-reading the journal file.
+//
+// QUIET: once surfaced at a given count, the hint stays silent on every
+// following call until the count either drops back below the threshold (a
+// compact ran — s.hintedAt resets to 0, "armed") or grows by another full
+// threshold since the count it was last surfaced at (still noisy growth
+// worth re-flagging even without a compact in between).
+func (s *Server) compactHint() string {
+	if time.Since(s.lastCompactCheck) > 30*time.Second {
+		s.lastCompactCheck = time.Now()
+		s.compactCount = rootJournalSince(s.ws)
+	}
+	max := s.ws.Cfg.Compact.JournalMax
+	n := s.compactCount
+	if max <= 0 || n < max {
+		s.hintedAt = 0 // below threshold (or freshly compacted): re-armed
+		return ""
+	}
+	if s.hintedAt != 0 && n < s.hintedAt+max {
+		return "" // already surfaced this crossing, no further growth yet
+	}
+	s.hintedAt = n
+	return fmt.Sprintf("c . journal %d events since last compact", n)
+}
+
+// rootJournalSince mirrors compactCandidates' per-context journal count
+// (tools.go), narrowed to the root context (".") only — the cheapest read
+// that still serves a proactive, on-every-call hint.
+func rootJournalSince(ws workspace.Root) int {
+	events, err := journal.Read(ws, "")
+	if err != nil {
+		return 0
+	}
+	since := 0
+	for _, e := range events {
+		if e.Ev == journal.EvCompact {
+			since = 0
+			continue
+		}
+		since++
+	}
+	return since
 }
 
 func swLine(e coord.Event) string {

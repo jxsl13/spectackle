@@ -57,6 +57,17 @@ type Server struct {
 
 	lastSweep time.Time
 
+	// compact-hint cache (postCall's proactive nudge, T-0093): a debounced
+	// count of root journal events since the last compact, refreshed at most
+	// once every 30s (the same cadence as the stale-agent sweep above) so the
+	// hint never re-reads the journal file on every single tool call.
+	// hintedAt is the count the hint was last surfaced at — 0 means armed
+	// (never emitted yet, or re-armed after the count dropped back below the
+	// threshold, i.e. a compact ran). See swarm.go: compactHint.
+	lastCompactCheck time.Time
+	compactCount     int
+	hintedAt         int
+
 	// mu serializes tool calls: the MCP SDK dispatches them concurrently,
 	// but lifecycle writes are read-modify-write over shared files (ID
 	// minting, work.md rewrites) — found the hard way when two concurrent

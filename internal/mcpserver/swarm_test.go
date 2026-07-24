@@ -9,6 +9,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
 
@@ -306,5 +308,46 @@ func TestCompactBlockedInWorktree(t *testing.T) {
 	out = callText(t, alice, "get", map[string]any{"id": "P-0001"})
 	if !strings.Contains(out, "proposal approved") {
 		t.Fatalf("abort did not restore approved: %q", out)
+	}
+}
+
+// TestCompactHintFiresOncePerCrossing proves postCall's proactive T-0093
+// nudge: once the root journal crosses Compact.JournalMax (300 by default),
+// ANY tool result carries a "c . journal <n> events since last compact"
+// line — but only once per crossing, never on every call.
+//
+// The >300 events are seeded directly into the root journal.ndjson (not via
+// ordinary tool calls) so the server session connected below starts with a
+// cold compact-hint cache: its very first tool call always re-counts the
+// journal regardless of the 30s debounce window (s.lastCompactCheck is the
+// server's zero value), giving an accurate count on that first call without
+// the test needing to wait out the debounce window in real time.
+func TestCompactHintFiresOncePerCrossing(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	const seeded = 305 // > the default compact.journal_max (300)
+	for i := 0; i < seeded; i++ {
+		if err := journal.Append(ws, "", journal.Event{Ev: journal.EvCreate, ID: fmt.Sprintf("T-%04d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	want := fmt.Sprintf("c . journal %d events since last compact", seeded)
+	out := callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, want) {
+		t.Fatalf("compact hint missing on first (crossing) call: %q, want substring %q", out, want)
+	}
+
+	// the immediately following identical call must NOT repeat the hint —
+	// same crossing, nothing has changed since it was surfaced.
+	out2 := callText(t, alice, "get", map[string]any{"id": "does-not-matter"})
+	if strings.Contains(out2, "c . journal") {
+		t.Fatalf("compact hint repeated on the very next call: %q", out2)
 	}
 }
