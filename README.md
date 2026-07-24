@@ -80,9 +80,10 @@ The LLM **never writes spec files**: everything lives in versioned
 sprawl), written exclusively by the server; the SQLite/FTS5 cache underneath
 is local-only and rebuilds from disk (no migrations, pre-v1 by design).
 
-Initial focus: **Go** with arbitrary native bindings (cgo/C, C++, CUDA,
-Plan 9 ASM, Objective-C/Metal, Vulkan); parser and resolver layers are
-plugin interfaces for arbitrary languages later.
+Focus: **Go** with arbitrary native bindings (cgo/C, C++, CUDA, Plan 9 ASM,
+Objective-C/Metal; Vulkan future); the langspec parser layer makes a language
+one data value ([cookbook](docs/cookbook-new-language.md), 29 languages),
+resolvers bridge the FFI boundaries.
 
 ## Status (v0, pre-release — anything may break)
 
@@ -94,8 +95,8 @@ plugin interfaces for arbitrary languages later.
 | Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
 | Drift anchors + backprop (`check`/`compact`) | ✅ live |
 | **Multi-agent swarm**: scope leases, shared coord.db, realtime sibling learnings, git-worktree isolation (`work start/submit/abort`) with semantic replay merge | ✅ live |
-| Cross-language graph: `go/parser` + Plan 9 asm + CUDA line-scanner chains, persistent parse cache | ✅ live (tree-sitter/wazero still future, for full C/C++) |
-| Self-hosting gate | 🔜 M5 ([roadmap](docs/roadmap.md)) |
+| Cross-language graph: `go/parser` + Plan 9 asm + CUDA chains, langspec (29 data-driven languages incl. ObjC/Metal, [cookbook](docs/cookbook-new-language.md)), gpupipe Metal launch + message-send edges, persistent parse cache | ✅ live (wazero/tree-sitter still future, for full C/C++) |
+| Self-hosting gate: CI runs lint + check + coverage (≥70%) + fuzz; features developed through the server's own lifecycle | ✅ live ([roadmap](docs/roadmap.md)) |
 
 ## The chain, live
 
