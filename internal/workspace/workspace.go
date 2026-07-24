@@ -10,7 +10,9 @@ package workspace
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -30,7 +32,8 @@ const SchemaStamp = "v0"
 type Config struct {
 	Schema        string      `yaml:"schema"`
 	Langs         []string    `yaml:"langs"`
-	Ignore        []string    `yaml:"ignore"`
+	Ignore        []string    `yaml:"ignore"`       // glob patterns, repo-relative slash paths (see SkipDir)
+	IgnoreRegex   []string    `yaml:"ignore_regex"` // RE2 patterns, matched against repo-relative slash paths
 	BudgetDefault int         `yaml:"budget_default"`
 	Compact       CompactCfg  `yaml:"compact"`
 	Verify        []string    `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
@@ -64,7 +67,7 @@ func defaultConfig() Config {
 		Langs:         []string{"go"},
 		Ignore:        []string{".git/**", "bin/**"},
 		BudgetDefault: 2000,
-		Compact:       CompactCfg{JournalMax: 500, DoneMax: 8},
+		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
 		Feedback:      FeedbackCfg{MaxRounds: 3},
 	}
@@ -132,11 +135,16 @@ func load(dir string) (Root, error) {
 	if r.Cfg.Schema != "" && r.Cfg.Schema != SchemaStamp {
 		return Root{}, fmt.Errorf("workspace: config schema %q != %q — regenerate the file, there is no migration", r.Cfg.Schema, SchemaStamp)
 	}
+	for _, pat := range r.Cfg.IgnoreRegex {
+		if _, err := regexp.Compile(pat); err != nil {
+			return Root{}, fmt.Errorf("workspace: config.yaml: ignore_regex %q: %w", pat, err)
+		}
+	}
 	if r.Cfg.BudgetDefault == 0 {
 		r.Cfg.BudgetDefault = 2000
 	}
 	if r.Cfg.Compact.JournalMax == 0 {
-		r.Cfg.Compact.JournalMax = 500
+		r.Cfg.Compact.JournalMax = 300
 	}
 	if r.Cfg.Compact.DoneMax == 0 {
 		r.Cfg.Compact.DoneMax = 8
@@ -151,6 +159,16 @@ func load(dir string) (Root, error) {
 		r.Cfg.Feedback.MaxRounds = 3
 	}
 	return r, nil
+}
+
+// LoadRoot reads dir/.spectackle/config.yaml (if present) and returns a Root
+// scoped to dir, without walking up to find the workspace root. Callers that
+// already know the root — e.g. a package that only receives a bare root
+// string, like spec.Load — use this to get a fully configured Root (in
+// particular one whose SkipDir honors the workspace's Config.Ignore /
+// IgnoreRegex) without duplicating Detect's walk-up logic.
+func LoadRoot(dir string) (Root, error) {
+	return load(dir)
 }
 
 // SpectackleDir maps a repo-relative context dir ("" = root) to the absolute
@@ -188,6 +206,102 @@ func (r Root) WtDir() string {
 	return filepath.Join(r.Dir, Dot, "wt")
 }
 
+// defaultSkipNames are directory basenames every workspace walk skips
+// unconditionally: VCS metadata, dependency/build output, and spectackle's
+// own state folder. This is the generic, harness-independent replacement for
+// what used to be a hardcoded '.claude' skip — agent worktrees under
+// .claude/worktrees/<name> are ordinary git linked worktrees, so they are
+// now caught by IsNestedGitBoundary instead of by name.
+var defaultSkipNames = map[string]bool{
+	".git": true, "node_modules": true, "testdata": true,
+	"bin": true, "vendor": true, Dot: true,
+}
+
+// DefaultSkipName reports whether name is one of the built-in directory
+// basenames every workspace walk skips unconditionally, regardless of
+// config.yaml. Exposed so packages that cannot hold a full Root (e.g.
+// internal/index, which is handed a bare root string) still share the same
+// built-in set as Root.SkipDir.
+func DefaultSkipName(name string) bool { return defaultSkipNames[name] }
+
+// IsNestedGitBoundary reports whether dir is itself a separate git boundary:
+// dir/.git exists, as either a directory (the main clone, or a nested/vendored
+// clone) or a file (a linked worktree's or a submodule's `gitdir: ...`
+// pointer). Any such subdirectory belongs to a different git checkout and
+// every workspace walk must skip it wholesale — this is what a hardcoded
+// '.claude' skip used to approximate (agent worktrees under
+// .claude/worktrees/<name> happen to be linked git worktrees), generalized to
+// any harness, any location, any worktree/clone/submodule layout.
+func IsNestedGitBoundary(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// matchIgnoreGlob matches a config.yaml ignore glob against a repo-relative
+// slash path. "**" matches everything; a "**/" prefix matches any (including
+// zero) directory depth; a trailing "/**" matches the named directory itself
+// and everything below it (so "bin/**" prunes the bin/ directory, not just
+// files inside it); otherwise it's a plain path.Match.
+func matchIgnoreGlob(g, p string) bool {
+	if g == "**" {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(g, "**/"); ok {
+		for {
+			if ok, _ := path.Match(rest, p); ok {
+				return true
+			}
+			i := strings.IndexByte(p, '/')
+			if i < 0 {
+				return false
+			}
+			p = p[i+1:]
+		}
+	}
+	if base, ok := strings.CutSuffix(g, "/**"); ok {
+		if p == base || strings.HasPrefix(p, base+"/") {
+			return true
+		}
+	}
+	ok, _ := path.Match(g, p)
+	return ok
+}
+
+// SkipDir is the single entry point every workspace walk (ContextDirs,
+// spec.Load, the coverage-gap walk, and — via DefaultSkipName /
+// IsNestedGitBoundary — the indexer) shares to decide whether to prune a
+// directory. rel is the repo-relative, slash-separated path of the directory
+// ("" for the workspace root, which is never itself pruned); name is its
+// basename. True when any of these hold:
+//   - rel is a nested git boundary (IsNestedGitBoundary) — never checked for
+//     the root itself;
+//   - name is one of the built-in defaults (DefaultSkipName);
+//   - rel matches a configured Config.Ignore glob;
+//   - rel matches a configured Config.IgnoreRegex pattern.
+func (r Root) SkipDir(rel, name string) bool {
+	if rel != "" && IsNestedGitBoundary(filepath.Join(r.Dir, filepath.FromSlash(rel))) {
+		return true
+	}
+	if defaultSkipNames[name] {
+		return true
+	}
+	for _, g := range r.Cfg.Ignore {
+		if matchIgnoreGlob(g, rel) {
+			return true
+		}
+	}
+	for _, pat := range r.Cfg.IgnoreRegex {
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			continue // malformed patterns are rejected at load() time; ignore defensively here
+		}
+		if re.MatchString(rel) {
+			return true
+		}
+	}
+	return false
+}
+
 // ContextDirs returns every repo-relative dir (incl. "" for root) that has a
 // .spectackle folder with at least one bundle file, shallow before deep.
 func (r Root) ContextDirs() ([]string, error) {
@@ -199,10 +313,7 @@ func (r Root) ContextDirs() ([]string, error) {
 		if !d.IsDir() {
 			return nil
 		}
-		switch d.Name() {
-		case ".git", "node_modules", "testdata":
-			return filepath.SkipDir
-		case Dot:
+		if d.Name() == Dot {
 			ctx, _ := filepath.Rel(r.Dir, filepath.Dir(p))
 			ctx = filepath.ToSlash(ctx)
 			if ctx == "." {
@@ -214,6 +325,14 @@ func (r Root) ContextDirs() ([]string, error) {
 					break
 				}
 			}
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(r.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if r.SkipDir(rel, d.Name()) {
 			return filepath.SkipDir
 		}
 		return nil
@@ -272,15 +391,55 @@ func (r Root) EnsureScaffold(ctx string) error {
 		return err
 	}
 	if !fileExists(filepath.Join(dot, "config.yaml")) {
-		raw, err := yaml.Marshal(defaultConfig())
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dot, "config.yaml"), raw, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dot, "config.yaml"), scaffoldConfigYAML(), 0o644); err != nil {
 			return err
 		}
 	}
 	return os.MkdirAll(r.CacheDir(), 0o755)
+}
+
+// scaffoldConfigYAML renders a NEWLY created config.yaml documenting every
+// setting with its default value and a short trailing comment, generated
+// from defaultConfig() so the template can never drift from the actual
+// defaults it describes. This only ever runs on the create path
+// (EnsureScaffold's fileExists guard above) — an existing config.yaml is
+// never regenerated or touched.
+//
+// `verify` is intentionally left out: unlike every other field it has no
+// meaningful default (an empty list just means "no gate commands
+// configured"), so there is nothing to document — users add it explicitly
+// when they need a build/test gate. `ignore_regex` has no default patterns
+// either but IS documented (as an empty list literal) since it is one of
+// the two user-extensible prune mechanisms alongside `ignore`.
+//
+// The generated file must parse back through load() into a Config equal to
+// defaultConfig() field by field — see
+// TestEnsureScaffoldGeneratesSelfDocumentingConfig in workspace_test.go.
+func scaffoldConfigYAML() []byte {
+	d := defaultConfig()
+	var b strings.Builder
+	fmt.Fprintf(&b, "schema: %s  # server file-format stamp — do not edit; no migration exists, an unknown stamp is a tool error\n", d.Schema)
+	b.WriteString("langs:  # languages the indexer parses (see internal/langspec for the registry)\n")
+	for _, l := range d.Langs {
+		fmt.Fprintf(&b, "  - %s\n", l)
+	}
+	b.WriteString("ignore:  # glob prune patterns, repo-relative slash paths, on top of the built-in skip list\n")
+	for _, g := range d.Ignore {
+		fmt.Fprintf(&b, "  - %s\n", g)
+	}
+	b.WriteString("ignore_regex: []  # RE2 prune patterns, repo-relative slash paths (none by default)\n")
+	fmt.Fprintf(&b, "budget_default: %d  # default token budget for context-pack commands\n", d.BudgetDefault)
+	b.WriteString("compact:\n")
+	fmt.Fprintf(&b, "  journal_max: %d  # journal events since last compact before check/the swarm hint flags it due\n", d.Compact.JournalMax)
+	fmt.Fprintf(&b, "  done_max: %d  # done-but-unarchived items before check flags it due\n", d.Compact.DoneMax)
+	b.WriteString("swarm:\n")
+	fmt.Fprintf(&b, "  lease_ttl: %d  # seconds a scope lease lives without refresh\n", d.Swarm.LeaseTTL)
+	fmt.Fprintf(&b, "  agent_ttl: %d  # seconds without heartbeat before an agent counts as gone\n", d.Swarm.AgentTTL)
+	b.WriteString("feedback:\n")
+	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
+	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)
+	fmt.Fprintf(&b, "worktrees_dir: %q  # override for .spectackle/wt (abs or root-relative); empty = default location\n", d.WorktreesDir)
+	return []byte(b.String())
 }
 
 func writeIfAbsent(path, content string) error {

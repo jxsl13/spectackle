@@ -1,16 +1,35 @@
 // Command spectackle is the spec-driven MCP server for cross-language
 // codebases. Subcommands:
 //
-//	spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
-//	                                         Streamable HTTP when -http is set
-//	                                         (workspace auto-detected)
+//	spectackle serve [-root DIR] [-http ADDR] [-pidfile PATH]
+//	                                  run the MCP server on stdio, or over
+//	                                  Streamable HTTP when -http is set
+//	                                  (workspace auto-detected); with
+//	                                  -pidfile, write the PID once the
+//	                                  server is ready and remove it on
+//	                                  shutdown
+//	spectackle call [-root DIR] [-http ADDR] [-instructions] [NAME [JSON]]
+//	                                  make a headless tool call: spawns a
+//	                                  server over stdio, or reaches a
+//	                                  resident one via -http; with NAME,
+//	                                  issues that one call (JSON is its
+//	                                  arguments object); with none, reads
+//	                                  one {"name":...,"arguments":...} JSON
+//	                                  object per non-empty stdin line and
+//	                                  issues them over a single session;
+//	                                  -instructions prints the server's
+//	                                  instructions manifest and exits
 //	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-//	spectackle reindex [-root DIR] force a cache resync (debugging aid)
+//	spectackle reindex [-root DIR] rebuild the symbol graph and resync the
+//	                                  spec/doc cache; prints files/nodes/edges
+//	                                  so an operator can confirm it ran
 //	spectackle version             print the version
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,6 +38,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,8 +47,10 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/mcpclient"
 	"github.com/jxsl13/spectackle/internal/mcpserver"
 	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/store"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -39,37 +62,58 @@ const httpShutdownTimeout = 5 * time.Second
 func main() {
 	log.SetFlags(0)
 	log.SetOutput(os.Stderr) // stdout is reserved for JSON-RPC (SPX-ARC-001)
+	os.Exit(run(os.Args[1:]))
+}
 
-	args := os.Args[1:]
+func run(args []string) int {
 	if len(args) == 0 {
 		usage()
-		os.Exit(2)
+		return 2
 	}
 	switch args[0] {
 	case "serve":
-		os.Exit(serve(args[1:]))
+		return serve(args[1:])
+	case "call":
+		return call(args[1:])
 	case "lint":
-		os.Exit(lint(args[1:]))
+		return lint(args[1:])
 	case "reindex":
-		os.Exit(reindex(args[1:]))
+		return reindex(args[1:])
 	case "version":
 		fmt.Println("spectackle " + mcpserver.Version)
+		return 0
 	case "-h", "--help", "help":
 		usage()
+		return 0
 	default:
 		log.Printf("unknown subcommand %q", args[0])
 		usage()
-		os.Exit(2)
+		return 2
 	}
 }
 
 func usage() {
 	log.Print(`usage:
-  spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
-                                            Streamable HTTP when -http is set
-                                            (workspace auto-detected)
+  spectackle serve [-root DIR] [-http ADDR] [-pidfile PATH]
+                                  run the MCP server on stdio, or over
+                                  Streamable HTTP when -http is set
+                                  (workspace auto-detected); with -pidfile,
+                                  write the PID once the server is ready
+                                  and remove it on shutdown
+  spectackle call [-root DIR] [-http ADDR] [-instructions] [NAME [JSON]]
+                                  make a headless tool call: spawns a server
+                                  over stdio, or reaches a resident one via
+                                  -http; with NAME, issues that one call
+                                  (JSON is its arguments object); with none,
+                                  reads one {"name":...,"arguments":...}
+                                  JSON object per non-empty stdin line and
+                                  issues them over a single session;
+                                  -instructions prints the server's
+                                  instructions manifest and exits
   spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-  spectackle reindex [-root DIR] force a cache resync
+  spectackle reindex [-root DIR] rebuild the symbol graph and resync the
+                                  spec/doc cache; prints files/nodes/edges
+                                  so an operator can confirm it ran
   spectackle version             print the version`)
 }
 
@@ -84,6 +128,7 @@ func serve(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	root := fs.String("root", ".", "workspace detection start / fallback root")
 	httpAddr := fs.String("http", "", "serve over Streamable HTTP on this address (e.g. 127.0.0.1:7331) instead of stdio")
+	pidfile := fs.String("pidfile", "", "write the process PID here once the server is ready to accept requests; removed on shutdown (fails if the file already exists)")
 	_ = fs.Parse(args)
 
 	s, err := mcpserver.New(*root)
@@ -94,6 +139,13 @@ func serve(args []string) int {
 	defer s.Close()
 
 	if *httpAddr == "" {
+		if *pidfile != "" {
+			if err := writePIDFile(*pidfile); err != nil {
+				log.Printf("serve: %v", err)
+				return 1
+			}
+			defer removePIDFile(*pidfile)
+		}
 		log.Printf("spectackle %s serving over stdio", mcpserver.Version)
 		if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			log.Printf("serve: %v", err)
@@ -112,7 +164,7 @@ func serve(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runHTTP(ctx, *httpAddr, handler); err != nil {
+	if err := runHTTP(ctx, *httpAddr, handler, *pidfile); err != nil {
 		log.Printf("serve: %v", err)
 		return 1
 	}
@@ -121,14 +173,58 @@ func serve(args []string) int {
 }
 
 // runHTTP listens on addr and serves handler until ctx is cancelled, then
-// gracefully shuts the server down. See runHTTPListener for the shutdown
-// semantics.
-func runHTTP(ctx context.Context, addr string, handler http.Handler) error {
+// gracefully shuts the server down. If pidfile is non-empty, the PID is
+// written only after the listener is successfully bound (never before — a
+// pidfile that exists while the port is still coming up invites a stop
+// command that races startup) and removed once the server has shut down.
+// See runHTTPListener for the shutdown semantics.
+func runHTTP(ctx context.Context, addr string, handler http.Handler, pidfile string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
+	if pidfile != "" {
+		if err := writePIDFile(pidfile); err != nil {
+			_ = ln.Close()
+			return err
+		}
+		defer removePIDFile(pidfile)
+	}
 	return runHTTPListener(ctx, ln, handler)
+}
+
+// writePIDFile creates path containing the current process's PID (decimal,
+// newline-terminated) with mode 0o644. It refuses to overwrite an existing
+// file: a pre-existing pidfile usually means a live server already claims
+// it, and clobbering it would strand that process with no stoppable handle.
+func writePIDFile(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("pidfile %s already exists (a server may already be running)", path)
+		}
+		return fmt.Errorf("pidfile %s: %w", path, err)
+	}
+	_, writeErr := fmt.Fprintf(f, "%d\n", os.Getpid())
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		if writeErr != nil {
+			return fmt.Errorf("pidfile %s: %w", path, writeErr)
+		}
+		return fmt.Errorf("pidfile %s: %w", path, closeErr)
+	}
+	return nil
+}
+
+// removePIDFile removes a pidfile written by writePIDFile. It is a no-op if
+// the file is already gone, and only logs (to stderr, per CLI-001) on any
+// other removal error rather than changing the caller's exit code — pidfile
+// cleanup failing should not mask an otherwise-successful shutdown.
+func removePIDFile(path string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("serve: failed to remove pidfile %s: %v", path, err)
+	}
 }
 
 // runHTTPListener serves handler on ln until ctx is cancelled (e.g. by a
@@ -172,6 +268,119 @@ func runHTTPListener(ctx context.Context, ln net.Listener, handler http.Handler)
 	}
 }
 
+// call implements the `call` subcommand (CLI-002): a headless tool call
+// against a spectackle server, spawned over stdio or reached over -http,
+// using internal/mcpclient so the handshake and rendering are exactly what
+// every other spectackle surface does — no hand-rolled JSON-RPC framing,
+// no dropped instructions field.
+//
+// Exit codes: 2 for a usage problem (bad arguments/JSON, unreadable stdin
+// line), 1 when the session could not be established or any tool call came
+// back flagged IsError, 0 when every call succeeded.
+func call(args []string) int {
+	fs := flag.NewFlagSet("call", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace detection start / fallback root (stdio transport only)")
+	httpAddr := fs.String("http", "", "reach a resident server at this address (e.g. 127.0.0.1:7331) instead of spawning one over stdio")
+	showInstructions := fs.Bool("instructions", false, "print the server's instructions manifest and exit")
+	_ = fs.Parse(args)
+
+	cfg := mcpclient.Config{Root: *root}
+	if *httpAddr != "" {
+		cfg.Endpoint = httpEndpoint(*httpAddr)
+	}
+
+	ctx := context.Background()
+	sess, err := mcpclient.Dial(ctx, cfg)
+	if err != nil {
+		log.Printf("call: %v", err)
+		return 1
+	}
+	defer sess.Close()
+
+	if *showInstructions {
+		fmt.Println(sess.Instructions())
+		return 0
+	}
+
+	rest := fs.Args()
+	if len(rest) > 2 {
+		log.Printf("call: too many arguments (want NAME [JSON]): %v", rest)
+		return 2
+	}
+	if len(rest) > 0 {
+		c := mcpclient.Call{Name: rest[0]}
+		if len(rest) == 2 {
+			if err := json.Unmarshal([]byte(rest[1]), &c.Arguments); err != nil {
+				log.Printf("call: parse JSON arguments: %v", err)
+				return 2
+			}
+		}
+		out, callErr := sess.Call(ctx, c)
+		fmt.Println(out)
+		if callErr != nil {
+			log.Printf("call: %s: %v", c.Name, callErr)
+			return 1
+		}
+		return 0
+	}
+
+	return callStdin(ctx, sess)
+}
+
+// httpEndpoint normalizes the -http flag's address (e.g. "127.0.0.1:7331",
+// matching serve's own -http flag) into the http(s) URL mcpclient.Config
+// expects. A value that already names a scheme is passed through as-is.
+func httpEndpoint(addr string) string {
+	if strings.Contains(addr, "://") {
+		return addr
+	}
+	return "http://" + addr
+}
+
+// callStdin reads one JSON object per non-empty stdin line, each shaped
+// {"name": ..., "arguments": {...}}, and issues them in order over the
+// single already-dialed session — reconnecting per line would re-index the
+// workspace on every call, the exact cost CLI-002 exists to remove. It
+// keeps going after a refusal (IsError) or a malformed line, reporting
+// which line failed on stderr, and returns non-zero if any line failed.
+func callStdin(ctx context.Context, sess *mcpclient.Session) int {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+
+	failed := false
+	line := 0
+	for scanner.Scan() {
+		line++
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" {
+			continue
+		}
+		var req struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(text), &req); err != nil {
+			log.Printf("call: line %d: parse JSON: %v", line, err)
+			failed = true
+			continue
+		}
+		out, err := sess.Call(ctx, mcpclient.Call{Name: req.Name, Arguments: req.Arguments})
+		fmt.Println(out)
+		if err != nil {
+			log.Printf("call: line %d (%s): %v", line, req.Name, err)
+			failed = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("call: reading stdin: %v", err)
+		return 1
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}
+
 func lint(args []string) int {
 	root := "."
 	if len(args) > 0 {
@@ -201,6 +410,18 @@ func lint(args []string) int {
 	return 0
 }
 
+// reindex is DEFECT 3's fix: previously this subcommand only resynced the
+// spec/doc cache (internal/sync) — the symbol graph drift classification
+// actually depends on is built exclusively inside the MCP server
+// (mcpserver.Server.reindex), so this command's name and help text
+// promised a rebuild it never performed. The obvious operator response to
+// a stale graph under a resident -http server (DEFECT 1/DRF-003) was to
+// run `reindex`, and it did nothing. Now it rebuilds the graph too, via
+// mcpserver.BuildGraph — the exact same pipeline (parser list, resolvers,
+// typed-call pass) the server uses, so the two can never drift onto
+// different parser sets — and opens the same persistent parse-blob cache
+// the server would (ws.CacheDir()/parse.db), so a reindex also warms the
+// cache a subsequent `serve` picks up.
 func reindex(args []string) int {
 	root := rootFlag("reindex", args)
 	ws, err := workspace.Detect(root, root)
@@ -222,6 +443,20 @@ func reindex(args []string) int {
 		log.Printf("reindex: %v", err)
 		return 1
 	}
-	log.Printf("reindex: ok (%s)", ws.Dir)
+
+	blobs, err := store.Open(filepath.Join(ws.CacheDir(), "parse.db"))
+	if err != nil {
+		log.Printf("reindex: parse cache: %v (using in-memory store)", err)
+		blobs = store.NewMem()
+	}
+	defer blobs.Close()
+
+	_, st, typed, err := mcpserver.BuildGraph(context.Background(), ws, blobs)
+	if err != nil {
+		log.Printf("reindex: index: %v", err)
+		return 1
+	}
+	log.Printf("reindex: %d files, %d nodes, %d edges (+%d typed calls, %d skipped) (%s)",
+		st.Files, st.Nodes, st.Edges, typed, st.Skipped, ws.Dir)
 	return 0
 }

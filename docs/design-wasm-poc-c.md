@@ -1,5 +1,9 @@
 # wasm C PoC — measured results (T-0040)
 
+> **Decision record: `ADR-0011`** — this decision now lives as a structured ADR in the server
+> (context / decision / consequences / status): `get ADR-0011`, `find scope=adr`.
+> What remains below is the evidence: the measurements, tables and reasoning.
+
 Status: PoC executed, scored against docs/design-wasm-parsers.md §5's exit
 criteria. All numbers below are measured on this machine
 (`poc/wasmparse/cmd/poc`, `poc/wasmparse/cmd/sizewith`,

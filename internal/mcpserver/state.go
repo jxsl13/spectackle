@@ -224,10 +224,14 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 	if len(anchors) == 0 {
 		return "", nil
 	}
-	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
-		_, ok := c.Rule(id)
-		return ok
-	})
+	// nil staleness predicate: state's drift section is a pure read with no
+	// write side effects (see doc comment above) — it mirrors check()'s
+	// classification but intentionally skips the staleness-aware healing
+	// behavior check() gets, so this stays nil rather than wiring s.indexedAt.
+	results := drift.Classify(s.ws, s.g, anchors, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
+	}, nil)
 	ok, pending, moved := 0, 0, 0
 	var d []string
 	for _, r := range results {
@@ -238,7 +242,7 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 			pending++
 		case drift.Moved:
 			moved++
-		default: // changed, gone, stale
+		default: // evolved, tightened, diverged, gone, stale — check() is where these heal/audit
 			d = append(d, fmt.Sprintf("d %s %s %s %s:%d-%d",
 				r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End))
 		}

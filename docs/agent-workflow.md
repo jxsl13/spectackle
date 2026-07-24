@@ -125,6 +125,20 @@ Task bodies that meet this bar turn a cheap, context-free model into a
 reliable implementer, because the hard part (deciding *what* to change and
 *why*) already happened in the orchestrator's proposal review.
 
+### How record bodies are written
+
+Every item body — proposal, task, ADR, research — follows the same three
+rules, which the server also states in its instructions manifest (MCP-007):
+
+- **Compacted substance.** Constraints, decisions, measurements, rejected
+  alternatives and why. Not a narrative of how the requirement arrived.
+- **No verbatim quotes.** Never paste user quotes or transcript excerpts.
+  They bloat every later read of the record without adding information —
+  compact the input instead, losing nothing.
+- **American English.** Spelling variants (behavior/behaviour,
+  initialize/initialise) fragment full-text matches exactly like a language
+  mix does, and `find`/`research` are FTS queries over these bodies.
+
 ## Fan-out
 
 A single approved task is the unit of work, but the orchestrator rarely has
@@ -140,6 +154,65 @@ This is what makes token cost scale with the number of approved tasks
 instead of the size of the codebase: the orchestrator's context stays busy
 briefing and reviewing, never blocked waiting on one implementer to finish
 before starting the next.
+
+## Importing a brownfield repo
+
+Onboarding an existing repo follows a fixed six-step order, run once before
+the normal loop starts:
+
+1. **Index first.** `state/reindex` yields the code graph immediately and
+   costs no decisions — it produces the real node IDs everything else
+   anchors to.
+2. **Survey in parallel.** Fan out read-only subagents over disjoint
+   subtrees, one per top-level package or module; each reports the
+   subtree's purpose, the invariants its code/tests/docs already assert,
+   and candidate contracts. Read-only means no leases and no `work.md`
+   contention, so this fan-out can go as wide as the tree — it is the same
+   fan-out pattern as above, minus the scope collisions, because nothing is
+   being written yet.
+3. **Mint centrally.** The orchestrator turns the survey into `rule
+   op=add` contracts, scoped per context dir and anchored via `applies` to
+   the node IDs from step 1. Implementers never hand-write spec files; the
+   server composes and lints them.
+4. **Capture decisions.** Existing design docs and ADRs become `adr` items
+   via `decide` (context, decision, consequences, status); pure reference
+   docs stay plain `docs` items.
+5. **Baseline.** Run `check` until it comes back clean — the stamped
+   anchors are the point from which drift detection starts meaning
+   anything.
+6. **Then the normal loop** applies: `find scope=rejection`, draft, grill,
+   implement.
+
+Two guardrails keep this from drifting into busywork: encode only the
+invariants the code, tests, and docs actually assert — never invented
+ones — and start with the load-bearing few, letting `check`'s coverage
+gaps show what is still unowned.
+
+## Worktree isolation & who writes lifecycle state
+
+Two rules keep a parallel fan-out from corrupting shared state:
+
+1. **Each implementer runs in a dedicated git worktree**, never the shared
+   main working tree — so no two implementers (nor the orchestrator) ever
+   write the same source file, spec bundle, or `work.md` at once. The
+   server's `work op=start` provides this: it re-roots the agent into a
+   fresh worktree and semantic-replays that worktree's `.spectackle` state
+   back on `submit`. A headless driver must replicate it — one worktree per
+   implementer — rather than pointing every agent at the same root.
+
+2. **The orchestrator owns every lifecycle `move`** (`draft → submitted →
+   … → done → archived`). Implementers only claim and release their scope
+   lease and edit code inside their worktree, then *report* completion —
+   they never `move` items themselves.
+
+The reason is a concurrency asymmetry. Item state lives in per-directory
+`.spectackle/work.md`, a plain file: two processes doing read-modify-write
+on it race (last writer wins) and silently drop item records. Scope leases
+do **not** have this problem — they live in the shared `coord.db` (WAL,
+cross-process safe). So leasing from an implementer is fine; moving items
+from one is not. Keeping every `move` in the single orchestrator process
+removes the item-record race by construction, and worktree isolation
+removes it for code and spec files too.
 
 ## Decisions, grill & bounded feedback loops
 
@@ -186,13 +259,13 @@ enumerated choices, a confirm dialog for yes/no, free text otherwise. Two
 outcomes:
 
 - **The host renders it and the user answers immediately** — the decision
-  is persisted (`D-xxxx` → `done`) and the orchestrator has its answer in
+  is persisted (`ADR-xxxx` → `done`) and the orchestrator has its answer in
   the same call.
 - **No elicitation support, declined, or a different harness entirely** —
-  the `D-xxxx` item stays open; the orchestrator does **not** block on it.
+  the `ADR-xxxx` item stays open; the orchestrator does **not** block on it.
   It keeps working other disjoint tasks and picks the answer up later —
   from `state`, from `swarm`'s sw piggyback, or because someone (any
-  session, any harness) called `decide op=answer id=D-xxxx choose=…`. A
+  session, any harness) called `decide op=answer id=ADR-xxxx choose=…`. A
   decision made hours or days later, from an entirely different session,
   is a first-class re-entry, not a special case.
 
@@ -214,11 +287,11 @@ implementer                    server                       orchestrator
     │                               │  rounds == max_rounds (default 3):
     │                               │  server side-steps the item
     │                               │    T-x -> blocked
-    │                               │  and mints D-xxxx
+    │                               │  and mints ADR-xxxx
     │                               │    (rescope | reject | override-once)
-    │                               │    T-x needs: D-xxxx, sw escalate
+    │                               │    T-x needs: ADR-xxxx, sw escalate
     │                               │                              │
-    │                               │◄──── decide op=answer D-xxxx │
+    │                               │◄──── decide op=answer ADR-xxxx │
     │                               │                              │
     │             rescope       -> draft     (mandatory rescoping)│
     │             reject        -> rejected  (note = decide reason)

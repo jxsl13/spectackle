@@ -30,7 +30,9 @@ i <id> <kind> <state> <dir> <title>              lifecycle item (state: draft|su
 s sec:<dir>#<name> <text>                        prose section
 j <ref> <summary> :: <snippet>                   journal/history record
 a <rule> <node> <file>:<s>-<e> <chash>           anchor
-d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|changed|stale)
+d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|stale)
+d healed <rule> <node> <file>:<s>-<e> was=<h> now=<h>  drift, mechanically healed (evolved)
+d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|diverged)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
@@ -63,7 +65,7 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
 ```json
 {"type":"object","required":["q"],"properties":{
   "q":    {"type":"string"},
-  "scope":{"enum":["code","rule","spec","proposal","task","bug","research","rejection","history","all"],"default":"all"},
+  "scope":{"enum":["code","rule","spec","proposal","task","bug","research","adr","rejection","history","all"],"default":"all"},
   "k":    {"type":"integer","default":8},
   "focus":{"type":"string","default":""},
   "budget":{"type":"integer","default":2000},
@@ -99,7 +101,7 @@ file-cascade rules as `r` records, root-scoped ones collapsed to one
 
 ```json
 {"type":"object","required":["kind","title"],"properties":{
-  "kind":   {"enum":["proposal","task","research","bug"]},
+  "kind":   {"enum":["proposal","task","research","bug","adr"]},
   "title":  {"type":"string"},
   "body":   {"type":"string"},
   "targets":{"type":"array","items":{"type":"string"}},
@@ -192,8 +194,37 @@ files with zero applicable rules; `g orphan <rule> <node>` — a live rule's
 applies target with no anchors.tsv row, MCP-004), `d` drift records (anchor
 classification; position-only moves are silently refreshed), `E101`
 duplicate item IDs (branch-merge backstop), `c` compact-due signals.
-`fix=true` drafts one backprop proposal per drifted rule and re-stamps
-anchors. Run until `ok` before `move to=done`.
+`fix=true` drafts one backprop proposal per drifted rule (gone, tightened,
+diverged) and re-stamps anchors. Run until `ok` before `move to=done`.
+
+**Drift classification is direction-aware (T-0086):** each anchor row
+carries both a code-span hash and a rule-sentence hash, so `check` reads
+two independent axes — did the code change, did the rule sentence change —
+instead of one blended "changed" bucket:
+
+| code \ rule | same             | changed                    |
+|-------------|------------------|-----------------------------|
+| same        | `ok` / `moved`   | `tightened` — audited only  |
+| changed     | `evolved` — healed | `diverged` — audited only |
+
+Only **evolved** (code moved, rule sentence identical) is mechanically
+healable: the rule still describes the code correctly, only the anchor's
+recorded code hash is stale, so `check` re-stamps it unconditionally (no
+`fix` needed — this never touches the spec) and emits one
+`d healed <rule> <node> <file>:<s>-<e> was=<old 8-hex> now=<new 8-hex>`
+record per healed anchor, plus an `evolved`→`healed` journal event
+(auditable history of every silent re-stamp). **`tightened` and `diverged`
+are never auto-healed** — the rule's sentence itself changed, which means
+either the spec author's intent moved or the anchor is stale in a way a
+human has to judge; these surface as
+`d audit <rule> <node> <file>:<s>-<e> <tightened|diverged>` and, with
+`fix=true`, also get a backprop proposal drafted (same as `gone`).
+
+After the per-anchor records, `check` emits exactly one deduped
+`r <id> <pattern> <dir> <text>` line per distinct rule that appeared in a
+`d healed` or `d audit` record (never repeated even if the rule anchors
+several drifted nodes), followed by a trailer
+`ok healed=<N> audit=<M>` whenever at least one heal or audit happened.
 
 ### 7. `compact` — housekeeping (dry-run by default)
 
@@ -268,9 +299,13 @@ nothing to report (SPX-MCP-004 spirit): `#version` (server version, agent
 name, active root), `#items` (counts by state + `i` lines, scoped to
 `path`), `#rules` (per-context-dir rule counts + a global lint-findings
 count), `#graph` (`g.Stats()` node/edge totals), `#swarm` (`ag`/`l`/`wt`
-lines), `#drift` (anchor classification summary + `d` lines for
-changed/gone/stale — `moved` anchors are counted, never silently
-re-stamped), `#health` (compact-due `c` lines + a coverage-gap count).
+lines), `#drift` (anchor classification summary + bare `d <cls> ...` lines
+for evolved/tightened/diverged/gone/stale — `moved` anchors are counted,
+never silently re-stamped, and unlike `check` nothing here is ever healed
+or audited-with-a-backprop-draft: `state` is read-only, so evolved anchors
+just show up as `d evolved ...` instead of the `d healed`/`r`/trailer
+records `check` produces), `#health` (compact-due `c` lines + a
+coverage-gap count).
 Budget-truncated like every other read tool (SPX-ARC-002). Same content is
 exposed as the `state` MCP prompt (`internal/mcpserver/prompts.go`) via the
 shared `(s *Server) stateText(path string)` builder.
@@ -330,27 +365,29 @@ above).
 ```json
 {"type":"object","required":["op"],"properties":{
   "op":      {"enum":["ask","answer","ls"]},
-  "id":      {"type":"string","description":"D-id (answer) — omit for ask"},
+  "id":      {"type":"string","description":"ADR-id (answer) — omit for ask"},
   "question":{"type":"string","description":"ask: the decision to make"},
+  "context": {"type":"string","description":"ask: ADR context — the forces and constraints behind this decision"},
   "kind":    {"enum":["radio","confirm","text"],"default":"radio"},
   "options": {"type":"array","items":{"type":"string"},"description":"radio choices, 2-5"},
   "item":    {"type":"string","description":"lifecycle item this decision blocks"},
-  "choose":  {"type":"string","description":"answer: option text / yes|no / free text"}}}
+  "choose":  {"type":"string","description":"answer: option text / yes|no / free text"},
+  "consequences":{"type":"string","description":"answer: ADR consequences — trade-offs and follow-on effects of the decision"}}}
 ```
 `ask` tries MCP elicitation (`Session.Elicit`, the same native-UI mechanism
 `rule`'s slot forms already use in production — `elicitSlots` in
 `tools.go`) — `radio`→enum property (host renders a radio/dropdown),
 `confirm`→boolean property (confirm dialog), `text`→string property (free
 text). Two outcomes: **the host renders it and the user answers** — the
-decision is persisted immediately (`D-xxxx` item → `done` with the choice),
-returns `ok D-x <choice>`. **No elicitation support, declined/cancelled, or
-a different harness** — the `D-xxxx` item stays open (`state=submitted`),
-returns `need decision D-x <question> | <options>`; the orchestrator does
+decision is persisted immediately (`ADR-xxxx` item → `done` with the choice),
+returns `ok ADR-x <choice>`. **No elicitation support, declined/cancelled, or
+a different harness** — the `ADR-xxxx` item stays open (`state=submitted`),
+returns `need decision ADR-x <question> | <options>`; the orchestrator does
 **not** block on it, it keeps working other disjoint tasks. `answer`: from
 any session, any time, validated against `options` — decisions get
 answered from wherever, whenever; the waiting orchestrator sees the answer
 on its next `swarm` (sw-piggyback) or `state`/`find` call. `ls`: lists open
-`D` items. New item kind `decision` (ID letter `D`, `find scope=decision`).
+`ADR` items. New item kind `adr` (ID letter `ADR`, `find scope=adr`) — architecture decision records are first-class, searchable items. Each ADR captures four structured fields following the classic ADR template: **Context** (forces and constraints behind the decision), **Decision** (the chosen option), **Consequences** (trade-offs and follow-on effects), and **Status** (proposed/accepted/superseded/deprecated) — queryable via `find scope=adr`, drift-anchored like any other record, never loose markdown.
 Every decision that actually needs the user goes through `decide` — never
 unstructured chat.
 

@@ -73,23 +73,36 @@ type Cascade struct {
 func Load(root string) (*Cascade, error) {
 	c := &Cascade{root: root, byID: map[string]*ears.Rule{}}
 
+	// ws carries Config.Ignore/IgnoreRegex (if root has a config.yaml) so the
+	// walk shares the exact same skip decisions as workspace.Root.ContextDirs
+	// and the coverage-gap walk — see workspace.Root.SkipDir.
+	ws, err := workspace.LoadRoot(root)
+	if err != nil {
+		return nil, err
+	}
+
 	var rels []string
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
 			return nil
 		}
-		switch d.Name() {
-		case ".git", "node_modules", "testdata":
-			return filepath.SkipDir
-		case workspace.Dot:
+		if d.Name() == workspace.Dot {
 			sp := filepath.Join(p, "spec.md")
 			if st, err := os.Stat(sp); err == nil && !st.IsDir() {
 				rel, _ := filepath.Rel(root, sp)
 				rels = append(rels, filepath.ToSlash(rel))
 			}
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if ws.SkipDir(rel, d.Name()) {
 			return filepath.SkipDir
 		}
 		return nil

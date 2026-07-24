@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,8 +34,8 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 // ---- input structs (JSON Schemas are inferred from these) ----
 
 type findIn struct {
-	Q     string `json:"q" jsonschema:"text or ID fragment"`
-	Scope string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|rejection|history|all, default all"`
+	Q      string `json:"q" jsonschema:"text or ID fragment"`
+	Scope  string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|adr|rejection|history|all, default all"`
 	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
 	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
@@ -114,7 +115,7 @@ func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(co
 
 func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "find",
-		Description: "Unified search. scope: code→nodes(n), rule→EARS(r), spec→prose(s), proposal|task|bug|research→items(i), rejection→past rejections(j), history→journal(j), all→mixed. ALWAYS search rejection+history before drafting."},
+		Description: "Unified search. scope: code→nodes(n), rule→EARS(r), spec→prose(s), proposal|task|bug|research|adr→items(i), rejection→past rejections(j), history→journal(j), all→mixed. ALWAYS search rejection+history before drafting."},
 		gate(s, s.find))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "get",
@@ -170,7 +171,7 @@ func (s *Server) registerTools() {
 		gate(s, s.grill))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
-		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the D-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
+		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the ADR-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -186,7 +187,7 @@ func (s *Server) registerTools() {
 		gate(s, s.state))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
-		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves a decision item open (need decision …) instead of blocking."},
+		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
@@ -208,6 +209,7 @@ var scopeKinds = map[string][]string{
 	"task":      {"task"},
 	"bug":       {"bug"},
 	"research":  {"research"},
+	"adr":       {"adr"},
 	"rejection": {"rejection"},
 	"history":   {"journal", "rejection"},
 }
@@ -344,6 +346,18 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	}
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
+	}
+	if it.Context != "" {
+		b.WriteString("context: " + it.Context + "\n")
+	}
+	if it.Decision != "" {
+		b.WriteString("decision: " + it.Decision + "\n")
+	}
+	if it.Consequences != "" {
+		b.WriteString("consequences: " + it.Consequences + "\n")
+	}
+	if it.Status != "" {
+		b.WriteString("status: " + it.Status + "\n")
 	}
 	return text(b.String())
 }
@@ -865,12 +879,12 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 		}
 	}
-	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note)
+	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note, s.auditGateOpts()...)
 	if err != nil {
 		var rex lifecycle.ErrRoundsExhausted
 		if errors.As(err, &rex) {
 			// anti-ping-pong: the reopen budget is spent — server-side
-			// escalation to the blocked side state + auto-minted decision.
+			// escalation to the blocked side state + auto-minted adr item.
 			blocked, dec, eErr := lifecycle.Escalate(s.ws, s.minter(), rex.Item)
 			if eErr != nil {
 				return nil, nil, eErr
@@ -880,6 +894,13 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
 				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
 		}
+		if strings.HasPrefix(err.Error(), "! GATE E") {
+			// auditGate's refusal is already a dense record (one line per
+			// offending anchor) — return it verbatim as the tool result,
+			// not wrapped in another "! ARG E -" prefix that would corrupt
+			// the record grammar callers parse.
+			return text(err.Error() + "\n")
+		}
 		return text("! ARG E - " + err.Error())
 	}
 	if in.To == item.StateRejected {
@@ -888,6 +909,24 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	}
 	s.scan.MarkDirty()
 	return text(warns + item.Record(it) + "\n")
+}
+
+// auditGateOpts loads the spec cascade and, if that succeeds, returns a
+// lifecycle.WithAuditGate option wired exactly like check builds its
+// rule-text resolver (s.g plus a closure over c.Rule) — this is what arms
+// the done-state audit gate (see lifecycle.Move's doc comment) at the
+// server's move call sites. spec.Load failing is not a move failure: the
+// cascade is simply unavailable, so the returned slice is empty and Move
+// runs with the gate skipped, exactly as it did before this option existed.
+func (s *Server) auditGateOpts() []lifecycle.MoveOption {
+	c, err := spec.Load(s.ws.Dir)
+	if err != nil {
+		return nil
+	}
+	return []lifecycle.MoveOption{lifecycle.WithAuditGate(s.g, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
+	})}
 }
 
 // forwardState reports whether a move target is a forward position in the
@@ -928,7 +967,57 @@ func (s *Server) openNeeds(it item.Item) []string {
 
 // ---- check ----
 
+// staleFile reports whether file (repo-relative, as stored on graph.Node)
+// was modified after the active root's graph was last successfully
+// rebuilt (DRF-003). Under the resident -http server, s.reindex only runs
+// at startup and on reroot (SPX-MCP-003 refreshes the .spectackle files,
+// never the graph), so a code edit made through any other channel leaves
+// s.g's node Line/EndLine pointing at positions that no longer mean what
+// they did when they were indexed; hashing that stale range against the
+// new file content silently produces a hash for a span that isn't the
+// node. check wires this into drift.Classify (as its stale predicate) so
+// such an anchor degrades to Pending instead of a hash-based verdict —
+// see drift.Classify's doc comment for the false-heal this closes
+// (go:main.main hashed twice at stale positions in this repo, both
+// auto-healed as Evolved, both wrong).
+//
+// A stat failure (file deleted, permission error) reports not-stale:
+// Classify already has a dedicated Gone path once SpanHash itself fails to
+// read the file, so staleFile's job is narrowly "is the on-disk file newer
+// than the graph", not "does the file still exist".
+func (s *Server) staleFile(file string) bool {
+	fi, err := os.Stat(filepath.Join(s.ws.Dir, file))
+	if err != nil {
+		return false
+	}
+	return fi.ModTime().After(s.indexedAt)
+}
+
+// anchorsNeedRefresh reports whether any anchor's recorded file has changed
+// on disk since the graph was last built — the gate for check's conditional
+// reindex (DRF-003). Anchor.File is used directly rather than resolving
+// through s.g.Node first: it is what SpanHash will read regardless of
+// whether the node itself has since moved files, it is already populated
+// on every non-pending anchor, and checking it costs no graph lookup.
+// Pending anchors (File == "-": the node was never indexed) are skipped —
+// there is nothing on disk yet to compare a graph timestamp against.
+func (s *Server) anchorsNeedRefresh(anchors []drift.Anchor) bool {
+	for _, a := range anchors {
+		if a.File == "-" {
+			continue
+		}
+		if s.staleFile(a.File) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
+	// T-0086 live proof: default budget is 1500 tokens; this comment only
+	// shifts the function's code hash — the MCP-004 rule sentence above is
+	// untouched, so re-running check classifies this anchor as Evolved and
+	// heals it mechanically (no fix=true needed).
 	if in.Budget <= 0 {
 		in.Budget = 1500
 	}
@@ -985,12 +1074,55 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	sort.Strings(orphans)
 	lines = append(lines, orphans...)
 
-	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
-		_, ok := c.Rule(id)
-		return ok
-	})
+	// DRF-003 conditional refresh: Pending alone is an incomplete cure. A
+	// resident -http server's graph is only rebuilt at startup/reroot
+	// (SPX-MCP-003 refreshes .spectackle files only), so an out-of-band
+	// code edit leaves anchors classifying Pending forever once staleFile
+	// is wired — a wrong "evolved" answer traded for no answer at all,
+	// which makes drift detection inert exactly under the mode this task
+	// exists to make trustworthy. So: if any anchor's file changed since
+	// the graph was last built, reindex ONCE for this call before
+	// classifying — conditional on real staleness, not per-call. This does
+	// NOT reintroduce the unconditional per-call reindexing P-0077
+	// explicitly rejected ("Indexing this repository costs a full file
+	// walk; paying it per tool call would undo the reason the resident
+	// service exists"): the walk only runs when anchorsNeedRefresh finds a
+	// genuinely stale file, so an unchanged workspace pays nothing extra.
+	// staleFile stays wired into Classify below regardless — if reindex
+	// itself fails, it logs and keeps the previous graph, s.indexedAt is
+	// untouched, staleFile still reports stale, and Classify still falls
+	// back to Pending: a refusal to judge, never a false heal.
+	if s.anchorsNeedRefresh(anchors) {
+		s.reindex()
+	}
+
+	results := drift.Classify(s.ws, s.g, anchors, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
+	}, s.staleFile)
 	changed := false
 	pending := 0
+	healed, audited := 0, 0
+	ruleSeen := map[string]bool{}
+	var ruleLines []string
+	// remember dedupes the trailing `r <id> ...` block: at most one line per
+	// distinct rule that appeared in a healed or audited `d` record, in the
+	// same grammar the get/find paths use (ruleLine).
+	remember := func(id string) {
+		if ruleSeen[id] {
+			return
+		}
+		ruleSeen[id] = true
+		rule, ok := c.Rule(id)
+		if !ok {
+			return
+		}
+		dir := ruleCtx(rule.File)
+		if dir == "" {
+			dir = "."
+		}
+		ruleLines = append(ruleLines, ruleLine(spec.ResolvedRule{Rule: rule, ScopeDir: dir}))
+	}
 	for _, r := range results {
 		switch r.Class {
 		case drift.OK:
@@ -1006,24 +1138,53 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 			a.File, a.Start, a.End = n.File, n.Line, end
 			anchors = drift.Upsert(anchors, a)
 			changed = true
-		default:
+		case drift.Evolved:
+			// code changed, rule sentence identical — the only mechanically
+			// healable case: re-stamp the anchor's code hash and move on, no
+			// in.Fix gate needed (this never touches the spec, it just
+			// catches the anchor's hash up to reality).
+			old := r.Anchor.CHash
+			a := r.Anchor
+			a.CHash = r.NewHash
+			anchors = drift.Upsert(anchors, a)
+			changed = true
+			healed++
+			lines = append(lines, fmt.Sprintf("d healed %s %s %s:%d-%d was=%s now=%s",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End,
+				short8(old), short8(r.NewHash)))
+			remember(r.Anchor.Rule)
+			rule, _ := c.Rule(r.Anchor.Rule)
+			ctx := ruleCtx(rule.File)
+			_ = journal.Append(s.ws, ctx, journal.Event{
+				Ev: journal.EvDrift, Rule: r.Anchor.Rule, Node: string(r.Anchor.Node),
+				Cls: "healed", Oh: old, Nh: r.NewHash, Dir: ctx,
+			})
+		case drift.Tightened, drift.Diverged:
+			// rule sentence changed (with or without the code) — never
+			// auto-healed, a human has to look. Only draft a backprop
+			// proposal when explicitly asked via in.Fix.
+			audited++
+			lines = append(lines, fmt.Sprintf("d audit %s %s %s:%d-%d %s",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End, r.Class))
+			remember(r.Anchor.Rule)
+			if in.Fix {
+				if _, err := s.backprop(c, r); err != nil {
+					return nil, nil, err
+				}
+			}
+		default: // Gone, Stale
 			d := fmt.Sprintf("d %s %s %s %s:%d-%d", r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End)
-			if in.Fix && (r.Class == drift.Changed || r.Class == drift.Gone) {
+			if in.Fix && r.Class == drift.Gone {
 				bp, err := s.backprop(c, r)
 				if err != nil {
 					return nil, nil, err
 				}
 				d += " item=" + bp
-				if r.Class == drift.Changed {
-					a := r.Anchor
-					a.CHash = r.NewHash
-					anchors = drift.Upsert(anchors, a)
-					changed = true
-				}
 			}
 			lines = append(lines, d)
 		}
 	}
+	lines = append(lines, ruleLines...)
 	if changed {
 		if err := drift.Save(s.ws, anchors); err != nil {
 			return nil, nil, err
@@ -1036,11 +1197,24 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// compact-due signals
 	lines = append(lines, s.compactCandidates(in.Path)...)
 
+	if healed > 0 || audited > 0 {
+		lines = append(lines, fmt.Sprintf("ok healed=%d audit=%d", healed, audited))
+	}
+
 	if len(lines) == 0 {
 		return text("ok")
 	}
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
+}
+
+// short8 truncates a hex hash to its first 8 characters for compact display
+// in `d healed` records; hashes shorter than that pass through unchanged.
+func short8(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
 }
 
 func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
@@ -1050,9 +1224,13 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		if err != nil {
 			return err
 		}
+		rel, _ := filepath.Rel(s.ws.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "testdata", "bin", ".spectackle":
+			if s.ws.SkipDir(rel, d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -1060,8 +1238,6 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 		if index.LangOf(p) == "" {
 			return nil
 		}
-		rel, _ := filepath.Rel(s.ws.Dir, p)
-		rel = filepath.ToSlash(rel)
 		if len(c.ForPath(rel)) == 0 {
 			uncovered[filepath.ToSlash(filepath.Dir(rel))] = true
 		}
@@ -1255,9 +1431,11 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		return text(b.String())
 	}
 
-	// archive done items (skipping ones with open children)
+	// archive done items (skipping ones with open children) — same audit
+	// gate as the move tool; the cascade is loaded once for the whole batch.
+	gateOpts := s.auditGateOpts()
 	for _, it := range doneItems {
-		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact"); err != nil {
+		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
 			fmt.Fprintf(&b, "! SKIP W %s %s\n", it.ID, err.Error())
 		} else {
 			fmt.Fprintf(&b, "ok archived %s\n", it.ID)

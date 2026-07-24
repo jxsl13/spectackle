@@ -24,6 +24,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/resolve"
 	"github.com/jxsl13/spectackle/internal/store"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // ParseResult is the per-file output of a LanguageParser, cacheable by
@@ -60,8 +61,9 @@ type Indexer interface {
 
 // New wires the pipeline with a set of parsers and binding resolvers. The
 // trailing ignore globs are config.yaml-style patterns (see MatchIgnore) that
-// IndexAll consults in addition to the fixed ignoreDirs; omitting them is
-// backward compatible with existing callers.
+// IndexAll consults in addition to the built-in directory skips (see
+// workspace.DefaultSkipName / workspace.IsNestedGitBoundary); omitting them
+// is backward compatible with existing callers.
 func New(g graph.Graph, s store.Store, parsers []LanguageParser, resolvers []resolve.BindingResolver, ignore ...string) Indexer {
 	byExt := map[string]LanguageParser{}
 	for _, p := range parsers {
@@ -81,7 +83,10 @@ type indexer struct {
 }
 
 // ignoreDirs are never descended into (cache, VCS, build output, vendored or
-// generated trees). .spectackle is server-owned spec state, not source.
+// generated trees). .spectackle is server-owned spec state, not source. This
+// mirrors workspace.DefaultSkipName's built-in set; kept as its own
+// package-level map because typespass.go's moduleHashKey walk also consults
+// it (that walk must mirror IndexAll's exactly — see its doc comment).
 var ignoreDirs = map[string]bool{
 	".git": true, ".spectackle": true, "node_modules": true,
 	"testdata": true, "bin": true, "vendor": true,
@@ -96,6 +101,14 @@ func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 		}
 		if d.IsDir() {
 			if ignoreDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			// any nested git boundary (linked worktree, submodule, or nested
+			// clone) is foreign territory — this generalizes what used to be
+			// a hardcoded '.claude' skip, since agent worktrees under
+			// .claude/worktrees/<name> are ordinary linked git worktrees
+			// (see workspace.IsNestedGitBoundary).
+			if p != root && workspace.IsNestedGitBoundary(p) {
 				return filepath.SkipDir
 			}
 			return nil

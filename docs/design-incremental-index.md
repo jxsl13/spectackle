@@ -1,5 +1,9 @@
 # Design research — node removal for incremental `IndexPaths` (R-0003)
 
+> **Decision record: `ADR-0009`** — this decision now lives as a structured ADR in the server
+> (context / decision / consequences / status): `get ADR-0009`, `find scope=adr`.
+> What remains below is the evidence: the measurements, tables and reasoning.
+
 Status: research, no implementation. Scope: whether `memGraph` needs a
 delete/ownership path at all, given `IndexPaths` is currently a documented
 no-op (`internal/index/indexer.go`) and `graph.Graph` has no

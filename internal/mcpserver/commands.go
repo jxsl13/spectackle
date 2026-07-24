@@ -25,7 +25,7 @@ import (
 // the repo from filesystem markers. gen: (re)write the dialect files for a
 // harness set resolved arg > detection > elicitation (MCP-003 family): the
 // user answers a native checkbox form, or — no UI, decline, or a different
-// harness — a `decision` item is minted and left open exactly like
+// harness — an `adr` item is minted and left open exactly like
 // decideAsk (decide.go), never blocking the caller.
 type commandsIn struct {
 	Op      string   `json:"op" jsonschema:"detect|gen"`
@@ -46,6 +46,12 @@ var commandTemplates = template.Must(template.ParseFS(commandTemplateFS, "templa
 type commandsData struct {
 	Binary string
 	Tool   string
+	// RepoURL is the module's https:// repository URL, derived the same way
+	// the instructions manifest derives it (moduleRepoURL). Generated
+	// slash-command surfaces are read by agents that never see the
+	// initialize handshake, so the defect-report destination has to be named
+	// here too rather than left as "its repository".
+	RepoURL string
 }
 
 // generatedHeader is stamped into every artifact `commands gen` writes —
@@ -61,6 +67,42 @@ const (
 )
 
 var validHarnesses = map[string]bool{"claude": true, "copilot": true, "codex": true, "kimi": true}
+
+// commandSpec describes one generated command. Name is the slash-command
+// stem after the binary — empty for the main lifecycle entry point, which
+// gets the bare "<binary>.md" filename instead of "<binary>-.md". Heading is
+// the AGENTS.md managed-section heading word (codex/kimi dialect); it
+// mirrors Name except for the entry point, which keeps the historical
+// "workflow" heading. Description is the claude dialect's frontmatter
+// `description:` line and doubles as the copilot dialect's doc comment.
+type commandSpec struct {
+	Name        string
+	Heading     string
+	Template    string
+	Description string
+}
+
+// commandSpecs is the full generated-command set, in the order every
+// dialect writer emits them. Adding a command means: one new template file
+// under templates/commands, one entry here — nothing else changes.
+var commandSpecs = []commandSpec{
+	{Name: "", Heading: "workflow", Template: "workflow.md.tmpl",
+		Description: "spectackle entry point — bare = state snapshot, with a requirement = full SDD lifecycle"},
+	{Name: "state", Heading: "state", Template: "state.md.tmpl",
+		Description: "Render the current spectackle state (explicit alias for bare /spectackle)"},
+	{Name: "find", Heading: "find", Template: "find.md.tmpl",
+		Description: "Search records — code, rules, spec prose, or lifecycle items (unified `find`)"},
+	{Name: "get", Heading: "get", Template: "get.md.tmpl",
+		Description: "Read one record by ID — item, rule, node, dir, file or section"},
+	{Name: "research", Heading: "research", Template: "research.md.tmpl",
+		Description: "Server-aggregated, read-only research pack for a topic"},
+	{Name: "swarm", Heading: "swarm", Template: "swarm.md.tmpl",
+		Description: "Sibling awareness — agents, leases, worktrees, recent learnings"},
+	{Name: "export", Heading: "export", Template: "export.md.tmpl",
+		Description: "Export this workspace's knowledge (rules, ADRs, intent) as a portable artifact"},
+	{Name: "merge", Heading: "merge", Template: "merge.md.tmpl",
+		Description: "Merge several knowledge artifacts into one condensate, reporting conflicts"},
+}
 
 func (s *Server) commands(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
@@ -150,18 +192,19 @@ func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in c
 		harnesses = selected
 	}
 
-	workflowBody, err := renderCommandTemplate("workflow.md.tmpl")
-	if err != nil {
-		return nil, nil, err
-	}
-	stateBody, err := renderCommandTemplate("state.md.tmpl")
-	if err != nil {
-		return nil, nil, err
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: moduleRepoURL()}
+	bodies := make(map[string]string, len(commandSpecs))
+	for _, spec := range commandSpecs {
+		body, err := renderCommandTemplate(spec.Template, data)
+		if err != nil {
+			return nil, nil, err
+		}
+		bodies[spec.Template] = body
 	}
 
 	var b strings.Builder
 	for _, h := range harnesses {
-		files, err := writeDialect(s.ws.Dir, h, workflowBody, stateBody)
+		files, err := writeDialect(s.ws.Dir, h, data, bodies)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -215,7 +258,7 @@ func dedupHarnessHits(hits []harnessHit) []string {
 // the same req.Session.Elicit mechanism elicitSlots (tools.go) and decideAsk
 // (decide.go) use — and returns the harnesses the user checked. ok is false
 // on any non-accept outcome (no elicitation capability, decline, cancel,
-// transport error): the caller falls back to minting a decision instead of
+// transport error): the caller falls back to minting an adr item instead of
 // blocking.
 func (s *Server) commandsElicit(ctx context.Context, req *mcp.CallToolRequest) ([]string, bool) {
 	props := map[string]any{
@@ -243,14 +286,14 @@ func (s *Server) commandsElicit(ctx context.Context, req *mcp.CallToolRequest) (
 }
 
 // commandsMintDecision is the elicitation-declined/no-UI fallback: mint a
-// free-text `decision` item and leave it open (state=submitted), exactly
+// free-text `adr` item and leave it open (state=submitted), exactly
 // like decideAsk (decide.go) does when its own elicitation attempt fails —
 // duplicated minimally here rather than calling decideAsk itself, since that
 // would fire a second, differently-shaped elicitation round after ours
 // already came back empty.
 func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 	body := "kind: text\noptions: free text — comma-separated subset of claude,copilot,codex,kimi"
-	d, err := lifecycle.Draft(s.ws, s.minter(), "decision", commandsQuestion, body, "", "", nil)
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", commandsQuestion, body, "", "", nil)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
@@ -264,9 +307,8 @@ func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 
 // ---- template rendering + per-dialect writers ----
 
-func renderCommandTemplate(name string) (string, error) {
+func renderCommandTemplate(name string, data commandsData) (string, error) {
 	var buf bytes.Buffer
-	data := commandsData{Binary: "spectackle", Tool: "spectackle"}
 	if err := commandTemplates.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", err
 	}
@@ -275,70 +317,87 @@ func renderCommandTemplate(name string) (string, error) {
 
 // writeDialect dispatches to the per-harness writer and returns the
 // repo-relative paths written, for the `ok gen <harness> <path>` result
-// lines.
-func writeDialect(root, harness, workflowBody, stateBody string) ([]string, error) {
+// lines. bodies is keyed by commandSpec.Template, one rendered body per
+// generated command.
+func writeDialect(root, harness string, data commandsData, bodies map[string]string) ([]string, error) {
 	switch harness {
 	case "claude":
-		return writeClaudeDialect(root, workflowBody, stateBody)
+		return writeClaudeDialect(root, data, bodies)
 	case "copilot":
-		return writeCopilotDialect(root, workflowBody, stateBody)
+		return writeCopilotDialect(root, data, bodies)
 	case "codex", "kimi":
-		return writeAgentsSection(root, workflowBody, stateBody)
+		return writeAgentsSection(root, bodies)
 	}
 	return nil, fmt.Errorf("unknown harness %q", harness)
 }
 
-// writeClaudeDialect regenerates .claude/commands/spectackle.md and
-// spectackle-state.md — same frontmatter shape (description:) the
-// hand-written originals carried, plus the generated-header comment.
-func writeClaudeDialect(root, workflowBody, stateBody string) ([]string, error) {
+// claudeFilename/copilotFilename apply the naming convention: the main
+// entry point (Name == "") is the bare "<binary>.md" / "<binary>.prompt.md";
+// every other command is "<binary>-<name>.md" / "<binary>-<name>.prompt.md".
+func claudeFilename(binary, name string) string {
+	if name == "" {
+		return binary + ".md"
+	}
+	return binary + "-" + name + ".md"
+}
+
+func copilotFilename(binary, name string) string {
+	if name == "" {
+		return binary + ".prompt.md"
+	}
+	return binary + "-" + name + ".prompt.md"
+}
+
+// writeClaudeDialect regenerates .claude/commands/*.md — one file per
+// commandSpec, same frontmatter shape (description:) the hand-written
+// originals carried, plus the generated-header comment.
+func writeClaudeDialect(root string, data commandsData, bodies map[string]string) ([]string, error) {
 	dir := filepath.Join(root, ".claude", "commands")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	workflow := "---\ndescription: spectackle entry point — bare = state snapshot, with a requirement = full SDD lifecycle\n---\n\n" +
-		generatedHeader + "\n\n" + workflowBody
-	state := "---\ndescription: Render the current spectackle state (explicit alias for bare /spectackle)\n---\n\n" +
-		generatedHeader + "\n\n" + stateBody
-	wf := filepath.Join(dir, "spectackle.md")
-	sf := filepath.Join(dir, "spectackle-state.md")
-	if err := os.WriteFile(wf, []byte(workflow), 0o644); err != nil {
-		return nil, err
+	var files []string
+	for _, spec := range commandSpecs {
+		content := "---\ndescription: " + spec.Description + "\n---\n\n" +
+			generatedHeader + "\n\n" + bodies[spec.Template]
+		p := filepath.Join(dir, claudeFilename(data.Binary, spec.Name))
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			return nil, err
+		}
+		files = append(files, relToRoot(root, p))
 	}
-	if err := os.WriteFile(sf, []byte(state), 0o644); err != nil {
-		return nil, err
-	}
-	return []string{relToRoot(root, wf), relToRoot(root, sf)}, nil
+	return files, nil
 }
 
-// writeCopilotDialect writes .github/prompts/spectackle.prompt.md and
-// spectackle-state.prompt.md with GitHub Copilot's `mode: agent` frontmatter.
-func writeCopilotDialect(root, workflowBody, stateBody string) ([]string, error) {
+// writeCopilotDialect writes .github/prompts/*.prompt.md — one file per
+// commandSpec, with GitHub Copilot's `mode: agent` frontmatter.
+func writeCopilotDialect(root string, data commandsData, bodies map[string]string) ([]string, error) {
 	dir := filepath.Join(root, ".github", "prompts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	workflow := "---\nmode: agent\n---\n\n" + generatedHeader + "\n\n" + workflowBody
-	state := "---\nmode: agent\n---\n\n" + generatedHeader + "\n\n" + stateBody
-	wf := filepath.Join(dir, "spectackle.prompt.md")
-	sf := filepath.Join(dir, "spectackle-state.prompt.md")
-	if err := os.WriteFile(wf, []byte(workflow), 0o644); err != nil {
-		return nil, err
+	var files []string
+	for _, spec := range commandSpecs {
+		content := "---\nmode: agent\n---\n\n" + generatedHeader + "\n\n" + bodies[spec.Template]
+		p := filepath.Join(dir, copilotFilename(data.Binary, spec.Name))
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			return nil, err
+		}
+		files = append(files, relToRoot(root, p))
 	}
-	if err := os.WriteFile(sf, []byte(state), 0o644); err != nil {
-		return nil, err
-	}
-	return []string{relToRoot(root, wf), relToRoot(root, sf)}, nil
+	return files, nil
 }
 
 // writeAgentsSection creates or updates AGENTS.md's spectackle-managed
 // section (codex and kimi share it — both harnesses consume AGENTS.md) with
-// both command descriptions. Only the text between sectionBegin/sectionEnd
-// is ever touched; everything else in the file (or the whole file, if it
-// doesn't exist yet) is the repo owner's.
-func writeAgentsSection(root, workflowBody, stateBody string) ([]string, error) {
+// every command description, one "## spectackle <heading>" subsection per
+// commandSpec, in commandSpecs order — coherent instead of appended blindly.
+// Only the text between sectionBegin/sectionEnd is ever touched; everything
+// else in the file (or the whole file, if it doesn't exist yet) is the repo
+// owner's.
+func writeAgentsSection(root string, bodies map[string]string) ([]string, error) {
 	path := filepath.Join(root, "AGENTS.md")
-	section := agentsSection(workflowBody, stateBody)
+	section := agentsSection(bodies)
 
 	existing, err := os.ReadFile(path)
 	var content string
@@ -356,14 +415,17 @@ func writeAgentsSection(root, workflowBody, stateBody string) ([]string, error) 
 	return []string{relToRoot(root, path)}, nil
 }
 
-func agentsSection(workflowBody, stateBody string) string {
+func agentsSection(bodies map[string]string) string {
 	var b strings.Builder
 	b.WriteString(sectionBegin + "\n")
 	b.WriteString(generatedHeader + "\n\n")
-	b.WriteString("## spectackle workflow\n\n")
-	b.WriteString(strings.TrimRight(workflowBody, "\n") + "\n")
-	b.WriteString("\n## spectackle state\n\n")
-	b.WriteString(strings.TrimRight(stateBody, "\n") + "\n")
+	for i, spec := range commandSpecs {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("## spectackle " + spec.Heading + "\n\n")
+		b.WriteString(strings.TrimRight(bodies[spec.Template], "\n") + "\n")
+	}
 	b.WriteString(sectionEnd + "\n")
 	return b.String()
 }

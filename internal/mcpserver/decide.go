@@ -20,13 +20,15 @@ import (
 // the input struct and the (ctx, req, in) handler shape, exactly like `rule`
 // (tools.go), since `ask` needs req.Session for elicitation.
 type decideIn struct {
-	Op       string   `json:"op" jsonschema:"ask|answer|ls"`
-	ID       string   `json:"id,omitempty" jsonschema:"D-id (answer) — omit for ask"`
-	Question string   `json:"question,omitempty" jsonschema:"ask: the decision to make"`
-	Kind     string   `json:"kind,omitempty" jsonschema:"radio|confirm|text, default radio"`
-	Options  []string `json:"options,omitempty" jsonschema:"radio choices, 2-5"`
-	Item     string   `json:"item,omitempty" jsonschema:"lifecycle item this decision blocks"`
-	Choose   string   `json:"choose,omitempty" jsonschema:"answer: option text / yes|no / free text"`
+	Op           string   `json:"op" jsonschema:"ask|answer|ls"`
+	ID           string   `json:"id,omitempty" jsonschema:"ADR-id (answer) — omit for ask"`
+	Question     string   `json:"question,omitempty" jsonschema:"ask: the decision to make"`
+	Context      string   `json:"context,omitempty" jsonschema:"ADR context: the forces and constraints behind this decision"`
+	Kind         string   `json:"kind,omitempty" jsonschema:"radio|confirm|text, default radio"`
+	Options      []string `json:"options,omitempty" jsonschema:"radio choices, 2-5"`
+	Item         string   `json:"item,omitempty" jsonschema:"lifecycle item this decision blocks"`
+	Choose       string   `json:"choose,omitempty" jsonschema:"answer: option text / yes|no / free text"`
+	Consequences string   `json:"consequences,omitempty" jsonschema:"answer: ADR consequences — trade-offs and follow-on effects of the decision"`
 }
 
 // decide dispatches on op. See ask/answer/ls below for the persistence
@@ -43,7 +45,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 	return text("! ARG E - op must be ask|answer|ls")
 }
 
-// decideAsk mints a `decision` item (state=draft, kind=decision) recording
+// decideAsk mints an `adr` item (state=draft, kind=adr) recording
 // the question, its kind/options and — if in.Item is set — which item it
 // blocks (appended to that item's Needs, exactly like lifecycle.Escalate
 // links its auto-minted decisions). It then tries MCP elicitation
@@ -51,7 +53,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 // in production, see elicitSlots in tools.go): the host renders a
 // radio/confirm/text form and, on accept, the answer resolves immediately
 // (same path as `answer`). No elicitation support, decline/cancel, or any
-// transport error leaves the D-item open (state=submitted) — the caller is
+// transport error leaves the ADR-item open (state=submitted) — the caller is
 // NOT meant to block on it; it can keep working other disjoint tasks and the
 // decision gets answered later, from anywhere, via `answer`.
 func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
@@ -110,9 +112,18 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		bodyLines = append(bodyLines, "blocks: "+blocksID)
 	}
 
-	d, err := lifecycle.Draft(s.ws, s.minter(), "decision", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
+	}
+	// classic ADR fields: Context is whatever the caller supplied (may be
+	// empty); Status starts at "proposed" per the ADR convention and only
+	// moves to "accepted" once resolveDecision lands an outcome. Persist
+	// before Move so Move's own item.Get/Upsert round-trip carries them.
+	d.Context = in.Context
+	d.Status = "proposed"
+	if err := item.Upsert(s.ws, d); err != nil {
+		return nil, nil, err
 	}
 	// asked = open, not merely drafted: docs/tools.md #14 documents the
 	// no-answer-yet outcome as "state=submitted" — resolveDecision (below)
@@ -145,7 +156,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		},
 	})
 	if err == nil && res.Action == "accept" {
-		return s.resolveDecision(d.ID, decideChoiceString(kind, res.Content["choice"]))
+		return s.resolveDecision(d.ID, decideChoiceString(kind, res.Content["choice"]), "")
 	}
 	return text(fmt.Sprintf("need decision %s %s | %s", d.ID, in.Question, strings.Join(opts, ", ")))
 }
@@ -185,7 +196,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ok || d.Kind != "decision" {
+	if !ok || d.Kind != "adr" {
 		return text("! ARG E - unknown decision " + in.ID)
 	}
 	if d.State == item.StateDone {
@@ -205,7 +216,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		}
 		choose = matched
 	}
-	return s.resolveDecision(d.ID, choose)
+	return s.resolveDecision(d.ID, choose, in.Consequences)
 }
 
 // decideOptions extracts the fixed option set (if any) a decision was asked
@@ -215,10 +226,10 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 //     commas). This is what NEW decisions write.
 //  2. the legacy `options: a, b, c` comma-joined line decideAsk used to
 //     write — kept forever so existing items/journals stay answerable
-//     without migration (this repo's D-0002 is such an item: its option
-//     text itself contains commas, so the comma-split fragments it into
-//     more pieces than were intended, but that shattered form is exactly
-//     what remains answerable — it is not rewritten to option: lines).
+//     without migration (when an option's own text contains commas, the
+//     comma-split fragments it into more pieces than were intended, but
+//     that shattered form is exactly what remains answerable — it is not
+//     rewritten to option: lines).
 //  3. lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
 //     foundation, not writable from this package).
 //
@@ -258,7 +269,13 @@ func decideOptions(body string) []string {
 // lifecycle.ResolveBlocked; any other blocked-on item just has this
 // decision's ID cleared from its Needs (the ordinary decide-ask-on-any-item
 // case — nothing to unblock, it was never in item.StateBlocked).
-func (s *Server) resolveDecision(id, choice string) (*mcp.CallToolResult, any, error) {
+//
+// It also lands the classic ADR fields: Decision gets the chosen option and
+// Status moves to "accepted" — both on every resolution path (op=answer, and
+// op=ask's immediate-accept-via-elicitation shortcut, which resolves the same
+// way in one round trip). consequences is optional free text from op=answer
+// only ("" from the ask path) and is stored verbatim when non-empty.
+func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallToolResult, any, error) {
 	d, ok, err := item.Get(s.ws, id)
 	if err != nil {
 		return nil, nil, err
@@ -272,6 +289,11 @@ func (s *Server) resolveDecision(id, choice string) (*mcp.CallToolResult, any, e
 		d.Body = strings.TrimRight(d.Body, "\n") + "\n"
 	}
 	d.Body += "choice: " + choice
+	d.Decision = choice
+	d.Status = "accepted"
+	if consequences != "" {
+		d.Consequences = consequences
+	}
 	if err := item.Upsert(s.ws, d); err != nil {
 		return nil, nil, err
 	}
@@ -336,7 +358,7 @@ func (s *Server) decideLs() (*mcp.CallToolResult, any, error) {
 	}
 	var b strings.Builder
 	for _, it := range items {
-		if it.Kind != "decision" || it.State == item.StateDone {
+		if it.Kind != "adr" || it.State == item.StateDone {
 			continue
 		}
 		b.WriteString(item.Record(it) + "\n")

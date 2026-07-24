@@ -75,7 +75,7 @@ func lifecycleLines(task string) []string {
 		"5 on explicit user approval: move to=approved (or straight to=active, one call)",
 		"6 fanout: partition approved tasks by disjoint scope (leases prove disjointness), spawn one fresh cheap-model implementer per task in parallel, serialize only shared-file wiring yourself",
 		"7 check until ok; review diffs, run the declared gate/verify commands - never trust a done you haven't checked",
-		"8 move to=done then to=archived (active->archived in one call implies done, merges spec.md); if a task escalates to blocked (rounds limit), resolve the auto-minted D-item via decide (rescope|reject|override-once) before continuing that task's line of work",
+		"8 move to=done then to=archived (active->archived in one call implies done, merges spec.md); if a task escalates to blocked (rounds limit), resolve the auto-minted ADR-item via decide (rescope|reject|override-once) before continuing that task's line of work",
 	}
 }
 
@@ -181,7 +181,7 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 		for _, cand := range items {
 			// blocked items (item.StateBlocked, set by lifecycle.Escalate) and
 			// items still blocked on an open need (see hasOpenNeeds) are not
-			// actionable work — decide first, via the linked D-item.
+			// actionable work — decide first, via the linked ADR-item.
 			if cand.State == item.StateBlocked || hasOpenNeeds(s.ws, cand, byID) {
 				continue
 			}
@@ -264,7 +264,7 @@ func itemsByID(items []item.Item) map[string]item.Item {
 }
 
 // hasOpenNeeds reports whether cand is still blocked on any of its Needs
-// (decision items minted by decide op=ask or lifecycle.Escalate). A need is
+// (adr items minted by decide op=ask or lifecycle.Escalate). A need is
 // resolved when the referenced item is done/archived; when it is gone from
 // work.md entirely, it resolves only if lifecycle.Tombstone finds an archive
 // record for it — a need that resolves nowhere at all stays open

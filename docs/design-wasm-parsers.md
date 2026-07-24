@@ -1,5 +1,9 @@
 # Design research — wazero × tree-sitter feasibility (R-0004)
 
+> **Decision record: `ADR-0010`** — this decision now lives as a structured ADR in the server
+> (context / decision / consequences / status): `get ADR-0010`, `find scope=adr`.
+> What remains below is the evidence: the measurements, tables and reasoning.
+
 Status: research, no implementation. Scope: is the M6 "wazero/WASM parser
 backend replaces cgo tree-sitter" target picture (docs/architecture.md §2,
 docs/roadmap.md M6) actually buildable today, and with what first slice?
@@ -133,3 +137,60 @@ call-graph fidelity (C/C++/CUDA/ObjC's existing cgo backends,
 docs/architecture.md §2) rather than langspec's line/regex-level symbol
 extraction. Neither track blocks the other; M6 can ship the langspec
 cookbook on schedule while this WASM question stays open past it.
+
+## Re-measurement (ADR-0011, reopen-poc)
+
+T-0081, 2026-07-24. Reproduced T-0040's measurements
+(poc/wasmparse/cmd/{poc,sizewith,sizewithout}) in isolation on this repo to
+verify the numbers hold as a fresh baseline now that langspec spans 30
+languages.
+
+**Binary size (CGO_ENABLED=0)**:
+- `sizewithout` (minimal baseline): 2,266,712 bytes
+- `sizewith` (malivvan/tree-sitter v0.0.1 embedded + wazero runtime): 11,511,469 bytes
+- **Δ = 9,244,757 bytes (9.24 MB)** — **PASS** on the ≤10 MB budget.
+
+**Parity (tree-sitter C grammar via wazero vs. cSpec oracle)**:
+- Corpus: 51 files (50 synthetic + 1 real C header), 9,621 LOC.
+- Matches (within ±1 line): 1,151; regressions: 0; gains: 0 — **PASS**.
+
+**Latency (warm parse, 5 passes)**:
+- cSpec oracle (production baseline): 145–151 ms for the corpus → **145–151 ms per 100k LOC** (33.2×–34.4× headroom vs. M4's 5 s budget).
+- tree-sitter wasm (malivvan binding): 194–517 ms → **2.0–5.4 s per 100k LOC** (0.9×–2.5× headroom) — **FAIL**. Worst-case warm parse leaves < 1.0× margin to the 5 s limit; the ~2× run-to-run variance is structural (Go GC pauses from the binding's per-call `[]uint64` allocation churn).
+
+**Availability**: malivvan/tree-sitter v0.0.1 embeds and exports only
+`language_c`/`language_cpp`. No wasi-sdk grammar `.wasm` for CUDA or ObjC
+was published at research time (Emscripten builds remain the only option
+for those, incompatible with §2's wasi-sdk assumption).
+
+### Recommendation (orchestrator)
+
+**Evaluation axis (user steer, 2026-07-24): correctness first, performance
+second.** The point of a real tree-sitter grammar over langspec's
+line/regex approximation is *fidelity* on the hard C/C++ constructs the
+regex chain can only approximate (macros, multi-line declarators,
+templates); latency is amortizable because spectackle already caches parse
+blobs and re-indexes incrementally, so the wazero parse cost is paid once
+on initial read, not per query. Re-reading the data through that lens:
+
+- **Correctness** — bit-level parity with the cSpec oracle on the C corpus
+  (1,151 symbols, 0 regressions), and strictly *more* correct on the
+  grammar-level constructs a line scanner cannot see. This is the axis that
+  matters, and wazero/tree-sitter wins or ties it.
+- **Latency** — the 2.0–5.4 s/100k-LOC figure is **not decisive**: it is a
+  one-time initial-read cost the parse-blob cache (M2) amortizes, exactly
+  the "optimize via caching after the initial read" the user calls out.
+  Note it, don't gate on it.
+- **Binary size** — 9.24 MB, within budget. Not a blocker.
+
+**The one remaining real blocker is grammar availability, not
+performance.** No WASI-sdk grammar `.wasm` for CUDA or ObjC was published at
+research time (only Emscripten builds, incompatible with §2's wasi-sdk host
+ABI), so a wazero backend cannot today cover the native-binding languages
+that are spectackle's whole reason for existing. So the honest,
+correctness-first outcome of reopening ADR-0011 into ADR-0010: **the approach is sound and
+latency is not the obstacle — the blocker is a WASI-native multi-grammar
+distribution for C/C++/CUDA/ObjC.** The first buildable slice is therefore
+to secure or hand-compile (wasi-sdk) those grammar `.wasm` files; once they
+exist, tree-sitter fidelity is worth adopting and the cache absorbs the
+parse cost.

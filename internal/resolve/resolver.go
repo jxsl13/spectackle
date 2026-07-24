@@ -40,5 +40,6 @@ func Default() *Registry {
 	r.Register(Plan9AsmResolver{})
 	r.Register(CudaResolver{})
 	r.Register(GpuPipeResolver{})
+	r.Register(VulkanResolver{})
 	return r
 }

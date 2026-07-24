@@ -39,7 +39,21 @@ spec-driven-development lifecycle to completion:
    into spec.md. Commit/PR per this repo's normal git conventions.
 
 If any task escalates to `blocked` (rounds limit hit), resolve the
-auto-minted D-item via `decide` — `rescope`, `reject`, or `override-once`
+auto-minted ADR-item via `decide` — `rescope`, `reject`, or `override-once`
 — before continuing that task's line of work.
+
+Records: write every item body — proposal, task, ADR, research — as
+compacted substance: constraints, decisions, measurements, rejected
+alternatives and why. Never paste verbatim user quotes or transcript
+excerpts; they bloat every later read of the record without adding
+information. Write every item body in American English: spelling variants
+(behavior/behaviour, initialize/initialise) fragment full-text matches
+exactly like a language mix does. Compact the input, lose nothing.
+
+Defects: notice a defect in {{.Tool}} itself, not in this repository? Open
+an issue with your analysis (reproduction, observed vs. expected, isolated
+cause if known) at {{.RepoURL}}, never a fix PR — you lack the design
+context behind the code as written, and reviewing an unsolicited patch
+costs the maintainer more than the analysis would have saved them.
 
 Requirement: $ARGUMENTS

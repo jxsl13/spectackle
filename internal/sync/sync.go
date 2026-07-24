@@ -52,7 +52,7 @@ func (s *Scanner) Refresh() error {
 		}
 		for _, b := range []bundle{
 			{s.Root.SpecPath(ctx), []string{"rule", "section"}, s.feedSpec},
-			{s.Root.WorkPath(ctx), []string{"proposal", "task", "bug", "research"}, s.feedWork},
+			{s.Root.WorkPath(ctx), []string{"proposal", "task", "bug", "research", "adr"}, s.feedWork},
 			{s.Root.JournalPath(ctx), []string{"journal", "rejection"}, s.feedJournal},
 		} {
 			st, err := os.Stat(b.path)

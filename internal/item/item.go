@@ -17,11 +17,12 @@ import (
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
-// Kinds and their ID letters. decision items are minted by
-// lifecycle.Escalate (see internal/lifecycle) to record the way out of a
-// rounds-exhausted feedback loop — never drafted directly by an agent.
+// Kinds and their ID letters. adr items (architecture decision records,
+// formerly "decision") are minted by lifecycle.Escalate (see
+// internal/lifecycle) to record the way out of a rounds-exhausted feedback
+// loop — never drafted directly by an agent.
 var kindLetter = map[string]string{
-	"proposal": "P", "task": "T", "bug": "B", "research": "R", "decision": "D",
+	"proposal": "P", "task": "T", "bug": "B", "research": "R", "adr": "ADR",
 }
 
 // States of the lifecycle state machine (see internal/lifecycle).
@@ -46,12 +47,26 @@ const (
 
 // Item is one lifecycle item.
 type Item struct {
-	ID      string
-	Kind    string
-	State   string
-	Title   string
-	Dir     string // context dir (repo-relative, "" = root)
-	Parent  string
+	ID     string
+	Kind   string
+	State  string
+	Title  string
+	Dir    string // context dir (repo-relative, "" = root)
+	Parent string
+
+	// Refs is a general citation set: item IDs this item cites, of any kind
+	// in either direction — research citing research, a proposal citing the
+	// research that produced it, an ADR naming the research that fed it.
+	// Order-preserving and duplicate-free (duplicates collapse on write).
+	// It differs from both other cross-item fields: Parent is a single
+	// structural owner (one task belongs to one proposal), Needs means
+	// blocked-on and drives the escalation exits, while Refs carries no
+	// lifecycle meaning at all — a plain citation the state machine never
+	// interprets. Shape and existence are validated at the write path (see
+	// UnknownRefs), never by Parse: a ref may legitimately point at an item
+	// archived out of work.md.
+	Refs []string
+
 	Created string // YYYY-MM-DD
 	Goal    string // optional shell command gating work-submit (benchmark/verify target)
 	Targets []string
@@ -63,10 +78,25 @@ type Item struct {
 	Grilled  string   // most recent grill feedback (freeform, survives rescope)
 	Needs    []string // IDs this item is blocked on (decision items minted by Escalate)
 	Override bool     // override-once already spent — cannot be spent again
+
+	// ADR template fields (architecture decision records; kind=="adr").
+	// Always empty and omitted for every other kind — these are structured
+	// replacements for what used to be prose in Body, not general-purpose
+	// fields. Status follows the classic ADR convention proposed|accepted|
+	// superseded|deprecated; an empty Status on an adr item is conventionally
+	// read as "proposed".
+	Context      string // the forces and constraints behind the decision
+	Decision     string // the chosen option, verbatim
+	Consequences string // trade-offs and follow-on effects of the decision
+	Status       string // proposed|accepted|superseded|deprecated
 }
 
-// IDRe matches item IDs like P-0007 or D-0007 (decision).
-var IDRe = regexp.MustCompile(`^[PTBRD]-\d{4}$`)
+// IDRe matches item IDs like P-0007 or ADR-0007 (adr). D-0007 is also
+// accepted: the legacy ID letter for adr items before the decision->adr
+// rename — existing D-xxxx items in .spectackle files are not migrated by
+// this change, so the regex must keep reading them. New adr items are
+// always minted as ADR-NNNN (see kindLetter above); D is legacy-only.
+var IDRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-\d{4}$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
@@ -77,10 +107,15 @@ func NextID(kind string, maxSeen int) string {
 	return fmt.Sprintf("%s-%04d", kindLetter[kind], maxSeen+1)
 }
 
-// Num extracts the numeric part of an item ID (0 if malformed).
+// Num extracts the numeric part of an item ID (0 if malformed). Handles both
+// single-letter (P-0007) and multi-letter (ADR-0007) prefixes.
 func Num(id string) int {
+	i := strings.IndexByte(id, '-')
+	if i < 0 {
+		return 0
+	}
 	var n int
-	if _, err := fmt.Sscanf(id[2:], "%d", &n); err != nil {
+	if _, err := fmt.Sscanf(id[i+1:], "%d", &n); err != nil {
 		return 0
 	}
 	return n
@@ -89,7 +124,7 @@ func Num(id string) int {
 // Letter returns the ID letter for a kind ("" if unknown).
 func Letter(kind string) string { return kindLetter[kind] }
 
-var reItemHeading = regexp.MustCompile(`^## +([PTBRD]-\d{4}) +(.+?) *$`)
+var reItemHeading = regexp.MustCompile(`^## +((?:ADR|[PTBRD])-\d{4}) +(.+?) *$`)
 
 // LoadWork parses a work.md file (missing file = no items).
 func LoadWork(path, ctx string) ([]Item, error) {
@@ -125,6 +160,8 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Created = v
 			case "parent":
 				it.Parent = v
+			case "refs":
+				it.Refs = splitList(v)
 			case "goal":
 				it.Goal = v
 			case "targets":
@@ -140,6 +177,14 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Needs = splitList(v)
 			case "override":
 				it.Override = v == "true"
+			case "context":
+				it.Context = v
+			case "decision":
+				it.Decision = v
+			case "consequences":
+				it.Consequences = v
+			case "status":
+				it.Status = v
 			}
 		}
 		// body: until next item heading
@@ -240,6 +285,9 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		if it.Parent != "" {
 			b.WriteString("parent: " + it.Parent + "\n")
 		}
+		if refs := dedupeStrings(it.Refs); len(refs) > 0 {
+			b.WriteString("refs: " + strings.Join(refs, ", ") + "\n")
+		}
 		if it.Goal != "" {
 			b.WriteString("goal: " + it.Goal + "\n")
 		}
@@ -254,6 +302,18 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		}
 		if it.Override {
 			b.WriteString("override: true\n")
+		}
+		if it.Context != "" {
+			b.WriteString("context: " + it.Context + "\n")
+		}
+		if it.Decision != "" {
+			b.WriteString("decision: " + it.Decision + "\n")
+		}
+		if it.Consequences != "" {
+			b.WriteString("consequences: " + it.Consequences + "\n")
+		}
+		if it.Status != "" {
+			b.WriteString("status: " + it.Status + "\n")
 		}
 		if len(it.Targets) > 0 {
 			b.WriteString("targets: " + strings.Join(it.Targets, ", ") + "\n")
@@ -273,6 +333,46 @@ func splitList(v string) []string {
 	for _, s := range strings.Split(v, ",") {
 		if s = strings.TrimSpace(s); s != "" && s != "-" {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// dedupeStrings returns ss with duplicates removed, keeping the order of
+// first appearance. Used when rendering Refs so accidental repeats in a
+// proposed reference set don't get written twice.
+func dedupeStrings(ss []string) []string {
+	if len(ss) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(ss))
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// UnknownRefs validates a proposed reference set for item selfID against
+// known, the set of currently loadable item IDs, and reports — in refs'
+// input order — every entry that is unusable as a citation: malformed (does
+// not match IDRe), self-referential (equal to selfID, always a mistake), or
+// absent from known. An entry failing more than one check is reported once.
+//
+// UnknownRefs is deliberately not called from Parse: a work.md may
+// legitimately cite an item that has since been archived out of work.md,
+// and a parser that refused to load such a file would make a dangling
+// citation unrecoverable. Validation belongs at the write path, which
+// should call UnknownRefs before persisting and reject or warn on a
+// non-empty result.
+func UnknownRefs(selfID string, refs []string, known map[string]bool) []string {
+	var out []string
+	for _, r := range refs {
+		if !IDRe.MatchString(r) || r == selfID || !known[r] {
+			out = append(out, r)
 		}
 	}
 	return out
