@@ -1,0 +1,4 @@
+{"t":"2026-07-24T02:26:54Z","eid":"13eb7ee9437a689e","ag":"orchestrator","ev":"create","id":"T-0010","k":"task","ti":"implement serve -http (Streamable HTTP, resident localhost service)","dir":"cmd/spectacle"}
+{"t":"2026-07-24T02:28:03Z","eid":"a4155da574642aee","ag":"agent-http","ev":"move","id":"T-0010","dir":"cmd/spectacle","fr":"draft","to":"active"}
+{"t":"2026-07-24T02:30:08Z","eid":"bfe1337c00fe873d","ag":"agent-http","ev":"move","id":"T-0010","dir":"cmd/spectacle","fr":"active","to":"done"}
+{"t":"2026-07-24T02:31:59Z","eid":"44b27b9339e76db8","ag":"orchestrator","ev":"archive","id":"T-0010","k":"task","ti":"implement serve -http (Streamable HTTP, resident localhost service)","dir":"cmd/spectacle","sum":"archived with parent P-0005"}

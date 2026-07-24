@@ -1,7 +1,9 @@
 // Command spectacle is the spec-driven MCP server for cross-language
 // codebases. Subcommands:
 //
-//	spectacle serve [-root DIR]   run the MCP server on stdio (workspace auto-detected)
+//	spectacle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
+//	                                         Streamable HTTP when -http is set
+//	                                         (workspace auto-detected)
 //	spectacle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
 //	spectacle reindex [-root DIR] force a cache resync (debugging aid)
 //	spectacle version             print the version
@@ -12,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,7 +56,9 @@ func main() {
 
 func usage() {
 	log.Print(`usage:
-  spectacle serve [-root DIR]   run the MCP server on stdio (workspace auto-detected)
+  spectacle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
+                                            Streamable HTTP when -http is set
+                                            (workspace auto-detected)
   spectacle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
   spectacle reindex [-root DIR] force a cache resync
   spectacle version             print the version`)
@@ -67,15 +72,35 @@ func rootFlag(name string, args []string) string {
 }
 
 func serve(args []string) int {
-	root := rootFlag("serve", args)
-	s, err := mcpserver.New(root)
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace detection start / fallback root")
+	httpAddr := fs.String("http", "", "serve over Streamable HTTP on this address (e.g. 127.0.0.1:7331) instead of stdio")
+	_ = fs.Parse(args)
+
+	s, err := mcpserver.New(*root)
 	if err != nil {
 		log.Printf("serve: %v", err)
 		return 1
 	}
 	defer s.Close()
-	log.Printf("spectacle %s serving over stdio", mcpserver.Version)
-	if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+
+	if *httpAddr == "" {
+		log.Printf("spectacle %s serving over stdio", mcpserver.Version)
+		if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+			log.Printf("serve: %v", err)
+			return 1
+		}
+		return 0
+	}
+
+	// v0 limitation: a single shared *mcp.Server instance backs every HTTP
+	// session, so graph/cache/worktree lifecycle state is shared across all
+	// connected clients (see docs/architecture.md §8).
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
+		return s.MCP()
+	}, nil)
+	log.Printf("spectacle %s serving over http on %s", mcpserver.Version, *httpAddr)
+	if err := http.ListenAndServe(*httpAddr, handler); err != nil {
 		log.Printf("serve: %v", err)
 		return 1
 	}
