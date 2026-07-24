@@ -357,6 +357,29 @@ func TestGrillQuestionsSkipsWithRejectedAlternativeBody(t *testing.T) {
 	}
 }
 
+// TestGrillQuestionsSkipsWithRejectedSectionMarker: this repo's proposals
+// write "Rejected: <approach>. <why>" and never use the word "alternative".
+// Requiring that word made the check fire on well-deliberated proposals —
+// a false negative on exactly the population it exists to leave alone.
+func TestGrillQuestionsSkipsWithRejectedSectionMarker(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+
+	if _, _, err := s.draft(draftIn{
+		Kind: "proposal", Title: "ulid item ids",
+		Body: boilerplateBody + "Rejected: UUIDv7 in canonical hex. Same 128 bits " +
+			"and the same properties for ten more characters per id.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	out := resText(t, res, err)
+	if strings.Contains(out, "q deliberation not addressed") {
+		t.Fatalf("proposal with a Rejected: section should not be asked: %q", out)
+	}
+}
+
 // TestGrillQuestionsNeverFiresForTasks: the deliberation question is
 // proposal-only — a task with neither refs nor an alternative line never
 // gets it.

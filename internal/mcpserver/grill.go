@@ -268,6 +268,16 @@ func recordsDeliberation(it item.Item, lowerBody string) bool {
 			return true
 		}
 	}
+	// "rejected:" as a section marker is this repo's actual convention —
+	// the RECORDS rule teaches "rejected alternatives and why", and
+	// proposals write "Rejected: <approach>. <why>" without ever using the
+	// word "alternative". Requiring that word made the check miss every
+	// well-deliberated proposal here, which is a false negative on exactly
+	// the population it exists to leave alone. The colon keeps it a
+	// deliberate marker rather than any passing mention of a rejection.
+	if strings.Contains(lowerBody, "rejected:") {
+		return true
+	}
 	return strings.Contains(lowerBody, "alternative") &&
 		(strings.Contains(lowerBody, "reject") || strings.Contains(lowerBody, "consider"))
 }

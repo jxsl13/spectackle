@@ -106,3 +106,8 @@ Rationale: The orchestrator's real question is what is claimable, not what is ap
 WHEN the compact dry-run runs, the server SHALL report each redundant rejection cluster as one `c <dir> redundant <canonical>+<superseded>` record and never supersede automatically.
 
 Rationale: Same precedent as MCP-005 for mergeable rules, and stronger here: a wrongly merged rule can be split again, while a wrongly superseded rejection hides a lesson exactly when someone is about to repeat it.
+
+## MCP-015
+WHEN a commit inside a linked git worktree stages any `.spectackle` path, the generated pre-commit hook SHALL exit 1 naming every offending path, while leaving code-only worktree commits untouched.
+
+Rationale: SPX-SWM-001 already confines agent branch commits to code; work op=submit depends on that path staying open. An orchestrator cwd slip put record files on a worktree branch once, which this catches.
