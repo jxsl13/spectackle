@@ -75,3 +75,5 @@
 {"t":"2026-07-24T12:51:21Z","eid":"16acd14dd0abc0c8","ag":"agent-ddnet","ev":"move","id":"T-0051","dir":"internal/langspec","fr":"active","to":"done"}
 {"t":"2026-07-24T12:52:52Z","eid":"b57f1b58a4c3799c","ag":"orchestrator","ev":"create","id":"T-0053","k":"task","ti":"Allman-style brace spans: ddnet's C++ must scan — then re-validate","dir":"internal/langspec"}
 {"t":"2026-07-24T12:53:01Z","eid":"4e374259d8d643dc","ag":"orchestrator","ev":"move","id":"T-0053","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:55:42Z","eid":"151fd985e9538f7f","ag":"agent-allman","ev":"move","id":"T-0053","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T13:07:12Z","eid":"9f8c04b12583e1c4","ag":"agent-allman","ev":"move","id":"T-0053","dir":"internal/langspec","fr":"active","to":"done"}

@@ -192,6 +192,47 @@ func TestCppSpecCallEdgesOutOfLineMethod(t *testing.T) {
 	}
 }
 
+// cppAllmanSrc is T-0053's end-to-end regression, mirroring ddnet's
+// universal brace style: the opening '{' sits on the line *after* the def
+// line instead of on it. cppSpec's out-of-line method Def (`Foo::Bar(`, see
+// cpp.go) has no trailing-anchor requirement, so it already minted a
+// cpp:Render node for this shape before T-0053 — what braceSpan's Allman
+// extension fixes is that the body (and its call edge to str_copy, a C
+// function from ddnet's base/system.c that's heavily called across the
+// cpp:/c: FFI boundary) now actually gets scanned instead of collapsing to
+// EndLine == Line with zero edges.
+var cppAllmanSrc = []byte(`void CClass::Render()
+{
+	str_copy(m_aBuf, "hello", sizeof(m_aBuf));
+}
+`)
+
+func TestCppSpecAllmanMethodCallEdges(t *testing.T) {
+	p := SpecParser{S: cppSpec}
+	pr, err := p.Parse("render.cpp", cppAllmanSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+	n, ok := byID["cpp:Render"]
+	if !ok {
+		t.Fatalf("node cpp:Render missing, got %+v", pr.Nodes)
+	}
+	if n.Line != 1 || n.EndLine != 4 {
+		t.Errorf("cpp:Render Line/EndLine = %d/%d, want 1/4 (Allman body scanned)", n.Line, n.EndLine)
+	}
+	if len(pr.Edges) != 1 {
+		t.Fatalf("want exactly 1 ECall edge, got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	e := pr.Edges[0]
+	if e.Src != "cpp:Render" || e.Dst != "cpp:str_copy" || e.Kind != graph.ECall {
+		t.Errorf("edge = %+v, want cpp:Render -ECall-> cpp:str_copy", e)
+	}
+	if e.File != "render.cpp" || e.Line != 3 {
+		t.Errorf("edge File/Line = %q/%d, want render.cpp/3", e.File, e.Line)
+	}
+}
+
 func TestCppSpecDeterministic(t *testing.T) {
 	p := SpecParser{S: cppSpec}
 	pr1, err := p.Parse("shapes.cpp", cppSrc)

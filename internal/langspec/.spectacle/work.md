@@ -56,7 +56,7 @@ EXIT CRITERION: docs/validation-ddnet.md exists with real measured numbers (no p
 
 ## T-0053 Allman-style brace spans: ddnet's C++ must scan — then re-validate
 kind: task
-state: approved
+state: done
 created: 2026-07-24
 parent: P-0026
 
