@@ -39,3 +39,12 @@
 {"t":"2026-07-24T11:58:29Z","eid":"8e9f40b14da99cb0","ag":"orchestrator","ev":"archive","id":"T-0041","k":"task","ti":"langspec batch D: kotlin + swift","dir":"internal/langspec","sum":"archived with parent P-0023"}
 {"t":"2026-07-24T11:58:29Z","eid":"99971e43e1842152","ag":"orchestrator","ev":"archive","id":"T-0042","k":"task","ti":"langspec batch E: c# + scala","dir":"internal/langspec","sum":"archived with parent P-0023"}
 {"t":"2026-07-24T11:58:29Z","eid":"38bb321245f46f68","ag":"orchestrator","ev":"archive","id":"T-0043","k":"task","ti":"langspec batch F: shell + lua + zig + perl","dir":"internal/langspec","sum":"archived with parent P-0023"}
+{"t":"2026-07-24T12:05:10Z","eid":"6e0e3955963363b4","ag":"orchestrator","ev":"create","id":"P-0025","k":"proposal","ti":"langspec wave 3: dart, groovy, elixir, erlang, julia, haskell, ocaml, r — 28 languages total","dir":"internal/langspec"}
+{"t":"2026-07-24T12:06:06Z","eid":"78a597cfca1fe2f4","ag":"orchestrator","ev":"grill","id":"P-0025","dir":"internal/langspec","gr":"2026-07-24"}
+{"t":"2026-07-24T12:06:06Z","eid":"af106e47dddf41b3","ag":"orchestrator","ev":"create","id":"T-0045","k":"task","ti":"langspec batch G: dart + groovy","dir":"internal/langspec"}
+{"t":"2026-07-24T12:06:06Z","eid":"a347f834871848ea","ag":"orchestrator","ev":"create","id":"T-0046","k":"task","ti":"langspec batch H: elixir + erlang + julia","dir":"internal/langspec"}
+{"t":"2026-07-24T12:06:06Z","eid":"d2f049790a4d5b57","ag":"orchestrator","ev":"create","id":"T-0047","k":"task","ti":"langspec batch I: haskell + ocaml + r","dir":"internal/langspec"}
+{"t":"2026-07-24T12:06:17Z","eid":"7c3cd1037cefbc96","ag":"orchestrator","ev":"move","id":"P-0025","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:06:17Z","eid":"c995c1c43d81627f","ag":"orchestrator","ev":"move","id":"T-0045","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:06:17Z","eid":"efb03728b697bb9a","ag":"orchestrator","ev":"move","id":"T-0046","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:06:17Z","eid":"ac840d861fd98dab","ag":"orchestrator","ev":"move","id":"T-0047","dir":"internal/langspec","fr":"draft","to":"approved"}

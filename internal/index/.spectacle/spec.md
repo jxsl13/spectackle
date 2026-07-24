@@ -7,3 +7,6 @@ schema: v0
 - P-0013 M3 slice 2: module-hash cache for the typed-call pass: typed-call cache: module-hash key, cache hit skips packages.Load (sentinel-proven)
 - T-0026 honor config.yaml ignore globs in IndexAll: config ignore globs honored in IndexAll, server passes Cfg.Ignore
 - R-0003 graph node removal for true incremental IndexPaths: measure-first: incremental indexing not worth building; M4 gate already cleared 7-15x
+
+## IDX-001 {applies: go:index.LangOf,go:index.indexer.IndexAll}
+The indexer SHALL treat `extLang` as the single source of truth for extension-to-language routing and flush the parse-blob store exactly once per `IndexAll` run.

@@ -1,0 +1,6 @@
+{"t":"2026-07-24T12:04:27Z","eid":"7e5741de98cc97be","ag":"orchestrator","ev":"create","id":"P-0024","k":"proposal","ti":"rule edit must reconcile the anchor set — stale applies rows survive forever","dir":"internal/drift"}
+{"t":"2026-07-24T12:04:50Z","eid":"66140b8cad08aa95","ag":"orchestrator","ev":"rule","dir":"internal/drift","op":"add","rule":"DRF-001","txt":"WHEN `rule op=edit` or `op=retire` changes a rule's `applies` set, the spectacle server SHALL reconcile anchors.tsv via `drift.Reconcile` — rows of that rule absent from the new set are dropped before the new rows are stamped.","ap":["go:mcpserver.Server.stampAnchors","go:drift.Upsert"],"item":"P-0024"}
+{"t":"2026-07-24T12:04:50Z","eid":"4b27e11824b95e66","ag":"orchestrator","ev":"grill","id":"P-0024","dir":"internal/drift","gr":"2026-07-24"}
+{"t":"2026-07-24T12:04:50Z","eid":"07ea9eea482472a6","ag":"orchestrator","ev":"create","id":"T-0044","k":"task","ti":"drift.Reconcile: rule edit/retire drops stale anchor rows","dir":"internal/drift"}
+{"t":"2026-07-24T12:05:10Z","eid":"93d34611c2972663","ag":"orchestrator","ev":"move","id":"P-0024","dir":"internal/drift","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:05:10Z","eid":"3d3b1d5627b6712d","ag":"orchestrator","ev":"move","id":"T-0044","dir":"internal/drift","fr":"draft","to":"approved"}
