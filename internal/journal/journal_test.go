@@ -58,6 +58,53 @@ func TestReadAllAcrossContexts(t *testing.T) {
 	}
 }
 
+func TestFeedbackEventKindsDefined(t *testing.T) {
+	for _, ev := range []string{EvGrill, EvDecide, EvEscalate} {
+		if ev == "" {
+			t.Fatal("feedback event kind not defined")
+		}
+	}
+}
+
+func TestFeedbackFieldsRoundtrip(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	// reject snapshot roundtrip: Rnd/Gr/Nd/Ov carry the feedback-loop state
+	e := Event{
+		Ev: EvReject, ID: "T-0001", K: "task", Ti: "grilled task",
+		Note: "not worth it", Sum: "task grilled task",
+		Rnd: 3, Gr: "needs more test coverage", Nd: []string{"D-0001"}, Ov: true,
+	}
+	if err := Append(ws, "", e); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(ws, "", Event{Ev: EvEscalate, ID: "T-0002", Rnd: 3, Nd: []string{"D-0002"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(ws, "", Event{Ev: EvGrill, ID: "T-0002", Gr: "flaky under load"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(ws, "", Event{Ev: EvDecide, ID: "T-0002", To: "draft", Ov: true}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := Read(ws, "")
+	if err != nil || len(events) != 4 {
+		t.Fatalf("Read = %d events, %v", len(events), err)
+	}
+	got := events[0]
+	if got.Rnd != 3 || got.Gr != "needs more test coverage" || len(got.Nd) != 1 || got.Nd[0] != "D-0001" || !got.Ov {
+		t.Fatalf("reject snapshot feedback fields mismatch: %+v", got)
+	}
+	if events[1].Ev != EvEscalate || events[1].Rnd != 3 || len(events[1].Nd) != 1 {
+		t.Fatalf("escalate event mismatch: %+v", events[1])
+	}
+	if events[2].Ev != EvGrill || events[2].Gr != "flaky under load" {
+		t.Fatalf("grill event mismatch: %+v", events[2])
+	}
+	if events[3].Ev != EvDecide || events[3].To != "draft" || !events[3].Ov {
+		t.Fatalf("decide event mismatch: %+v", events[3])
+	}
+}
+
 func TestRewrite(t *testing.T) {
 	ws := workspace.Root{Dir: t.TempDir()}
 	for i := 0; i < 3; i++ {

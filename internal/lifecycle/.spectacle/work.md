@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0030 foundation: item fields + blocked state + rounds/escalation in lifecycle + journal/replay
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0018
 

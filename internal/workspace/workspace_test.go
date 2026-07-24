@@ -91,3 +91,45 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 		t.Fatalf("NearestContext fallback = %q", got)
 	}
 }
+
+func TestFeedbackConfigDefaults(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// no config.yaml at all -> defaultConfig()'s default applies
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Cfg.Feedback.MaxRounds != 3 {
+		t.Fatalf("default MaxRounds = %d, want 3", ws.Cfg.Feedback.MaxRounds)
+	}
+
+	// explicit feedback.max_rounds: 0 (zero-block) still defaults to 3
+	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
+		[]byte("schema: v0\nfeedback:\n  max_rounds: 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws2, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws2.Cfg.Feedback.MaxRounds != 3 {
+		t.Fatalf("zero-block MaxRounds = %d, want 3", ws2.Cfg.Feedback.MaxRounds)
+	}
+
+	// explicit non-zero value and grill command are respected
+	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
+		[]byte("schema: v0\nfeedback:\n  max_rounds: 5\n  grill: \"go vet ./...\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws3, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws3.Cfg.Feedback.MaxRounds != 5 || ws3.Cfg.Feedback.Grill != "go vet ./..." {
+		t.Fatalf("explicit feedback cfg = %+v", ws3.Cfg.Feedback)
+	}
+}

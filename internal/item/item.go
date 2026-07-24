@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,9 +17,11 @@ import (
 	"github.com/jxsl13/spectacle/internal/workspace"
 )
 
-// Kinds and their ID letters.
+// Kinds and their ID letters. decision items are minted by
+// lifecycle.Escalate (see internal/lifecycle) to record the way out of a
+// rounds-exhausted feedback loop — never drafted directly by an agent.
 var kindLetter = map[string]string{
-	"proposal": "P", "task": "T", "bug": "B", "research": "R",
+	"proposal": "P", "task": "T", "bug": "B", "research": "R", "decision": "D",
 }
 
 // States of the lifecycle state machine (see internal/lifecycle).
@@ -30,6 +33,15 @@ const (
 	StateDone      = "done"
 	StateArchived  = "archived"
 	StateRejected  = "rejected"
+
+	// StateBlocked is a side state, not part of the six-state main order
+	// (like rejected): an item lands here only via lifecycle.Escalate, when
+	// a done->active reopen would exceed the configured feedback round
+	// limit. It is deliberately excluded from lifecycle's stateOrder/
+	// orderedStates — Move() refuses every transition into or out of it;
+	// only lifecycle.ResolveBlocked (driven by the linked decision item's
+	// outcome) can move an item out of blocked.
+	StateBlocked = "blocked"
 )
 
 // Item is one lifecycle item.
@@ -45,10 +57,16 @@ type Item struct {
 	Targets []string
 	Rules   []string
 	Body    string
+
+	// Feedback-loop / escalation fields (SDD orchestration v2).
+	Rounds   int      // done->active reopen count since the last reset (rescope/override-once)
+	Grilled  string   // most recent grill feedback (freeform, survives rescope)
+	Needs    []string // IDs this item is blocked on (decision items minted by Escalate)
+	Override bool     // override-once already spent — cannot be spent again
 }
 
-// IDRe matches item IDs like P-0007.
-var IDRe = regexp.MustCompile(`^[PTBR]-\d{4}$`)
+// IDRe matches item IDs like P-0007 or D-0007 (decision).
+var IDRe = regexp.MustCompile(`^[PTBRD]-\d{4}$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
@@ -71,7 +89,7 @@ func Num(id string) int {
 // Letter returns the ID letter for a kind ("" if unknown).
 func Letter(kind string) string { return kindLetter[kind] }
 
-var reItemHeading = regexp.MustCompile(`^## +([PTBR]-\d{4}) +(.+?) *$`)
+var reItemHeading = regexp.MustCompile(`^## +([PTBRD]-\d{4}) +(.+?) *$`)
 
 // LoadWork parses a work.md file (missing file = no items).
 func LoadWork(path, ctx string) ([]Item, error) {
@@ -113,6 +131,15 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Targets = splitList(v)
 			case "rules":
 				it.Rules = splitList(v)
+			case "rounds":
+				n, _ := strconv.Atoi(v)
+				it.Rounds = n
+			case "grilled":
+				it.Grilled = v
+			case "needs":
+				it.Needs = splitList(v)
+			case "override":
+				it.Override = v == "true"
 			}
 		}
 		// body: until next item heading
@@ -215,6 +242,18 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		}
 		if it.Goal != "" {
 			b.WriteString("goal: " + it.Goal + "\n")
+		}
+		if it.Rounds != 0 {
+			b.WriteString("rounds: " + strconv.Itoa(it.Rounds) + "\n")
+		}
+		if it.Grilled != "" {
+			b.WriteString("grilled: " + it.Grilled + "\n")
+		}
+		if len(it.Needs) > 0 {
+			b.WriteString("needs: " + strings.Join(it.Needs, ", ") + "\n")
+		}
+		if it.Override {
+			b.WriteString("override: true\n")
 		}
 		if len(it.Targets) > 0 {
 			b.WriteString("targets: " + strings.Join(it.Targets, ", ") + "\n")

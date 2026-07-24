@@ -28,20 +28,28 @@ const SchemaStamp = "v0"
 
 // Config is .spectacle/config.yaml (root only).
 type Config struct {
-	Schema        string     `yaml:"schema"`
-	Langs         []string   `yaml:"langs"`
-	Ignore        []string   `yaml:"ignore"`
-	BudgetDefault int        `yaml:"budget_default"`
-	Compact       CompactCfg `yaml:"compact"`
-	Verify        []string   `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
-	Swarm         SwarmCfg   `yaml:"swarm"`
-	WorktreesDir  string     `yaml:"worktrees_dir"` // override for .spectacle/wt (abs or root-relative)
+	Schema        string      `yaml:"schema"`
+	Langs         []string    `yaml:"langs"`
+	Ignore        []string    `yaml:"ignore"`
+	BudgetDefault int         `yaml:"budget_default"`
+	Compact       CompactCfg  `yaml:"compact"`
+	Verify        []string    `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
+	Swarm         SwarmCfg    `yaml:"swarm"`
+	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectacle/wt (abs or root-relative)
+	Feedback      FeedbackCfg `yaml:"feedback"`
 }
 
 // SwarmCfg tunes multi-agent coordination.
 type SwarmCfg struct {
 	LeaseTTL int `yaml:"lease_ttl"` // seconds a scope lease lives without refresh
 	AgentTTL int `yaml:"agent_ttl"` // seconds without heartbeat before an agent counts as gone
+}
+
+// FeedbackCfg tunes the SDD orchestration v2 feedback loop (see
+// internal/lifecycle: Move's done->active reopen counter and Escalate).
+type FeedbackCfg struct {
+	MaxRounds int    `yaml:"max_rounds"` // reopen attempts before an item escalates to blocked
+	Grill     string `yaml:"grill"`      // optional shell command that produces grill feedback on reopen
 }
 
 // CompactCfg holds the compact-due thresholds surfaced by `check`.
@@ -58,6 +66,7 @@ func defaultConfig() Config {
 		BudgetDefault: 2000,
 		Compact:       CompactCfg{JournalMax: 500, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
+		Feedback:      FeedbackCfg{MaxRounds: 3},
 	}
 }
 
@@ -137,6 +146,9 @@ func load(dir string) (Root, error) {
 	}
 	if r.Cfg.Swarm.AgentTTL == 0 {
 		r.Cfg.Swarm.AgentTTL = 900
+	}
+	if r.Cfg.Feedback.MaxRounds == 0 {
+		r.Cfg.Feedback.MaxRounds = 3
 	}
 	return r, nil
 }

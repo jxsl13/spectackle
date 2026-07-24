@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -214,6 +215,211 @@ func TestRejectionSnapshotAndRevocation(t *testing.T) {
 	it2, _ := Draft(root, nil, "proposal", "next", "", "", "", nil)
 	if it2.ID != "P-0002" {
 		t.Fatalf("counter reused an ID: %s", it2.ID)
+	}
+}
+
+// TestReopenIncrementsAndEscalates drives an item through the feedback loop:
+// two reopens succeed and increment Rounds, the third exhausts the
+// (deliberately small) round budget — Move returns ErrRoundsExhausted and
+// leaves the item on done, and the caller (simulated here, mcpserver in a
+// later task) escalates it into blocked with a linked D- decision item.
+func TestReopenIncrementsAndEscalates(t *testing.T) {
+	root := ws(t)
+	root.Cfg.Feedback.MaxRounds = 2
+	Draft(root, nil, "task", "flaky feedback loop", "", "", "", nil)
+	if _, err := Move(root, "T-0001", item.StateDone, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// reopen 1: succeeds, Rounds becomes 1
+	it, err := Move(root, "T-0001", item.StateActive, "")
+	if err != nil || it.State != item.StateActive || it.Rounds != 1 {
+		t.Fatalf("reopen 1 = %+v, %v", it, err)
+	}
+	if _, err := Move(root, "T-0001", item.StateDone, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// reopen 2 hits MaxRounds(2): Move refuses with ErrRoundsExhausted and
+	// leaves the item on done with the counter persisted at 2.
+	_, err = Move(root, "T-0001", item.StateActive, "")
+	var exhausted ErrRoundsExhausted
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("expected ErrRoundsExhausted, got %v", err)
+	}
+	if exhausted.Item.Rounds != 2 {
+		t.Fatalf("exhausted item rounds = %d, want 2", exhausted.Item.Rounds)
+	}
+	stuck, ok, _ := item.Get(root, "T-0001")
+	if !ok || stuck.State != item.StateDone || stuck.Rounds != 2 {
+		t.Fatalf("item did not stay done with persisted rounds: %+v", stuck)
+	}
+
+	// caller catches the error and escalates
+	escalated, decision, err := Escalate(root, nil, exhausted.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.State != item.StateBlocked {
+		t.Fatalf("escalated state = %s, want blocked", escalated.State)
+	}
+	if decision.Kind != "decision" || decision.ID != "D-0001" || decision.State != item.StateDraft {
+		t.Fatalf("decision item = %+v", decision)
+	}
+	if len(escalated.Needs) != 1 || escalated.Needs[0] != decision.ID {
+		t.Fatalf("Needs not linked: %+v", escalated.Needs)
+	}
+	if !strings.Contains(decision.Title, "rescope") || !strings.Contains(decision.Title, "reject") ||
+		!strings.Contains(decision.Title, "override-once") {
+		t.Fatalf("decision title missing options: %q", decision.Title)
+	}
+	if decision.Parent != "T-0001" {
+		t.Fatalf("decision parent = %q, want T-0001", decision.Parent)
+	}
+
+	// persisted: blocked item shows up as blocked on reload
+	blocked, ok, _ := item.Get(root, "T-0001")
+	if !ok || blocked.State != item.StateBlocked {
+		t.Fatalf("blocked item not persisted: %+v", blocked)
+	}
+	// journal carries the escalate event
+	events, _ := journal.ReadAll(root)
+	found := false
+	for _, e := range events {
+		if e.Ev == journal.EvEscalate && e.ID == "T-0001" {
+			found = true
+			if len(e.Nd) != 1 || e.Nd[0] != "D-0001" {
+				t.Fatalf("escalate event Nd = %+v", e.Nd)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no escalate journal event")
+	}
+
+	// blocked items refuse every move, naming the linked decision
+	if _, err := Move(root, "T-0001", item.StateActive, ""); err == nil ||
+		!strings.Contains(err.Error(), "blocked — resolve via decide D-0001") {
+		t.Fatalf("blocked item movable or wrong message: %v", err)
+	}
+	if _, err := Move(root, "T-0001", item.StateDraft, ""); err == nil ||
+		!strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("blocked item movable to draft: %v", err)
+	}
+}
+
+// TestResolveBlockedOutcomes exercises all three ResolveBlocked outcomes and
+// checks override-once really is one-shot.
+func TestResolveBlockedOutcomes(t *testing.T) {
+	setupBlocked := func(t *testing.T) workspace.Root {
+		t.Helper()
+		root := ws(t)
+		root.Cfg.Feedback.MaxRounds = 1
+		Draft(root, nil, "task", "needs a decision", "", "", "", nil)
+		Move(root, "T-0001", item.StateDone, "")
+		_, err := Move(root, "T-0001", item.StateActive, "")
+		var exhausted ErrRoundsExhausted
+		if !errors.As(err, &exhausted) {
+			t.Fatalf("setup: expected exhaustion, got %v", err)
+		}
+		if _, _, err := Escalate(root, nil, exhausted.Item); err != nil {
+			t.Fatalf("setup: escalate: %v", err)
+		}
+		return root
+	}
+
+	t.Run("rescope", func(t *testing.T) {
+		root := setupBlocked(t)
+		resc, err := ResolveBlocked(root, "T-0001", "rescope", "narrower scope")
+		if err != nil || resc.State != item.StateDraft || resc.Rounds != 0 {
+			t.Fatalf("rescope = %+v, %v", resc, err)
+		}
+		got, ok, _ := item.Get(root, "T-0001")
+		if !ok || got.State != item.StateDraft {
+			t.Fatalf("rescope not persisted: %+v", got)
+		}
+	})
+
+	t.Run("reject", func(t *testing.T) {
+		root := setupBlocked(t)
+		if _, err := ResolveBlocked(root, "T-0001", "reject", ""); err == nil {
+			t.Fatal("noteless blocked-reject accepted")
+		}
+		rej, err := ResolveBlocked(root, "T-0001", "reject", "not worth it")
+		if err != nil || rej.State != item.StateRejected {
+			t.Fatalf("reject = %+v, %v", rej, err)
+		}
+		if _, ok, _ := item.Get(root, "T-0001"); ok {
+			t.Fatal("rejected-via-decision item still in work.md")
+		}
+		events, _ := journal.ReadAll(root)
+		var found bool
+		for _, e := range events {
+			if e.Ev == journal.EvReject && e.ID == "T-0001" {
+				found = true
+				if e.Rnd != 1 {
+					t.Fatalf("reject snapshot Rnd = %d, want 1", e.Rnd)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("no reject journal event from ResolveBlocked")
+		}
+	})
+
+	t.Run("override-once", func(t *testing.T) {
+		root := setupBlocked(t)
+		ov, err := ResolveBlocked(root, "T-0001", "override-once", "")
+		if err != nil || ov.State != item.StateActive || ov.Rounds != 0 || !ov.Override {
+			t.Fatalf("override-once = %+v, %v", ov, err)
+		}
+		// exhaust again — override already spent this time
+		Move(root, "T-0001", item.StateDone, "")
+		_, err = Move(root, "T-0001", item.StateActive, "")
+		var exhausted ErrRoundsExhausted
+		if !errors.As(err, &exhausted) {
+			t.Fatalf("expected 2nd exhaustion, got %v", err)
+		}
+		if !exhausted.Item.Override {
+			t.Fatal("Override not preserved across escalation")
+		}
+		_, decision, err := Escalate(root, nil, exhausted.Item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(decision.Title, "override-once") {
+			t.Fatalf("override-once still offered after being spent: %q", decision.Title)
+		}
+		if _, err := ResolveBlocked(root, "T-0001", "override-once", ""); err == nil {
+			t.Fatal("second override-once accepted")
+		}
+	})
+}
+
+// TestRejectSnapshotKeepsFeedbackFields checks the reject journal snapshot
+// (taken via Move, not ResolveBlocked) carries Rounds/Grilled/Needs/Override
+// through a reject -> revoke roundtrip.
+func TestRejectSnapshotKeepsFeedbackFields(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "task", "snapshot", "", "", "", nil)
+	it, _, _ := item.Get(root, "T-0001")
+	it.Rounds = 2
+	it.Grilled = "improve coverage"
+	it.Needs = []string{"D-0007"}
+	it.Override = true
+	if err := item.Upsert(root, it); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Move(root, "T-0001", item.StateRejected, "not needed anymore"); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := Move(root, "T-0001", item.StateDraft, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revoked.Rounds != 2 || revoked.Grilled != "improve coverage" ||
+		len(revoked.Needs) != 1 || revoked.Needs[0] != "D-0007" || !revoked.Override {
+		t.Fatalf("snapshot roundtrip lost feedback fields: %+v", revoked)
 	}
 }
 
