@@ -20,6 +20,8 @@ LLM plans against structure and contracts instead of file contents.
 - T-0019 docs refresh: status table, saxpy transcript footnote, roadmap ticks: docs live-status verified against running graph
 - T-0020 gofmt rest: sync.go, sync_test.go, workspace.go: gofmt -l clean repo-wide
 - R-0002 design sketch: go/types-based call resolution (M3): two-tier design recommended: syntax pass stays, cached go/types pass upgrades call edges additively; exit criterion go:coord.DB.Sweep shows real callers
+- T-0023 M5 prep: GitHub Actions CI + CONTRIBUTING with the lifecycle loop: CI with headless self-hosting check gate + CONTRIBUTING
+- T-0024 docs nits: transcript rule count + README triple-hop demo with real output: transcript count fixed, README live-chain demo from shipped binary
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
