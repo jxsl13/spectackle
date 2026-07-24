@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -12,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // connectCommands spins up a server (commands is registered in production by
@@ -623,5 +626,258 @@ func TestCommandsGenEveryFileCarriesGeneratedHeader(t *testing.T) {
 	}
 	if strings.Count(string(agents), generatedHeader) != 1 {
 		t.Fatalf("AGENTS.md expected exactly one generated header (single managed section):\n%s", agents)
+	}
+}
+
+// ---- install-hooks (T-0126, MCP-015) ----
+//
+// TestCommandsInstallHooks{TemplateRendersWithHeader,
+// WritesExecutableFileAtCommonDir, Idempotent, RefusesForeignHook} are the
+// four generator-level tests the exit criterion asks for.
+// TestPreCommitHook{RejectsSpectacklePathInLinkedWorktree,
+// AllowsCodeOnlyCommitInLinkedWorktree, AllowsSpectacklePathInMainWorktree}
+// drive the generated script directly with `sh` against a real git
+// worktree pair — the three script-behavior cases.
+
+// TestCommandsInstallHooksTemplateRendersWithHeader covers TEST 1: the hook
+// template renders, is non-empty, starts with a POSIX sh shebang (not
+// bash), and carries the do-not-edit header install-hooks checks for on
+// every subsequent run.
+func TestCommandsInstallHooksTemplateRendersWithHeader(t *testing.T) {
+	body, err := renderHookTemplate("pre-commit.tmpl", commandsData{Binary: "spectackle", Tool: "spectackle"})
+	if err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if strings.TrimSpace(body) == "" {
+		t.Fatal("pre-commit.tmpl rendered empty")
+	}
+	if !strings.HasPrefix(body, "#!/bin/sh") {
+		t.Fatalf("pre-commit.tmpl must open with a POSIX sh shebang, not bash:\n%s", body)
+	}
+	if !strings.Contains(body, hookGeneratedHeader) {
+		t.Fatalf("pre-commit.tmpl missing the generated do-not-edit header:\n%s", body)
+	}
+}
+
+// TestCommandsInstallHooksWritesExecutableFileAtCommonDir covers TEST 2:
+// installing writes hooks/pre-commit under the repository's
+// git-common-dir, mode 0o755 — a non-executable hook is silently ignored
+// by git, so the mode is asserted directly rather than just "the file
+// exists".
+func TestCommandsInstallHooksWritesExecutableFileAtCommonDir(t *testing.T) {
+	root := gitRoot(t)
+	_, sess := connectCommands(t, root, nil)
+
+	out := callText(t, sess, "commands", map[string]any{"op": "install-hooks"})
+	if !strings.HasPrefix(out, "ok hooks pre-commit ") {
+		t.Fatalf("expected an ok record; got: %q", out)
+	}
+
+	commonDir, err := gitCommonDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(commonDir, "hooks", "pre-commit")
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("hook not written at the common-dir hooks path: %v", err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("hook mode = %o, want 0755 (a non-executable hook is silently ignored by git)", fi.Mode().Perm())
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), hookGeneratedHeader) {
+		t.Fatalf("installed hook missing generated header:\n%s", b)
+	}
+}
+
+// TestCommandsInstallHooksIdempotent covers TEST 3: installing twice
+// produces byte-identical content and keeps mode 0o755 — no drift, no
+// duplicated markers, no error on the second run.
+func TestCommandsInstallHooksIdempotent(t *testing.T) {
+	root := gitRoot(t)
+	_, sess := connectCommands(t, root, nil)
+
+	callText(t, sess, "commands", map[string]any{"op": "install-hooks"})
+	commonDir, err := gitCommonDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(commonDir, "hooks", "pre-commit")
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := callText(t, sess, "commands", map[string]any{"op": "install-hooks"})
+	if !strings.HasPrefix(out, "ok hooks pre-commit ") {
+		t.Fatalf("second install-hooks call should still succeed; got: %q", out)
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("second install-hooks run not byte-identical:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("hook mode after second run = %o, want 0755", fi.Mode().Perm())
+	}
+}
+
+// TestCommandsInstallHooksRefusesForeignHook covers TEST 4: a pre-existing
+// hooks/pre-commit that does NOT carry the generated marker is the repo
+// owner's — install-hooks must refuse rather than clobber it, and the
+// original bytes must survive untouched.
+func TestCommandsInstallHooksRefusesForeignHook(t *testing.T) {
+	root := gitRoot(t)
+	commonDir, err := gitCommonDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hooksDir := filepath.Join(commonDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(hooksDir, "pre-commit")
+	foreign := "#!/bin/sh\necho custom hook not written by spectackle\nexit 0\n"
+	if err := os.WriteFile(path, []byte(foreign), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, sess := connectCommands(t, root, nil)
+	out := callText(t, sess, "commands", map[string]any{"op": "install-hooks"})
+	if !strings.HasPrefix(out, "! ARG E") {
+		t.Fatalf("expected a refusal for a foreign pre-commit hook without the generated marker; got: %q", out)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != foreign {
+		t.Fatalf("foreign hook was modified despite the refusal:\nbefore:\n%s\nafter:\n%s", foreign, b)
+	}
+}
+
+// writePreCommitScript renders pre-commit.tmpl and writes it to a fresh
+// executable file under t.TempDir() — used by the script-behavior tests
+// below, which drive the hook directly with `sh` (proving MCP-015's
+// staged-path logic itself) rather than through install-hooks (which the
+// four tests above already cover).
+func writePreCommitScript(t *testing.T) string {
+	t.Helper()
+	body, err := renderHookTemplate("pre-commit.tmpl", commandsData{Binary: "spectackle", Tool: "spectackle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "pre-commit")
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// runPreCommitHook runs script with dir as its working directory (the same
+// way git invokes hooks/pre-commit — cwd at the worktree root) and returns
+// its exit code plus combined stdout+stderr.
+func runPreCommitHook(t *testing.T, script, dir string) (int, string) {
+	t.Helper()
+	cmd := exec.Command("sh", script)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return 0, string(out)
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), string(out)
+	}
+	t.Fatalf("running hook: %v (output: %s)", err, out)
+	return -1, ""
+}
+
+// gitAdd stages path (relative to dir) in the git repo at dir, failing the
+// test on error.
+func gitAdd(t *testing.T, dir, path string) {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", dir, "add", path).CombinedOutput(); err != nil {
+		t.Fatalf("git add %s: %v (%s)", path, err, out)
+	}
+}
+
+// TestPreCommitHookRejectsSpectacklePathInLinkedWorktree drives the
+// generated script directly: a linked worktree with a staged `.spectackle`
+// path must be rejected (exit != 0) naming the offending path.
+func TestPreCommitHookRejectsSpectacklePathInLinkedWorktree(t *testing.T) {
+	main := gitRoot(t)
+	wtRoot := filepath.Join(t.TempDir(), "wt")
+	if err := wt.Add(main, wtRoot, "impl/test-mcp015-reject", "HEAD"); err != nil {
+		t.Fatalf("wt.Add: %v", err)
+	}
+
+	cfgPath := filepath.Join(wtRoot, ".spectackle", "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("schema: v0\nverify: [\"test -f ok.txt\"]\nextra: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAdd(t, wtRoot, ".spectackle/config.yaml")
+
+	script := writePreCommitScript(t)
+	code, out := runPreCommitHook(t, script, wtRoot)
+	if code == 0 {
+		t.Fatalf("expected a non-zero exit for a staged .spectackle path in a linked worktree; output: %s", out)
+	}
+	if !strings.Contains(out, ".spectackle/config.yaml") {
+		t.Fatalf("expected the offending path named in the output; got: %s", out)
+	}
+}
+
+// TestPreCommitHookAllowsCodeOnlyCommitInLinkedWorktree drives the
+// generated script directly: a linked worktree with only a code file
+// staged must pass (exit 0) — the sanctioned `work op=submit` flow commits
+// code in a worktree, and this must never be blocked.
+func TestPreCommitHookAllowsCodeOnlyCommitInLinkedWorktree(t *testing.T) {
+	main := gitRoot(t)
+	wtRoot := filepath.Join(t.TempDir(), "wt")
+	if err := wt.Add(main, wtRoot, "impl/test-mcp015-code-only", "HEAD"); err != nil {
+		t.Fatalf("wt.Add: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(wtRoot, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAdd(t, wtRoot, "main.go")
+
+	script := writePreCommitScript(t)
+	code, out := runPreCommitHook(t, script, wtRoot)
+	if code != 0 {
+		t.Fatalf("a code-only commit in a linked worktree must pass; exit %d, output: %s", code, out)
+	}
+}
+
+// TestPreCommitHookAllowsSpectacklePathInMainWorktree drives the generated
+// script directly: a `.spectackle` path staged in the MAIN checkout (not a
+// linked worktree) must pass — the rule is about worktree branches, not the
+// main checkout, where .spectackle commits are normal and expected.
+func TestPreCommitHookAllowsSpectacklePathInMainWorktree(t *testing.T) {
+	main := gitRoot(t)
+
+	cfgPath := filepath.Join(main, ".spectackle", "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("schema: v0\nverify: [\"test -f ok.txt\"]\nextra: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitAdd(t, main, ".spectackle/config.yaml")
+
+	script := writePreCommitScript(t)
+	code, out := runPreCommitHook(t, script, main)
+	if code != 0 {
+		t.Fatalf("a .spectackle path staged in the MAIN checkout must be allowed; exit %d, output: %s", code, out)
 	}
 }

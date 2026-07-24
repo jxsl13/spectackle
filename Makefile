@@ -96,30 +96,84 @@ dev: build dev-stop
 # left over (PID no longer alive - it's removed so serve's O_EXCL check
 # doesn't wedge the next `make dev`), or nothing has ever been started
 # (fresh clone). Never leaves the pidfile behind on any exit path.
+#
+# No-pidfile-but-live-process recovery: a deleted worktree leaves exactly
+# this behind — the server's -pidfile lived inside the worktree and was
+# deleted along with it, but the process itself (which still holds
+# $(DEV_ADDR)) was never told to stop. Before, that ended in `make dev`
+# printing "bind: address already in use" with no path forward. When no
+# pidfile exists, probe for a live listener on $(DEV_ADDR) with the first
+# of ss/lsof/fuser that is installed and stop it - reporting clearly what
+# is being stopped and why, since killing a process this run didn't start
+# deserves a visible line. No detection tool available: say so plainly
+# instead of silently doing nothing (`make dev` may still fail to bind,
+# but at least the reason is legible). This targets $(DEV_ADDR)
+# specifically, never process management in general.
 dev-stop:
-	@if [ ! -f $(DEV_PIDFILE) ]; then \
-	  echo "dev-stop: not running (no pidfile at $(DEV_PIDFILE))"; \
-	  exit 0; \
-	fi; \
-	pid=$$(cat $(DEV_PIDFILE) 2>/dev/null); \
-	if [ -z "$$pid" ] || ! kill -0 $$pid 2>/dev/null; then \
-	  echo "dev-stop: stale pidfile $(DEV_PIDFILE) (pid $$pid not running); clearing it"; \
-	  rm -f $(DEV_PIDFILE); \
-	  exit 0; \
-	fi; \
-	echo "dev-stop: stopping pid $$pid"; \
-	kill $$pid 2>/dev/null || true; \
-	i=0; \
-	while [ -f $(DEV_PIDFILE) ] && [ $$i -lt $(DEV_TIMEOUT) ]; do \
-	  sleep 1; \
-	  i=$$((i + 1)); \
-	done; \
-	if [ -f $(DEV_PIDFILE) ]; then \
-	  echo "dev-stop: pid $$pid did not shut down within $(DEV_TIMEOUT)s; forcing"; \
-	  kill -9 $$pid 2>/dev/null || true; \
-	  rm -f $(DEV_PIDFILE); \
-	fi; \
-	echo "dev-stop: stopped"
+	@if [ -f $(DEV_PIDFILE) ]; then \
+	  pid=$$(cat $(DEV_PIDFILE) 2>/dev/null); \
+	  if [ -z "$$pid" ] || ! kill -0 $$pid 2>/dev/null; then \
+	    echo "dev-stop: stale pidfile $(DEV_PIDFILE) (pid $$pid not running); clearing it"; \
+	    rm -f $(DEV_PIDFILE); \
+	    exit 0; \
+	  fi; \
+	  echo "dev-stop: stopping pid $$pid"; \
+	  kill $$pid 2>/dev/null || true; \
+	  i=0; \
+	  while [ -f $(DEV_PIDFILE) ] && [ $$i -lt $(DEV_TIMEOUT) ]; do \
+	    sleep 1; \
+	    i=$$((i + 1)); \
+	  done; \
+	  if [ -f $(DEV_PIDFILE) ]; then \
+	    echo "dev-stop: pid $$pid did not shut down within $(DEV_TIMEOUT)s; forcing"; \
+	    kill -9 $$pid 2>/dev/null || true; \
+	    rm -f $(DEV_PIDFILE); \
+	  fi; \
+	  echo "dev-stop: stopped"; \
+	else \
+	  port=$(DEV_ADDR); port=$${port##*:}; \
+	  tool=""; pid=""; \
+	  if command -v ss >/dev/null 2>&1; then \
+	    tool=ss; \
+	    pid=$$(ss -H -tlnp "( sport = :$$port )" 2>/dev/null | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -n1); \
+	  elif command -v lsof >/dev/null 2>&1; then \
+	    tool=lsof; \
+	    pid=$$(lsof -t -iTCP:$$port -sTCP:LISTEN 2>/dev/null | head -n1); \
+	  elif command -v fuser >/dev/null 2>&1; then \
+	    tool=fuser; \
+	    pid=$$(fuser $$port/tcp 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$$' | head -n1); \
+	  fi; \
+	  if [ -z "$$tool" ]; then \
+	    echo "dev-stop: not running (no pidfile at $(DEV_PIDFILE)); cannot confirm whether $(DEV_ADDR) is free - none of ss, lsof, fuser is installed, so \`make dev\` may still fail to bind if something is already listening there"; \
+	    exit 0; \
+	  fi; \
+	  if [ -z "$$pid" ]; then \
+	    echo "dev-stop: not running (no pidfile at $(DEV_PIDFILE), no listener on $(DEV_ADDR) per $$tool)"; \
+	    exit 0; \
+	  fi; \
+	  owner=""; \
+	  if [ -r /proc/$$pid/cwd ]; then owner=$$(readlink -f /proc/$$pid/cwd 2>/dev/null); fi; \
+	  args=$$(ps -p $$pid -o args= 2>/dev/null); \
+	  case "$$args" in *spectackle*serve*) ;; *) \
+	    echo "dev-stop: pid $$pid holds $(DEV_ADDR) but is not a spectackle server ($$args); refusing to kill a process this target does not own"; \
+	    exit 1;; esac; \
+	  if [ -n "$$owner" ] && [ "$$owner" != "$$(cd $(CURDIR) && pwd -P)" ]; then \
+	    echo "dev-stop: pid $$pid holds $(DEV_ADDR) but serves $$owner, not $$(cd $(CURDIR) && pwd -P); refusing - another workspace owns it. Override DEV_ADDR for this one."; \
+	    exit 1; \
+	  fi; \
+	  echo "dev-stop: no pidfile at $(DEV_PIDFILE), but pid $$pid already holds $(DEV_ADDR) (found via $$tool) - likely a server orphaned by a deleted worktree whose pidfile went with it; stopping pid $$pid so \`make dev\` can bind"; \
+	  kill $$pid 2>/dev/null || true; \
+	  i=0; \
+	  while kill -0 $$pid 2>/dev/null && [ $$i -lt $(DEV_TIMEOUT) ]; do \
+	    sleep 1; \
+	    i=$$((i + 1)); \
+	  done; \
+	  if kill -0 $$pid 2>/dev/null; then \
+	    echo "dev-stop: pid $$pid did not shut down within $(DEV_TIMEOUT)s; forcing"; \
+	    kill -9 $$pid 2>/dev/null || true; \
+	  fi; \
+	  echo "dev-stop: stopped orphaned pid $$pid (had no pidfile)"; \
+	fi
 
 # Report whether a `make dev` server is currently running for this
 # workspace, without starting or stopping anything.
