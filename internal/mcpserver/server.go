@@ -148,8 +148,16 @@ func (s *Server) reindex() {
 		log.Printf("index: %v (keeping previous graph)", err)
 		return
 	}
+	// M3 upgrade pass: go/types-resolved call edges (chained selectors,
+	// cross-package methods). Best-effort — a broken module tree must not
+	// take the syntactic graph down with it.
+	typed, tErr := index.ResolveTypedCalls(context.Background(), g, s.ws.Dir)
+	if tErr != nil {
+		log.Printf("index: typed calls: %v (syntactic graph only)", tErr)
+	}
 	s.g = g
-	log.Printf("index: %d files, %d nodes, %d edges (%d skipped)", st.Files, st.Nodes, st.Edges, st.Skipped)
+	log.Printf("index: %d files, %d nodes, %d edges (+%d typed calls, %d skipped)",
+		st.Files, st.Nodes, st.Edges, typed, st.Skipped)
 }
 
 // MCP returns the underlying protocol server (for transports and tests).
