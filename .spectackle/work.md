@@ -61,24 +61,3 @@ option: adopt malivvan/tree-sitter (wazero/wasm) as-is for the C parser
 option: invest in a wasi-sdk build pipeline and a batched-read binding now
 option: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
 choice: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
-
-## P-0083 the dev server always runs the current build: one command to rebuild and restart, and a hint when it drifts
-kind: proposal
-state: active
-created: 2026-07-24
-grilled: 2026-07-24
-targets: Makefile, CONTRIBUTING.md
-
-This repository develops itself with itself, so the resident server an agent drives IS the product under change. Every merged feature or fix makes the running binary older than the code that describes it, and the gap is invisible from the inside: tool output looks plausible because it comes from a real server, just not from the one in the tree.
-
-Measured instances from this development cycle, both of which cost real time. A compact hint appeared broken and was investigated as a defect; the binary was 41 minutes older than its sources and the feature had in fact shipped. Separately, a resident server serving from a graph built at startup produced two false drift verdicts that auto-healed anchors with hashes for spans that were not the node — the same staleness family, one level up, and the reason DRF-003 now exists.
-
-Two halves, because either alone leaves the hole open. Making the restart cheap is not enough if nobody notices they skipped it; detecting drift is not enough if fixing it is a five-command ritual nobody remembers.
-
-Half one, a single command that rebuilds and restarts. The pieces already exist and are not yet composed: the Makefile builds, serve -http runs resident, and -pidfile (added this cycle) makes stopping a kill against a known file instead of a pgrep. Composing them must be idempotent and must never leave two servers bound to one port, since a half-dead second server is worse than a stale first one. Readiness has to be proven by an actual tool call rather than by a listening socket — the process binds before it finishes indexing, so a socket check would hand back a server that answers nothing.
-
-Half two, the server notices for itself. It can compare its own executable's timestamp against the newest source file under its root and say so, exactly as the compact hint already nudges at a journal threshold — same debounced, once-per-crossing shape, so it informs without nagging. This turns an operator discipline into a property of the system, which is the whole argument for it: a rule nobody can forget beats a rule everybody agrees with.
-
-Rejected: rebuilding automatically inside the server. A process that replaces its own binary mid-session would invalidate every in-flight lease and worktree, and a build failure would leave the agent with no server at all. Reporting is safe; self-surgery is not.
-
-Rejected: a file watcher. It adds a dependency and a background goroutine to answer a question that a stat at tool-call time already answers, and the answer is only interesting when someone is actually using the server.
