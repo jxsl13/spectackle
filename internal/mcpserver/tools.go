@@ -929,6 +929,27 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// orphan applies targets: a live rule declares {applies: node} but the
+	// (rule,node) anchor row is missing — binding intent without a binding
+	// (MCP-004). One dense record per missing pair.
+	anchored := map[string]bool{}
+	for _, a := range anchors {
+		anchored[a.Rule+"\x00"+string(a.Node)] = true
+	}
+	var orphans []string
+	for _, f := range c.All() {
+		for _, r := range f.Rules {
+			for _, node := range r.Applies {
+				if !anchored[r.ID+"\x00"+node] {
+					orphans = append(orphans, fmt.Sprintf("g orphan %s %s", r.ID, node))
+				}
+			}
+		}
+	}
+	sort.Strings(orphans)
+	lines = append(lines, orphans...)
+
 	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
 		_, ok := c.Rule(id)
 		return ok

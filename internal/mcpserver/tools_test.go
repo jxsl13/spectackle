@@ -323,6 +323,56 @@ func TestRuleAnchorsReconcileOnEditAndRetire(t *testing.T) {
 	}
 }
 
+// TestCheckOrphanApplies (MCP-004): a live rule whose {applies: node} pair
+// has no anchors.tsv row is binding intent without a binding — check must
+// surface it as one dense `g orphan <rule> <node>` record; a complete
+// anchor set must stay silent.
+func TestCheckOrphanApplies(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "orphan_probe", "pattern": "U", "stem": "ORP-PRB",
+		"system":   "the orphan prober",
+		"response": "anchor to two nodes for the orphan coverage test",
+		"applies":  []string{"go:pkg.A", "go:pkg.B"},
+	})
+	if !strings.Contains(out, "ok ORP-PRB-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+
+	// complete anchor set: no orphan record
+	out = callText(t, sess, "check", map[string]any{})
+	if strings.Contains(out, "g orphan ORP-PRB-001") {
+		t.Fatalf("complete anchor set must not report orphans: %q", out)
+	}
+
+	// drop the go:pkg.A row behind the server's back (manual edit / replay loss)
+	anchors, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := anchors[:0]
+	for _, a := range anchors {
+		if a.Rule == "ORP-PRB-001" && a.Node == "go:pkg.A" {
+			continue
+		}
+		kept = append(kept, a)
+	}
+	if err := drift.Save(ws, kept); err != nil {
+		t.Fatal(err)
+	}
+
+	out = callText(t, sess, "check", map[string]any{})
+	if !strings.Contains(out, "g orphan ORP-PRB-001 go:pkg.A") {
+		t.Fatalf("missing anchor row must surface as orphan record: %q", out)
+	}
+	if strings.Contains(out, "g orphan ORP-PRB-001 go:pkg.B") {
+		t.Fatalf("still-anchored node must not be reported: %q", out)
+	}
+}
+
 // TestCompactKeepsRejections: journal folds drop noise but never reject lines.
 func TestCompactKeepsRejections(t *testing.T) {
 	root := t.TempDir()
@@ -363,7 +413,7 @@ func TestCheckOnOwnRepo(t *testing.T) {
 	}
 	sess := connectRoot(t, root)
 	out := callText(t, sess, "check", map[string]any{})
-	if strings.Contains(out, "! E") || strings.Contains(out, "d changed") || strings.Contains(out, "d gone") {
+	if strings.Contains(out, "! E") || strings.Contains(out, "d changed") || strings.Contains(out, "d gone") || strings.Contains(out, "g orphan") {
 		t.Fatalf("check on own repo not clean:\n%s", out)
 	}
 }

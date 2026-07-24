@@ -173,7 +173,9 @@ tightens it to a hard block); `next` and fanout skip items with open
   "fix":   {"type":"boolean","default":false},
   "budget":{"type":"integer","default":1500}}}
 ```
-Emits `!` lint findings, `g` coverage gaps, `d` drift records (anchor
+Emits `!` lint findings, `g` coverage gaps (`g uncovered <dir>` — source
+files with zero applicable rules; `g orphan <rule> <node>` — a live rule's
+applies target with no anchors.tsv row, MCP-004), `d` drift records (anchor
 classification; position-only moves are silently refreshed), `E101`
 duplicate item IDs (branch-merge backstop), `c` compact-due signals.
 `fix=true` drafts one backprop proposal per drifted rule and re-stamps
