@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
@@ -156,5 +157,147 @@ func TestMarshalExample(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Fatalf("Marshal output missing %q:\n%s", want, s)
 		}
+	}
+}
+
+// TestDerivedFromProvenance: an LLM-authored generalization has no single
+// asserting repository — Sources may be empty — but its DerivedFrom sources
+// (the repositories the generalization was drawn from) must round-trip
+// intact, and asserted-by/derived-from must not collapse into each other:
+// an entry with both populated must come back with both, distinct.
+func TestDerivedFromProvenance(t *testing.T) {
+	a := Artifact{
+		Sources: []string{"github.com/acme/repoA", "github.com/acme/repoB"},
+		Entries: []Entry{
+			{
+				// purely derived: no repository literally asserts this
+				// text, so Sources is empty.
+				Kind:  KindRule,
+				Text:  "Configuration SHALL live in one place.",
+				Count: 2,
+				DerivedFrom: []Provenance{
+					{Source: "github.com/acme/repoA", Dir: ""},
+					{Source: "github.com/acme/repoB", Dir: "gpu"},
+				},
+				Key: "1111aaaa2222bbbb",
+			},
+			{
+				// both kinds of evidence at once: repoA asserts it
+				// verbatim, repoB only fed an LLM's generalization of it.
+				Kind:    KindRule,
+				Text:    "The system SHALL check errors after every syscall.",
+				Count:   2,
+				Sources: []Provenance{{Source: "github.com/acme/repoA", Dir: ""}},
+				DerivedFrom: []Provenance{
+					{Source: "github.com/acme/repoB", Dir: ""},
+				},
+				Key: "3333cccc4444dddd",
+			},
+		},
+	}
+	out, err := Marshal(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(out)
+	if err != nil {
+		t.Fatalf("Parse(Marshal(a)) failed: %v\n---\n%s", err, out)
+	}
+	if !reflect.DeepEqual(a, got) {
+		t.Fatalf("round trip mismatch:\n in=%#v\nout=%#v\n---\n%s", a, got, out)
+	}
+	if len(got.Entries[0].Sources) != 0 {
+		t.Fatalf("purely derived entry gained an asserted-by Source: %+v", got.Entries[0])
+	}
+	if len(got.Entries[0].DerivedFrom) != 2 {
+		t.Fatalf("purely derived entry lost DerivedFrom rows: %+v", got.Entries[0])
+	}
+	mixed := got.Entries[1]
+	if len(mixed.Sources) != 1 || len(mixed.DerivedFrom) != 1 || mixed.Sources[0] == mixed.DerivedFrom[0] {
+		t.Fatalf("asserted-by and derived-from collapsed into each other: %+v", mixed)
+	}
+	// the wire form itself must use two distinct keys, not one shared one.
+	s := string(out)
+	if !strings.Contains(s, "sources:") || !strings.Contains(s, "derived_from:") {
+		t.Fatalf("Marshal output does not carry both sources and derived_from as distinct keys:\n%s", s)
+	}
+}
+
+// TestNewEntryKeyMatchesExtract: the whole point of computing an LLM-
+// supplied entry's key inside the package (never accepting one from the
+// caller) is that it lands on exactly the same key Extract would compute
+// for identical text — that identity is what lets an LLM-authored entry
+// merge with one Extract lifted out of a repository's own files. Assert
+// the equality directly, for all three kinds.
+func TestNewEntryKeyMatchesExtract(t *testing.T) {
+	prov := []Provenance{{Source: "github.com/acme/repoA"}}
+
+	ruleText := "The system SHALL log to stderr only."
+	rule, err := NewEntry(KindRule, Entry{Text: ruleText}, prov, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := drift.NormHash([]byte(ruleText)); rule.Key != want {
+		t.Fatalf("rule entry key = %q, want %q (Extract's formula)", rule.Key, want)
+	}
+
+	question := "How should retries work?"
+	adr, err := NewEntry(KindADR, Entry{Question: question, Decision: "Retry up to 3 times with backoff."}, prov, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := drift.NormHash([]byte(question)); adr.Key != want {
+		t.Fatalf("adr entry key = %q, want %q (Extract's formula)", adr.Key, want)
+	}
+
+	prose := "This service exists to keep GPU kernels honest."
+	intent, err := NewEntry(KindIntent, Entry{Prose: prose}, prov, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := drift.NormHash([]byte(prose)); intent.Key != want {
+		t.Fatalf("intent entry key = %q, want %q (Extract's formula)", intent.Key, want)
+	}
+
+	// an LLM-authored entry with no asserting repository at all (purely
+	// derived) still gets the same key — Key never depends on provenance.
+	derived, err := NewEntry(KindRule, Entry{Text: ruleText}, nil, prov)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived.Key != rule.Key {
+		t.Fatalf("derived-only entry key = %q, want %q (same text, same key regardless of provenance shape)", derived.Key, rule.Key)
+	}
+}
+
+// TestNewEntryRejectsMalformed: NewEntry must reject rather than silently
+// normalize a bad input — this package still never invents or coerces
+// prose on its own.
+func TestNewEntryRejectsMalformed(t *testing.T) {
+	prov := []Provenance{{Source: "github.com/acme/repoA"}}
+
+	cases := []struct {
+		name    string
+		kind    EntryKind
+		payload Entry
+		derived []Provenance
+	}{
+		{"unknown kind", EntryKind("essay"), Entry{Text: "whatever"}, nil},
+		{"empty rule text", KindRule, Entry{Text: "   "}, nil},
+		{"adr missing question", KindADR, Entry{Decision: "Retry."}, nil},
+		{"adr missing decision", KindADR, Entry{Question: "How should retries work?"}, nil},
+		{"empty intent prose", KindIntent, Entry{Prose: ""}, nil},
+		{"no provenance at all", KindRule, Entry{Text: "The system SHALL log to stderr only."}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assertedBy := prov
+			if c.name == "no provenance at all" {
+				assertedBy = nil
+			}
+			if _, err := NewEntry(c.kind, c.payload, assertedBy, c.derived); err == nil {
+				t.Fatalf("NewEntry(%s) accepted a malformed entry, want error", c.name)
+			}
+		})
 	}
 }

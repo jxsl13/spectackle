@@ -1,6 +1,8 @@
 package knowledge
 
 import (
+	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/jxsl13/spectackle/internal/drift"
@@ -21,6 +23,55 @@ type Conflict struct {
 	Kind    EntryKind
 	Key     string
 	Entries []Entry
+}
+
+// Resolution records how a Conflict was settled: Winner is the entry the
+// LLM (or a human) chose, and Losers is every other entry the Conflict
+// held — sources and payload intact. Losing values are not deleted: the
+// rejected alternatives are exactly the knowledge this system exists to
+// preserve, so a Resolution keeps them, it does not replace them with a
+// single pick the way a naive "merge conflict" resolution would.
+type Resolution struct {
+	Kind   EntryKind
+	Key    string
+	Winner Entry
+	Losers []Entry
+}
+
+// Resolve builds a Resolution from a Conflict and the entry chosen as
+// winner. winner must be one of conflict.Entries by value — this checks the
+// caller's decision against the actual conflict rather than trusting it
+// blindly, and is what lets Apply below assume Losers is exactly "the
+// conflict minus the winner". Every other entry in the conflict becomes a
+// Loser, complete and unmodified.
+func Resolve(conflict Conflict, winner Entry) (Resolution, error) {
+	var losers []Entry
+	found := false
+	for _, e := range conflict.Entries {
+		if !found && reflect.DeepEqual(e, winner) {
+			found = true
+			continue
+		}
+		losers = append(losers, e)
+	}
+	if !found {
+		return Resolution{}, fmt.Errorf("knowledge: winner is not one of conflict %s %s's entries", conflict.Kind, conflict.Key)
+	}
+	return Resolution{Kind: conflict.Kind, Key: conflict.Key, Winner: winner, Losers: losers}, nil
+}
+
+// Apply folds a Resolution into an artifact: the winner becomes an ordinary
+// entry (it sorts and marshals exactly like any other Entry — see
+// sortEntries), and the Resolution itself is appended to a.Resolutions so
+// Marshal/Parse carry the losing alternatives alongside it. Apply trusts
+// res was produced by Resolve against a real Conflict; it does not
+// re-derive or re-check that here — Resolve is the validating step, Apply
+// is just bookkeeping. a is not mutated; a new Artifact is returned.
+func Apply(a Artifact, res Resolution) Artifact {
+	out := a
+	out.Entries = append(append([]Entry(nil), a.Entries...), res.Winner)
+	out.Resolutions = append(append([]Resolution(nil), a.Resolutions...), res)
+	return out
 }
 
 // Merge condenses N artifacts into one: entries are grouped by identity
@@ -87,8 +138,12 @@ func groupBySubstance(entries []Entry) []Entry {
 		for i := range buckets {
 			if substanceEqual(buckets[i], e) {
 				buckets[i].Sources = unionProvenance(buckets[i].Sources, e.Sources)
+				buckets[i].DerivedFrom = unionProvenance(buckets[i].DerivedFrom, e.DerivedFrom)
 				if buckets[i].Rationale == "" {
 					buckets[i].Rationale = e.Rationale
+				}
+				if len(e.Options) > 0 {
+					buckets[i].Options = dedupSorted(append(append([]string(nil), buckets[i].Options...), e.Options...))
 				}
 				placed = true
 				break
@@ -97,11 +152,12 @@ func groupBySubstance(entries []Entry) []Entry {
 		if !placed {
 			cp := e
 			cp.Sources = unionProvenance(nil, e.Sources)
+			cp.DerivedFrom = unionProvenance(nil, e.DerivedFrom)
 			buckets = append(buckets, cp)
 		}
 	}
 	for i := range buckets {
-		buckets[i].Count = distinctSourceCount(buckets[i].Sources)
+		buckets[i].Count = distinctSourceCount(buckets[i].Sources, buckets[i].DerivedFrom)
 	}
 	// Deterministic order among distinct answers to the same identity
 	// (matters for Conflict.Entries): most-asserted answer first, then a
@@ -169,12 +225,17 @@ func unionProvenance(a, b []Provenance) []Provenance {
 	return out
 }
 
-// distinctSourceCount counts unique Source labels (ignoring Dir) — the
-// recurrence rank.
-func distinctSourceCount(ps []Provenance) int {
-	set := make(map[string]bool, len(ps))
-	for _, p := range ps {
-		set[p.Source] = true
+// distinctSourceCount counts unique Source labels (ignoring Dir) across any
+// number of provenance lists — the recurrence rank. Called with just
+// Sources it counts assertors; called with Sources and DerivedFrom together
+// (as groupBySubstance and NewEntry do) it pools both kinds of evidence
+// into one rank, per Entry.Count's doc.
+func distinctSourceCount(pss ...[]Provenance) int {
+	set := map[string]bool{}
+	for _, ps := range pss {
+		for _, p := range ps {
+			set[p.Source] = true
+		}
 	}
 	return len(set)
 }

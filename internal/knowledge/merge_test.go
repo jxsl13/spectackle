@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/drift"
@@ -204,6 +205,106 @@ func TestMergeDeterministicOrdering(t *testing.T) {
 	}
 	if string(out1) != string(out2) {
 		t.Fatalf("Marshal(Merge(...)) not byte-identical across argument orders:\n--- 1 ---\n%s\n--- 2 ---\n%s", out1, out2)
+	}
+}
+
+// TestResolveAndApplyKeepsLoserIntact: resolving a same-question-different-
+// decision conflict must keep the rejected decision fully present — not
+// just note that a conflict existed. Marshal/Parse the resolved artifact
+// and confirm the loser (sources and all) survives the round trip. This is
+// the central point of Change 2: a resolution is not a "pick a winner and
+// discard the rest" — the losing values are exactly the knowledge this
+// system exists to preserve.
+func TestResolveAndApplyKeepsLoserIntact(t *testing.T) {
+	q := "How should retries work?"
+	winDec := "Retry up to 3 times with backoff."
+	loseDec := "Never retry; fail fast and alert."
+	a := Artifact{Sources: []string{"repoA"}, Entries: []Entry{adrEntry("repoA", q, winDec)}}
+	b := Artifact{Sources: []string{"repoB"}, Entries: []Entry{adrEntry("repoB", q, loseDec)}}
+
+	merged, conflicts, err := Merge(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("want exactly 1 conflict, got %d: %+v", len(conflicts), conflicts)
+	}
+	conf := conflicts[0]
+
+	// pick the entry asserting winDec as the winner, whichever index it
+	// landed on (groupBySubstance's tiebreak order is deterministic but not
+	// what this test is about).
+	var winner Entry
+	for _, e := range conf.Entries {
+		if e.Decision == winDec {
+			winner = e
+		}
+	}
+	if winner.Decision != winDec {
+		t.Fatalf("could not find the intended winner among conflict entries: %+v", conf.Entries)
+	}
+
+	res, err := Resolve(conf, winner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Losers) != 1 || res.Losers[0].Decision != loseDec {
+		t.Fatalf("Resolve did not preserve the losing decision: %+v", res)
+	}
+
+	resolved := Apply(merged, res)
+
+	// the winner must now read like an ordinary entry.
+	var sawWinnerEntry bool
+	for _, e := range resolved.Entries {
+		if e.Kind == KindADR && e.Question == q && e.Decision == winDec {
+			sawWinnerEntry = true
+		}
+	}
+	if !sawWinnerEntry {
+		t.Fatalf("Apply did not fold the winner into Entries: %+v", resolved.Entries)
+	}
+
+	out, err := Marshal(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(out)
+	if err != nil {
+		t.Fatalf("Parse(Marshal(resolved)) failed: %v\n---\n%s", err, out)
+	}
+	if !reflect.DeepEqual(resolved, got) {
+		t.Fatalf("resolved artifact did not round-trip:\n want=%+v\n  got=%+v\n---\n%s", resolved, got, out)
+	}
+	if len(got.Resolutions) != 1 {
+		t.Fatalf("want 1 resolution on the round-tripped artifact, got %d: %+v", len(got.Resolutions), got.Resolutions)
+	}
+	gotRes := got.Resolutions[0]
+	if gotRes.Winner.Decision != winDec {
+		t.Fatalf("winner lost after round trip: %+v", gotRes.Winner)
+	}
+	if len(gotRes.Losers) != 1 || gotRes.Losers[0].Decision != loseDec {
+		t.Fatalf("losing decision did not survive the round trip: %+v", gotRes.Losers)
+	}
+	if !strings.Contains(string(out), loseDec) {
+		t.Fatalf("marshaled artifact does not contain the losing decision text:\n%s", out)
+	}
+}
+
+// TestResolveRejectsWinnerNotInConflict: Resolve must not accept a "winner"
+// it cannot find among the conflict's own entries — that would let a
+// Resolution assert an outcome nobody actually proposed.
+func TestResolveRejectsWinnerNotInConflict(t *testing.T) {
+	q := "How should retries work?"
+	a := Artifact{Sources: []string{"repoA"}, Entries: []Entry{adrEntry("repoA", q, "Retry up to 3 times with backoff.")}}
+	b := Artifact{Sources: []string{"repoB"}, Entries: []Entry{adrEntry("repoB", q, "Never retry; fail fast and alert.")}}
+	_, conflicts, err := Merge(a, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fabricated := adrEntry("repoC", q, "Retry exactly once.")
+	if _, err := Resolve(conflicts[0], fabricated); err == nil {
+		t.Fatal("Resolve accepted a winner that was not one of the conflict's entries, want error")
 	}
 }
 
