@@ -33,3 +33,4 @@
 {"t":"2026-07-24T10:07:54Z","eid":"abac6355b2074240","ag":"agent-scripts","ev":"move","id":"T-0043","dir":"internal/langspec","fr":"approved","to":"active"}
 {"t":"2026-07-24T11:55:23Z","eid":"b837eb5a34f4b5e0","ag":"agent-scripts2","ev":"move","id":"T-0043","dir":"internal/langspec","fr":"active","to":"done"}
 {"t":"2026-07-24T11:55:25Z","eid":"4d778c30e9be8203","ag":"agent-ktswift2","ev":"move","id":"T-0041","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T11:57:07Z","eid":"83526076a5108e85","ag":"agent-csscala2","ev":"move","id":"T-0042","dir":"internal/langspec","fr":"active","to":"done"}
