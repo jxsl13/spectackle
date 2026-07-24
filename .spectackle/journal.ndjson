@@ -443,3 +443,10 @@
 {"t":"2026-07-24T17:53:23Z","eid":"e3a8d77931bf55ab","ag":"orchestrator","ev":"move","id":"P-0056","fr":"draft","to":"active"}
 {"t":"2026-07-24T17:53:23Z","eid":"62790cc0d5a2b8e1","ag":"orchestrator","ev":"create","id":"T-0084","k":"task","ti":"ADR rename part 1: decision-\u003eadr, D-\u003eADR, find scope=adr + indexer"}
 {"t":"2026-07-24T17:53:23Z","eid":"523dc8082f12117b","ag":"orchestrator","ev":"move","id":"T-0084","fr":"draft","to":"active"}
+{"t":"2026-07-24T17:59:26Z","eid":"b32e85d4a8583fe4","ag":"orchestrator","ev":"create","id":"P-0058","k":"proposal","ti":"README Quickstart at top: download from GitHub releases, no build from source"}
+{"t":"2026-07-24T17:59:26Z","eid":"4b4f6a8142ef229e","ag":"orchestrator","ev":"grill","id":"P-0058","gr":"2026-07-24"}
+{"t":"2026-07-24T17:59:26Z","eid":"a271680eb4a641fd","ag":"orchestrator","ev":"move","id":"P-0058","fr":"draft","to":"active"}
+{"t":"2026-07-24T17:59:26Z","eid":"9d9a5f84107d9ed6","ag":"orchestrator","ev":"create","id":"P-0059","k":"proposal","ti":"generic harness-independent worktree/ignore: unify walks on config.Ignore (globs+regex) + nested-git detection"}
+{"t":"2026-07-24T17:59:26Z","eid":"23514baa20f1407c","ag":"orchestrator","ev":"grill","id":"P-0059","gr":"2026-07-24"}
+{"t":"2026-07-24T17:59:55Z","eid":"fdd87302c6b73ff0","ag":"orchestrator","ev":"create","id":"T-0085","k":"task","ti":"README: add top Quickstart (download from releases), retitle build-from-source"}
+{"t":"2026-07-24T17:59:55Z","eid":"13aaf4126c78282a","ag":"orchestrator","ev":"move","id":"T-0085","fr":"draft","to":"active"}
