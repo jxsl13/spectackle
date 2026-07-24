@@ -99,3 +99,8 @@ Rationale: Parse stays permissive because a citation may point at an item archiv
 WHEN the swarm tool is invoked, the server SHALL emit one `q free <id>` record per approved item no held lease collides with, and one `q held <id> <agent>` record per item a lease does collide with.
 
 Rationale: The orchestrator's real question is what is claimable, not what is approved. Computing it by hand each round is what makes it stall when every remaining task needs a held file; naming the holder distinguishes a progressing sibling from a stale lease.
+
+## MCP-014
+WHEN the compact dry-run runs, the server SHALL report each redundant rejection cluster as one `c <dir> redundant <canonical>+<superseded>` record and never supersede automatically.
+
+Rationale: Same precedent as MCP-005 for mergeable rules, and stronger here: a wrongly merged rule can be split again, while a wrongly superseded rejection hides a lesson exactly when someone is about to repeat it.

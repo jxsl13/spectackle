@@ -207,3 +207,9 @@
 {"t":"2026-07-24T22:43:00Z","eid":"06055e644f3f5333","ag":"ag-a1dc","ev":"create","id":"ADR-0012","k":"adr","ti":"How should spectackle coordinate agents beyond a single host: keep the central SQLite counter, or remove it in favor of coordination-free identifiers?","dir":"internal/mcpserver"}
 {"t":"2026-07-24T22:43:00Z","eid":"a1a8151a4e8ab7aa","ag":"ag-a1dc","ev":"move","id":"ADR-0012","dir":"internal/mcpserver","fr":"draft","to":"submitted"}
 {"t":"2026-07-24T22:43:11Z","eid":"46309b499e9a09e9","ag":"ag-a1dc","ev":"decide","id":"ADR-0012","dir":"internal/mcpserver","note":"remove the central counter: UUIDv7 identifiers, coordination-free and lexicographically sortable"}
+{"t":"2026-07-24T22:44:26Z","eid":"dd58b483d44ac326","ag":"ag-a1dc","ev":"rule","dir":"internal/mcpserver","op":"add","rule":"MCP-014","txt":"WHEN the compact dry-run runs, the server SHALL report each redundant rejection cluster as one `c \u003cdir\u003e redundant \u003ccanonical\u003e+\u003csuperseded\u003e` record and never supersede automatically.","item":"P-0086"}
+{"t":"2026-07-24T22:45:04Z","eid":"c9007b23cc32035a","ag":"ag-a1dc","ev":"create","id":"P-0089","k":"proposal","ti":"compact reports redundant rejection clusters; draft and rule stop implying IDs are predictable","dir":"internal/mcpserver"}
+{"t":"2026-07-24T22:45:04Z","eid":"98834f56f7b29034","ag":"ag-a1dc","ev":"grill","id":"P-0089","dir":"internal/mcpserver","gr":"2026-07-24"}
+{"t":"2026-07-24T22:46:36Z","eid":"04dc9617cbf5abe8","ag":"ag-a1dc","ev":"create","id":"T-0123","k":"task","ti":"compact reports redundant rejection clusters; draft and rule describe the shared ID counter","dir":"internal/mcpserver"}
+{"t":"2026-07-24T22:46:36Z","eid":"079a8d509dd48b31","ag":"ag-a1dc","ev":"move","id":"P-0089","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-24T22:46:36Z","eid":"fce8d46465692ed7","ag":"ag-a1dc","ev":"move","id":"T-0123","dir":"internal/mcpserver","fr":"draft","to":"active"}
