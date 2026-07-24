@@ -2,7 +2,10 @@ GO         ?= go
 BIN        := bin/spectackle
 GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@latest
 
-.PHONY: all build vet test cover lint-specs smoke clean release-snapshot
+.PHONY: all build vet test cover fuzz lint-specs smoke clean release-snapshot
+
+# Seconds of fuzzing per target in `make fuzz` (M4 linter hardening).
+FUZZTIME ?= 10s
 
 # Minimum total statement coverage (percent) enforced by `make cover`.
 # Baseline at introduction: 75.0%; kept below to absorb noise, ratchet upward.
@@ -18,6 +21,11 @@ vet:
 
 test:
 	$(GO) test -race ./...
+
+fuzz:
+	$(GO) test ./internal/ears/ -fuzz=FuzzLintSentence -fuzztime=$(FUZZTIME)
+	$(GO) test ./internal/ears/ -fuzz=FuzzParseRules -fuzztime=$(FUZZTIME)
+	$(GO) test ./internal/ears/ -fuzz=FuzzStripFrontMatter -fuzztime=$(FUZZTIME)
 
 cover:
 	@mkdir -p bin

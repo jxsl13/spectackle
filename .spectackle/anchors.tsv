@@ -28,3 +28,6 @@ MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	923-1036	f0cebfb7e
 MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	1218-1300	47a4d5e4cde3e53c	eb2b0afd3aaf585d
 SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	246-270	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
+SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-148	b22279d1973d0f49	12a13a8c05a928ed
+SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	203-253	0fa34a1f18005e98	12a13a8c05a928ed
+SPX-EARS-004	go:ears.StripFrontMatter	internal/ears/ears.go	269-281	45da9a4aa569b9e8	12a13a8c05a928ed

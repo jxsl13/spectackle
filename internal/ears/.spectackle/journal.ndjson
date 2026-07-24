@@ -1,0 +1,1 @@
+{"t":"2026-07-24T14:18:06Z","eid":"8f24a38d578dea5b","ag":"orchestrator","ev":"rule","dir":"internal/ears","op":"add","rule":"SPX-EARS-004","txt":"The EARS linter SHALL process arbitrary byte input in LintSentence, ParseRules and StripFrontMatter without panicking.","ap":["go:ears.LintSentence","go:ears.ParseRules","go:ears.StripFrontMatter"]}
