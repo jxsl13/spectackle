@@ -32,3 +32,24 @@ PART 3 — FFI resolver (RSV-001 compliant): new internal/resolve/ffi.go, type F
 
 ROLLBACK: CallRe unset = zero behavior change; single revert restores.
 EXIT CRITERION: go build ./... && go vet ./... && go test -race ./internal/langspec/ ./internal/resolve/ ./internal/index/ green; make lint-specs clean. Constraints: never edit .spectacle/ (server-owned); never commit/push; do not touch mcpserver, graph, index beyond reading.
+
+## T-0051 ddnet validation: index the real thing, measure, prove a cross-language chain
+kind: task
+state: approved
+created: 2026-07-24
+parent: P-0026
+
+SCOPE: docs/validation-ddnet.md (NEW — the only repo file you create/edit). Read-only use of bin/spectacle and the ddnet clone at /tmp/claude-0/-home-user-spectacle/4c40537b-65eb-5824-86a6-6c853d4e1c78/scratchpad/ddnet (shallow clone, ~2300 C/C++ files under src/).
+
+STEPS:
+1. Build: go build -o bin/spectacle ./cmd/spectacle (repo root /home/user/spectacle).
+2. Index ddnet via the MCP driver against the CLONE root (this scaffolds a .spectacle folder inside the clone — that is fine, it is a scratchpad):
+   SPECTACLE_AGENT=agent-ddnet python3 /tmp/claude-0/-home-user-spectacle/4c40537b-65eb-5824-86a6-6c853d4e1c78/scratchpad/mcp_call.py /tmp/claude-0/-home-user-spectacle/4c40537b-65eb-5824-86a6-6c853d4e1c78/scratchpad/ddnet <<'JSON2'
+   {"name":"state","arguments":{}}
+   JSON2
+   Record: node count, edge count, and the wall-clock of the first (cold) and second (warm parse.db) run — time the driver invocations with `time`.
+3. Probe REAL symbols over the driver (find scope=code + get depth=2): pick 3 well-known ddnet functions (e.g. find q=CServer, q=str_copy, q=net_init — base/system.c is the C layer, src/engine/server is C++). Capture: (a) one C function with in-edges from C++ callers (the FFI/same-name bridge or direct c: calls), (b) one n record showing a file:start-end span, (c) one get id=<cpp fn> depth=2 impact pack crossing into c: nodes.
+4. Write docs/validation-ddnet.md (<=120 lines, dense): repo+commit of the clone, measured numbers (nodes/edges/cold/warm/graph memory if visible from state), the three captured probes as verbatim record lines, what the regex chain does NOT see (member calls via ->, virtual dispatch, macros — honest limits section), verdict sentence.
+5. Lifecycle: lease claim paths=["docs/validation-ddnet.md"], move active, write, move done, release.
+
+EXIT CRITERION: docs/validation-ddnet.md exists with real measured numbers (no placeholders); the three probes show at least one c:<name> node with File/Line and at least one edge crossing cpp:->c: or c: in-edges from another file. Constraints: do NOT modify the ddnet clone besides its scaffolded .spectacle; do NOT touch any Go source; never commit/push.
