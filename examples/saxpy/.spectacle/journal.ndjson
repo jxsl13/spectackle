@@ -1,0 +1,1 @@
+{"t":"2026-07-24T01:59:13Z","eid":"cdcf8c1952dd6a2c","ag":"orchestrator","ev":"rule","dir":"examples/saxpy","op":"edit","rule":"SXP-API-002","txt":"WHEN Saxpy is called with n less than 1 or a slice shorter than n, the Go binding SHALL return a non-nil `error` before crossing the cgo boundary.","ap":["go:saxpy.Saxpy"],"item":"P-0001"}

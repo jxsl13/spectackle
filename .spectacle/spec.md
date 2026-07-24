@@ -10,6 +10,7 @@ spectacle is a token-efficient, spec-driven MCP server: cross-language AST
 maps, cascading EARS contracts and a git-native spec lifecycle, fused so an
 LLM plans against structure and contracts instead of file contents.
 - P-0002 dedicated unit tests with end-to-end coverage for every implementation: every package now carries a dedicated end-to-end unit test; concurrency race in draft found and fixed with a server mutex + regression test
+- P-0001 M1 structural core: go/parser indexer + cgo edges: go/parser indexer live: 3-layer saxpy chain reproduces, anchors real (span+hash), find/get graph-backed
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
@@ -65,3 +66,8 @@ The server SHALL mint every item ID and rule ID through the shared coordination 
 
 ## SPX-SWM-005
 WHILE a worktree is open for this session, the server SHALL block the `compact` tool so journal folds cannot corrupt the submit replay.
+
+## SPX-SWM-006 {applies: go:coord.DB.Sweep}
+WHEN the stale-agent sweep runs, the server SHALL delete the `agents` rows whose heartbeat is older than `agent_ttl` together with their `leases` rows.
+
+Rationale: the swarm view must show who is actually there; short-lived driver sessions must not accumulate.

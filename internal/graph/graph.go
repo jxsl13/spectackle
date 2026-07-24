@@ -56,15 +56,15 @@ func (k NodeKind) String() string {
 type EdgeKind uint8
 
 const (
-	EUnknown EdgeKind = iota
-	EDef              // container defines symbol (file -> func, type -> method)
-	ECall             // same-language call
-	EIncl             // #include / import
-	ECgo              // Go <-> C boundary (import "C", //export)
-	EAsm              // Go decl <-> asm TEXT implementation
-	ELaunch           // host code launches GPU kernel (<<<>>>, pipeline creation)
-	EUse              // reference that is not a call (type use, var read)
-	ESpecLink         // EARS rule bound to node (from .spectacle/links.tsv)
+	EUnknown  EdgeKind = iota
+	EDef               // container defines symbol (file -> func, type -> method)
+	ECall              // same-language call
+	EIncl              // #include / import
+	ECgo               // Go <-> C boundary (import "C", //export)
+	EAsm               // Go decl <-> asm TEXT implementation
+	ELaunch            // host code launches GPU kernel (<<<>>>, pipeline creation)
+	EUse               // reference that is not a call (type use, var read)
+	ESpecLink          // EARS rule bound to node (from .spectacle/links.tsv)
 )
 
 var edgeKindNames = [...]string{"?", "def", "call", "incl", "cgo", "asm", "launch", "use", "link"}
@@ -173,21 +173,32 @@ func (g *memGraph) Find(q string, k int, kind NodeKind) []Node {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	q = strings.ToLower(q)
+	// match classes (SPX-GRA-003): ID suffix < ID substring < file/sig-only —
+	// an agent knows a file name or a parameter type as often as a symbol
+	// name, but ID hits stay the cheapest currency and must surface first.
+	cls := map[NodeID]int{}
 	var hits []Node
 	for _, n := range g.nodes {
 		if kind != KUnknown && n.Kind != kind {
 			continue
 		}
-		if strings.Contains(strings.ToLower(string(n.ID)), q) {
-			hits = append(hits, n)
+		id := strings.ToLower(string(n.ID))
+		switch {
+		case strings.HasSuffix(id, q):
+			cls[n.ID] = 0
+		case strings.Contains(id, q):
+			cls[n.ID] = 1
+		case strings.Contains(strings.ToLower(n.File), q),
+			strings.Contains(strings.ToLower(n.Sig), q):
+			cls[n.ID] = 2
+		default:
+			continue
 		}
+		hits = append(hits, n)
 	}
 	sort.Slice(hits, func(i, j int) bool {
-		// exact suffix match ranks first, then higher rank, then stable ID order
-		si := strings.HasSuffix(strings.ToLower(string(hits[i].ID)), q)
-		sj := strings.HasSuffix(strings.ToLower(string(hits[j].ID)), q)
-		if si != sj {
-			return si
+		if ci, cj := cls[hits[i].ID], cls[hits[j].ID]; ci != cj {
+			return ci < cj
 		}
 		if hits[i].Rank != hits[j].Rank {
 			return hits[i].Rank > hits[j].Rank

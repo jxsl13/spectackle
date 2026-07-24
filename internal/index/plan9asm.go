@@ -12,10 +12,10 @@ import (
 
 // AsmSym is one TEXT or GLOBL definition in a .s file.
 type AsmSym struct {
-	Name   string // symbol name without the leading middle dot
-	Kind   string // "text" or "globl"
-	Line   int    // 1-based
-	Frame  string // raw frame/arg size suffix, e.g. "$0-56" (TEXT only)
+	Name  string // symbol name without the leading middle dot
+	Kind  string // "text" or "globl"
+	Line  int    // 1-based
+	Frame string // raw frame/arg size suffix, e.g. "$0-56" (TEXT only)
 }
 
 var (

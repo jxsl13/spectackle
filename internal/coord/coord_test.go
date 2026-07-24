@@ -75,7 +75,7 @@ func TestClaimOverlapMatrix(t *testing.T) {
 		path     string
 		conflict bool
 	}{
-		{"gpu/kernels", true},         // equal
+		{"gpu/kernels", true},          // equal
 		{"gpu/kernels/saxpy.cu", true}, // child of leased dir
 		{"gpu", true},                  // parent of leased dir
 		{"gpu/other", false},           // sibling
@@ -132,6 +132,72 @@ func TestStaleAgentSweep(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expire event not emitted: %+v", events)
+	}
+	// SPX-SWM-006: alice's registry row is gone with her lease
+	agents, err := b.Agents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range agents {
+		if a.Name == "alice" {
+			t.Fatalf("stale agent row survived the sweep: %+v", agents)
+		}
+	}
+	// alice is still alive, just idle past TTL: her next heartbeat re-registers
+	if err := a.Heartbeat(); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ = b.Agents()
+	found = false
+	for _, ag := range agents {
+		found = found || ag.Name == "alice"
+	}
+	if !found {
+		t.Fatalf("heartbeat after sweep must re-register: %+v", agents)
+	}
+}
+
+func TestSweepDeletesLeaselessStaleAgents(t *testing.T) {
+	// the common case: a short-lived driver session registered, held no
+	// lease, and went away — its row must not linger past agent_ttl.
+	a, b := open2(t)
+	if _, err := a.db.Exec(`UPDATE agents SET hb=? WHERE name='alice'`,
+		time.Now().Add(-2*time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := b.Sweep(15 * time.Minute)
+	if err != nil || len(expired) != 0 {
+		t.Fatalf("Sweep = %+v, %v (no leases were held)", expired, err)
+	}
+	agents, _ := b.Agents()
+	for _, ag := range agents {
+		if ag.Name == "alice" {
+			t.Fatalf("lease-less stale agent survived the sweep: %+v", agents)
+		}
+	}
+}
+
+func TestDeregister(t *testing.T) {
+	a, b := open2(t)
+	if c, _ := a.Claim([]string{"gpu"}, "P-0001", ttl, ttl); c != nil {
+		t.Fatal("claim failed")
+	}
+	if err := a.Deregister(); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := b.Agents()
+	for _, ag := range agents {
+		if ag.Name == "alice" {
+			t.Fatalf("deregistered agent still listed: %+v", agents)
+		}
+	}
+	leases, _ := b.Leases(ttl)
+	if len(leases) != 0 {
+		t.Fatalf("deregister must drop own leases: %+v", leases)
+	}
+	// scope is immediately claimable by the sibling
+	if c, _ := b.Claim([]string{"gpu"}, "T-0001", ttl, ttl); c != nil {
+		t.Fatalf("claim after deregister conflicted: %+v", c)
 	}
 }
 

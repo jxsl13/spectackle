@@ -157,9 +157,12 @@ Candidates: done-unarchived items (apply archives them), journal folds over
   "ttl":  {"type":"integer","description":"seconds, default 600"}}}
 ```
 Prefix-overlap of a live foreign lease → `! LEASE E` + `l` line naming the
-holder (SPX-SWM-003). Own leases auto-refresh on every tool call; stale
-agents (no heartbeat > `agent_ttl`) expire lazily. `work op=start`
-auto-claims its item + targets.
+holder (SPX-SWM-003). Own leases auto-refresh on every tool call; release
+explicit claims the moment the item is done — a stale claim blocks siblings
+until TTL expiry. Stale agents (no heartbeat > `agent_ttl`) are swept:
+their leases expire and their registry rows are removed (SPX-SWM-006); a
+clean shutdown deregisters immediately. `work op=start` auto-claims its
+item + targets.
 
 ### 9. `work` — git-worktree lifecycle (multi-agent isolation)
 
