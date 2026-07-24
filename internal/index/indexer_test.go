@@ -204,6 +204,51 @@ func TestIndexAllSaxpyExample(t *testing.T) {
 	}
 }
 
+// IndexAll must honor config.yaml-style ignore globs passed to New: a file
+// under an ignored glob is excluded from the graph, and the same tree indexed
+// without the ignore glob includes it (T-0026).
+func TestIndexAllRespectsIgnoreGlobs(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "gen/x.go", `package gen
+
+func Generated() {}
+`)
+	writeFile(t, root, "keep/y.go", `package keep
+
+func Kept() {}
+`)
+
+	// with the ignore glob: gen/x.go is excluded, keep/y.go still indexed.
+	gIgnored := graph.NewMem()
+	ixIgnored := New(gIgnored, store.NewMem(), []LanguageParser{GoParser{}}, resolve.Default().All(), "gen/**")
+	st, err := ixIgnored.IndexAll(context.Background(), root)
+	if err != nil {
+		t.Fatalf("IndexAll (ignored): %v", err)
+	}
+	if st.Files != 1 {
+		t.Errorf("Stats.Files = %d, want 1 (gen/x.go excluded)", st.Files)
+	}
+	if _, ok := gIgnored.Node("go:gen.Generated"); ok {
+		t.Error("go:gen.Generated present, want excluded by ignore glob gen/**")
+	}
+	if _, ok := gIgnored.Node("go:keep.Kept"); !ok {
+		t.Error("go:keep.Kept missing, want present (not covered by ignore glob)")
+	}
+
+	// without the ignore glob: both files are indexed.
+	gAll := graph.NewMem()
+	ixAll := newTestIndexer(gAll)
+	if _, err := ixAll.IndexAll(context.Background(), root); err != nil {
+		t.Fatalf("IndexAll (no ignore): %v", err)
+	}
+	if _, ok := gAll.Node("go:gen.Generated"); !ok {
+		t.Error("go:gen.Generated missing, want present without an ignore glob")
+	}
+	if _, ok := gAll.Node("go:keep.Kept"); !ok {
+		t.Error("go:keep.Kept missing, want present")
+	}
+}
+
 func TestMatchIgnore(t *testing.T) {
 	cases := []struct {
 		globs []string

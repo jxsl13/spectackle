@@ -58,15 +58,18 @@ type Indexer interface {
 	IndexPaths(ctx context.Context, paths []string) (Stats, error)
 }
 
-// New wires the pipeline with a set of parsers and binding resolvers.
-func New(g graph.Graph, s store.Store, parsers []LanguageParser, resolvers []resolve.BindingResolver) Indexer {
+// New wires the pipeline with a set of parsers and binding resolvers. The
+// trailing ignore globs are config.yaml-style patterns (see MatchIgnore) that
+// IndexAll consults in addition to the fixed ignoreDirs; omitting them is
+// backward compatible with existing callers.
+func New(g graph.Graph, s store.Store, parsers []LanguageParser, resolvers []resolve.BindingResolver, ignore ...string) Indexer {
 	byExt := map[string]LanguageParser{}
 	for _, p := range parsers {
 		for _, e := range p.Extensions() {
 			byExt[e] = p
 		}
 	}
-	return &indexer{g: g, s: s, byExt: byExt, resolvers: resolvers}
+	return &indexer{g: g, s: s, byExt: byExt, resolvers: resolvers, ignore: ignore}
 }
 
 type indexer struct {
@@ -74,6 +77,7 @@ type indexer struct {
 	s         store.Store
 	byExt     map[string]LanguageParser
 	resolvers []resolve.BindingResolver
+	ignore    []string // config.yaml ignore globs, matched file-by-file (see MatchIgnore)
 }
 
 // ignoreDirs are never descended into (cache, VCS, build output, vendored or
@@ -105,6 +109,12 @@ func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 			return relErr
 		}
 		rel = filepath.ToSlash(rel)
+		// config.yaml ignore globs, file-level only: dir-level pruning of
+		// custom globs (skipping the walk early via filepath.SkipDir) is left
+		// as a later optimization — see T-0026.
+		if MatchIgnore(ix.ignore, rel) {
+			return nil
+		}
 		files = append(files, rel)
 		if l := LangOf(rel); l != "" {
 			byLang[l] = append(byLang[l], rel)

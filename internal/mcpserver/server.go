@@ -142,7 +142,7 @@ func (s *Server) reindex() {
 	g := graph.NewMem()
 	ix := index.New(g, s.blobs,
 		[]index.LanguageParser{index.GoParser{}, index.AsmParser{}, index.CudaParser{}},
-		resolve.Default().All())
+		resolve.Default().All(), s.ws.Cfg.Ignore...)
 	st, err := ix.IndexAll(context.Background(), s.ws.Dir)
 	if err != nil {
 		log.Printf("index: %v (keeping previous graph)", err)
