@@ -24,6 +24,8 @@ LLM plans against structure and contracts instead of file contents.
 - T-0024 docs nits: transcript rule count + README triple-hop demo with real output: transcript count fixed, README live-chain demo from shipped binary
 - P-0015 harness-agnostic orchestration language + fanout in the workflow prompt: orchestration as model-tier pattern with fanout, on every surface incl. manifest and workflow prompt
 - P-0016 CD: goreleaser release pipeline (multi-platform binaries on tag): goreleaser CD live: tag-gated release workflow, snapshot verified end-to-end, version injection confirmed
+- P-0018 SDD orchestration v2: research-first, grill, native decisions, bounded loops (blocked state): SDD v2 live: research/grill/decide tools, blocked side state with three decide exits, bounded rounds, two-mode /spectacle
+- D-0001 Merge PR #11 automatically after gates pass?: demo decision, answered cross-session
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
