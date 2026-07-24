@@ -163,7 +163,9 @@ func TestStatePromptMatchesTool(t *testing.T) {
 }
 
 // TestStateOnOwnRepo: the repository's own live workspace must produce a
-// full, crash-free snapshot with a real graph behind it.
+// full, crash-free snapshot with a real graph behind it. #items is NOT
+// asserted: it tracks the live backlog, which is legitimately empty right
+// after a wave archives (elided per SPX-MCP-004, like every empty section).
 func TestStateOnOwnRepo(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -171,7 +173,7 @@ func TestStateOnOwnRepo(t *testing.T) {
 	}
 	sess := connectRoot(t, root)
 	out := callText(t, sess, "state", map[string]any{})
-	for _, sec := range []string{"#version", "#items", "#rules", "#graph", "#swarm"} {
+	for _, sec := range []string{"#version", "#rules", "#graph", "#swarm"} {
 		if !strings.Contains(out, sec) {
 			t.Fatalf("state on own repo missing %s: %q", sec, out)
 		}
