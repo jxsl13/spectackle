@@ -132,6 +132,29 @@ func Upsert(anchors []Anchor, a Anchor) []Anchor {
 	return append(anchors, a)
 }
 
+// Reconcile drops every anchor row for rule whose Node is not in keep,
+// leaving rows of other rules untouched and preserving order. Callers stamp
+// a rule's current applies list through this first so an edit (or retire,
+// with keep=nil) converges anchors.tsv to exactly that set instead of
+// accumulating stale rows for nodes the rule no longer binds.
+func Reconcile(anchors []Anchor, rule string, keep []graph.NodeID) []Anchor {
+	if len(anchors) == 0 {
+		return anchors
+	}
+	keepSet := make(map[graph.NodeID]bool, len(keep))
+	for _, n := range keep {
+		keepSet[n] = true
+	}
+	out := make([]Anchor, 0, len(anchors))
+	for _, a := range anchors {
+		if a.Rule == rule && !keepSet[a.Node] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
 // Stamp builds an anchor for a rule bound to a node, hashing the node's
 // current definition span. A node that is not (yet) in the graph produces a
 // pending anchor — the M1 indexer resolves it on the next check.
