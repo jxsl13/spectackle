@@ -25,7 +25,7 @@ smoke: build
 	  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
 	  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 1) \
 	  | ./$(BIN) serve -root . 2>/dev/null \
-	  | grep -q '"plan_change"' && echo "smoke: OK (tools listed)" || (echo "smoke: FAILED"; exit 1)
+	  | grep -q '"draft"' && echo "smoke: OK (tools listed)" || (echo "smoke: FAILED"; exit 1)
 
 clean:
 	rm -rf bin

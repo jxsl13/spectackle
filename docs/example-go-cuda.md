@@ -10,36 +10,29 @@ go:saxpy.Saxpy ──cgo──→ c:launch_saxpy ──launch──→ cu:saxpy_
 
 ## The contracts on disk
 
-`examples/saxpy/.spectacle.ears.md` — API level:
-
-> **SXP-API-001** (N) IF a CUDA wrapper returns a non-zero status, THEN the
-> Go binding SHALL wrap the status in an error that contains the numeric
-> CUDA status code.
->
-> **SXP-API-002** (E) WHEN Saxpy is called with n less than 1 or a slice
-> shorter than n, the Go binding SHALL return a non-nil `error` before
-> crossing the cgo boundary.
-
-`examples/saxpy/saxpy/kernels/.spectacle.ears.md` — CUDA level:
-
-> **CUDA-KRN-001** (E) WHEN a kernel launch statement returns, the host
-> wrapper SHALL check cudaGetLastError and propagate its numeric value to
-> the caller.
->
-> **CUDA-KRN-002** (U) The kernel SHALL guard every element access with an
-> explicit index bound check of the form `if (i < n)`.
-
-The repo-global `SPX-ARC-*` rules cascade in above both files.
+`examples/saxpy/.spectacle/spec.md` — API level (`SXP-API-001/002`: non-zero
+CUDA status becomes a Go error with the numeric code; invalid extents fail
+before the cgo boundary). `examples/saxpy/saxpy/kernels/.spectacle/spec.md` —
+CUDA level (`CUDA-KRN-001`: check cudaGetLastError after every launch;
+`CUDA-KRN-002`: every element access bound-checked). The repo-root `SPX-*`
+rules cascade in above both.
 
 ## The LLM session (task: "support strided x/y access")
 
-Three tool calls, ~300 result tokens, zero file reads before editing:
+The full lifecycle in six tool calls, ~400 result tokens, zero file reads
+before editing:
 
 ```
-> sym {"q":"Saxpy"}
+> find {"q":"stride saxpy","scope":"rejection"}          # learn first
+ok no matches
+
+> find {"q":"Saxpy","scope":"code"}
 n go:saxpy.Saxpy fn examples/saxpy/saxpy/saxpy.go:22 sig=(n int,a float32,x,y []float32)error
 
-> plan_change {"targets":["go:saxpy.Saxpy"],"intent":"support strided x/y access"}
+> draft {"kind":"proposal","title":"strided saxpy access",
+         "body":"Add xStride/yStride params through the whole chain.",
+         "targets":["go:saxpy.Saxpy"]}
+i P-0001 proposal draft examples/saxpy strided saxpy access
 #impact
 n go:saxpy.Saxpy fn examples/saxpy/saxpy/saxpy.go:22
 e go:saxpy.Saxpy cgo c:launch_saxpy via=examples/saxpy/saxpy/saxpy.go:27
@@ -47,62 +40,62 @@ n c:launch_saxpy fn examples/saxpy/saxpy/kernels/saxpy.cu:15
 e c:launch_saxpy launch cu:saxpy_kernel via=examples/saxpy/saxpy/kernels/saxpy.cu:29
 n cu:saxpy_kernel kernel examples/saxpy/saxpy/kernels/saxpy.cu:7
 #contracts
-r SPX-ARC-002 - .spectacle WHEN a tool result exceeds the requested token budget, …
 r SXP-API-001 N examples/saxpy IF a CUDA wrapper returns a non-zero status, THEN the Go binding SHALL wrap …
-r SXP-API-002 E examples/saxpy WHEN Saxpy is called with n less than 1 or a slice shorter than n, …
-r CUDA-KRN-001 E examples/saxpy/saxpy/kernels WHEN a kernel launch statement returns, the host wrapper SHALL check cudaGetLastError …
-r CUDA-KRN-002 U examples/saxpy/saxpy/kernels The kernel SHALL guard every element access with an explicit index bound check …
-#gaps
-g none -
+r SXP-API-002 E examples/saxpy WHEN Saxpy is called with n less than 1 …
+r CUDA-KRN-001 E examples/saxpy/saxpy/kernels WHEN a kernel launch statement returns, …
+r CUDA-KRN-002 U examples/saxpy/saxpy/kernels The kernel SHALL guard every element access …
+#rejections
+ok none similar
 ```
 
-The agent now knows, without opening a single file:
+The agent now knows — without opening a single file — **where** the change
+ripples (three edit sites, file:line) and **what every edit must preserve**
+(bound checks stay, launch-error check stays, host validation must cover the
+new stride params).
 
-1. **Where the signature change ripples**: `Saxpy` (Go) → `launch_saxpy`
-   (C wrapper, `saxpy.h` + `saxpy.cu`) → `saxpy_kernel` (CUDA) — every edit
-   site with file:line.
-2. **What every edit must preserve**: bound checks stay (`CUDA-KRN-002`,
-   now `i*stride < n`), the launch-error check stays (`CUDA-KRN-001`), host
-   validation must cover the new stride params (`SXP-API-002`).
-
-Before editing, the new behaviour is specified — **through the server, never
-by hand-writing markdown**. The agent fills the slots (or the server elicits
-them from the user via an MCP form); composition, linting, ID assignment and
-persistence happen server-side:
+After the user approves, the new behaviour is specified **through the
+server** (slots → composed EARS → lint gate → auto-ID; a vague response slot
+would return `! E004 … ! REJECTED` and write nothing):
 
 ```
-> add_rule {"dir":"examples/saxpy/saxpy/kernels","pattern":"E",
-            "system":"kernel",
-            "trigger":"stride parameters are supplied",
-            "response":"index x and y as i*stride and guard each access with i*stride < n"}
-ok CUDA-KRN-003 examples/saxpy/saxpy/kernels/.spectacle.ears.md
+> move {"id":"P-0001","to":"submitted"}   → move {"id":"P-0001","to":"approved"} → active
+
+> rule {"op":"add","dir":"examples/saxpy/saxpy/kernels","pattern":"E",
+        "system":"kernel","trigger":"stride parameters are supplied",
+        "response":"index x and y as i*stride and guard each access with i*stride < n",
+        "applies":["cu:saxpy_kernel"],"item":"P-0001"}
+ok CUDA-KRN-003 examples/saxpy/saxpy/kernels/.spectacle/spec.md
 r CUDA-KRN-003 E examples/saxpy/saxpy/kernels WHEN stride parameters are supplied, the kernel SHALL index x and y as i*stride and guard each access with i*stride < n.
+a CUDA-KRN-003 cu:saxpy_kernel examples/saxpy/saxpy/kernels/saxpy.cu:7-13 3fa1b2c4d5e6f708
 ```
 
-(A vague response slot — say `"handle strides properly"` — would return
-`! E004 … ! REJECTED` and write nothing.) The three files are then edited
-consistently (Go signature + validation, `extern "C"` prototype in
-`saxpy.h`/`saxpy.cu`, kernel indexing), and the loop closes with:
+The agent edits all three files consistently (Go signature + validation,
+`extern "C"` prototype, kernel indexing), then closes the loop:
 
 ```
-> coverage {"path":"examples/saxpy"}
-ok all source directories covered
+> check {}
+ok                                        # no drift, no gaps, specs lint clean
 
-> link {"rule":"CUDA-KRN-003","id":"cu:saxpy_kernel"}
-ok CUDA-KRN-003 -> cu:saxpy_kernel
+> move {"id":"P-0001","to":"done"}  →  move {"id":"P-0001","to":"archived"}
+i P-0001 proposal archived examples/saxpy strided saxpy access
 ```
+
+Archive merged the outcome into `examples/saxpy/.spectacle/spec.md ## intent`
+and removed the item from work.md; the journal keeps the full history. Had a
+later refactor changed the kernel without touching the spec, `check` would
+report `d changed CUDA-KRN-003 cu:saxpy_kernel …` and `check fix=true` would
+draft the backprop proposal.
 
 ## Why this beats prose + file dumps
 
-- The EARS conditions translate **deterministically**: `CUDA-KRN-001`
-  *is* `if ((err = cudaGetLastError()) != cudaSuccess) …` in C and
-  `if status != 0 { return fmt.Errorf(…, int(status)) }` in Go. No
-  interpretation, no reviewer round trip.
-- The cascade loaded **five rules**, not the spec corpus; the impact radius
-  named **three edit sites**, not three files of content. That asymmetry —
-  structure and contracts in, raw text never — is the token-efficiency
-  thesis of the whole server.
+- EARS conditions translate **deterministically**: `CUDA-KRN-001` *is*
+  `if ((err = cudaGetLastError()) != cudaSuccess) …` in C and an error-wrap
+  branch in Go. No interpretation, no rework loop.
+- The cascade loaded **five rules**, the radius named **three edit sites** —
+  structure and contracts in, raw text never.
+- The rejection search up front and the drift check at the end are what keep
+  this loop from ever doing the same failed work twice.
 
-*(M0 note: `sym` and `#impact` return stubs until the M1 indexer lands; the
-`#contracts`, `lint_ears`, `coverage` and `link` calls above run for real
-today — try `plan_change` with `"targets":["examples/saxpy/saxpy/saxpy.go"]`.)*
+*(Graph-backed records — `n`/`e` lines and anchor spans — go live with the
+M1 indexer; the lifecycle, contracts, rejection corpus and check/compact
+mechanics above run for real today.)*

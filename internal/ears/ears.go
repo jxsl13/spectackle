@@ -160,6 +160,42 @@ type Rule struct {
 
 var reHeading = regexp.MustCompile(`^## +(\S+?)(?: +\{applies: *([^}]*)\})? *$`)
 
+// proseSections are the whitelisted lowercase `##` headings that hold prose
+// instead of rules (addressable as sec:<dir>#<name>); they are exempt from
+// the E005 rule-ID check.
+var proseSections = map[string]bool{"intent": true, "notes": true, "design": true, "context": true}
+
+// IsProseSection reports whether a heading name is a whitelisted prose section.
+func IsProseSection(name string) bool { return proseSections[name] }
+
+// Section is one prose section of a spec file.
+type Section struct {
+	Name string
+	Line int // 1-based heading line within the given text
+	Text string
+}
+
+// ParseSections extracts the whitelisted prose sections from spec-file
+// markdown (front matter already stripped).
+func ParseSections(text string) []Section {
+	lines := strings.Split(text, "\n")
+	var out []Section
+	for i := 0; i < len(lines); i++ {
+		m := reHeading.FindStringSubmatch(lines[i])
+		if m == nil || !proseSections[m[1]] {
+			continue
+		}
+		var b []string
+		j := i + 1
+		for ; j < len(lines) && !strings.HasPrefix(lines[j], "## "); j++ {
+			b = append(b, lines[j])
+		}
+		out = append(out, Section{Name: m[1], Line: i + 1, Text: strings.TrimSpace(strings.Join(b, "\n"))})
+		i = j - 1
+	}
+	return out
+}
+
 // ParseRules extracts rules from spec-file markdown (front matter already
 // stripped by the caller, or absent). startLine is the 1-based line number of
 // the first line of text within the original file.
@@ -175,6 +211,9 @@ func ParseRules(text, file string, startLine int) ([]Rule, []Finding) {
 		}
 		ln := startLine + i
 		id := m[1]
+		if proseSections[id] {
+			continue // whitelisted prose section, not a rule
+		}
 		if !reRuleID.MatchString(id) {
 			fs = append(fs, Finding{Code: "E005", Severity: Error, File: file, Line: ln,
 				Msg: "heading " + strconv(id) + " is not a valid rule ID (PREFIX-SEG-042 form)"})

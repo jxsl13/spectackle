@@ -1,7 +1,9 @@
-# spectacle configuration for the spectacle repository itself (dogfooding).
+schema: v0
 langs: [go]
 ignore:
   - ".git/**"
   - "bin/**"
-cache: .spectacle/cache.db
 budget_default: 2000
+compact:
+  journal_max: 500
+  done_max: 8

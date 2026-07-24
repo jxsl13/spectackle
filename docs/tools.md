@@ -1,200 +1,157 @@
 # MCP tool surface
 
-The Go structs in `internal/mcpserver/tools.go` are the normative schema
-source (SPX-REPO-001 keeps this file consistent with them).
+Seven orthogonal tools. The Go structs in `internal/mcpserver/tools.go` are
+the normative schema source (SPX-REPO-001 keeps this file consistent with
+them). The server-description (MCP `instructions`, sent in the initialize
+handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 
 ## Design principles
 
-- **Stable short IDs** (`go:saxpy.Saxpy`) are the currency: the LLM names
-  code by ID, so calls and results stay tiny.
-- **Flat params, enums, defaults** (SPX-ARC-004): the common call is
-  `{"targets":["go:saxpy.Saxpy"]}` — everything else defaults.
-- **Dense line records, not JSON, in results** (SPX-MCP-002): ~5× fewer
-  tokens than pretty JSON for the same information.
-- **Budgets and cursors everywhere** (SPX-ARC-002): results truncate at
-  record boundaries; `cur` resumes.
-- **Corrections instead of errors** (SPX-ARC-003): unknown ID → 3 nearest
-  IDs as `nf` records, because an error round-trip costs more tokens.
+- **Stable short IDs are the currency**: nodes `go:saxpy.Saxpy`, rules
+  `CUDA-KRN-001`, items `P-0007`, sections `sec:gpu#intent`. The LLM names
+  concepts, never file paths or contents.
+- **Few tools, flat params, enums + defaults** (SPX-ARC-004): the common call
+  is one or two fields; no nesting, no option floods.
+- **Dense line records, not JSON, in results** (SPX-MCP-002).
+- **Budgets and cursors** on read tools (SPX-ARC-002).
+- **Corrections instead of errors** (SPX-ARC-003): unknown ID → `nf` with
+  the nearest matches.
+- **The LLM never writes .spectacle files** — `draft`, `rule`, `move`,
+  `compact` are the only write paths, and they are server-side.
 
-## Output line grammar (shared by all tools)
+## Output line grammar
 
 ```
-n <id> <kind> <file>:<line> [sig=<sig>]      node   (kind: fn|method|type|var|kernel|asm|file|dir)
-e <src> <ekind> <dst> [via=<file>:<line>]    edge   (ekind: def|call|incl|cgo|asm|launch|use|link)
-r <ruleID> <P> <scopeDir> <text>             rule   (P: U|E|S|N|O|C; scopeDir "-" = global)
-! <code> <sev> <file>:<line> <msg>           lint finding (sev: E|W)
-g <kind> <ref> <msg>                         gap    (kind: uncovered|orphan|lint|none)
-nf <id> <id> <id>                            not found — nearest matches
-cur <token>                                  more results; pass back as "cur"
-ok [<msg>]                                   success, nothing to report
+n <id> <kind> <file>:<line> [sig=<sig>]          node
+e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|use|link)
+r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
+i <id> <kind> <state> <dir> <title>              lifecycle item
+s sec:<dir>#<name> <text>                        prose section
+j <ref> <summary> :: <snippet>                   journal/history record
+a <rule> <node> <file>:<s>-<e> <chash>           anchor
+d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|changed|stale)
+g <kind> <ref> <msg>                             gap (uncovered|orphan)
+c <dir> <reason> <n>                             compact candidate
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101)
+need <slot> <question>                           missing input (elicitation fallback)
+nf <id> <id> <id>                                not found — nearest matches
+cur <token>                                      more results; pass back as cur
+ok [<msg>]                                       success / nothing to report
+#impact #contracts #rejections                   context-pack sections (draft)
 ```
 
 ## Tools
 
-### 1. `sym` — resolve names → stable IDs (cheap entry point)
+### 1. `find` — unified search (code + every lifecycle subcategory)
 
 ```json
 {"type":"object","required":["q"],"properties":{
-  "q":    {"type":"string","description":"name or ID fragment"},
-  "k":    {"type":"integer","default":5},
-  "kind": {"enum":["fn","type","kernel","asm","any"],"default":"any"}}}
+  "q":    {"type":"string"},
+  "scope":{"enum":["code","rule","spec","proposal","task","bug","research","rejection","history","all"],"default":"all"},
+  "k":    {"type":"integer","default":8}}}
 ```
-→ `n` lines, best match first.
+`code`→graph, everything else→FTS5. **`rejection` and `history` are the
+learn-before-planning scopes** — the loop starts here.
 
-### 2. `map` — ranked cross-language repo map (Aider-style skeleton)
+### 2. `get` — read one thing by ID
 
 ```json
-{"type":"object","properties":{
-  "path":  {"type":"string","description":"subtree, default root"},
-  "focus": {"type":"array","items":{"type":"string"},"description":"IDs biasing the ranking"},
-  "langs": {"type":"array","items":{"enum":["go","c","cpp","cu","asm","objc","msl"]}},
+{"type":"object","required":["id"],"properties":{
+  "id":    {"type":"string","description":"node|rule|item|sec:<dir>#<name>|path"},
+  "depth": {"type":"integer","default":0},
   "budget":{"type":"integer","default":2000},
   "cur":   {"type":"string"}}}
 ```
-→ `n` lines in rank order; `cur` if truncated.
+Dispatch on ID shape: item→header+body; rule→text+rationale+`a` anchors;
+node with `depth>0`→cross-language impact radius (`n`/`e`, BFS); dir→scoped
+rules+items; file→resolved contracts; unknown→`nf`.
 
-### 3. `impact` — cross-language impact radius, no file reads
-
-```json
-{"type":"object","required":["ids"],"properties":{
-  "ids":   {"type":"array","items":{"type":"string"}},
-  "depth": {"type":"integer","default":2},
-  "dir":   {"enum":["out","in","both"],"default":"both"},
-  "kinds": {"type":"array","items":{"enum":["call","incl","cgo","asm","launch","use"]}},
-  "budget":{"type":"integer","default":1500},
-  "cur":   {"type":"string"}}}
-```
-→ `n` + `e` lines in BFS order (each node once, at minimum distance —
-SPX-GRA-002).
-
-### 4. `contracts` — resolved cascading EARS rules for a scope
+### 3. `draft` — create a lifecycle item (state=draft)
 
 ```json
-{"type":"object","properties":{
-  "ids":    {"type":"array","items":{"type":"string"}},
-  "paths":  {"type":"array","items":{"type":"string"}},
-  "inherit":{"type":"boolean","default":true},
-  "budget": {"type":"integer","default":1500}}}
+{"type":"object","required":["kind","title"],"properties":{
+  "kind":   {"enum":["proposal","task","research","bug"]},
+  "title":  {"type":"string"},
+  "body":   {"type":"string"},
+  "targets":{"type":"array","items":{"type":"string"}},
+  "parent": {"type":"string"},
+  "dir":    {"type":"string"}}}
 ```
-One of `ids`|`paths`. → deduped `r` lines in resolution order
-(global → leaf).
+Server assigns ID (`P-0001`…) and context dir (targets→deepest common
+context, else root). With `targets` the response is the **context pack**:
+`#impact` (radius), `#contracts` (binding EARS rules), `#rejections`
+(similar past failures) — the synergy moment, one round trip.
 
-### 5. `plan_change` — **the composite synergy tool** (call this first)
+### 4. `rule` — author EARS contracts (the only rule write path)
 
 ```json
-{"type":"object","required":["targets"],"properties":{
-  "targets":{"type":"array","items":{"type":"string"},"description":"node IDs or file[:line]"},
-  "intent": {"type":"string","description":"one-line change description"},
-  "depth":  {"type":"integer","default":2},
-  "budget": {"type":"integer","default":3000}}}
-```
-→ three sections in one round trip:
-```
-#impact      n/e lines — the radius of the change
-#contracts   r lines — every rule binding that radius
-#gaps        g lines — radius nodes with zero rules, dirty spec files
-```
-
-### 6. `lint_ears` — validate rule text or a spec file
-
-```json
-{"type":"object","properties":{
-  "text":{"type":"string"},
-  "path":{"type":"string"}}}
-```
-Exactly one of `text`|`path`. → `!` lines or `ok`.
-
-### 7. `coverage` — spec coverage report
-
-```json
-{"type":"object","properties":{
-  "path":  {"type":"string","description":"subtree, default root"},
-  "budget":{"type":"integer","default":1000}}}
-```
-→ `g uncovered …` (code without rules), `g orphan …` (rules whose scope
-matches no code, M3), `g lint …`.
-
-### 8. `link` — bind a rule to a node (traceability)
-
-```json
-{"type":"object","required":["rule","id"],"properties":{
-  "rule":{"type":"string","description":"e.g. CUDA-KRN-001"},
-  "id":  {"type":"string","description":"e.g. cu:saxpy_kernel"},
-  "rm":  {"type":"boolean","default":false}}}
-```
-Writes `.spectacle/links.tsv`. → `ok CUDA-KRN-001 -> cu:saxpy_kernel`.
-
-### 9. `add_rule` — create a contract from structured slots (the only write path)
-
-End users and agents **never hand-write EARS sentences**. They fill slots;
-the server composes the canonical sentence, lints it (errors reject the call
-before anything is written — SPX-SPC-002), assigns the next free ID
-(SPX-SPC-004) and appends to the target spec file, creating it with front
-matter when needed.
-
-```json
-{"type":"object","properties":{
-  "dir":      {"type":"string","description":"target directory, default repo root"},
-  "global":   {"type":"boolean","default":false,"description":"write to .spectacle/global.ears.md"},
+{"type":"object","required":["op"],"properties":{
+  "op":       {"enum":["add","edit","retire"]},
+  "id":       {"type":"string"},
+  "dir":      {"type":"string"},
   "pattern":  {"enum":["U","E","S","N","O","C"]},
-  "system":   {"type":"string","description":"the acting system"},
-  "response": {"type":"string","description":"what it SHALL do; must name something verifiable"},
-  "trigger":  {"type":"string","description":"WHEN clause (E/C)"},
-  "state":    {"type":"string","description":"WHILE clause (S/C)"},
-  "condition":{"type":"string","description":"IF clause (N/C)"},
-  "feature":  {"type":"string","description":"WHERE clause (O/C)"},
-  "stem":     {"type":"string","description":"ID stem e.g. CUDA-KRN; default: stem of last rule in target"},
-  "rationale":{"type":"string"},
-  "applies":  {"type":"array","items":{"type":"string"}}}}
+  "system":   {"type":"string"}, "response":{"type":"string"},
+  "trigger":  {"type":"string"}, "state":   {"type":"string"},
+  "condition":{"type":"string"}, "feature": {"type":"string"},
+  "stem":     {"type":"string"}, "rationale":{"type":"string"},
+  "applies":  {"type":"array","items":{"type":"string"}},
+  "item":     {"type":"string"}}}
 ```
+`add`: slots → server composes the canonical sentence, lints (errors reject,
+nothing written — SPX-SPC-002), auto-IDs (SPX-SPC-004), appends to the scoped
+spec.md, journals, anchors `applies` for drift. Missing slots are **elicited
+from the end user** (MCP elicitation form) or returned as `need` records.
+`edit`: recompose/relink by id. `retire`: removed from spec.md; full text
+survives in the journal.
 
-**Guided flow**: missing slots are requested from the *end user* via MCP
-**elicitation** (a flat form with one question per slot; the `pattern` field
-is an enum). If the client has no elicitation support or the user declines,
-the tool returns `need <slot> <question>` records for the agent to relay
-(SPX-SPC-003). → on success:
-
-```
-ok CUDA-KRN-003 cuda_kernels/.spectacle.ears.md
-r CUDA-KRN-003 E cuda_kernels WHEN stride parameters are supplied, the kernel SHALL …
-```
-
-on lint failure: `!` lines + `! REJECTED E - …` (nothing written).
-
-### 10. `rm_rule` — remove a contract by ID
+### 5. `move` — lifecycle transition
 
 ```json
-{"type":"object","required":["rule"],"properties":{
-  "rule":{"type":"string","description":"e.g. CUDA-KRN-003"}}}
+{"type":"object","required":["id","to"],"properties":{
+  "id":  {"type":"string"},
+  "to":  {"enum":["submitted","approved","rejected","active","done","archived"]},
+  "note":{"type":"string"}}}
 ```
-→ `ok CUDA-KRN-003 removed from cuda_kernels/.spectacle.ears.md`.
+`rejected` REQUIRES `note` (the rejection corpus) and is **revocable**: move
+the rejected ID back to any previous state — the reject event snapshots the
+full item. `archived` requires `done` + no open children; merges the delta
+into spec.md `## intent`. Illegal transition → `!` with the allowed set.
+Approve/reject only on explicit user instruction.
 
-### 11. `reindex` — refresh the graph
+### 6. `check` — verify (drift, coverage, lint, compact-due)
 
 ```json
 {"type":"object","properties":{
-  "paths":{"type":"array","items":{"type":"string"},"description":"default: full re-index"}}}
+  "path":  {"type":"string"},
+  "fix":   {"type":"boolean","default":false},
+  "budget":{"type":"integer","default":1500}}}
 ```
-→ stats line.
+Emits `!` lint findings, `g` coverage gaps, `d` drift records (anchor
+classification; position-only moves are silently refreshed), `E101`
+duplicate item IDs (branch-merge backstop), `c` compact-due signals.
+`fix=true` drafts one backprop proposal per drifted rule and re-stamps
+anchors. Run until `ok` before `move to=done`.
 
-## Token cost: dense records vs JSON
+### 7. `compact` — housekeeping (dry-run by default)
 
-The same 5-node impact result:
-
+```json
+{"type":"object","properties":{
+  "path": {"type":"string"},
+  "apply":{"type":"boolean","default":false}}}
 ```
-n go:saxpy.Saxpy fn saxpy/saxpy.go:18
-e go:saxpy.Saxpy cgo c:launch_saxpy via=saxpy/saxpy.go:24
-n c:launch_saxpy fn saxpy/kernels/saxpy.cu:19
-e c:launch_saxpy launch cu:saxpy_kernel via=saxpy/kernels/saxpy.cu:23
-n cu:saxpy_kernel kernel saxpy/kernels/saxpy.cu:5
-```
-≈ 90 tokens. The equivalent pretty-printed JSON object graph (`{"nodes":
-[{"id":…,"kind":…,"file":…,"line":…}],"edges":[…]}`) ≈ 450 tokens — a 5×
-difference on every call, before any file-read savings.
+Candidates: done-unarchived items (apply archives them), journal folds over
+`journal_max`. Folds drop `create/move/rule/drift` noise; **`reject`,
+`archive` and `compact` events are never dropped**.
 
-## M0 status
+## Fold map (previous 11-tool surface → 7)
 
-`contracts`, `plan_change` (`#contracts`/`#gaps` halves), `lint_ears`,
-`coverage`, `link`, `add_rule` and `rm_rule` are live. `sym`, `map`,
-`impact`, `reindex` and `#impact` return `stub milestone=M1 see
-docs/roadmap.md` until the indexer lands.
+`sym`→`find scope=code` · `map`→`get <dir>` · `impact`→`get depth` ·
+`contracts`/`plan_change`→`draft` context pack + `get` · `lint_ears`+
+`coverage`→`check` · `link`→`rule applies` · `add_rule`/`rm_rule`→`rule` ·
+`reindex`→automatic sync (CLI `spectacle reindex` for debugging).
+
+## Status
+
+Everything above is live except graph-backed parts (`find scope=code`,
+`get depth`, `#impact`, anchor spans), which return documented
+empty/pending results until the M1 indexer fills the graph.

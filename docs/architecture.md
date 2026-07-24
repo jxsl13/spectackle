@@ -103,18 +103,20 @@ a `LanguageParser`, and (if it has FFI surfaces) a `BindingResolver`.
 
 ## 6. Incremental cache
 
-`internal/store.Store` is a content-hash-keyed KV: `path → {sha256, blob}`
-where blob is the gob-encoded `ParseResult`. M0: in-memory. M2: bbolt
-(`go.etcd.io/bbolt`) single-file DB at `.spectacle/cache.db` (gitignored) —
-pure Go, ACID, no SQL needed since the graph loads fully into memory.
-Invalidation: file hash changes ⇒ reparse that file, then rerun only the
-resolvers whose `Langs()` intersect the changed language set.
+The lifecycle cache already lives in `.spectacle/cache/index.db` (pure-Go
+SQLite via modernc.org/sqlite, FTS5; gitignored, generation-stamped, rebuilt
+on mismatch — see docs/lifecycle.md §2). The M1/M2 indexer adds parse-blob,
+node and edge tables to the same DB (`internal/store.Store` is the interim
+in-memory blob interface). Invalidation: file hash changes ⇒ reparse that
+file, then rerun only the resolvers whose `Langs()` intersect the changed
+language set.
 
 ## 7. Concurrency
 
 Parse workers fan out per file (results are pure functions of file bytes);
 one writer applies `Upsert` batches; readers take an RWMutex. Tool calls are
-read-only except `link` (writes `.spectacle/links.tsv`) and `reindex`.
+read-only except the lifecycle write paths (`draft`, `rule`, `move`,
+`compact`), which are confined to `.spectacle/` folders.
 
 ## 8. Server surface
 

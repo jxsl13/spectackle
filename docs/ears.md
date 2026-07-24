@@ -47,7 +47,7 @@ rework loop.
 
 ## Authoring
 
-End users never write EARS by hand. The `add_rule` MCP tool composes
+End users never write EARS by hand. The `rule` MCP tool composes
 sentences deterministically from structured slots (system, response, and the
 pattern's condition clause), eliciting missing slots from the user through
 the MCP client where supported — see docs/spec-cascade.md, "Authoring". The
@@ -60,6 +60,7 @@ sentence must pass.
 spectacle lint .        # CI mode: exit 1 on E-severity findings
 ```
 
-or via MCP: `lint_ears {"text": "…"}` / `lint_ears {"path": "dir/.spectacle.ears.md"}`
-(returns `ok` or `!` finding records). `go test ./...` also fails if any
-committed spec file in this repo lints dirty.
+or via MCP: the `check` tool lints every spec bundle (returns `ok` or `!`
+finding records), and the `rule` tool lints each sentence before writing.
+`go test ./...` also fails if any committed spec bundle in this repo lints
+dirty.

@@ -1,4 +1,5 @@
 ---
+schema: v0
 prefix: CUDA
 ---
 

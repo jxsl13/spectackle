@@ -97,13 +97,14 @@ const (
 
 // Node is a symbol in the cross-language graph.
 type Node struct {
-	ID   NodeID
-	Kind NodeKind
-	Lang Lang
-	File string // repo-relative path
-	Line int    // 1-based definition line
-	Sig  string // compact signature, e.g. "(n int,a float32)error"
-	Rank float32
+	ID      NodeID
+	Kind    NodeKind
+	Lang    Lang
+	File    string // repo-relative path
+	Line    int    // 1-based definition start line
+	EndLine int    // 1-based definition end line (anchor span; 0 = unknown)
+	Sig     string // compact signature, e.g. "(n int,a float32)error"
+	Rank    float32
 }
 
 // Edge is a directed relation between two nodes. File:Line locate the edge

@@ -1,4 +1,5 @@
 ---
+schema: v0
 prefix: SPX-MCP
 ---
 
@@ -11,3 +12,8 @@ WHILE serving a tool call, the server SHALL keep cumulative file reads under 1 M
 The server SHALL render tool results in the dense line grammar of docs/tools.md instead of JSON objects.
 
 Rationale: the line grammar is the primary token-efficiency lever (~5x smaller).
+
+## SPX-MCP-003
+WHEN a tool call arrives, the server SHALL refresh the cache from the versioned .spectacle files before answering so that disk state is never stale by more than 300 milliseconds.
+
+Rationale: the files are the source of truth; the cache only accelerates them.

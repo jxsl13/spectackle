@@ -3,26 +3,25 @@ package spec
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/jxsl13/spectacle/internal/ears"
+	"github.com/jxsl13/spectacle/internal/workspace"
 )
 
-// Spec files are server-managed artifacts: contracts are created through the
-// MCP tools (add_rule / rm_rule), never hand-written. The files stay
-// markdown-on-disk so humans review them in git diffs, and the linter guards
-// against out-of-band edits — but the write path is this package.
+// Spec bundles are server-managed artifacts: contracts are created through
+// the MCP `rule` tool, never hand-written. The files stay markdown-on-disk so
+// humans review them in git diffs, and the linter guards against out-of-band
+// edits — but the write path is this file.
 
 // AuthorReq describes one rule to persist.
 type AuthorReq struct {
-	Dir       string // target directory ("" or "." = repo root file)
-	Global    bool   // write to .spectacle/global.ears.md instead
+	Dir       string // context dir ("" = root)
 	Stem      string // ID stem, e.g. "CUDA-KRN"; default: stem of last rule in target file
-	Sentence  string // composed EARS sentence (already linted by the caller)
+	Sentence  string // composed EARS sentence
 	Rationale string
 	Applies   []string
 }
@@ -52,23 +51,15 @@ func (c *Cascade) NextID(stem string) string {
 	return fmt.Sprintf("%s-%03d", stem, max+1)
 }
 
-// targetSpecPath maps an AuthorReq to its repo-relative spec file path.
-func targetSpecPath(req AuthorReq) string {
-	if req.Global {
-		return GlobalSpecPath
+// AddRule lints the sentence and, if error-free, appends it to the context
+// dir's spec bundle (creating the file with front matter when needed) under
+// the next free ID. Lint errors block the write; warnings do not.
+func AddRule(ws workspace.Root, c *Cascade, req AuthorReq) (AuthorRes, error) {
+	req.Dir = strings.Trim(filepath.ToSlash(req.Dir), "/")
+	if req.Dir == "." {
+		req.Dir = ""
 	}
-	dir := strings.Trim(filepath.ToSlash(req.Dir), "/")
-	if dir == "" || dir == "." {
-		return SpecFileName
-	}
-	return path.Join(dir, SpecFileName)
-}
-
-// AddRule lints the sentence and, if error-free, appends it to the target
-// spec file (creating the file with front matter when needed) under the next
-// free ID. Lint errors block the write; warnings are reported but do not.
-func AddRule(root string, c *Cascade, req AuthorReq) (AuthorRes, error) {
-	rel := targetSpecPath(req)
+	rel := SpecRel(req.Dir)
 	res := AuthorRes{Path: rel}
 
 	res.Findings = ears.LintSentence(req.Sentence, rel, 0)
@@ -80,14 +71,9 @@ func AddRule(root string, c *Cascade, req AuthorReq) (AuthorRes, error) {
 
 	// resolve the ID stem: explicit > last rule in target file
 	stem := strings.TrimSuffix(strings.TrimSpace(req.Stem), "-")
-	var target *SpecFile
-	for i := range c.files {
-		if c.files[i].Path == rel {
-			target = &c.files[i]
-		}
-	}
+	target, hasFile := c.File(req.Dir)
 	if stem == "" {
-		if target != nil && len(target.Rules) > 0 {
+		if hasFile && len(target.Rules) > 0 {
 			last := target.Rules[len(target.Rules)-1]
 			if m := reIDTail.FindStringSubmatch(last.ID); m != nil {
 				stem = m[1]
@@ -99,16 +85,16 @@ func AddRule(root string, c *Cascade, req AuthorReq) (AuthorRes, error) {
 	}
 	res.ID = c.NextID(stem)
 
-	abs := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if err := ws.EnsureScaffold(req.Dir); err != nil {
 		return res, err
 	}
+	abs := filepath.Join(ws.Dir, filepath.FromSlash(rel))
 	var content string
 	if raw, err := os.ReadFile(abs); err == nil {
 		content = string(raw)
 	} else {
 		prefix, _, _ := strings.Cut(stem, "-")
-		content = "---\nprefix: " + prefix + "\n---\n"
+		content = "---\nschema: " + workspace.SchemaStamp + "\nprefix: " + prefix + "\n---\n"
 	}
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
@@ -130,31 +116,64 @@ func AddRule(root string, c *Cascade, req AuthorReq) (AuthorRes, error) {
 	return res, nil
 }
 
-// RemoveRule deletes a rule block (heading until the next heading or EOF)
-// from its spec file. It returns the repo-relative file path.
-func RemoveRule(root string, c *Cascade, id string) (string, error) {
+// EditRule replaces the block of an existing rule in place: new sentence
+// (lint-gated), rationale and/or applies list. Empty sentence keeps the old
+// one; empty rationale keeps the old one; applies always replaces.
+func EditRule(ws workspace.Root, c *Cascade, id, sentence, rationale string, applies []string) (AuthorRes, error) {
+	old, ok := c.Rule(id)
+	if !ok {
+		return AuthorRes{}, fmt.Errorf("spec: unknown rule %s", id)
+	}
+	if sentence == "" {
+		sentence = old.Text
+	}
+	if rationale == "" {
+		rationale = old.Rationale
+	}
+	if applies == nil {
+		applies = old.Applies
+	}
+	res := AuthorRes{ID: id, Path: old.File}
+	res.Findings = ears.LintSentence(sentence, old.File, old.Line)
+	for _, f := range res.Findings {
+		if f.Severity == ears.Error {
+			return res, nil
+		}
+	}
+	abs := filepath.Join(ws.Dir, filepath.FromSlash(old.File))
+	lines, start, end, err := ruleBlock(abs, id, old.Line)
+	if err != nil {
+		return res, err
+	}
+	var b []string
+	head := "## " + id
+	if len(applies) > 0 {
+		head += " {applies: " + strings.Join(applies, ",") + "}"
+	}
+	b = append(b, head, strings.TrimSpace(sentence))
+	if r := strings.TrimSpace(rationale); r != "" {
+		b = append(b, "", "Rationale: "+r)
+	}
+	out := append(lines[:start:start], append(b, lines[end:]...)...)
+	if err := os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		return res, err
+	}
+	res.Written = true
+	return res, nil
+}
+
+// RetireRule deletes a rule block from its spec bundle; the full text
+// survives in the journal (written by the caller). Returns the file path.
+func RetireRule(ws workspace.Root, c *Cascade, id string) (string, error) {
 	r, ok := c.Rule(id)
 	if !ok {
 		return "", fmt.Errorf("spec: unknown rule %s", id)
 	}
-	abs := filepath.Join(root, filepath.FromSlash(r.File))
-	raw, err := os.ReadFile(abs)
+	abs := filepath.Join(ws.Dir, filepath.FromSlash(r.File))
+	lines, start, end, err := ruleBlock(abs, id, r.Line)
 	if err != nil {
 		return "", err
 	}
-	lines := strings.Split(string(raw), "\n")
-	start := r.Line - 1 // Rule.Line is 1-based and counts from file start
-	if start < 0 || start >= len(lines) || !strings.HasPrefix(lines[start], "## "+id) {
-		return "", fmt.Errorf("spec: rule %s not found at %s:%d (file changed?)", id, r.File, r.Line)
-	}
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "## ") {
-			end = i
-			break
-		}
-	}
-	// also swallow blank lines directly above the heading
 	for start > 0 && strings.TrimSpace(lines[start-1]) == "" {
 		start--
 	}
@@ -163,4 +182,70 @@ func RemoveRule(root string, c *Cascade, id string) (string, error) {
 		return "", err
 	}
 	return r.File, nil
+}
+
+// ruleBlock locates the [start,end) line range of a rule's block (heading
+// until next heading or EOF) in the file at abs. line is 1-based.
+func ruleBlock(abs, id string, line int) (lines []string, start, end int, err error) {
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	lines = strings.Split(string(raw), "\n")
+	start = line - 1
+	if start < 0 || start >= len(lines) || !strings.HasPrefix(lines[start], "## "+id) {
+		return nil, 0, 0, fmt.Errorf("spec: rule %s not found at line %d (file changed?)", id, line)
+	}
+	end = len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "## ") {
+			end = i
+			break
+		}
+	}
+	return lines, start, end, nil
+}
+
+// AppendIntent appends one line to the `## intent` prose section of a
+// context dir's spec bundle (creating file and section as needed) — the
+// archive-time delta merge target.
+func AppendIntent(ws workspace.Root, ctx, line string) error {
+	if err := ws.EnsureScaffold(ctx); err != nil {
+		return err
+	}
+	abs := ws.SpecPath(ctx)
+	var content string
+	if raw, err := os.ReadFile(abs); err == nil {
+		content = string(raw)
+	} else {
+		content = "---\nschema: " + workspace.SchemaStamp + "\n---\n"
+	}
+	lines := strings.Split(content, "\n")
+	// find the intent section's end (last non-empty line before next heading)
+	secStart := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "## intent" {
+			secStart = i
+			break
+		}
+	}
+	if secStart < 0 {
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += "\n## intent\n" + line + "\n"
+		return os.WriteFile(abs, []byte(content), 0o644)
+	}
+	insert := len(lines)
+	for i := secStart + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "## ") {
+			insert = i
+			break
+		}
+	}
+	for insert > secStart+1 && strings.TrimSpace(lines[insert-1]) == "" {
+		insert--
+	}
+	out := append(lines[:insert:insert], append([]string{line}, lines[insert:]...)...)
+	return os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644)
 }

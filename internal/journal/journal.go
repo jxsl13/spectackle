@@ -1,0 +1,155 @@
+// Package journal is the append-only event log — one journal.ndjson per
+// .spectacle folder, one JSON object per line. The journal is the historical
+// source of truth: rejected and archived items leave work.md and live on
+// here (searchable via the cache FTS as the rejection corpus).
+//
+// Append-only has one sanctioned exception: compaction may fold old events,
+// but `reject`, `archive` and `compact` lines are always retained verbatim.
+package journal
+
+import (
+	"bufio"
+	"encoding/json"
+	"os"
+	"time"
+
+	"github.com/jxsl13/spectacle/internal/workspace"
+)
+
+// Event kinds (Ev field).
+const (
+	EvCreate  = "create"
+	EvMove    = "move"
+	EvRule    = "rule"
+	EvArchive = "archive"
+	EvReject  = "reject"
+	EvDrift   = "drift"
+	EvCompact = "compact"
+)
+
+// Event is the single flat record type for all journal lines; unused fields
+// are omitted. Keys are deliberately short — journals are read by machines
+// and indexed, not read linearly by the LLM.
+type Event struct {
+	T    time.Time `json:"t"`
+	Ev   string    `json:"ev"`
+	ID   string    `json:"id,omitempty"`
+	K    string    `json:"k,omitempty"`    // item kind
+	Ti   string    `json:"ti,omitempty"`   // title
+	Dir  string    `json:"dir,omitempty"`  // context dir
+	Fr   string    `json:"fr,omitempty"`   // move: from state
+	To   string    `json:"to,omitempty"`   // move: to state
+	Note string    `json:"note,omitempty"` // move/reject/compact note
+	Op   string    `json:"op,omitempty"`   // rule: add|edit|retire
+	Rule string    `json:"rule,omitempty"` // rule/drift: rule ID
+	Txt  string    `json:"txt,omitempty"`  // rule: full sentence (survives spec.md edits)
+	Ap   []string  `json:"ap,omitempty"`   // rule: applies node IDs
+	Sum  string    `json:"sum,omitempty"`  // archive/reject summary
+	Body string    `json:"body,omitempty"` // reject: full item body (enables revocation)
+	Tg   []string  `json:"tg,omitempty"`   // reject: item targets
+	Par  string    `json:"par,omitempty"`  // reject: item parent
+	Rls  []string  `json:"rules,omitempty"`
+	Node string    `json:"node,omitempty"` // drift
+	Cls  string    `json:"cls,omitempty"`  // drift: gone|changed|stale
+	Oh   string    `json:"oh,omitempty"`   // drift: old hash
+	Nh   string    `json:"nh,omitempty"`   // drift: new hash
+	Item string    `json:"item,omitempty"` // drift: backprop item
+	N    int       `json:"n,omitempty"`    // compact: events folded
+}
+
+// Append writes one event to the journal of a context dir, creating the
+// scaffold if needed.
+func Append(root workspace.Root, ctx string, e Event) error {
+	if err := root.EnsureScaffold(ctx); err != nil {
+		return err
+	}
+	if e.T.IsZero() {
+		e.T = time.Now().UTC()
+	}
+	e.T = e.T.Truncate(time.Second)
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(root.JournalPath(ctx), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(append(raw, '\n'))
+	return err
+}
+
+// Read returns all events of one context dir (missing file = empty).
+func Read(root workspace.Root, ctx string) ([]Event, error) {
+	f, err := os.Open(root.JournalPath(ctx))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var out []Event
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		var e Event
+		if json.Unmarshal(sc.Bytes(), &e) == nil {
+			out = append(out, e)
+		}
+	}
+	return out, sc.Err()
+}
+
+// ReadAll returns the events of every context dir, in context order.
+func ReadAll(root workspace.Root) ([]Event, error) {
+	ctxs, err := root.ContextDirs()
+	if err != nil {
+		return nil, err
+	}
+	var out []Event
+	for _, c := range ctxs {
+		es, err := Read(root, c)
+		if err != nil {
+			return nil, err
+		}
+		for i := range es {
+			if es[i].Dir == "" {
+				es[i].Dir = c
+			}
+		}
+		out = append(out, es...)
+	}
+	return out, nil
+}
+
+// Rewrite replaces a context dir's journal wholesale — used only by
+// compaction (the sanctioned append-only exception).
+func Rewrite(root workspace.Root, ctx string, events []Event) error {
+	f, err := os.CreateTemp(root.SpectacleDir(ctx), "journal-*")
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+	for _, e := range events {
+		raw, err := json.Marshal(e)
+		if err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return err
+		}
+		w.Write(raw)
+		w.WriteByte('\n')
+	}
+	if err := w.Flush(); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return err
+	}
+	return os.Rename(f.Name(), root.JournalPath(ctx))
+}

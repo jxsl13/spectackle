@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,20 +10,15 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// connect spins up the server against the real repo root over an in-memory
-// transport and returns a live client session.
-func connect(t *testing.T) *mcp.ClientSession {
+// connectRoot spins up the server over an in-memory transport against a
+// workspace root and returns a live client session.
+func connectRoot(t *testing.T, root string) *mcp.ClientSession {
 	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", ".."))
+	s, err := New(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return connectRoot(t, root)
-}
-
-func connectRoot(t *testing.T, root string) *mcp.ClientSession {
-	t.Helper()
-	s := New(root)
+	t.Cleanup(func() { _ = s.Close() })
 	ct, st := mcp.NewInMemoryTransports()
 	go func() {
 		if err := s.MCP().Run(context.Background(), st); err != nil {
@@ -36,29 +32,6 @@ func connectRoot(t *testing.T, root string) *mcp.ClientSession {
 	}
 	t.Cleanup(func() { _ = sess.Close() })
 	return sess
-}
-
-func TestToolRegistration(t *testing.T) {
-	sess := connect(t)
-	res, err := sess.ListTools(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]bool{
-		"sym": false, "map": false, "impact": false, "contracts": false,
-		"plan_change": false, "lint_ears": false, "coverage": false,
-		"link": false, "reindex": false, "add_rule": false, "rm_rule": false,
-	}
-	for _, tool := range res.Tools {
-		if _, ok := want[tool.Name]; ok {
-			want[tool.Name] = true
-		}
-	}
-	for name, seen := range want {
-		if !seen {
-			t.Errorf("tool %q not registered", name)
-		}
-	}
 }
 
 func callText(t *testing.T, sess *mcp.ClientSession, name string, args map[string]any) string {
@@ -77,111 +50,239 @@ func callText(t *testing.T, sess *mcp.ClientSession, name string, args map[strin
 	return tc.Text
 }
 
-func TestLintEarsTool(t *testing.T) {
-	sess := connect(t)
-
-	out := callText(t, sess, "lint_ears", map[string]any{
-		"text": "The server should reply eventually.",
-	})
-	if !strings.Contains(out, "E001") {
-		t.Errorf("expected E001 finding, got %q", out)
+func TestToolSurface(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	out = callText(t, sess, "lint_ears", map[string]any{
-		"text": "WHEN a request arrives, the server SHALL respond within 2 seconds.",
-	})
-	if strings.TrimSpace(out) != "ok" {
-		t.Errorf("expected ok, got %q", out)
+	want := map[string]bool{
+		"find": false, "get": false, "draft": false, "rule": false,
+		"move": false, "check": false, "compact": false,
 	}
-}
-
-func TestContractsToolCascades(t *testing.T) {
-	sess := connect(t)
-	out := callText(t, sess, "contracts", map[string]any{
-		"paths": []string{"examples/saxpy/saxpy/kernels/saxpy.cu"},
-	})
-	for _, id := range []string{"SPX-ARC-001", "SXP-API-001", "CUDA-KRN-001"} {
-		if !strings.Contains(out, id) {
-			t.Errorf("contracts output missing %s:\n%s", id, out)
+	for _, tool := range res.Tools {
+		if _, ok := want[tool.Name]; !ok {
+			t.Errorf("unexpected tool %q (surface must stay minimal)", tool.Name)
+			continue
+		}
+		want[tool.Name] = true
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Errorf("tool %q not registered", name)
 		}
 	}
-	// global rules must come before leaf rules
-	if strings.Index(out, "SPX-ARC-001") > strings.Index(out, "CUDA-KRN-001") {
-		t.Errorf("cascade order wrong (global after leaf):\n%s", out)
-	}
 }
 
-func TestPlanChangeToolSections(t *testing.T) {
-	sess := connect(t)
-	out := callText(t, sess, "plan_change", map[string]any{
-		"targets": []string{"examples/saxpy/saxpy/saxpy.go:24"},
-		"intent":  "support strided access",
-	})
-	for _, sec := range []string{"#impact", "#contracts", "#gaps"} {
-		if !strings.Contains(out, sec) {
-			t.Errorf("plan_change missing section %s:\n%s", sec, out)
-		}
-	}
-	if !strings.Contains(out, "SXP-API-001") {
-		t.Errorf("plan_change did not resolve contracts for path target:\n%s", out)
-	}
-}
-
-// TestAddRuleLifecycle drives the server-managed authoring path end to end
-// against a temp repo: compose from slots, auto-ID, lint gate, removal.
-func TestAddRuleLifecycle(t *testing.T) {
+// TestLifecycleE2E drives draft -> submit -> approve -> active -> done ->
+// archive over the wire and asserts the persistence effects.
+func TestLifecycleE2E(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	// missing everything, client has no elicitation UI -> need records
-	out := callText(t, sess, "add_rule", map[string]any{})
-	if !strings.Contains(out, "need pattern") {
-		t.Fatalf("expected need records, got %q", out)
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "strided saxpy access",
+		"body":    "Support strided x/y access in the saxpy chain.",
+		"targets": []string{"gpu/kernels/saxpy.cu", "gpu/saxpy.go"},
+	})
+	if !strings.Contains(out, "i P-0001 proposal draft") {
+		t.Fatalf("draft: %q", out)
+	}
+	for _, sec := range []string{"#impact", "#contracts", "#rejections"} {
+		if !strings.Contains(out, sec) {
+			t.Fatalf("draft missing context pack section %s: %q", sec, out)
+		}
 	}
 
-	// full slots -> composed, linted, written with auto-ID ...-001
-	out = callText(t, sess, "add_rule", map[string]any{
-		"dir": "cuda_kernels", "pattern": "E", "stem": "CUDA-KRN",
+	// child task
+	out = callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "adjust kernel indexing", "parent": "P-0001",
+	})
+	if !strings.Contains(out, "i T-0001 task draft") {
+		t.Fatalf("task draft: %q", out)
+	}
+
+	for _, mv := range [][2]string{
+		{"P-0001", "submitted"}, {"P-0001", "approved"}, {"P-0001", "active"},
+		{"T-0001", "active"}, {"T-0001", "done"},
+	} {
+		out = callText(t, sess, "move", map[string]any{"id": mv[0], "to": mv[1]})
+		if !strings.Contains(out, mv[1]) {
+			t.Fatalf("move %s->%s: %q", mv[0], mv[1], out)
+		}
+	}
+
+	// archive blocked while proposal not done; done blocked? active->done ok
+	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived"})
+	if !strings.Contains(out, "! ARG E") {
+		t.Fatalf("archive from active must fail: %q", out)
+	}
+	callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "done"})
+	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived"})
+	if !strings.Contains(out, "archived") {
+		t.Fatalf("archive: %q", out)
+	}
+
+	// work.md is empty again; intent carries the merged delta
+	spec, err := os.ReadFile(filepath.Join(root, ".spectacle", "spec.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), "P-0001 strided saxpy access") {
+		t.Fatalf("archive did not merge into intent:\n%s", spec)
+	}
+	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if !strings.Contains(out, "nf") {
+		t.Fatalf("archived item should be gone from work.md: %q", out)
+	}
+	// history still knows it
+	out = callText(t, sess, "find", map[string]any{"q": "strided", "scope": "history"})
+	if !strings.Contains(out, "P-0001") {
+		t.Fatalf("history lost the archived item: %q", out)
+	}
+}
+
+// TestRejectionCorpusAndRevocation: rejection requires a note, becomes
+// searchable, and can be revoked back into a previous state.
+func TestRejectionCorpusAndRevocation(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "cache kernels in VRAM",
+		"body": "Keep compiled kernels resident.",
+	})
+	// note is mandatory
+	out := callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "rejected"})
+	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "note") {
+		t.Fatalf("rejection without note must fail: %q", out)
+	}
+	callText(t, sess, "move", map[string]any{
+		"id": "P-0001", "to": "rejected",
+		"note": "VRAM residency breaks multi-tenant GPU scheduling",
+	})
+
+	// searchable corpus
+	out = callText(t, sess, "find", map[string]any{"q": "multi-tenant scheduling", "scope": "rejection"})
+	if !strings.Contains(out, "P-0001") {
+		t.Fatalf("rejection not searchable: %q", out)
+	}
+
+	// revocable: back to draft, item restored with body
+	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "draft"})
+	if !strings.Contains(out, "i P-0001 proposal draft") {
+		t.Fatalf("revocation failed: %q", out)
+	}
+	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if !strings.Contains(out, "Keep compiled kernels resident.") {
+		t.Fatalf("revoked item lost its body: %q", out)
+	}
+	// the reject event stays in history even after revocation
+	out = callText(t, sess, "find", map[string]any{"q": "multi-tenant", "scope": "rejection"})
+	if !strings.Contains(out, "P-0001") {
+		t.Fatalf("revocation must not erase the rejection corpus: %q", out)
+	}
+}
+
+// TestRuleLifecycle: add via slots (lint gate, auto-ID), edit, retire.
+func TestRuleLifecycle(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	// missing slots, no elicitation UI -> need records
+	out := callText(t, sess, "rule", map[string]any{"op": "add"})
+	if !strings.Contains(out, "need pattern") {
+		t.Fatalf("expected need records: %q", out)
+	}
+
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "cuda_kernels", "pattern": "E", "stem": "CUDA-KRN",
 		"system":   "host wrapper",
 		"response": "check cudaGetLastError and propagate its numeric value to the caller",
 		"trigger":  "a kernel launch statement returns",
 	})
-	if !strings.Contains(out, "ok CUDA-KRN-001") || !strings.Contains(out, "WHEN a kernel launch statement returns, the host wrapper SHALL") {
-		t.Fatalf("add_rule failed: %q", out)
+	if !strings.Contains(out, "ok CUDA-KRN-001") {
+		t.Fatalf("rule add: %q", out)
 	}
 
-	// second rule gets the next ID
-	out = callText(t, sess, "add_rule", map[string]any{
-		"dir": "cuda_kernels", "pattern": "U",
-		"system":   "kernel",
-		"response": "guard every element access with an explicit `if (i < n)` bound check",
-	})
-	if !strings.Contains(out, "ok CUDA-KRN-002") {
-		t.Fatalf("expected auto-increment to CUDA-KRN-002: %q", out)
-	}
-
-	// vague slots are rejected before anything is written
-	out = callText(t, sess, "add_rule", map[string]any{
-		"dir": "cuda_kernels", "pattern": "U",
+	// vague slots rejected before write
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "cuda_kernels", "pattern": "U",
 		"system": "kernel", "response": "handle memory appropriately",
 	})
 	if !strings.Contains(out, "E004") || !strings.Contains(out, "REJECTED") {
 		t.Fatalf("expected E004 rejection: %q", out)
 	}
 
-	// the file now resolves through the cascade
-	out = callText(t, sess, "contracts", map[string]any{"paths": []string{"cuda_kernels/saxpy.cu"}})
-	if !strings.Contains(out, "CUDA-KRN-001") || !strings.Contains(out, "CUDA-KRN-002") {
-		t.Fatalf("contracts missing authored rules: %q", out)
+	// resolves through the cascade
+	out = callText(t, sess, "get", map[string]any{"id": "cuda_kernels/saxpy.cu"})
+	if !strings.Contains(out, "CUDA-KRN-001") {
+		t.Fatalf("contracts missing authored rule: %q", out)
 	}
 
-	// remove one and verify it is gone
-	out = callText(t, sess, "rm_rule", map[string]any{"rule": "CUDA-KRN-001"})
-	if !strings.Contains(out, "ok CUDA-KRN-001 removed") {
-		t.Fatalf("rm_rule failed: %q", out)
+	// edit: recompose
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "edit", "id": "CUDA-KRN-001", "pattern": "E",
+		"system":   "host wrapper",
+		"response": "check cudaGetLastError and return its numeric value as int",
+		"trigger":  "a kernel launch statement returns",
+	})
+	if !strings.Contains(out, "ok CUDA-KRN-001") {
+		t.Fatalf("rule edit: %q", out)
 	}
-	out = callText(t, sess, "contracts", map[string]any{"paths": []string{"cuda_kernels/saxpy.cu"}})
-	if strings.Contains(out, "CUDA-KRN-001") || !strings.Contains(out, "CUDA-KRN-002") {
-		t.Fatalf("rule not removed cleanly: %q", out)
+
+	// retire: gone from cascade, text survives in journal
+	out = callText(t, sess, "rule", map[string]any{"op": "retire", "id": "CUDA-KRN-001"})
+	if !strings.Contains(out, "retired") {
+		t.Fatalf("rule retire: %q", out)
+	}
+	out = callText(t, sess, "find", map[string]any{"q": "cudaGetLastError", "scope": "history"})
+	if !strings.Contains(out, "CUDA-KRN-001") {
+		t.Fatalf("retired rule text lost from journal: %q", out)
+	}
+}
+
+// TestCompactKeepsRejections: journal folds drop noise but never reject lines.
+func TestCompactKeepsRejections(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{"kind": "bug", "title": "nan in reduction"})
+	callText(t, sess, "move", map[string]any{"id": "B-0001", "to": "rejected", "note": "not reproducible on sm90"})
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "noise a"})
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "noise b"})
+
+	// force the fold threshold down via config
+	cfg := filepath.Join(root, ".spectacle", "config.yaml")
+	if err := os.WriteFile(cfg, []byte("schema: v0\ncompact:\n  journal_max: 2\n  done_max: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess2 := connectRoot(t, root) // fresh server picks up the config
+
+	out := callText(t, sess2, "compact", map[string]any{})
+	if !strings.Contains(out, "c . journal") {
+		t.Fatalf("expected journal fold candidate: %q", out)
+	}
+	out = callText(t, sess2, "compact", map[string]any{"apply": true})
+	if !strings.Contains(out, "ok folded") {
+		t.Fatalf("compact apply: %q", out)
+	}
+	// rejection survives the fold
+	out = callText(t, sess2, "find", map[string]any{"q": "sm90", "scope": "rejection"})
+	if !strings.Contains(out, "B-0001") {
+		t.Fatalf("compact dropped a rejection: %q", out)
+	}
+}
+
+// TestCheckOnOwnRepo: the repository itself must come back clean.
+func TestCheckOnOwnRepo(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "check", map[string]any{})
+	if strings.Contains(out, "! E") || strings.Contains(out, "d changed") || strings.Contains(out, "d gone") {
+		t.Fatalf("check on own repo not clean:\n%s", out)
 	}
 }
