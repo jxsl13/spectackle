@@ -1,2 +1,33 @@
 {"t":"2026-07-24T00:12:48Z","ev":"create","id":"P-0001","k":"proposal","ti":"M1 structural core: go/parser indexer + cgo edges"}
 {"t":"2026-07-24T00:27:18Z","ev":"create","id":"P-0002","k":"proposal","ti":"dedicated unit tests with end-to-end coverage for every implementation"}
+{"t":"2026-07-24T00:30:11Z","ev":"move","id":"P-0002","fr":"draft","to":"submitted"}
+{"t":"2026-07-24T00:30:11Z","ev":"rule","op":"add","rule":"SPX-TST-001","txt":"WHEN a package is added under internal or cmd, the repository SHALL provide a dedicated `*_test.go` file exercising the package's exported surface.","item":"P-0002"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0001","k":"task","ti":"unit tests internal/budget + internal/ids"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0002","k":"task","ti":"unit tests internal/resolve + internal/store + cmd/spectacle"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0003","k":"task","ti":"unit tests internal/item + internal/journal"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0006","k":"task","ti":"unit tests internal/cache + internal/sync"}
+{"t":"2026-07-24T00:30:11Z","ev":"move","id":"P-0002","fr":"submitted","to":"approved","note":"user approved"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0004","k":"task","ti":"unit tests internal/graph (Find/Neighbors/Impact)"}
+{"t":"2026-07-24T00:30:11Z","ev":"create","id":"T-0005","k":"task","ti":"unit tests internal/lifecycle (guards, revocation, archive)"}
+{"t":"2026-07-24T00:31:42Z","ev":"move","id":"P-0002","fr":"approved","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0001","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0001","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0002","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0002","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0003","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0004","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0003","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0004","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0005","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0005","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0006","fr":"draft","to":"active"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"T-0006","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:43Z","ev":"move","id":"P-0002","fr":"active","to":"done"}
+{"t":"2026-07-24T00:36:59Z","ev":"move","id":"P-0002","fr":"done","to":"archived","note":"every package now carries a dedicated end-to-end unit test; concurrency race in draft found and fixed with a server mutex + regression test"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"P-0002","k":"proposal","ti":"dedicated unit tests with end-to-end coverage for every implementation","sum":"proposal dedicated unit tests with end-to-end coverage for every implementation — Every implemented package MUST have a dedicated *_test.go exercising its public surface end to end (not just happy paths): currently untested are internal/budget, internal/ids, internal/graph (Find/Neighbors/Impact), internal/cache (gen-stamp rebuild, ReplaceDocs, Search sanitizing), internal/sync (fast/slow path,  note: every package now carries a dedicated end-to-end unit test; concurrency race in draft found and fixed with a server mutex + regression test"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0003","k":"task","ti":"unit tests internal/item + internal/journal","sum":"archived with parent P-0002"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0001","k":"task","ti":"unit tests internal/budget + internal/ids","sum":"archived with parent P-0002"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0002","k":"task","ti":"unit tests internal/resolve + internal/store + cmd/spectacle","sum":"archived with parent P-0002"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0006","k":"task","ti":"unit tests internal/cache + internal/sync","sum":"archived with parent P-0002"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0004","k":"task","ti":"unit tests internal/graph (Find/Neighbors/Impact)","sum":"archived with parent P-0002"}
+{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"T-0005","k":"task","ti":"unit tests internal/lifecycle (guards, revocation, archive)","sum":"archived with parent P-0002"}

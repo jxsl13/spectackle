@@ -7,6 +7,8 @@
 package mcpserver
 
 import (
+	stdsync "sync"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectacle/internal/cache"
@@ -31,6 +33,12 @@ type Server struct {
 	scan  *sync.Scanner
 	g     graph.Graph
 	mcp   *mcp.Server
+
+	// mu serializes tool calls: the MCP SDK dispatches them concurrently,
+	// but lifecycle writes are read-modify-write over shared files (ID
+	// minting, work.md rewrites) — found the hard way when two concurrent
+	// draft calls minted the same task ID.
+	mu stdsync.Mutex
 }
 
 // New detects the workspace starting at root, scaffolds the root .spectacle

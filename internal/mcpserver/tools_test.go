@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,5 +285,43 @@ func TestCheckOnOwnRepo(t *testing.T) {
 	out := callText(t, sess, "check", map[string]any{})
 	if strings.Contains(out, "! E") || strings.Contains(out, "d changed") || strings.Contains(out, "d gone") {
 		t.Fatalf("check on own repo not clean:\n%s", out)
+	}
+}
+
+// TestConcurrentDraftsMintUniqueIDs is the regression test for the race
+// found while dogfooding: the MCP SDK dispatches tool calls concurrently,
+// and unserialised drafts minted the same item ID and clobbered work.md.
+func TestConcurrentDraftsMintUniqueIDs(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+
+	const n = 8
+	results := make(chan string, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			out := callText(t, sess, "draft", map[string]any{
+				"kind": "task", "title": fmt.Sprintf("concurrent %d", i),
+			})
+			results <- strings.Fields(out)[1] // "i <ID> ..."
+		}(i)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		id := <-results
+		if seen[id] {
+			t.Fatalf("duplicate item ID minted concurrently: %s", id)
+		}
+		seen[id] = true
+	}
+	// all n blocks must have survived the concurrent work.md rewrites
+	out := callText(t, sess, "get", map[string]any{"id": "."})
+	for id := range seen {
+		if !strings.Contains(out, id) {
+			t.Fatalf("item %s lost by concurrent write:\n%s", id, out)
+		}
+	}
+	// and check must not report E101 duplicates
+	out = callText(t, sess, "check", map[string]any{})
+	if strings.Contains(out, "E101") {
+		t.Fatalf("duplicate IDs after concurrent drafts:\n%s", out)
 	}
 }

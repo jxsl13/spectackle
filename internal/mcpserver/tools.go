@@ -90,10 +90,14 @@ func text(s string) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}, nil, nil
 }
 
-// gate wraps a handler with the debounced cache sync that runs before every
-// tool call (the .spectacle files on disk are the source of truth).
+// gate serializes the handler (the SDK dispatches tool calls concurrently,
+// but lifecycle writes are read-modify-write over shared files) and runs the
+// debounced cache sync first (the .spectacle files on disk are the source of
+// truth).
 func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(context.Context, *mcp.CallToolRequest, T) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in T) (*mcp.CallToolResult, any, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		if err := s.scan.Refresh(); err != nil {
 			return nil, nil, err
 		}
@@ -117,6 +121,8 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",
 		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots (missing ones elicited or returned as need records); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
 			if err := s.scan.Refresh(); err != nil {
 				return nil, nil, err
 			}

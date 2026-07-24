@@ -9,6 +9,7 @@ prefix: SPX
 spectacle is a token-efficient, spec-driven MCP server: cross-language AST
 maps, cascading EARS contracts and a git-native spec lifecycle, fused so an
 LLM plans against structure and contracts instead of file contents.
+- P-0002 dedicated unit tests with end-to-end coverage for every implementation: every package now carries a dedicated end-to-end unit test; concurrency race in draft found and fixed with a server mutex + regression test
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
@@ -44,3 +45,8 @@ Rationale: docs are the normative schema mirror; drift breaks agent integrations
 WHEN a new package is added under internal, the author SHALL add a scoped .spectacle/spec.md bundle or extend an ancestor spec bundle with rules for it.
 
 Rationale: self-hosting requires every subsystem to be under contract.
+
+## SPX-TST-001
+WHEN a package is added under internal or cmd, the repository SHALL provide a dedicated `*_test.go` file exercising the package's exported surface.
+
+Rationale: end-to-end tested implementations are the exit criterion of P-0002.
