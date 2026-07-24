@@ -267,3 +267,10 @@
 {"t":"2026-07-24T14:37:12Z","eid":"d49b43193f131c9f","ag":"orchestrator","ev":"move","id":"P-0039","fr":"draft","to":"active"}
 {"t":"2026-07-24T14:37:12Z","eid":"c3127f6ab3a5b98f","ag":"orchestrator","ev":"move","id":"T-0064","fr":"draft","to":"active"}
 {"t":"2026-07-24T14:37:12Z","eid":"cafb3ae0e0d85dfc","ag":"orchestrator","ev":"move","id":"T-0065","fr":"draft","to":"active"}
+{"t":"2026-07-24T14:39:46Z","eid":"6c6345ed82ba56d8","ag":"orchestrator","ev":"create","id":"P-0040","k":"proposal","ti":"token economy: teach agents to replace shell grep/find/sed exploration with server tools"}
+{"t":"2026-07-24T14:39:54Z","eid":"054ced3f4cec473a","ag":"orchestrator","ev":"grill","id":"P-0040","gr":"2026-07-24"}
+{"t":"2026-07-24T14:40:26Z","eid":"63d7e5d768e1a057","ag":"implementer-t0065","ev":"move","id":"T-0065","fr":"active","to":"done"}
+{"t":"2026-07-24T14:40:39Z","eid":"962946e4aeb34aa6","ag":"orchestrator","ev":"create","id":"T-0066","k":"task","ti":"TOKEN ECONOMY paragraph: instructions + template + prompt + docs + regen + test"}
+{"t":"2026-07-24T14:40:39Z","eid":"9fe1f7eec98eec1a","ag":"orchestrator","ev":"move","id":"P-0040","fr":"draft","to":"active"}
+{"t":"2026-07-24T14:40:39Z","eid":"6bb21f826dd3ca43","ag":"orchestrator","ev":"move","id":"T-0066","fr":"draft","to":"active"}
+{"t":"2026-07-24T14:41:06Z","eid":"5c907138331bc991","ag":"implementer-t0064","ev":"move","id":"T-0064","fr":"active","to":"done"}
