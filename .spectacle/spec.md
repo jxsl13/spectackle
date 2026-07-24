@@ -13,6 +13,8 @@ LLM plans against structure and contracts instead of file contents.
 - P-0001 M1 structural core: go/parser indexer + cgo edges: go/parser indexer live: 3-layer saxpy chain reproduces, anchors real (span+hash), find/get graph-backed
 - P-0005 streamable HTTP transport: spectacle as resident localhost service: serve -http: Streamable HTTP via official SDK handler, resident localhost service; stdio default unchanged
 - P-0006 orchestrator + fresh cheap subagents: document and embed the swarm workflow: orchestrator + fresh cheap implementer workflow documented (README, docs/agent-workflow.md) and embedded in server instructions
+- P-0007 Plan 9 asm chain live: AsmParser nodes + go<->asm EAsm edges: plan9 asm chain live: internal/plan9 scanner pkg, AsmParser nodes, EAsm edges
+- P-0009 forward-skip state machine: every forward jump is one move call: forward-skip state machine: total order, any forward jump one call, Mermaid automaton in README
 
 ## SPX-ARC-001
 The spectacle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

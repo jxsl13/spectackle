@@ -2,18 +2,17 @@
 schema: v0
 ---
 
-## P-0007 Plan 9 asm chain live: AsmParser nodes + go<->asm EAsm edges
+## P-0011 persistent parse-blob store: warm graph start across sessions (M2 slice)
 kind: proposal
-state: active
+state: approved
 created: 2026-07-24
-targets: internal/index/plan9asm.go, internal/resolve/plan9asm.go
+targets: internal/store/store.go, go:index.indexer.IndexAll
 
-Move ScanPlan9Asm into a dependency-free internal/plan9 package (resolve must not import index - cycle). New index.AsmParser (LanguageParser, .s/.S) minting asm:<dirpkg>.<name> nodes from TEXT/GLOBL. Implement resolve.Plan9AsmResolver: for each TEXT sym with an existing go:<pkg>.<name> node, emit EAsm edge go->asm at the TEXT site.
+store gains a SQLite-backed impl (own parse.db in .spectacle/cache, modernc driver, blobs(path PRIMARY KEY, hash, blob)); index.parseCached becomes real: sha256 hit -> gob-decode cached ParseResult, miss -> parse + Put. Second IndexAll over an unchanged tree performs zero Parse calls. IndexPaths stays a documented stub (graph has no node removal yet). Server wiring (persistent store handle in New/reindex) is orchestrator-owned, not part of the implementer task.
 
-## P-0009 forward-skip state machine: every forward jump is one move call
-kind: proposal
-state: active
+## T-0017 gofmt legacy debt: five files
+kind: task
+state: done
 created: 2026-07-24
-targets: internal/lifecycle/lifecycle.go, README.md
 
-States stay (each carries meaning: submitted=review queue, approved=swarm backlog, done=await archive/compact) but no hop is ever mandatory: allowed(from,to) becomes a total-order comparison draft<submitted<approved<active<done<archived, any forward skip legal in ONE move call; rejected reachable from every non-terminal (note required); revocation from rejected back up to active; active->archived implies done; open-children guard on archive unchanged. Standard proposal drops from 5 moves to 2 (draft->active->archived). README gets the automaton as a Mermaid stateDiagram-v2; docs/lifecycle.md, docs/tools.md move section and the server instructions manifest updated to teach forward-skips.
+Scope ONLY: gofmt -w internal/drift/drift.go internal/ears/ears_test.go internal/ids/ids_test.go internal/resolve/resolver.go internal/spec/author.go. Verify gofmt -l on internal/ and cmd/ is empty afterwards, go vet ./... and go test ./... -count=1 stay green. No semantic edits whatsoever.

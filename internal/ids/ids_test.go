@@ -29,15 +29,15 @@ func TestCollisionSuffix(t *testing.T) {
 
 func TestValid(t *testing.T) {
 	for id, want := range map[string]bool{
-		"go:pkg.Fn":     true,
-		"asm:mat.mul":   true,
+		"go:pkg.Fn":      true,
+		"asm:mat.mul":    true,
 		"sec:gpu#intent": true,
-		"go:pkg.Fn~2":   true,
-		"go:":           false,
-		"pkg.Fn":        false,
-		"GO:pkg.Fn":     false, // lang tag is lowercase
-		"go:a b":        false, // no whitespace
-		"go:x~1":        false, // collision suffixes start at 2
+		"go:pkg.Fn~2":    true,
+		"go:":            false,
+		"pkg.Fn":         false,
+		"GO:pkg.Fn":      false, // lang tag is lowercase
+		"go:a b":         false, // no whitespace
+		"go:x~1":         false, // collision suffixes start at 2
 	} {
 		if got := Valid(id); got != want {
 			t.Errorf("Valid(%q) = %v, want %v", id, got, want)

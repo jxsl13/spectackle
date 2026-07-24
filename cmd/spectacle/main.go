@@ -11,11 +11,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -26,6 +31,10 @@ import (
 	syncpkg "github.com/jxsl13/spectacle/internal/sync"
 	"github.com/jxsl13/spectacle/internal/workspace"
 )
+
+// httpShutdownTimeout bounds how long runHTTPListener waits for in-flight
+// requests to drain once shutdown is requested (via ctx.Done()).
+const httpShutdownTimeout = 5 * time.Second
 
 func main() {
 	log.SetFlags(0)
@@ -100,11 +109,67 @@ func serve(args []string) int {
 		return s.MCP()
 	}, nil)
 	log.Printf("spectacle %s serving over http on %s", mcpserver.Version, *httpAddr)
-	if err := http.ListenAndServe(*httpAddr, handler); err != nil {
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runHTTP(ctx, *httpAddr, handler); err != nil {
 		log.Printf("serve: %v", err)
 		return 1
 	}
+	log.Printf("serve: shutdown complete")
 	return 0
+}
+
+// runHTTP listens on addr and serves handler until ctx is cancelled, then
+// gracefully shuts the server down. See runHTTPListener for the shutdown
+// semantics.
+func runHTTP(ctx context.Context, addr string, handler http.Handler) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	return runHTTPListener(ctx, ln, handler)
+}
+
+// runHTTPListener serves handler on ln until ctx is cancelled (e.g. by a
+// SIGINT/SIGTERM-derived context from signal.NotifyContext), at which point
+// it calls http.Server.Shutdown with a bounded timeout so in-flight requests
+// can drain before returning. It blocks until the server has fully stopped.
+//
+// http.ErrServerClosed - the expected error once Shutdown/Close has been
+// called - is mapped to nil; any other error from serving or shutting down
+// is returned.
+func runHTTPListener(ctx context.Context, ln net.Listener, handler http.Handler) error {
+	srv := &http.Server{Handler: handler}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- srv.Serve(ln)
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer cancel()
+		shutdownErr := srv.Shutdown(shutdownCtx)
+
+		// Wait for the Serve goroutine to actually return so callers can
+		// rely on runHTTPListener returning only once the listener/socket
+		// is fully released.
+		err := <-serveErr
+		if shutdownErr != nil {
+			return shutdownErr
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	}
 }
 
 func lint(args []string) int {

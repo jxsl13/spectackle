@@ -17,7 +17,7 @@ func TestClassify(t *testing.T) {
 		{"WHERE CUDA support is enabled, the indexer SHALL parse .cu files.", POptional},
 		{"WHERE CUDA support is enabled, WHEN a kernel launch is found, the resolver SHALL add a launch edge.", PComplex},
 		{"The kernel SHALL guard access with a check of the form if (i < n).", PUbiquitous}, // lowercase "if" is not a keyword
-		{"The server should truncate results.", PInvalid},                                  // no SHALL
+		{"The server should truncate results.", PInvalid},                                   // no SHALL
 		{"Make it fast.", PInvalid},
 	}
 	for _, c := range cases {
