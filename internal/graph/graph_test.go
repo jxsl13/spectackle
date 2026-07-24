@@ -156,6 +156,26 @@ func TestImpactBFS(t *testing.T) {
 	}
 }
 
+func TestStats(t *testing.T) {
+	if n, e := NewMem().Stats(); n != 0 || e != 0 {
+		t.Fatalf("empty graph stats: nodes=%d edges=%d", n, e)
+	}
+	g := diamond()
+	nodes, edges := g.Stats()
+	if nodes != 5 { // a, b, c, d, x
+		t.Fatalf("node count: %d", nodes)
+	}
+	if edges != 4 { // a->b, a->c, b->d, c->d
+		t.Fatalf("edge count: %d", edges)
+	}
+	// Upsert with only new edges (no new nodes) still grows the edge count.
+	g.Upsert(nil, []Edge{{Src: "go:a", Dst: "go:x", Kind: EUse, File: "a.go", Line: 9}})
+	nodes, edges = g.Stats()
+	if nodes != 5 || edges != 5 {
+		t.Fatalf("after extra edge: nodes=%d edges=%d", nodes, edges)
+	}
+}
+
 func TestKindStrings(t *testing.T) {
 	if ECgo.String() != "cgo" || EdgeKindFromString("cgo") != ECgo {
 		t.Fatal("edge kind string roundtrip broken")

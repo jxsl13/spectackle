@@ -43,6 +43,15 @@ func (s *Server) registerPrompts() {
 			{Name: "item", Description: "item ID to brief; default: first approved item, kind=task preferred"},
 		},
 	}, s.promptNext)
+
+	s.mcp.AddPrompt(&mcp.Prompt{
+		Name:        "state",
+		Title:       "spectacle state",
+		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "path", Description: "subtree to scope the snapshot to; default: whole workspace"},
+		},
+	}, s.promptState)
 }
 
 // promptWorkflow does not go through gate() (prompts/get is not a tool
@@ -178,6 +187,28 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 		Description: "implementer brief for " + id,
 		Messages: []*mcp.PromptMessage{
 			{Role: "user", Content: &mcp.TextContent{Text: b.String()}},
+		},
+	}, nil
+}
+
+// promptState bypasses gate() too — lock and refresh manually, then reuse
+// the exact same builder the `state` tool calls, so `prompts/get state` and
+// `tools/call state` never drift apart in content.
+func (s *Server) promptState(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.scan.Refresh(); err != nil {
+		return nil, err
+	}
+	path := req.Params.Arguments["path"]
+	txt, err := s.stateText(path)
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.GetPromptResult{
+		Description: "spectacle state snapshot",
+		Messages: []*mcp.PromptMessage{
+			{Role: "user", Content: &mcp.TextContent{Text: txt}},
 		},
 	}, nil
 }

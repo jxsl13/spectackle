@@ -130,6 +130,9 @@ type Graph interface {
 	// Impact runs a bounded BFS from seeds and returns the reachable subgraph.
 	// Each node appears exactly once, at its minimum BFS distance (SPX-GRA-002).
 	Impact(seeds []NodeID, depth int, dir Direction, kinds []EdgeKind) ([]Node, []Edge)
+	// Stats returns the total node and edge counts — a cheap size/health
+	// signal (no traversal), used by the `state` overview tool.
+	Stats() (nodes, edges int)
 }
 
 // memGraph is the in-memory implementation. The persistent cache
@@ -160,6 +163,18 @@ func (g *memGraph) Upsert(nodes []Node, edges []Edge) {
 		g.out[e.Src] = append(g.out[e.Src], e)
 		g.in[e.Dst] = append(g.in[e.Dst], e)
 	}
+}
+
+// Stats reports the total node count and total edge count (summed over
+// out-edges, so each edge counts once regardless of the in-index mirror).
+func (g *memGraph) Stats() (nodes, edges int) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	nodes = len(g.nodes)
+	for _, es := range g.out {
+		edges += len(es)
+	}
+	return nodes, edges
 }
 
 func (g *memGraph) Node(id NodeID) (Node, bool) {

@@ -1,6 +1,6 @@
 # MCP tool surface
 
-Ten orthogonal tools (seven lifecycle + three swarm). The Go structs in `internal/mcpserver/tools.go` are
+Eleven orthogonal tools (eight lifecycle + three swarm). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
 handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
@@ -43,6 +43,7 @@ nf <id> <id> <id>                                not found — nearest matches
 cur <token>                                      more results; pass back as cur
 ok [<msg>]                                       success / nothing to report
 #impact #contracts #rejections                   context-pack sections (draft)
+#version #items #rules #graph #swarm #drift #health  snapshot sections (state)
 ```
 
 ## Tools
@@ -203,9 +204,30 @@ Unseen `sw` events are additionally prepended to every tool result
 (realtime piggyback); `find scope=rejection` unions live sibling rejections
 before they ever merge (SPX-SWM-002).
 
-### 11. Prompts — slash-command entry points
+### 11. `state` — one read-only structured snapshot
 
-Two MCP prompts (`prompts/get`, no arguments unless noted) in
+```json
+{"type":"object","properties":{
+  "path":  {"type":"string","description":"subtree, default all"},
+  "budget":{"type":"integer","default":2000}}}
+```
+The full spec-driven-development picture in one call, strictly read-only —
+unlike `check`, it writes nothing (no `drift.Save`, no backprop drafts, no
+journal, no anchor re-stamp). Sections, each omitted entirely when it has
+nothing to report (SPX-MCP-004 spirit): `#version` (server version, agent
+name, active root), `#items` (counts by state + `i` lines, scoped to
+`path`), `#rules` (per-context-dir rule counts + a global lint-findings
+count), `#graph` (`g.Stats()` node/edge totals), `#swarm` (`ag`/`l`/`wt`
+lines), `#drift` (anchor classification summary + `d` lines for
+changed/gone/stale — `moved` anchors are counted, never silently
+re-stamped), `#health` (compact-due `c` lines + a coverage-gap count).
+Budget-truncated like every other read tool (SPX-ARC-002). Same content is
+exposed as the `state` MCP prompt (`internal/mcpserver/prompts.go`) via the
+shared `(s *Server) stateText(path string)` builder.
+
+### 12. Prompts — slash-command entry points
+
+Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`
 (not yet wired into `New` — the orchestrator calls it). They bypass `gate()`
 (prompts/get is not a tool call): each handler locks `s.mu` and calls
@@ -225,6 +247,10 @@ is `item.Record` + `parent`/`targets`/body verbatim, followed by the 5-step
 IMPLEMENTER PROTOCOL (`get` → `lease op=claim` → `move to=active` →
 implement+test → `move to=done` + `lease op=release`), using the item's
 context dir as the suggested lease path.
+
+**`state`** (optional `path` string arg) — identical content to the `state`
+tool (`tools/call state`), reached as a slash command
+(`/mcp__spectacle__state`) instead of a tool call.
 
 ## Fold map (previous 11-tool surface → 7 lifecycle tools)
 

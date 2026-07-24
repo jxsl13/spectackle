@@ -24,7 +24,8 @@ import (
 
 // The 7-tool surface is documented in docs/tools.md; the structs below are
 // the normative schemas (SPX-REPO-001). Results use the dense line grammar,
-// not JSON — that is where the token savings come from.
+// not JSON — that is where the token savings come from. (state's stateIn
+// lives in state.go — the read-only overview tool, 11th on the full surface.)
 
 var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 
@@ -154,6 +155,10 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
 		Description: "Sibling awareness, zero params: ag agents (item, freshness), l leases, wt open worktrees, sw recent learnings (rejections first). Check before claiming scope or hypothesizing — a sibling may have failed at it already."},
 		gate(s, s.swarm))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "state",
+		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
+		gate(s, s.state))
 }
 
 // ---- find ----

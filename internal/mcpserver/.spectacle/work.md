@@ -12,7 +12,7 @@ One call answers 'where does spec-driven development stand on this repo': sectio
 
 ## T-0029 implement state tool + prompt (read-only, sectioned)
 kind: task
-state: draft
+state: done
 created: 2026-07-24
 parent: P-0017
 
