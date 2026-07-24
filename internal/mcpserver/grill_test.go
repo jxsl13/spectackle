@@ -284,3 +284,101 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 		t.Fatalf("swarm learning missing grill event: %+v", swEvents)
 	}
 }
+
+// boilerplateBody answers grillQuestions' three pre-existing checklist items
+// (scope, rollback, exit criterion) so these tests isolate the new
+// deliberation question instead of tripping the others too.
+const boilerplateBody = "Scope: this file only. Rollback: revert. Exit criterion: tests pass. "
+
+// TestGrillQuestionsFlagsUndeliberatedProposal (T-0118): a proposal with no
+// refs to an adr/research item and no body line naming a considered or
+// rejected alternative gets asked about it.
+func TestGrillQuestionsFlagsUndeliberatedProposal(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+
+	if _, _, err := s.draft(draftIn{
+		Kind: "proposal", Title: "single obvious approach",
+		Body: boilerplateBody + "Just do the thing.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	out := resText(t, res, err)
+	if !strings.Contains(out, "q deliberation not addressed") {
+		t.Fatalf("undeliberated proposal should be asked about it: %q", out)
+	}
+}
+
+// TestGrillQuestionsSkipsWithADRRef: a proposal that cites an adr item via
+// refs has structurally recorded its weighing — no question.
+func TestGrillQuestionsSkipsWithADRRef(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+
+	if _, _, err := s.draft(draftIn{Kind: "adr", Title: "backend choice"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.draft(draftIn{
+		Kind: "proposal", Title: "adopt the chosen backend",
+		Body: boilerplateBody + "Do what the ADR says.",
+		Refs: []string{"ADR-0001"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	out := resText(t, res, err)
+	if strings.Contains(out, "q deliberation not addressed") {
+		t.Fatalf("proposal citing an ADR should not be asked: %q", out)
+	}
+}
+
+// TestGrillQuestionsSkipsWithRejectedAlternativeBody: a proposal naming a
+// rejected/considered alternative in its own body — no refs needed — also
+// counts as recorded deliberation.
+func TestGrillQuestionsSkipsWithRejectedAlternativeBody(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+
+	if _, _, err := s.draft(draftIn{
+		Kind: "proposal", Title: "batches writes",
+		Body: boilerplateBody + "Considered an in-memory queue as an alternative but " +
+			"rejected it: unbounded memory growth under load.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	out := resText(t, res, err)
+	if strings.Contains(out, "q deliberation not addressed") {
+		t.Fatalf("proposal naming a rejected alternative should not be asked: %q", out)
+	}
+}
+
+// TestGrillQuestionsNeverFiresForTasks: the deliberation question is
+// proposal-only — a task with neither refs nor an alternative line never
+// gets it.
+func TestGrillQuestionsNeverFiresForTasks(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+
+	if _, _, err := s.draft(draftIn{
+		Kind: "proposal", Title: "parent",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.draft(draftIn{
+		Kind: "task", Title: "plain task", Parent: "P-0001",
+		Body: boilerplateBody + "Just implement it.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, _, err := s.grill(grillIn{ID: "T-0001"})
+	out := resText(t, res, err)
+	if strings.Contains(out, "q deliberation not addressed") {
+		t.Fatalf("tasks must never get the deliberation question: %q", out)
+	}
+}

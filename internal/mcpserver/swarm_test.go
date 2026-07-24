@@ -278,6 +278,209 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	}
 }
 
+// ---- T-0121: claimable-queue section (swarm.go: claimableQueue,
+// itemScope, scopeHolder) ----
+
+// queueLines extracts just the "q " records from a swarm result, so
+// determinism/content assertions aren't tripped up by the timing-sensitive
+// ag/l "%ds" fields or the sw piggyback lines elsewhere in the same result.
+func queueLines(out string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "q ") {
+			b.WriteString(l + "\n")
+		}
+	}
+	return b.String()
+}
+
+// approveTask drafts+approves a task with the given targets, returning the
+// literal ID the call is expected to mint (each test below uses a fresh
+// workspace and only ever drafts sequentially/synchronously, so IDs are
+// deterministic — the same convention TestWorkLifecycleE2E etc. already
+// rely on with hardcoded "P-0001").
+func approveTask(t *testing.T, sess *mcp.ClientSession, id, title string, targets []string) {
+	t.Helper()
+	args := map[string]any{"kind": "task", "title": title}
+	if len(targets) > 0 {
+		args["targets"] = targets
+	}
+	callText(t, sess, "draft", args)
+	callText(t, sess, "move", map[string]any{"id": id, "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+}
+
+// TestSwarmQueueFree covers case 1: an approved item whose declared scope
+// nothing holds shows up as q free.
+func TestSwarmQueueFree(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	approveTask(t, alice, "T-0001", "free item", []string{"free/pkg.go"})
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q free T-0001 free item") {
+		t.Fatalf("expected q free record: %q", out)
+	}
+}
+
+// TestSwarmQueueHeld covers case 2: an approved item whose target is held
+// by another agent shows up as q held, naming that agent and the colliding
+// path.
+func TestSwarmQueueHeld(t *testing.T) {
+	root := gitRoot(t)
+	alice, bob := twoAgents(t, root)
+
+	approveTask(t, alice, "T-0001", "held item", []string{"held/pkg.go"})
+	out := callText(t, bob, "lease", map[string]any{"op": "claim", "paths": []string{"held/pkg.go"}})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("claim: %q", out)
+	}
+
+	out = callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q held T-0001 bob held/pkg.go") {
+		t.Fatalf("expected q held record naming bob and the colliding path: %q", out)
+	}
+}
+
+// TestSwarmQueueAncestorCollisionBothDirections covers case 3: a lease on a
+// directory blocks an item targeting a file inside it, AND a lease on a
+// file blocks an item whose scope is the containing directory (no targets
+// declared — the item falls back to its context Dir, per itemScope).
+func TestSwarmQueueAncestorCollisionBothDirections(t *testing.T) {
+	root := gitRoot(t)
+	alice, bob := twoAgents(t, root)
+
+	// direction 1: dir lease vs. file-scoped item
+	approveTask(t, alice, "T-0001", "file target", []string{"pkg/a/file.go"})
+	out := callText(t, bob, "lease", map[string]any{"op": "claim", "paths": []string{"pkg/a"}})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("dir claim: %q", out)
+	}
+	out = callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q held T-0001 bob pkg/a") {
+		t.Fatalf("dir lease should collide with a file target inside it: %q", out)
+	}
+
+	// direction 2: file lease vs. dir-scoped item (no targets declared ->
+	// the item falls back to its context Dir, per itemScope). Force the dir
+	// explicitly rather than relying on target-derived scoping.
+	callText(t, alice, "draft", map[string]any{"kind": "task", "title": "dir scope", "dir": "pkg/b"})
+	callText(t, alice, "move", map[string]any{"id": "T-0002", "to": "submitted"})
+	callText(t, alice, "move", map[string]any{"id": "T-0002", "to": "approved"})
+	out = callText(t, bob, "lease", map[string]any{"op": "claim", "paths": []string{"pkg/b/file.go"}})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("file claim: %q", out)
+	}
+
+	out = callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q held T-0002 bob pkg/b/file.go") {
+		t.Fatalf("file lease should collide with a dir-scoped item containing it: %q", out)
+	}
+}
+
+// TestSwarmQueueIgnoresOwnLease covers case 4: a lease held by the calling
+// agent itself must not make its own item show as held.
+func TestSwarmQueueIgnoresOwnLease(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	approveTask(t, alice, "T-0001", "mine", []string{"mine/pkg.go"})
+	out := callText(t, alice, "lease", map[string]any{"op": "claim", "paths": []string{"mine/pkg.go"}})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("claim: %q", out)
+	}
+
+	out = callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q free T-0001 mine") {
+		t.Fatalf("own lease incorrectly blocks own item: %q", out)
+	}
+	if strings.Contains(out, "q held T-0001") {
+		t.Fatalf("own lease incorrectly reported as held: %q", out)
+	}
+}
+
+// TestSwarmQueueExpiredLeaseFree covers case 5: a lease past its TTL does
+// not collide. Only bob claims (short ttl) and never calls again — a
+// further call by bob would refresh ALL of bob's leases back to the
+// config-default TTL via preCall's RefreshLeases, defeating the test — so
+// the checking call below is made by alice instead.
+func TestSwarmQueueExpiredLeaseFree(t *testing.T) {
+	root := gitRoot(t)
+	alice, bob := twoAgents(t, root)
+
+	approveTask(t, alice, "T-0001", "expiring", []string{"gpu/kernels/x.go"})
+	out := callText(t, bob, "lease", map[string]any{"op": "claim", "paths": []string{"gpu/kernels"}, "ttl": 1})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("claim: %q", out)
+	}
+	time.Sleep(1200 * time.Millisecond)
+
+	out = callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "q free T-0001 expiring") {
+		t.Fatalf("expired lease should not collide: %q", out)
+	}
+	if strings.Contains(out, "q held T-0001") {
+		t.Fatalf("expired lease incorrectly reported as held: %q", out)
+	}
+}
+
+// TestSwarmQueueActiveItems covers case 6: an active item with no lease
+// appears (crashed/abandoned work); an active item that IS leased does not.
+func TestSwarmQueueActiveItems(t *testing.T) {
+	root := gitRoot(t)
+	alice, bob := twoAgents(t, root)
+
+	// T-0001: pushed straight to active without ever being leased (the
+	// crashed/abandoned-agent case an orchestrator needs to see).
+	approveTask(t, alice, "T-0001", "orphaned", []string{"orphan/pkg.go"})
+	callText(t, alice, "move", map[string]any{"id": "T-0001", "to": "active"})
+
+	// T-0002: active AND leased — someone is genuinely still on it, so it
+	// must be invisible to this view.
+	approveTask(t, alice, "T-0002", "in flight", []string{"flight/pkg.go"})
+	callText(t, alice, "move", map[string]any{"id": "T-0002", "to": "active"})
+	out := callText(t, alice, "lease", map[string]any{"op": "claim", "paths": []string{"T-0002"}, "item": "T-0002"})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("claim: %q", out)
+	}
+
+	out = callText(t, bob, "swarm", map[string]any{})
+	if !strings.Contains(out, "q free T-0001 orphaned") {
+		t.Fatalf("unleased active item should appear: %q", out)
+	}
+	if strings.Contains(out, "q free T-0002") || strings.Contains(out, "q held T-0002") {
+		t.Fatalf("leased active item should not appear in the queue: %q", out)
+	}
+}
+
+// TestSwarmQueueDeterministic covers case 7: two calls against identical
+// state produce byte-identical q sections, in sorted (by ID) order.
+func TestSwarmQueueDeterministic(t *testing.T) {
+	root := gitRoot(t)
+	alice, bob := twoAgents(t, root)
+
+	approveTask(t, alice, "T-0001", "item one", []string{"pkg0/f.go"})
+	approveTask(t, alice, "T-0002", "item two", []string{"pkg1/f.go"})
+	approveTask(t, alice, "T-0003", "item three", []string{"pkg2/f.go"})
+	out := callText(t, bob, "lease", map[string]any{"op": "claim", "paths": []string{"pkg1"}})
+	if !strings.Contains(out, "ok claimed") {
+		t.Fatalf("claim: %q", out)
+	}
+
+	q1 := queueLines(callText(t, alice, "swarm", map[string]any{}))
+	q2 := queueLines(callText(t, alice, "swarm", map[string]any{}))
+	if q1 != q2 {
+		t.Fatalf("queue section not byte-identical across calls:\n%q\n---\n%q", q1, q2)
+	}
+	want := "q free T-0001 item one\nq held T-0002 bob pkg1\nq free T-0003 item three\n"
+	if q1 != want {
+		t.Fatalf("queue section = %q, want %q", q1, want)
+	}
+}
+
 func wtRootOf(t *testing.T, out, item string) string {
 	t.Helper()
 	for _, l := range strings.Split(out, "\n") {

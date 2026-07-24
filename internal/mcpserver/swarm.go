@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -366,6 +367,105 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 	return text("! ARG E - op must be claim|release|ls")
 }
 
+// ---- claimable queue (T-0121, MCP-013) ----
+
+// maxQueueLines caps the q free/held section the same way postCall's sw
+// piggyback caps its own listing (5, "sw more n=..." above): swarm is a
+// cheap, frequently-polled awareness tool, so once the candidate count
+// exceeds this the section is truncated with a count line instead of
+// growing unbounded — no filesystem/graph walk is ever proportional to
+// item count here, only this rendering cap.
+const maxQueueLines = 20
+
+// itemScope returns an item's declared collision scope for the claimable
+// queue: its Targets, normalized exactly the way work op=start scopes them
+// before leasing (normalizeTargets, tools.go — reused here so "what work
+// op=start would lease" and "what the queue checks" never drift apart), or
+// — when no targets are declared — its context Dir. An item with no
+// targets is conservatively scoped to its whole directory: that is the
+// reading that never hands out work which then collides with something
+// else on its very first claim.
+func itemScope(it item.Item) []string {
+	if len(it.Targets) > 0 {
+		return normalizeTargets(it.Targets)
+	}
+	return []string{it.Dir}
+}
+
+// scopeHolder reports the first live lease — other than one held by self —
+// whose path collides with any path in scope. It reuses coord.Overlaps,
+// the exact ancestor-or-equal comparison coord.DB.Claim/Blocked already
+// enforce (see coord.go), instead of inventing a second overlap notion.
+// leases is expected to already be TTL/heartbeat-filtered — coord.DB.Leases
+// (liveLeases) does exactly that on read — so no second expiry check
+// happens here.
+func scopeHolder(scope []string, leases []coord.Lease, self string) (coord.Lease, bool) {
+	for _, l := range leases {
+		if l.Agent == self {
+			continue // an orchestrator's own claims must never block its own view of what it can start
+		}
+		for _, s := range scope {
+			if s == "" {
+				continue
+			}
+			if coord.Overlaps(l.Path, s) {
+				return l, true
+			}
+		}
+	}
+	return coord.Lease{}, false
+}
+
+// claimableQueue renders the q free/q held section: one record per approved
+// item, plus every active item that carries no live lease of its own (an
+// active item nobody holds a lease on is a crashed or abandoned agent's
+// work — otherwise invisible, since work op=start's own lease already
+// removes an item genuinely in flight from this view). draft/submitted/
+// done/archived/rejected/blocked items are never claimable work and are
+// left out entirely.
+//
+// free/held is decided per candidate via scopeHolder against the very same
+// `leases` slice the caller already fetched for the l-record section above
+// (one DB read serves both). Sorted by ID for a deterministic, byte-stable
+// section across repeated calls against unchanged state.
+func (s *Server) claimableQueue(items []item.Item, leases []coord.Lease) string {
+	leasedItem := map[string]bool{}
+	for _, l := range leases {
+		if l.Item != "" {
+			leasedItem[l.Item] = true
+		}
+	}
+	var cand []item.Item
+	for _, it := range items {
+		switch it.State {
+		case item.StateApproved:
+			cand = append(cand, it)
+		case item.StateActive:
+			if !leasedItem[it.ID] {
+				cand = append(cand, it)
+			}
+		}
+	}
+	sort.Slice(cand, func(i, j int) bool { return cand[i].ID < cand[j].ID })
+
+	shown, overflow := cand, 0
+	if len(shown) > maxQueueLines {
+		shown, overflow = shown[:maxQueueLines], len(cand)-maxQueueLines
+	}
+	var b strings.Builder
+	for _, it := range shown {
+		if l, held := scopeHolder(itemScope(it), leases, s.agent); held {
+			fmt.Fprintf(&b, "q held %s %s %s\n", it.ID, l.Agent, l.Path)
+		} else {
+			fmt.Fprintf(&b, "q free %s %s\n", it.ID, it.Title)
+		}
+	}
+	if overflow > 0 {
+		fmt.Fprintf(&b, "q more n=%d\n", overflow)
+	}
+	return b.String()
+}
+
 // ---- swarm tool ----
 
 func (s *Server) swarm(swarmIn) (*mcp.CallToolResult, any, error) {
@@ -399,6 +499,11 @@ func (s *Server) swarm(swarmIn) (*mcp.CallToolResult, any, error) {
 	for _, w := range wts {
 		fmt.Fprintf(&b, "wt %s %s %s %s\n", w.Item, w.State, w.Agent, w.Root)
 	}
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return nil, nil, err
+	}
+	b.WriteString(s.claimableQueue(items, leases))
 	events, err := s.cd.SearchEvents("", nil, 10)
 	if err != nil {
 		return nil, nil, err

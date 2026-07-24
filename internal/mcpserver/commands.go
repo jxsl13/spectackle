@@ -27,9 +27,18 @@ import (
 // user answers a native checkbox form, or — no UI, decline, or a different
 // harness — an `adr` item is minted and left open exactly like
 // decideAsk (decide.go), never blocking the caller.
+//
+// gen's command set defaults to the three load-bearing commands (entry
+// point, state, generate) — enough to run the lifecycle and to ask for more.
+// The six exploration commands (find, get, research, swarm, export, merge)
+// are opt-in: pass all=true for every command, or commands=<names> for a
+// specific subset (either unions with the default three, never replaces
+// them — the default set is always present once requested at all).
 type commandsIn struct {
-	Op      string   `json:"op" jsonschema:"detect|gen"`
-	Harness []string `json:"harness,omitempty" jsonschema:"claude|copilot|codex|kimi — omit to auto-detect"`
+	Op       string   `json:"op" jsonschema:"detect|gen"`
+	Harness  []string `json:"harness,omitempty" jsonschema:"claude|copilot|codex|kimi — omit to auto-detect"`
+	Commands []string `json:"commands,omitempty" jsonschema:"gen only: opt-in command names to add on top of the default three (find|get|research|swarm|export|merge) — omit for defaults only"`
+	All      bool     `json:"all,omitempty" jsonschema:"gen only: generate every command (default three plus all six opt-in exploration commands)"`
 }
 
 //go:embed templates/commands/*.tmpl
@@ -75,21 +84,28 @@ var validHarnesses = map[string]bool{"claude": true, "copilot": true, "codex": t
 // mirrors Name except for the entry point, which keeps the historical
 // "workflow" heading. Description is the claude dialect's frontmatter
 // `description:` line and doubles as the copilot dialect's doc comment.
+// Default marks the load-bearing commands `gen` emits without an explicit
+// all=/commands= argument: the entry point, state, and generate itself —
+// generate must be default, otherwise a user with only the default set has
+// no way to ask for the rest short of reading source.
 type commandSpec struct {
 	Name        string
 	Heading     string
 	Template    string
 	Description string
+	Default     bool
 }
 
 // commandSpecs is the full generated-command set, in the order every
 // dialect writer emits them. Adding a command means: one new template file
 // under templates/commands, one entry here — nothing else changes.
 var commandSpecs = []commandSpec{
-	{Name: "", Heading: "workflow", Template: "workflow.md.tmpl",
+	{Name: "", Heading: "workflow", Template: "workflow.md.tmpl", Default: true,
 		Description: "spectackle entry point — bare = state snapshot, with a requirement = full SDD lifecycle"},
-	{Name: "state", Heading: "state", Template: "state.md.tmpl",
+	{Name: "state", Heading: "state", Template: "state.md.tmpl", Default: true,
 		Description: "Render the current spectackle state (explicit alias for bare /spectackle)"},
+	{Name: "generate", Heading: "generate", Template: "generate.md.tmpl", Default: true,
+		Description: "(Re)generate spectackle's own slash commands/prompts — default three, or all=/commands= for the six exploration commands"},
 	{Name: "find", Heading: "find", Template: "find.md.tmpl",
 		Description: "Search records — code, rules, spec prose, or lifecycle items (unified `find`)"},
 	{Name: "get", Heading: "get", Template: "get.md.tmpl",
@@ -102,6 +118,70 @@ var commandSpecs = []commandSpec{
 		Description: "Export this workspace's knowledge (rules, ADRs, intent) as a portable artifact"},
 	{Name: "merge", Heading: "merge", Template: "merge.md.tmpl",
 		Description: "Merge several knowledge artifacts into one condensate, reporting conflicts"},
+}
+
+// defaultCommandSpecs returns the Default-marked subset of commandSpecs, in
+// commandSpecs order.
+func defaultCommandSpecs() []commandSpec {
+	var out []commandSpec
+	for _, spec := range commandSpecs {
+		if spec.Default {
+			out = append(out, spec)
+		}
+	}
+	return out
+}
+
+// commandSpecByName finds a commandSpec by its Name field. The entry point
+// (Name == "") is unreachable through this lookup on purpose — it has no
+// name a caller could type, and it is already in the default set.
+func commandSpecByName(name string) (commandSpec, bool) {
+	for _, spec := range commandSpecs {
+		if spec.Name == name {
+			return spec, true
+		}
+	}
+	return commandSpec{}, false
+}
+
+// selectCommandSpecs resolves gen's command set: the default three, plus
+// whatever commandsArg/all ask for on top. all=true (or the literal name
+// "all" inside commandsArg, for callers that only have a list to work with)
+// short-circuits to the full commandSpecs set. Anything else is validated
+// against commandSpecByName and unioned with the defaults — never a
+// replacement, since the default three staying present is what makes the
+// opt-in set discoverable in the first place. Return order always follows
+// commandSpecs, not argument order, so downstream headings/sections stay
+// coherent regardless of how commandsArg was written.
+func selectCommandSpecs(commandsArg []string, all bool) ([]commandSpec, error) {
+	if all {
+		return append([]commandSpec(nil), commandSpecs...), nil
+	}
+	selected := map[string]bool{}
+	for _, spec := range defaultCommandSpecs() {
+		selected[spec.Heading] = true
+	}
+	for _, name := range commandsArg {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		if name == "all" {
+			return append([]commandSpec(nil), commandSpecs...), nil
+		}
+		spec, ok := commandSpecByName(name)
+		if !ok {
+			return nil, fmt.Errorf("unknown command %q (want find|get|research|swarm|export|merge)", name)
+		}
+		selected[spec.Heading] = true
+	}
+	var out []commandSpec
+	for _, spec := range commandSpecs {
+		if selected[spec.Heading] {
+			out = append(out, spec)
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) commands(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
@@ -192,9 +272,14 @@ func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in c
 		harnesses = selected
 	}
 
+	specs, err := selectCommandSpecs(in.Commands, in.All)
+	if err != nil {
+		return text("! ARG E - " + err.Error())
+	}
+
 	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: moduleRepoURL()}
-	bodies := make(map[string]string, len(commandSpecs))
-	for _, spec := range commandSpecs {
+	bodies := make(map[string]string, len(specs))
+	for _, spec := range specs {
 		body, err := renderCommandTemplate(spec.Template, data)
 		if err != nil {
 			return nil, nil, err
@@ -204,7 +289,7 @@ func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in c
 
 	var b strings.Builder
 	for _, h := range harnesses {
-		files, err := writeDialect(s.ws.Dir, h, data, bodies)
+		files, err := writeDialect(s.ws.Dir, h, specs, data, bodies)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -317,16 +402,17 @@ func renderCommandTemplate(name string, data commandsData) (string, error) {
 
 // writeDialect dispatches to the per-harness writer and returns the
 // repo-relative paths written, for the `ok gen <harness> <path>` result
-// lines. bodies is keyed by commandSpec.Template, one rendered body per
-// generated command.
-func writeDialect(root, harness string, data commandsData, bodies map[string]string) ([]string, error) {
+// lines. specs is this run's selected command set (defaults, or defaults
+// plus opt-in extras); bodies is keyed by commandSpec.Template, one rendered
+// body per spec in specs.
+func writeDialect(root, harness string, specs []commandSpec, data commandsData, bodies map[string]string) ([]string, error) {
 	switch harness {
 	case "claude":
-		return writeClaudeDialect(root, data, bodies)
+		return writeClaudeDialect(root, specs, data, bodies)
 	case "copilot":
-		return writeCopilotDialect(root, data, bodies)
+		return writeCopilotDialect(root, specs, data, bodies)
 	case "codex", "kimi":
-		return writeAgentsSection(root, bodies)
+		return writeAgentsSection(root, specs, bodies)
 	}
 	return nil, fmt.Errorf("unknown harness %q", harness)
 }
@@ -348,16 +434,19 @@ func copilotFilename(binary, name string) string {
 	return binary + "-" + name + ".prompt.md"
 }
 
-// writeClaudeDialect regenerates .claude/commands/*.md — one file per
-// commandSpec, same frontmatter shape (description:) the hand-written
-// originals carried, plus the generated-header comment.
-func writeClaudeDialect(root string, data commandsData, bodies map[string]string) ([]string, error) {
+// writeClaudeDialect regenerates .claude/commands/*.md — one file per spec
+// in specs, same frontmatter shape (description:) the hand-written
+// originals carried, plus the generated-header comment. Only the files for
+// specs in this run are touched: a command left out of specs (opt-in,
+// not requested this time) keeps whatever file it already has on disk —
+// gen adds and overwrites, it never deletes.
+func writeClaudeDialect(root string, specs []commandSpec, data commandsData, bodies map[string]string) ([]string, error) {
 	dir := filepath.Join(root, ".claude", "commands")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, spec := range commandSpecs {
+	for _, spec := range specs {
 		content := "---\ndescription: " + spec.Description + "\n---\n\n" +
 			generatedHeader + "\n\n" + bodies[spec.Template]
 		p := filepath.Join(dir, claudeFilename(data.Binary, spec.Name))
@@ -370,14 +459,15 @@ func writeClaudeDialect(root string, data commandsData, bodies map[string]string
 }
 
 // writeCopilotDialect writes .github/prompts/*.prompt.md — one file per
-// commandSpec, with GitHub Copilot's `mode: agent` frontmatter.
-func writeCopilotDialect(root string, data commandsData, bodies map[string]string) ([]string, error) {
+// spec in specs, with GitHub Copilot's `mode: agent` frontmatter. Same
+// add/overwrite-only, never-delete behavior as writeClaudeDialect.
+func writeCopilotDialect(root string, specs []commandSpec, data commandsData, bodies map[string]string) ([]string, error) {
 	dir := filepath.Join(root, ".github", "prompts")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	var files []string
-	for _, spec := range commandSpecs {
+	for _, spec := range specs {
 		content := "---\nmode: agent\n---\n\n" + generatedHeader + "\n\n" + bodies[spec.Template]
 		p := filepath.Join(dir, copilotFilename(data.Binary, spec.Name))
 		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
@@ -390,22 +480,30 @@ func writeCopilotDialect(root string, data commandsData, bodies map[string]strin
 
 // writeAgentsSection creates or updates AGENTS.md's spectackle-managed
 // section (codex and kimi share it — both harnesses consume AGENTS.md) with
-// every command description, one "## spectackle <heading>" subsection per
-// commandSpec, in commandSpecs order — coherent instead of appended blindly.
-// Only the text between sectionBegin/sectionEnd is ever touched; everything
-// else in the file (or the whole file, if it doesn't exist yet) is the repo
-// owner's.
-func writeAgentsSection(root string, bodies map[string]string) ([]string, error) {
+// one "## spectackle <heading>" subsection per spec in specs, in
+// commandSpecs order — coherent instead of appended blindly. Only the text
+// between sectionBegin/sectionEnd is ever touched; everything else in the
+// file (or the whole file, if it doesn't exist yet) is the repo owner's.
+//
+// Unlike the per-file dialects, the managed section is rewritten wholesale
+// on every run, so a plain overwrite would silently drop any opt-in
+// command's subsection the moment a run doesn't ask for it again (e.g. a
+// default run after an earlier all=true run). To keep this non-destructive
+// like the file dialects, any heading already present in the existing
+// section but not in this run's specs is carried forward unchanged instead
+// of being dropped.
+func writeAgentsSection(root string, specs []commandSpec, bodies map[string]string) ([]string, error) {
 	path := filepath.Join(root, "AGENTS.md")
-	section := agentsSection(bodies)
 
 	existing, err := os.ReadFile(path)
 	var content string
 	switch {
 	case err == nil:
+		preserved := parseAgentsHeadings(extractManagedSection(string(existing)))
+		section := agentsSection(specs, bodies, preserved)
 		content = replaceManagedSection(string(existing), section)
 	case os.IsNotExist(err):
-		content = section
+		content = agentsSection(specs, bodies, nil)
 	default:
 		return nil, err
 	}
@@ -415,19 +513,75 @@ func writeAgentsSection(root string, bodies map[string]string) ([]string, error)
 	return []string{relToRoot(root, path)}, nil
 }
 
-func agentsSection(bodies map[string]string) string {
+// agentsSection assembles the managed-section body. For each commandSpec
+// (in canonical order): if it's in this run's specs, its freshly rendered
+// body wins; otherwise, if preserved has a heading match (a subsection an
+// earlier run wrote and this one didn't ask for again), that old content is
+// kept as-is; otherwise the heading is omitted entirely (never generated).
+func agentsSection(specs []commandSpec, bodies map[string]string, preserved map[string]string) string {
+	selected := map[string]bool{}
+	for _, spec := range specs {
+		selected[spec.Heading] = true
+	}
 	var b strings.Builder
 	b.WriteString(sectionBegin + "\n")
 	b.WriteString(generatedHeader + "\n\n")
-	for i, spec := range commandSpecs {
-		if i > 0 {
+	first := true
+	for _, spec := range commandSpecs {
+		var body string
+		switch {
+		case selected[spec.Heading]:
+			body = bodies[spec.Template]
+		default:
+			old, ok := preserved[spec.Heading]
+			if !ok {
+				continue
+			}
+			body = old
+		}
+		if !first {
 			b.WriteString("\n")
 		}
+		first = false
 		b.WriteString("## spectackle " + spec.Heading + "\n\n")
-		b.WriteString(strings.TrimRight(bodies[spec.Template], "\n") + "\n")
+		b.WriteString(strings.TrimRight(body, "\n") + "\n")
 	}
 	b.WriteString(sectionEnd + "\n")
 	return b.String()
+}
+
+// extractManagedSection returns the raw text of the existing managed
+// section (markers included), or "" if AGENTS.md has none yet.
+func extractManagedSection(existing string) string {
+	start := strings.Index(existing, sectionBegin)
+	end := strings.Index(existing, sectionEnd)
+	if start == -1 || end == -1 || end < start {
+		return ""
+	}
+	end += len(sectionEnd)
+	return existing[start:end]
+}
+
+// parseAgentsHeadings splits a managed-section's text (as produced by
+// agentsSection) back into heading -> body pairs, so a later run can carry
+// forward subsections it isn't regenerating this time. section == ""
+// (no prior managed section) yields a nil map — every lookup misses, so
+// nothing is preserved, which is correct: there was nothing to preserve.
+func parseAgentsHeadings(section string) map[string]string {
+	if section == "" {
+		return nil
+	}
+	out := map[string]string{}
+	const marker = "## spectackle "
+	for _, part := range strings.Split(section, marker)[1:] {
+		nl := strings.IndexByte(part, '\n')
+		if nl == -1 {
+			continue
+		}
+		heading := strings.TrimSpace(part[:nl])
+		out[heading] = strings.TrimRight(part[nl+1:], "\n")
+	}
+	return out
 }
 
 // replaceManagedSection swaps the text between sectionBegin/sectionEnd for

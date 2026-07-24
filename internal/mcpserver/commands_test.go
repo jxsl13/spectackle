@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -91,29 +92,91 @@ func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	}
 }
 
-// TestCommandsGenClaudeWritesBothFiles: gen harness=claude regenerates every
-// .claude/commands file (the original workflow/state pair plus the six
-// T-0113 additions) with the generated-header stamp, each command's own
-// frontmatter description, and the workflow file's two-mode $ARGUMENTS
-// dispatch content intact.
-func TestCommandsGenClaudeWritesBothFiles(t *testing.T) {
+// defaultFileStems/optInFileStems are the slash-command name-stem suffixes
+// (after "spectackle" / "spectackle-") for the default three and the six
+// opt-in exploration commands respectively, used by the tests below to
+// assert exactly which files a gen run did or did not write.
+var (
+	defaultFileStems = []string{"", "-state", "-generate"}
+	optInFileStems   = []string{"-find", "-get", "-research", "-swarm", "-export", "-merge"}
+)
+
+func claudeNames(stems []string) []string {
+	out := make([]string, len(stems))
+	for i, s := range stems {
+		out[i] = "spectackle" + s + ".md"
+	}
+	return out
+}
+
+func copilotNames(stems []string) []string {
+	out := make([]string, len(stems))
+	for i, s := range stems {
+		out[i] = "spectackle" + s + ".prompt.md"
+	}
+	return out
+}
+
+// dirEntryNames lists the base names of files in dir (test helper; dir must
+// exist).
+func dirEntryNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
+// TestCommandsGenDefaultWritesThreeCommands covers TEST 1: op=gen with no
+// all=/commands= writes exactly the three default commands (entry point,
+// state, generate) for both the claude and copilot dialects — no trace of
+// the six opt-in exploration commands anywhere in the output or on disk.
+func TestCommandsGenDefaultWritesThreeCommands(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
-	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}})
+	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude", "copilot"}})
 
-	wantFiles := []string{
-		"spectackle.md", "spectackle-state.md", "spectackle-find.md", "spectackle-get.md",
-		"spectackle-research.md", "spectackle-swarm.md", "spectackle-export.md", "spectackle-merge.md",
-	}
-	for _, name := range wantFiles {
+	for _, name := range claudeNames(defaultFileStems) {
 		if !strings.Contains(out, "ok gen claude .claude/commands/"+name) {
 			t.Fatalf("expected %s to be written; got: %q", name, out)
 		}
 	}
+	for _, name := range copilotNames(defaultFileStems) {
+		if !strings.Contains(out, "ok gen copilot .github/prompts/"+name) {
+			t.Fatalf("expected %s to be written; got: %q", name, out)
+		}
+	}
+	for _, name := range append(claudeNames(optInFileStems), copilotNames(optInFileStems)...) {
+		if strings.Contains(out, name) {
+			t.Fatalf("default gen must not mention opt-in command %s; got: %q", name, out)
+		}
+	}
 
-	// every commandSpec's file carries its own description and the header
-	for _, spec := range commandSpecs {
+	gotClaude := sortedCopy(dirEntryNames(t, filepath.Join(root, ".claude", "commands")))
+	wantClaude := sortedCopy(claudeNames(defaultFileStems))
+	if strings.Join(gotClaude, ",") != strings.Join(wantClaude, ",") {
+		t.Fatalf(".claude/commands entries = %v, want exactly %v", gotClaude, wantClaude)
+	}
+	gotCopilot := sortedCopy(dirEntryNames(t, filepath.Join(root, ".github", "prompts")))
+	wantCopilot := sortedCopy(copilotNames(defaultFileStems))
+	if strings.Join(gotCopilot, ",") != strings.Join(wantCopilot, ",") {
+		t.Fatalf(".github/prompts entries = %v, want exactly %v", gotCopilot, wantCopilot)
+	}
+
+	// every written file carries its own description and the header
+	for _, spec := range defaultCommandSpecs() {
 		p := filepath.Join(root, ".claude", "commands", claudeFilename("spectackle", spec.Name))
 		b, err := os.ReadFile(p)
 		if err != nil {
@@ -134,6 +197,61 @@ func TestCommandsGenClaudeWritesBothFiles(t *testing.T) {
 	if !strings.Contains(string(wf), "If `$ARGUMENTS` is empty:") || !strings.Contains(string(wf), "If `$ARGUMENTS` is not empty:") {
 		t.Fatalf("spectackle.md lost the two-mode $ARGUMENTS dispatch:\n%s", wf)
 	}
+}
+
+// TestCommandsGenAllWritesEightCommands covers TEST 2: op=gen all=true
+// writes every one of the eight commands (default three plus all six
+// opt-in), for both the claude and copilot dialects, each carrying the
+// generated header and its own frontmatter description.
+func TestCommandsGenAllWritesEightCommands(t *testing.T) {
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+
+	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude", "copilot"}, "all": true})
+
+	allStems := append(append([]string{}, defaultFileStems...), optInFileStems...)
+	for _, name := range claudeNames(allStems) {
+		if !strings.Contains(out, "ok gen claude .claude/commands/"+name) {
+			t.Fatalf("expected %s to be written; got: %q", name, out)
+		}
+	}
+	for _, name := range copilotNames(allStems) {
+		if !strings.Contains(out, "ok gen copilot .github/prompts/"+name) {
+			t.Fatalf("expected %s to be written; got: %q", name, out)
+		}
+	}
+
+	gotClaude := sortedCopy(dirEntryNames(t, filepath.Join(root, ".claude", "commands")))
+	wantClaude := sortedCopy(claudeNames(allStems))
+	if strings.Join(gotClaude, ",") != strings.Join(wantClaude, ",") {
+		t.Fatalf(".claude/commands entries = %v, want exactly %v", gotClaude, wantClaude)
+	}
+
+	for _, spec := range commandSpecs {
+		p := filepath.Join(root, ".claude", "commands", claudeFilename("spectackle", spec.Name))
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+		if !strings.Contains(string(b), generatedHeader) {
+			t.Fatalf("%s missing generated header:\n%s", p, b)
+		}
+		if !strings.Contains(string(b), "description: "+spec.Description) {
+			t.Fatalf("%s missing frontmatter description %q:\n%s", p, spec.Description, b)
+		}
+
+		cp := filepath.Join(root, ".github", "prompts", copilotFilename("spectackle", spec.Name))
+		cb, err := os.ReadFile(cp)
+		if err != nil {
+			t.Fatalf("%s: %v", cp, err)
+		}
+		if !strings.Contains(string(cb), "mode: agent") {
+			t.Fatalf("%s missing mode: agent frontmatter:\n%s", cp, cb)
+		}
+		if !strings.Contains(string(cb), generatedHeader) {
+			t.Fatalf("%s missing generated header:\n%s", cp, cb)
+		}
+	}
 
 	// export/merge must not imply an apply command exists
 	ef, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-export.md"))
@@ -152,51 +270,121 @@ func TestCommandsGenClaudeWritesBothFiles(t *testing.T) {
 	}
 }
 
-// TestCommandsGenCopilotWritesPromptFiles: gen harness=copilot writes the
-// GitHub Copilot dialect under .github/prompts — the original workflow/state
-// pair plus the six T-0113 additions — with `mode: agent` frontmatter and
-// the generated-header stamp.
-func TestCommandsGenCopilotWritesPromptFiles(t *testing.T) {
+// TestCommandsGenCommandsArgUnionsWithDefaults: commands=[find,get] adds
+// just those two opt-in commands on top of the always-present default
+// three — five files total, not two, and not eight.
+func TestCommandsGenCommandsArgUnionsWithDefaults(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
-	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"copilot"}})
+	callText(t, sess, "commands", map[string]any{
+		"op": "gen", "harness": []string{"claude"}, "commands": []string{"find", "get"},
+	})
 
-	names := []string{
-		"spectackle.prompt.md", "spectackle-state.prompt.md", "spectackle-find.prompt.md", "spectackle-get.prompt.md",
-		"spectackle-research.prompt.md", "spectackle-swarm.prompt.md", "spectackle-export.prompt.md", "spectackle-merge.prompt.md",
+	want := sortedCopy(claudeNames(append(append([]string{}, defaultFileStems...), "-find", "-get")))
+	got := sortedCopy(dirEntryNames(t, filepath.Join(root, ".claude", "commands")))
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf(".claude/commands entries = %v, want exactly %v", got, want)
 	}
-	for _, name := range names {
-		if !strings.Contains(out, "ok gen copilot .github/prompts/"+name) {
-			t.Fatalf("expected %s to be written; got: %q", name, out)
-		}
-	}
+}
 
-	for _, name := range names {
-		b, err := os.ReadFile(filepath.Join(root, ".github", "prompts", name))
+// TestCommandsGenUnknownCommandNameErrors: an unrecognized commands= entry
+// is a validation error, not a silent no-op.
+func TestCommandsGenUnknownCommandNameErrors(t *testing.T) {
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+
+	out := callText(t, sess, "commands", map[string]any{
+		"op": "gen", "harness": []string{"claude"}, "commands": []string{"bogus"},
+	})
+	if !strings.HasPrefix(out, "! ARG E") {
+		t.Fatalf("expected an ARG error for an unknown command name; got: %q", out)
+	}
+}
+
+// TestCommandsGenDefaultPreservesExistingExplorationFiles covers TEST 3: a
+// default gen run over a directory that already has the six opt-in
+// exploration files (from an earlier all=true run) must leave every one of
+// them byte-for-byte intact — gen adds and overwrites, it has never
+// deleted, and silently dropping a file a user has in git would be the
+// worst possible behavior here.
+func TestCommandsGenDefaultPreservesExistingExplorationFiles(t *testing.T) {
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}, "all": true})
+
+	before := map[string][]byte{}
+	for _, name := range claudeNames(optInFileStems) {
+		p := filepath.Join(root, ".claude", "commands", name)
+		b, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(b), "mode: agent") {
-			t.Fatalf("%s missing mode: agent frontmatter:\n%s", name, b)
+		before[name] = b
+	}
+
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}})
+
+	for _, name := range claudeNames(optInFileStems) {
+		p := filepath.Join(root, ".claude", "commands", name)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("%s vanished after a default gen run: %v", name, err)
 		}
-		if !strings.Contains(string(b), generatedHeader) {
-			t.Fatalf("%s missing generated header:\n%s", name, b)
+		if string(b) != string(before[name]) {
+			t.Fatalf("%s changed by a default gen run that never asked for it:\nbefore:\n%s\nafter:\n%s", name, before[name], b)
+		}
+	}
+	// the default three were still (re)written
+	for _, name := range claudeNames(defaultFileStems) {
+		if _, err := os.Stat(filepath.Join(root, ".claude", "commands", name)); err != nil {
+			t.Fatalf("default command %s missing: %v", name, err)
 		}
 	}
 }
 
-// TestCommandsGenCodexTwiceIdempotent: gen harness=codex writes exactly one
-// managed section into AGENTS.md — one "## spectackle <heading>" subsection
-// per commandSpec, in order, so the six T-0113 additions read as one
-// coherent block alongside the original workflow/state pair rather than
-// being appended blindly — and a second run must produce a byte-identical
-// file (no duplicate sections, no drift).
+// TestCommandsGenerateTemplateNamesUnlockedCommands covers TEST 4: the
+// generate template renders non-empty, and — once run through a real gen
+// (so the generated-header stamp that writeClaudeDialect adds is present) —
+// names every one of the six commands it unlocks.
+func TestCommandsGenerateTemplateNamesUnlockedCommands(t *testing.T) {
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
+	body, err := renderCommandTemplate("generate.md.tmpl", data)
+	if err != nil {
+		t.Fatalf("render error: %v", err)
+	}
+	if strings.TrimSpace(body) == "" {
+		t.Fatal("generate.md.tmpl rendered empty")
+	}
+	for _, name := range []string{"find", "get", "research", "swarm", "export", "merge"} {
+		if !strings.Contains(body, "`"+name+"`") {
+			t.Fatalf("generate.md.tmpl does not name unlocked command %q:\n%s", name, body)
+		}
+	}
+
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude"}})
+	gf, err := os.ReadFile(filepath.Join(root, ".claude", "commands", "spectackle-generate.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gf), generatedHeader) {
+		t.Fatalf("spectackle-generate.md missing generated header:\n%s", gf)
+	}
+}
+
+// TestCommandsGenCodexTwiceIdempotent: gen harness=codex all=true writes
+// exactly one managed section into AGENTS.md — one "## spectackle <heading>"
+// subsection per commandSpec, in order, so all eight commands read as one
+// coherent block rather than being appended blindly — and a second run must
+// produce a byte-identical file (no duplicate sections, no drift).
 func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
-	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}})
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}, "all": true})
 	first, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +407,7 @@ func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 		lastIdx = idx
 	}
 
-	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}})
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}, "all": true})
 	second, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -229,6 +417,34 @@ func TestCommandsGenCodexTwiceIdempotent(t *testing.T) {
 	}
 	if string(first) != string(second) {
 		t.Fatalf("second gen run not byte-identical:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
+// TestCommandsGenAgentsDefaultPreservesOptInSections: the AGENTS.md managed
+// block is rewritten wholesale each run (unlike the per-file dialects), so
+// naively regenerating it from only this run's specs would silently delete
+// any opt-in command's subsection an earlier all=true run had written. A
+// default run after an all=true run must instead carry those five sections
+// forward unchanged while still refreshing the three default ones.
+func TestCommandsGenAgentsDefaultPreservesOptInSections(t *testing.T) {
+	root := t.TempDir()
+	_, sess := connectCommands(t, root, nil)
+
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}, "all": true})
+	callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"codex"}})
+
+	got, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(got), sectionBegin) != 1 {
+		t.Fatalf("expected exactly one managed section:\n%s", got)
+	}
+	for _, spec := range commandSpecs {
+		heading := "## spectackle " + spec.Heading
+		if !strings.Contains(string(got), heading) {
+			t.Fatalf("a default gen run dropped opt-in heading %q that an earlier all=true run wrote:\n%s", heading, got)
+		}
 	}
 }
 
@@ -376,7 +592,7 @@ func TestCommandsGenEveryFileCarriesGeneratedHeader(t *testing.T) {
 	root := t.TempDir()
 	_, sess := connectCommands(t, root, nil)
 
-	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude", "copilot", "codex"}})
+	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"claude", "copilot", "codex"}, "all": true})
 	if strings.Contains(out, "! ") {
 		t.Fatalf("unexpected error in gen output: %q", out)
 	}

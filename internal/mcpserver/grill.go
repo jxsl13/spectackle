@@ -230,7 +230,9 @@ func (s *Server) grillRejections(it item.Item) ([]string, error) {
 // grillQuestions is the standing review checklist: scope disjointness,
 // rollback and an exit criterion should each be addressed somewhere in the
 // item's own body; whichever the body never mentions comes back as an open
-// question (omit-if-present, not a fixed always-on list).
+// question (omit-if-present, not a fixed always-on list). Proposals get one
+// more: whether the item shows any sign of having weighed an alternative at
+// all (see recordsDeliberation).
 func grillQuestions(it item.Item) []string {
 	body := strings.ToLower(it.Body)
 	var out []string
@@ -243,5 +245,29 @@ func grillQuestions(it item.Item) []string {
 	if !strings.Contains(body, "exit criterion") && !strings.Contains(body, "done when") && !strings.Contains(body, "verif") {
 		out = append(out, "q exit criterion not addressed")
 	}
+	if it.Kind == "proposal" && !recordsDeliberation(it, body) {
+		out = append(out, "q deliberation not addressed")
+	}
 	return out
+}
+
+// recordsDeliberation is a heuristic, not a gate (grill only asks — move
+// to=approved is never blocked on this): it reports whether a proposal
+// shows ANY sign of having weighed more than one approach, either
+// structurally (a ref citing an adr or research item — the ID letters
+// minted for those kinds, see item.go's kindLetter, plus the legacy D-
+// adr letter) or in prose (a body line using this repo's own vocabulary for
+// naming a rejected/considered alternative, e.g. "Synthesis of the two
+// rejected extremes..." in this repo's own ADR records). Both checks are
+// deliberately loose substring matches: a false positive here costs one
+// dismissed question, a false negative costs nothing that was not already
+// lost by the item never having recorded its reasoning.
+func recordsDeliberation(it item.Item, lowerBody string) bool {
+	for _, r := range it.Refs {
+		if strings.HasPrefix(r, "ADR-") || strings.HasPrefix(r, "R-") || strings.HasPrefix(r, "D-") {
+			return true
+		}
+	}
+	return strings.Contains(lowerBody, "alternative") &&
+		(strings.Contains(lowerBody, "reject") || strings.Contains(lowerBody, "consider"))
 }

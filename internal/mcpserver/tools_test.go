@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -1108,5 +1110,128 @@ func TestGetItemNonADRUnchanged(t *testing.T) {
 		if strings.Contains(out, field) {
 			t.Fatalf("non-ADR get output must not render empty ADR field %q: %q", field, out)
 		}
+	}
+}
+
+// TestDraftRefsPersistAndRender (MCP-012, T-0118): a refs list that only
+// names known items persists on the item, and a follow-up get renders it in
+// the same dense style as parent/targets/rules.
+func TestDraftRefsPersistAndRender(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "the cited proposal",
+	})
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "cites the proposal", "refs": []string{"P-0001"},
+	})
+	if !strings.Contains(out, "i T-0001 task draft") {
+		t.Fatalf("draft: %q", out)
+	}
+
+	out = callText(t, sess, "get", map[string]any{"id": "T-0001"})
+	if !strings.Contains(out, "refs P-0001\n") {
+		t.Fatalf("get T-0001 missing refs line: %q", out)
+	}
+}
+
+// TestDraftUnknownRefRefused (MCP-012): a refs list naming an item the
+// server cannot see is refused whole, with a dense ! ARG record naming it,
+// and — the point of the contract — persists nothing at all: no item, no
+// journal event, exactly as if the call had never been made.
+func TestDraftUnknownRefRefused(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	before, err := item.LoadAll(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeEvents, err := journal.Read(ws, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "cites nothing real", "refs": []string{"P-9999"},
+	})
+	if !strings.Contains(out, "! ARG") || !strings.Contains(out, "P-9999") {
+		t.Fatalf("expected ARG refusal naming P-9999: %q", out)
+	}
+
+	after, err := item.LoadAll(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("unknown ref draft must persist no item: before=%d after=%d", len(before), len(after))
+	}
+	if _, ok, _ := item.Get(ws, "T-0001"); ok {
+		t.Fatalf("unknown ref draft must not persist T-0001")
+	}
+	afterEvents, err := journal.Read(ws, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterEvents) != len(beforeEvents) {
+		t.Fatalf("unknown ref draft must append no journal event: before=%d after=%d", len(beforeEvents), len(afterEvents))
+	}
+}
+
+// TestDraftSelfAndMalformedRefRefused (MCP-012): a ref equal to the item's
+// own about-to-be-minted ID, and a ref that isn't even shaped like an item
+// ID, are both caught by item.UnknownRefs and refused the same way — and
+// neither leaves anything persisted.
+func TestDraftSelfAndMalformedRefRefused(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ws := workspace.Root{Dir: root}
+
+	// the first task minted in a fresh workspace is always T-0001 — cite it
+	// before it exists.
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "cites itself", "refs": []string{"T-0001"},
+	})
+	if !strings.Contains(out, "! ARG") || !strings.Contains(out, "T-0001") {
+		t.Fatalf("expected ARG refusal naming the self-reference T-0001: %q", out)
+	}
+	if _, ok, _ := item.Get(ws, "T-0001"); ok {
+		t.Fatalf("self-referencing draft must not persist T-0001")
+	}
+
+	out = callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "cites nonsense", "refs": []string{"not-an-id"},
+	})
+	if !strings.Contains(out, "! ARG") || !strings.Contains(out, "not-an-id") {
+		t.Fatalf("expected ARG refusal naming the malformed ref: %q", out)
+	}
+
+	items, err := item.LoadAll(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("both refused drafts must persist nothing, got %d items", len(items))
+	}
+}
+
+// TestDraftNoRefsUnchanged is the regression guard: a draft call with no
+// refs field behaves exactly as it did before this feature landed.
+func TestDraftNoRefsUnchanged(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "plain citation-free proposal",
+		"body": "Nothing cited here.",
+	})
+	if !strings.Contains(out, "i P-0001 proposal draft") {
+		t.Fatalf("draft: %q", out)
+	}
+	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if strings.Contains(out, "\nrefs ") {
+		t.Fatalf("no-refs draft must not render a refs line: %q", out)
 	}
 }

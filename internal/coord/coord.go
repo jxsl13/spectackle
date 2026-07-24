@@ -290,6 +290,13 @@ func overlaps(a, b string) bool {
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
+// Overlaps is the exported form of overlaps: equal, or one an ancestor
+// directory of the other. Exported so callers outside this package — the
+// swarm tool's claimable-queue view (T-0121, MCP-013) — apply the exact
+// same collision rule Claim/Blocked already enforce, instead of deriving a
+// second overlap notion.
+func Overlaps(a, b string) bool { return overlaps(a, b) }
+
 // Blocked returns the first live foreign lease overlapping any of the paths.
 func (d *DB) Blocked(paths []string, agentTTL time.Duration) (*Lease, error) {
 	live, err := d.liveLeases(agentTTL)

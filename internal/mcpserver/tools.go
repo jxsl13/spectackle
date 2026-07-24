@@ -55,6 +55,7 @@ type draftIn struct {
 	Body    string   `json:"body,omitempty" jsonschema:"intent/delta-spec prose"`
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
 	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID (tasks under a proposal)"`
+	Refs    []string `json:"refs,omitempty" jsonschema:"item IDs this item cites, any kind to any kind — a plain citation with no lifecycle meaning, unlike parent (structural ownership) or needs (blocked-on)"`
 	Dir     string   `json:"dir,omitempty" jsonschema:"force context dir; default derived from targets"`
 }
 
@@ -342,6 +343,9 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	if it.Parent != "" {
 		b.WriteString("parent " + it.Parent + "\n")
 	}
+	if len(it.Refs) > 0 {
+		b.WriteString("refs " + strings.Join(it.Refs, " ") + "\n")
+	}
 	if len(it.Targets) > 0 {
 		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
 	}
@@ -519,6 +523,31 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
+	// MCP-012: a refs list is validated against the items the server can see
+	// before it is allowed to stand. The self-reference check needs the
+	// item's own real ID, which lifecycle.Draft only hands back once it has
+	// already minted it and written the bare item (ID-minting and the write
+	// are one call inside lifecycle.Draft, which this task's file lease does
+	// not extend to). So a bad refs list is caught right here instead and
+	// rolled all the way back: the item removed and its create event
+	// stripped from the journal, so the call ends up having persisted
+	// nothing — exactly as if it had never been made.
+	if len(in.Refs) > 0 {
+		known, kerr := s.knownItemIDs()
+		if kerr != nil {
+			return nil, nil, kerr
+		}
+		if bad := item.UnknownRefs(it.ID, in.Refs, known); len(bad) > 0 {
+			if rerr := s.rollbackDraft(it); rerr != nil {
+				return nil, nil, rerr
+			}
+			return text("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+		}
+		it.Refs = in.Refs
+		if err := item.Upsert(s.ws, it); err != nil {
+			return nil, nil, err
+		}
+	}
 	s.scan.MarkDirty()
 	var b strings.Builder
 	b.WriteString(item.Record(it) + "\n")
@@ -599,6 +628,46 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	return text(b.String())
+}
+
+// knownItemIDs is the known set draft's refs validation (MCP-012) checks
+// against: every item ID the server can currently load from work.md. A ref
+// to an item archived out of work.md is correctly reported unknown here —
+// Parse stays permissive about such refs (see item.UnknownRefs), but the
+// write path is where a typo must be caught.
+func (s *Server) knownItemIDs() (map[string]bool, error) {
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(items))
+	for _, it := range items {
+		known[it.ID] = true
+	}
+	return known, nil
+}
+
+// rollbackDraft undoes a lifecycle.Draft call whose refs failed validation:
+// removes the freshly written item and strips its create event from the
+// journal, so the whole draft call ends up having persisted nothing (the
+// "write nothing" half of MCP-012). Safe because gate() (registerTools)
+// serializes every tool call through s.mu, so the create event this rolls
+// back is always the last one this context's journal has for it.ID.
+func (s *Server) rollbackDraft(it item.Item) error {
+	if err := item.Remove(s.ws, it); err != nil {
+		return err
+	}
+	events, err := journal.Read(s.ws, it.Dir)
+	if err != nil {
+		return err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Ev == journal.EvCreate && events[i].ID == it.ID {
+			events = append(events[:i], events[i+1:]...)
+			break
+		}
+	}
+	return journal.Rewrite(s.ws, it.Dir, events)
 }
 
 // splitContractRules buckets resolved rules into full r-lines (rl) and
