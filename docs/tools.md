@@ -365,27 +365,29 @@ above).
 ```json
 {"type":"object","required":["op"],"properties":{
   "op":      {"enum":["ask","answer","ls"]},
-  "id":      {"type":"string","description":"D-id (answer) — omit for ask"},
+  "id":      {"type":"string","description":"ADR-id (answer) — omit for ask"},
   "question":{"type":"string","description":"ask: the decision to make"},
+  "context": {"type":"string","description":"ask: ADR context — the forces and constraints behind this decision"},
   "kind":    {"enum":["radio","confirm","text"],"default":"radio"},
   "options": {"type":"array","items":{"type":"string"},"description":"radio choices, 2-5"},
   "item":    {"type":"string","description":"lifecycle item this decision blocks"},
-  "choose":  {"type":"string","description":"answer: option text / yes|no / free text"}}}
+  "choose":  {"type":"string","description":"answer: option text / yes|no / free text"},
+  "consequences":{"type":"string","description":"answer: ADR consequences — trade-offs and follow-on effects of the decision"}}}
 ```
 `ask` tries MCP elicitation (`Session.Elicit`, the same native-UI mechanism
 `rule`'s slot forms already use in production — `elicitSlots` in
 `tools.go`) — `radio`→enum property (host renders a radio/dropdown),
 `confirm`→boolean property (confirm dialog), `text`→string property (free
 text). Two outcomes: **the host renders it and the user answers** — the
-decision is persisted immediately (`D-xxxx` item → `done` with the choice),
-returns `ok D-x <choice>`. **No elicitation support, declined/cancelled, or
-a different harness** — the `D-xxxx` item stays open (`state=submitted`),
-returns `need decision D-x <question> | <options>`; the orchestrator does
+decision is persisted immediately (`ADR-xxxx` item → `done` with the choice),
+returns `ok ADR-x <choice>`. **No elicitation support, declined/cancelled, or
+a different harness** — the `ADR-xxxx` item stays open (`state=submitted`),
+returns `need decision ADR-x <question> | <options>`; the orchestrator does
 **not** block on it, it keeps working other disjoint tasks. `answer`: from
 any session, any time, validated against `options` — decisions get
 answered from wherever, whenever; the waiting orchestrator sees the answer
 on its next `swarm` (sw-piggyback) or `state`/`find` call. `ls`: lists open
-`D` items. New item kind `adr` (ID letter `ADR`, `find scope=adr`) — architecture decision records are first-class, searchable items, never loose markdown.
+`ADR` items. New item kind `adr` (ID letter `ADR`, `find scope=adr`) — architecture decision records are first-class, searchable items. Each ADR captures four structured fields following the classic ADR template: **Context** (forces and constraints behind the decision), **Decision** (the chosen option), **Consequences** (trade-offs and follow-on effects), and **Status** (proposed/accepted/superseded/deprecated) — queryable via `find scope=adr`, drift-anchored like any other record, never loose markdown.
 Every decision that actually needs the user goes through `decide` — never
 unstructured chat.
 

@@ -124,7 +124,7 @@ resolvers bridge the FFI boundaries.
 | Component | State |
 |---|---|
 | EARS linter + cascading spec bundles | ✅ live |
-| Spec lifecycle: draft/move/archive, revocable rejections, journal corpus | ✅ live |
+| Spec lifecycle: draft/move/archive, revocable rejections, journal corpus, ADRs as first-class structured records (context/decision/consequences/status, `find scope=adr`) | ✅ live |
 | Server-authored contracts (`rule`: slots → compose → lint gate → auto-ID, MCP elicitation) | ✅ live |
 | Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
 | Drift anchors + backprop (`check`/`compact`) | ✅ live |
