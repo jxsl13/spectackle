@@ -46,6 +46,12 @@ var commandTemplates = template.Must(template.ParseFS(commandTemplateFS, "templa
 type commandsData struct {
 	Binary string
 	Tool   string
+	// RepoURL is the module's https:// repository URL, derived the same way
+	// the instructions manifest derives it (moduleRepoURL). Generated
+	// slash-command surfaces are read by agents that never see the
+	// initialize handshake, so the defect-report destination has to be named
+	// here too rather than left as "its repository".
+	RepoURL string
 }
 
 // generatedHeader is stamped into every artifact `commands gen` writes —
@@ -266,7 +272,7 @@ func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 
 func renderCommandTemplate(name string) (string, error) {
 	var buf bytes.Buffer
-	data := commandsData{Binary: "spectackle", Tool: "spectackle"}
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: moduleRepoURL()}
 	if err := commandTemplates.ExecuteTemplate(&buf, name, data); err != nil {
 		return "", err
 	}

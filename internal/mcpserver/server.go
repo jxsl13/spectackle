@@ -8,9 +8,11 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	stdsync "sync"
 	"time"
 
@@ -42,6 +44,53 @@ ORCHESTRATION: the intended division of labor is a complex/strong-model orchestr
 TOKEN ECONOMY: prefer server records over shell text tools whenever you only need locations or structure — shell grep/find return file contents (cost O(codebase)), server tools return IDs+spans (cost O(results)). Substitutions: grep/rg <symbol> -> find q=<symbol> scope=code (ranked n records; add focus=<node> for near-my-work ranking); grep -r over specs/history -> find scope=rule|rejection|history (FTS5); find(1) by filename -> find scope=code (file paths and signatures match too); where is X defined / what calls X -> get id=<node> depth=N; before any sed-style bulk edit survey the sites via get depth and run check after — sed is for the edit, never for the search; NEVER grep or sed .spectackle/ files (server-owned: reads via find/get, writes via tools only). Read raw file bytes with shell only when you already know the one file you need.
 BROWNFIELD IMPORT: onboarding an existing repo, in order. (1) Index first: state/reindex yields the graph immediately and costs no decisions — you get the real node IDs everything anchors to. (2) Survey in parallel: fan out READ-ONLY subagents over disjoint subtrees (one per top-level package/module); each reports the subtree's purpose, the invariants its code/tests/docs already assert, and candidate contracts. Read-only means no leases and no work.md contention, so fan out as wide as the tree. (3) Mint centrally: the orchestrator turns that survey into rule op=add contracts, scoped per context dir and anchored via applies to node IDs from step 1 — implementers never hand-write spec files, the server composes and lints. (4) Capture decisions: existing design/ADR documents become adr items via decide (context, decision, consequences, status); pure reference docs stay docs. (5) Baseline: run check until clean — the stamped anchors are the point from which drift detection means anything. (6) Then the normal loop: find scope=rejection, draft, grill, implement. Encode only invariants the code/tests/docs actually assert, never invented ones; start with the load-bearing few and let check's coverage gaps show what is still unowned.
 RECORDS: write item bodies as compacted substance — constraints, decisions, measurements, rejected alternatives and why. Never paste verbatim user quotes or transcript excerpts: they bloat every later read of the record without adding information. Write every item body in American English: spelling variants (behavior/behaviour, initialize/initialise) fragment full-text matches exactly like a language mix does. Same token-economy family as the output diet.`
+
+// modulePath mirrors this repo's go.mod module directive. It backstops
+// moduleRepoURL when debug.ReadBuildInfo cannot report a usable main
+// module path — ReadBuildInfo returns ok=false in some build modes, and
+// bi.Main.Path is empty in test binaries — so the fallback is load-bearing,
+// not defensive decoration: without it the defect-reporting paragraph
+// below could ship with a broken or missing URL.
+const modulePath = "github.com/jxsl13/spectackle"
+
+// moduleRepoURLFrom applies the derivation rule in isolation, given an
+// already-read main module path: forges that host Go modules expose the
+// repository at exactly "https://" + the module path, no path suffix, so
+// the derivation stays host-agnostic. Split out from moduleRepoURL so the
+// fallback branch is unit-testable without depending on how the calling
+// binary itself was built.
+func moduleRepoURLFrom(mainPath string) string {
+	if mainPath == "" {
+		mainPath = modulePath
+	}
+	return "https://" + mainPath
+}
+
+// moduleRepoURL derives the running binary's main module repository URL
+// from its embedded build info (bi.Main.Path), falling back to modulePath.
+func moduleRepoURL() string {
+	mainPath := ""
+	if bi, ok := debug.ReadBuildInfo(); ok && bi != nil {
+		mainPath = bi.Main.Path
+	}
+	return moduleRepoURLFrom(mainPath)
+}
+
+// defectReportParagraph composes the DEFECT REPORTS paragraph (MCP-008):
+// where to report a defect found in the server itself, what makes the
+// report worth filing, and why a fix PR is not wanted. Kept out of the
+// instructions const because its URL is resolved from runtime build info,
+// not known at compile time.
+func defectReportParagraph() string {
+	return fmt.Sprintf("DEFECT REPORTS: notice a defect in this server itself, not in the repo you're operating on? File it as an issue at %s with your analysis — the reproduction, what you observed versus what you expected, and the isolated cause when you have one; that analysis is the expensive part and the only reason a report is worth filing. Do not send a fix PR: you lack the design context behind the code as written, and reviewing an unsolicited patch costs the maintainer more than the analysis would have saved them.", moduleRepoURL())
+}
+
+// manifest composes the full server-instructions manifest handed to the
+// MCP initialize handshake: the static lifecycle instructions plus the
+// defect-reporting paragraph, whose URL is only known at runtime.
+func manifest() string {
+	return instructions + "\n" + defectReportParagraph()
+}
 
 // Server bundles the MCP server with its workspace, cache, graph and swarm
 // coordination.
@@ -134,7 +183,7 @@ func New(root string) (*Server, error) {
 		Name:    "spectackle",
 		Title:   "spectackle — spec-driven cross-language code intelligence",
 		Version: Version,
-	}, &mcp.ServerOptions{Instructions: instructions})
+	}, &mcp.ServerOptions{Instructions: manifest()})
 	s.registerTools()
 	s.registerPrompts()
 	return s, nil

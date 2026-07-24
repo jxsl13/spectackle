@@ -973,6 +973,48 @@ func TestInstructionsTeachBrownfieldImportAndRecords(t *testing.T) {
 	}
 }
 
+// TestInstructionsTeachDefectReporting (T-0104, MCP-008) asserts that the
+// composed manifest tells the agent to report defects it finds in the
+// server itself as issues, carrying an analysis, at the module's derived
+// repository URL — and never as a fix PR. The URL assertion is derived via
+// moduleRepoURL() (not hardcoded here) so a regression to a hardcoded or
+// missing URL in the manifest fails this test.
+func TestInstructionsTeachDefectReporting(t *testing.T) {
+	m := manifest()
+	if !strings.Contains(m, "DEFECT REPORTS") {
+		t.Errorf("manifest missing DEFECT REPORTS paragraph")
+	}
+	if !strings.Contains(m, "Do not send a fix PR") {
+		t.Errorf("manifest missing the no-fix-PR policy")
+	}
+	if url := moduleRepoURL(); !strings.Contains(m, url) {
+		t.Errorf("manifest missing derived repository URL %q", url)
+	}
+}
+
+// TestModuleRepoURLFallback (T-0104) is a table-driven unit test for the
+// module-URL derivation helper: an empty build-info path (test binaries,
+// some build modes report one) must still yield a usable https:// URL via
+// the compile-time modulePath fallback, and a non-empty path is prefixed
+// as-is with no suffix appended.
+func TestModuleRepoURLFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"empty path falls back to modulePath", "", "https://" + modulePath},
+		{"non-empty path is prefixed as-is", "github.com/example/other", "https://github.com/example/other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := moduleRepoURLFrom(tt.path); got != tt.want {
+				t.Errorf("moduleRepoURLFrom(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestFindCodeRendersEndLineSpan (T-0049, MCP-002): a node record renders
 // '<file>:<start>-<end>' once EndLine is known and > Line (Bar, a multi-line
 // func), and keeps the plain '<file>:<line>' form when EndLine == Line

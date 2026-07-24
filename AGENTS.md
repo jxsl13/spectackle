@@ -55,6 +55,12 @@ information. Write every item body in American English: spelling variants
 (behavior/behaviour, initialize/initialise) fragment full-text matches
 exactly like a language mix does. Compact the input, lose nothing.
 
+Defects: notice a defect in spectackle itself, not in this repository? Open
+an issue with your analysis (reproduction, observed vs. expected, isolated
+cause if known) at https://github.com/jxsl13/spectackle, never a fix PR — you lack the design
+context behind the code as written, and reviewing an unsolicited patch
+costs the maintainer more than the analysis would have saved them.
+
 Requirement: $ARGUMENTS
 
 ## spectackle state
