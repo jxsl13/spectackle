@@ -38,13 +38,18 @@ func TestClassify(t *testing.T) {
 		t.Fatalf("stamp failed: %+v", a)
 	}
 
-	exists := func(string) bool { return true }
+	// textOf builds a ruleText func returning a fixed sentence, rule always present.
+	textOf := func(text string) func(string) (string, bool) {
+		return func(string) (string, bool) { return text, true }
+	}
+	exists := textOf(ruleText)
+
 	rs := Classify(ws, g, []Anchor{a}, exists)
 	if rs[0].Class != OK {
 		t.Fatalf("fresh anchor should be OK, got %s", rs[0].Class)
 	}
 
-	// pure line shift => Moved (silent refresh), same content hash
+	// pure line shift => Moved (silent refresh): same content hash, same rule hash
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\n// shifted\n\nfunc F() int {\n\treturn 1\n}\n"), 0o644)
 	g2 := graph.NewMem()
 	g2.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 5, EndLine: 7}}, nil)
@@ -53,13 +58,39 @@ func TestClassify(t *testing.T) {
 		t.Fatalf("line shift should be Moved, got %s", rs[0].Class)
 	}
 
-	// content change => Changed
+	// code changed, rule sentence identical => Evolved (mechanically healable)
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\nfunc F() int {\n\treturn 2\n}\n"), 0o644)
 	g3 := graph.NewMem()
 	g3.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
 	rs = Classify(ws, g3, []Anchor{a}, exists)
-	if rs[0].Class != Changed {
-		t.Fatalf("content change should be Changed, got %s", rs[0].Class)
+	if rs[0].Class != Evolved {
+		t.Fatalf("code-only change should be Evolved, got %s", rs[0].Class)
+	}
+	if rs[0].NewHash == "" || rs[0].NewHash == a.CHash {
+		t.Fatalf("Evolved result must carry a differing new code hash: %+v", rs[0])
+	}
+	if rs[0].NewRHash != a.RHash {
+		t.Fatalf("Evolved result rule hash must still match the stamped one: %+v", rs[0])
+	}
+
+	// code identical, rule sentence changed => Tightened (never healed)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+	rs = Classify(ws, g, []Anchor{a}, textOf("The function SHALL return 2 exactly."))
+	if rs[0].Class != Tightened {
+		t.Fatalf("rule-only change should be Tightened, got %s", rs[0].Class)
+	}
+	if rs[0].NewRHash == a.RHash {
+		t.Fatalf("Tightened result must carry a differing rule hash: %+v", rs[0])
+	}
+	if rs[0].NewHash != a.CHash {
+		t.Fatalf("Tightened result code hash must still match the stamped one: %+v", rs[0])
+	}
+
+	// both code and rule sentence changed => Diverged (never healed)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\nfunc F() int {\n\treturn 2\n}\n"), 0o644)
+	rs = Classify(ws, g3, []Anchor{a}, textOf("The function SHALL return 2 exactly."))
+	if rs[0].Class != Diverged {
+		t.Fatalf("both-sides change should be Diverged, got %s", rs[0].Class)
 	}
 
 	// node vanished => Gone; rule vanished => Stale; empty graph => Pending
@@ -69,7 +100,7 @@ func TestClassify(t *testing.T) {
 	if rs[0].Class != Gone {
 		t.Fatalf("missing node should be Gone, got %s", rs[0].Class)
 	}
-	rs = Classify(ws, g3, []Anchor{a}, func(string) bool { return false })
+	rs = Classify(ws, g3, []Anchor{a}, func(string) (string, bool) { return "", false })
 	if rs[0].Class != Stale {
 		t.Fatalf("missing rule should be Stale, got %s", rs[0].Class)
 	}

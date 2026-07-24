@@ -930,6 +930,10 @@ func (s *Server) openNeeds(it item.Item) []string {
 // ---- check ----
 
 func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
+	// T-0086 live proof: default budget is 1500 tokens; this comment only
+	// shifts the function's code hash — the MCP-004 rule sentence above is
+	// untouched, so re-running check classifies this anchor as Evolved and
+	// heals it mechanically (no fix=true needed).
 	if in.Budget <= 0 {
 		in.Budget = 1500
 	}
@@ -986,12 +990,33 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	sort.Strings(orphans)
 	lines = append(lines, orphans...)
 
-	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
-		_, ok := c.Rule(id)
-		return ok
+	results := drift.Classify(s.ws, s.g, anchors, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
 	})
 	changed := false
 	pending := 0
+	healed, audited := 0, 0
+	ruleSeen := map[string]bool{}
+	var ruleLines []string
+	// remember dedupes the trailing `r <id> ...` block: at most one line per
+	// distinct rule that appeared in a healed or audited `d` record, in the
+	// same grammar the get/find paths use (ruleLine).
+	remember := func(id string) {
+		if ruleSeen[id] {
+			return
+		}
+		ruleSeen[id] = true
+		rule, ok := c.Rule(id)
+		if !ok {
+			return
+		}
+		dir := ruleCtx(rule.File)
+		if dir == "" {
+			dir = "."
+		}
+		ruleLines = append(ruleLines, ruleLine(spec.ResolvedRule{Rule: rule, ScopeDir: dir}))
+	}
 	for _, r := range results {
 		switch r.Class {
 		case drift.OK:
@@ -1007,24 +1032,53 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 			a.File, a.Start, a.End = n.File, n.Line, end
 			anchors = drift.Upsert(anchors, a)
 			changed = true
-		default:
+		case drift.Evolved:
+			// code changed, rule sentence identical — the only mechanically
+			// healable case: re-stamp the anchor's code hash and move on, no
+			// in.Fix gate needed (this never touches the spec, it just
+			// catches the anchor's hash up to reality).
+			old := r.Anchor.CHash
+			a := r.Anchor
+			a.CHash = r.NewHash
+			anchors = drift.Upsert(anchors, a)
+			changed = true
+			healed++
+			lines = append(lines, fmt.Sprintf("d healed %s %s %s:%d-%d was=%s now=%s",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End,
+				short8(old), short8(r.NewHash)))
+			remember(r.Anchor.Rule)
+			rule, _ := c.Rule(r.Anchor.Rule)
+			ctx := ruleCtx(rule.File)
+			_ = journal.Append(s.ws, ctx, journal.Event{
+				Ev: journal.EvDrift, Rule: r.Anchor.Rule, Node: string(r.Anchor.Node),
+				Cls: "healed", Oh: old, Nh: r.NewHash, Dir: ctx,
+			})
+		case drift.Tightened, drift.Diverged:
+			// rule sentence changed (with or without the code) — never
+			// auto-healed, a human has to look. Only draft a backprop
+			// proposal when explicitly asked via in.Fix.
+			audited++
+			lines = append(lines, fmt.Sprintf("d audit %s %s %s:%d-%d %s",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End, r.Class))
+			remember(r.Anchor.Rule)
+			if in.Fix {
+				if _, err := s.backprop(c, r); err != nil {
+					return nil, nil, err
+				}
+			}
+		default: // Gone, Stale
 			d := fmt.Sprintf("d %s %s %s %s:%d-%d", r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End)
-			if in.Fix && (r.Class == drift.Changed || r.Class == drift.Gone) {
+			if in.Fix && r.Class == drift.Gone {
 				bp, err := s.backprop(c, r)
 				if err != nil {
 					return nil, nil, err
 				}
 				d += " item=" + bp
-				if r.Class == drift.Changed {
-					a := r.Anchor
-					a.CHash = r.NewHash
-					anchors = drift.Upsert(anchors, a)
-					changed = true
-				}
 			}
 			lines = append(lines, d)
 		}
 	}
+	lines = append(lines, ruleLines...)
 	if changed {
 		if err := drift.Save(s.ws, anchors); err != nil {
 			return nil, nil, err
@@ -1037,11 +1091,24 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// compact-due signals
 	lines = append(lines, s.compactCandidates(in.Path)...)
 
+	if healed > 0 || audited > 0 {
+		lines = append(lines, fmt.Sprintf("ok healed=%d audit=%d", healed, audited))
+	}
+
 	if len(lines) == 0 {
 		return text("ok")
 	}
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
+}
+
+// short8 truncates a hex hash to its first 8 characters for compact display
+// in `d healed` records; hashes shorter than that pass through unchanged.
+func short8(h string) string {
+	if len(h) > 8 {
+		return h[:8]
+	}
+	return h
 }
 
 func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {

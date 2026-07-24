@@ -129,6 +129,57 @@ func TestUpsertLoadRoundtripFeedbackFields(t *testing.T) {
 	}
 }
 
+func TestUpsertLoadRoundtripADRFields(t *testing.T) {
+	root := ws(t)
+	in := Item{
+		ID: "ADR-0001", Kind: "adr", State: StateDraft, Title: "record the context pattern",
+		Created:      "2026-07-24",
+		Context:      "We need a consistent way to record architectural forces and constraints across items.",
+		Decision:     "Adopt first-class ADR fields that mirror the existing header mechanism.",
+		Consequences: "Future ADR items are structured instead of prose; older items keep working unchanged.",
+		Status:       "accepted",
+	}
+	if err := Upsert(root, in); err != nil {
+		t.Fatal(err)
+	}
+	items, err := LoadWork(root.WorkPath(""), "")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("LoadWork = %+v, %v", items, err)
+	}
+	got := items[0]
+	if got.Context != in.Context || got.Decision != in.Decision ||
+		got.Consequences != in.Consequences || got.Status != in.Status {
+		t.Fatalf("ADR field roundtrip mismatch:\n in=%+v\nout=%+v", in, got)
+	}
+}
+
+func TestUpsertLoadNoStrayADRKeys(t *testing.T) {
+	root := ws(t)
+	plain := Item{ID: "P-0001", Kind: "proposal", State: StateDraft, Title: "plain proposal", Created: "2026-07-24"}
+	task := Item{ID: "T-0001", Kind: "task", State: StateDraft, Title: "plain task", Created: "2026-07-24"}
+	if err := Upsert(root, plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := Upsert(root, task); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(root.WorkPath(""))
+	for _, key := range []string{"context:", "decision:", "consequences:", "status:"} {
+		if strings.Contains(string(raw), key) {
+			t.Fatalf("stray ADR key %q written for non-adr items:\n%s", key, raw)
+		}
+	}
+	items, err := LoadWork(root.WorkPath(""), "")
+	if err != nil || len(items) != 2 {
+		t.Fatalf("LoadWork = %+v, %v", items, err)
+	}
+	for _, it := range items {
+		if it.Context != "" || it.Decision != "" || it.Consequences != "" || it.Status != "" {
+			t.Fatalf("non-adr item unexpectedly carries ADR fields: %+v", it)
+		}
+	}
+}
+
 func TestADRKindAndIDs(t *testing.T) {
 	if !ValidKind("adr") {
 		t.Fatal("adr not a valid kind")

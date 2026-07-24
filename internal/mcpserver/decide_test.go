@@ -258,6 +258,80 @@ func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 	}
 }
 
+// TestDecideAskStoresContextAndProposedStatus: op=ask with a context= arg
+// mints an ADR whose Context field carries it verbatim and whose Status
+// starts at "proposed" — the classic ADR template fields, not the lifecycle
+// State (which is "submitted" here, per the headless need-decision path).
+func TestDecideAskStoresContextAndProposedStatus(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectDecide(t, root, nil)
+
+	callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
+		"context": "Latency-sensitive service; current REST gateway is the bottleneck.",
+	})
+
+	d, ok, err := item.Get(s.ws, "ADR-0001")
+	if err != nil || !ok {
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+	}
+	if d.Context != "Latency-sensitive service; current REST gateway is the bottleneck." {
+		t.Fatalf("Context not stored: %+v", d)
+	}
+	if d.Status != "proposed" {
+		t.Fatalf("Status = %q, want proposed", d.Status)
+	}
+	if d.State != item.StateSubmitted {
+		t.Fatalf("lifecycle State = %s, want submitted", d.State)
+	}
+	if d.Decision != "" {
+		t.Fatalf("Decision should be empty before an answer: %+v", d)
+	}
+}
+
+// TestDecideAnswerRecordsDecisionStatusAndConsequences: op=answer sets
+// Decision to the chosen option, Status to "accepted", and stores an
+// optional consequences= argument verbatim — all while leaving the existing
+// choice/state/journal/needs-clearing behavior untouched.
+func TestDecideAnswerRecordsDecisionStatusAndConsequences(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectDecide(t, root, nil)
+
+	callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
+		"context": "Latency-sensitive service.",
+	})
+	out := callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": "ADR-0001", "choose": "grpc",
+		"consequences": "Clients must add a gRPC dependency; REST gateway is deprecated over two releases.",
+	})
+	if !strings.Contains(out, "ok ADR-0001 grpc") {
+		t.Fatalf("answer should resolve: %q", out)
+	}
+
+	d, ok, err := item.Get(s.ws, "ADR-0001")
+	if err != nil || !ok {
+		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+	}
+	if d.Decision != "grpc" {
+		t.Fatalf("Decision = %q, want grpc", d.Decision)
+	}
+	if d.Status != "accepted" {
+		t.Fatalf("Status = %q, want accepted", d.Status)
+	}
+	if d.Consequences != "Clients must add a gRPC dependency; REST gateway is deprecated over two releases." {
+		t.Fatalf("Consequences not stored: %+v", d)
+	}
+	// Context set at ask-time survives the answer unmodified.
+	if d.Context != "Latency-sensitive service." {
+		t.Fatalf("Context lost across answer: %+v", d)
+	}
+	// pre-existing behavior untouched: state=done, choice line in body.
+	if d.State != item.StateDone || !strings.Contains(d.Body, "choice: grpc") {
+		t.Fatalf("existing choice/state behavior regressed: %+v", d)
+	}
+}
+
 // TestDecideBlockedOverrideOnce: a pre-escalated item (item.StateBlocked,
 // minted the way lifecycle.Escalate does when work op=submit's gate-fail
 // rounds are exhausted — see swarm.go gateFail) resolves via decide

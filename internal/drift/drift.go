@@ -32,9 +32,17 @@ type Anchor struct {
 type Class string
 
 const (
-	OK      Class = "ok"
-	Moved   Class = "moved"   // same content, new position — silently refreshed
-	Changed Class = "changed" // code content under the rule changed
+	OK    Class = "ok"
+	Moved Class = "moved" // same content, new position — silently refreshed
+
+	// Evolved/Tightened/Diverged replace the old single-axis "changed" class
+	// with a direction-aware read of drift: which side moved, the code or
+	// the rule sentence. Only Evolved is mechanically healable — the other
+	// two mean a human has to look, so they are never auto-healed.
+	Evolved   Class = "evolved"   // code changed, rule sentence identical — mechanically healable
+	Tightened Class = "tightened" // code identical, rule sentence changed — never healed
+	Diverged  Class = "diverged"  // both code and rule sentence changed — never healed
+
 	Gone    Class = "gone"    // node no longer exists
 	Stale   Class = "stale"   // rule no longer exists but anchor does
 	Pending Class = "pending" // anchor written before the node was indexable
@@ -176,23 +184,47 @@ func Stamp(ws workspace.Root, g graph.Graph, rule, ruleText string, node graph.N
 
 // Result is one classified anchor.
 type Result struct {
-	Anchor  Anchor
-	Class   Class
-	NewHash string
+	Anchor   Anchor
+	Class    Class
+	NewHash  string // current code-span hash; set whenever the span could be re-hashed (i.e. not Stale)
+	NewRHash string // current rule-sentence hash; set whenever the rule still exists (i.e. not Stale)
 }
 
-// Classify checks every anchor against the current graph and files.
-// ruleExists reports whether a rule ID is still in the cascade. When the
-// graph is empty (M0: indexer is an M1 stub), code-side classes degrade to
-// Pending instead of false "gone" alarms.
-func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleExists func(string) bool) []Result {
+// Classify checks every anchor against the current graph and files, along
+// two independent axes: the code hash (has the bound span's content
+// changed since the anchor was stamped?) and the rule hash (has the rule's
+// sentence changed?). ruleText returns a rule's current sentence and
+// whether the rule is still in the cascade; false routes straight to Stale
+// (unchanged from before). When the graph is empty (M0: indexer is an M1
+// stub), code-side classes degrade to Pending instead of false "gone"
+// alarms — that Pending/Gone short-circuit runs ahead of the two-axis
+// classification below.
+//
+// Once both axes are known:
+//
+//	code \ rule   same           changed
+//	same          OK / Moved     Tightened  (never healed)
+//	changed       Evolved        Diverged   (never healed)
+//
+// Evolved (code moved, rule sentence identical) is the only mechanically
+// healable case: the rule still describes the code correctly, only the
+// anchor's recorded code hash is stale. Tightened and Diverged both involve
+// a rule-sentence change and are never auto-healed — the spec author's
+// intent may have changed the contract, so a human has to look.
+func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(string) (string, bool)) []Result {
 	graphEmpty := len(g.Find("", 1, graph.KUnknown)) == 0
 	var out []Result
 	for _, a := range anchors {
 		r := Result{Anchor: a}
-		switch {
-		case !ruleExists(a.Rule):
+		text, ok := ruleText(a.Rule)
+		if !ok {
 			r.Class = Stale
+			out = append(out, r)
+			continue
+		}
+		curR := NormHash([]byte(text))
+		r.NewRHash = curR
+		switch {
 		case a.CHash == "-" || a.File == "-":
 			r.Class = Pending
 		case graphEmpty:
@@ -213,13 +245,19 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleExists fun
 				break
 			}
 			r.NewHash = h
+			codeSame := h == a.CHash
+			ruleSame := curR == a.RHash
 			switch {
-			case h == a.CHash && n.File == a.File && n.Line == a.Start:
+			case codeSame && ruleSame && n.File == a.File && n.Line == a.Start:
 				r.Class = OK
-			case h == a.CHash:
+			case codeSame && ruleSame:
 				r.Class = Moved // position-only change: caller refreshes silently
+			case !codeSame && ruleSame:
+				r.Class = Evolved
+			case codeSame && !ruleSame:
+				r.Class = Tightened
 			default:
-				r.Class = Changed
+				r.Class = Diverged
 			}
 		}
 		out = append(out, r)

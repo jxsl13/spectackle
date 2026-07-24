@@ -224,9 +224,9 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 	if len(anchors) == 0 {
 		return "", nil
 	}
-	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
-		_, ok := c.Rule(id)
-		return ok
+	results := drift.Classify(s.ws, s.g, anchors, func(id string) (string, bool) {
+		r, ok := c.Rule(id)
+		return r.Text, ok
 	})
 	ok, pending, moved := 0, 0, 0
 	var d []string
@@ -238,7 +238,7 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 			pending++
 		case drift.Moved:
 			moved++
-		default: // changed, gone, stale
+		default: // evolved, tightened, diverged, gone, stale — check() is where these heal/audit
 			d = append(d, fmt.Sprintf("d %s %s %s %s:%d-%d",
 				r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End))
 		}

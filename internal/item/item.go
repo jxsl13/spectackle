@@ -64,6 +64,17 @@ type Item struct {
 	Grilled  string   // most recent grill feedback (freeform, survives rescope)
 	Needs    []string // IDs this item is blocked on (decision items minted by Escalate)
 	Override bool     // override-once already spent — cannot be spent again
+
+	// ADR template fields (architecture decision records; kind=="adr").
+	// Always empty and omitted for every other kind — these are structured
+	// replacements for what used to be prose in Body, not general-purpose
+	// fields. Status follows the classic ADR convention proposed|accepted|
+	// superseded|deprecated; an empty Status on an adr item is conventionally
+	// read as "proposed".
+	Context      string // the forces and constraints behind the decision
+	Decision     string // the chosen option, verbatim
+	Consequences string // trade-offs and follow-on effects of the decision
+	Status       string // proposed|accepted|superseded|deprecated
 }
 
 // IDRe matches item IDs like P-0007 or ADR-0007 (adr). D-0007 is also
@@ -150,6 +161,14 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Needs = splitList(v)
 			case "override":
 				it.Override = v == "true"
+			case "context":
+				it.Context = v
+			case "decision":
+				it.Decision = v
+			case "consequences":
+				it.Consequences = v
+			case "status":
+				it.Status = v
 			}
 		}
 		// body: until next item heading
@@ -264,6 +283,18 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		}
 		if it.Override {
 			b.WriteString("override: true\n")
+		}
+		if it.Context != "" {
+			b.WriteString("context: " + it.Context + "\n")
+		}
+		if it.Decision != "" {
+			b.WriteString("decision: " + it.Decision + "\n")
+		}
+		if it.Consequences != "" {
+			b.WriteString("consequences: " + it.Consequences + "\n")
+		}
+		if it.Status != "" {
+			b.WriteString("status: " + it.Status + "\n")
 		}
 		if len(it.Targets) > 0 {
 			b.WriteString("targets: " + strings.Join(it.Targets, ", ") + "\n")
