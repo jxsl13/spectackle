@@ -60,3 +60,8 @@ The server instructions manifest SHALL carry a TOKEN ECONOMY paragraph mapping s
 The server instructions manifest SHALL carry a RECORDS paragraph requiring American English, compacted substance, and no verbatim quotes in every item body.
 
 Rationale: Records are read across sessions, agents and harnesses. A corpus mixing languages or spelling variants splits one concept across two vocabularies and breaks FTS recall for the terms the code and rules already use. MCP-006 covers TOKEN ECONOMY the same way.
+
+## MCP-008
+The server instructions manifest SHALL carry a paragraph naming the module's `https://` repository URL, derived via `debug.ReadBuildInfo`, as the place to report server defects with an analysis and not with a fix PR.
+
+Rationale: An agent driving the server sees its defects first. Without a stated destination it either works around them silently or patches the server it is using. A hardcoded URL rots when the module moves; the build-info path cannot.
