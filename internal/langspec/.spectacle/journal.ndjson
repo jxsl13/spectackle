@@ -50,3 +50,6 @@
 {"t":"2026-07-24T12:06:17Z","eid":"ac840d861fd98dab","ag":"orchestrator","ev":"move","id":"T-0047","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:07:52Z","eid":"7c7b26dbf82acea5","ag":"agent-dartgroovy","ev":"move","id":"T-0045","dir":"internal/langspec","fr":"approved","to":"active"}
 {"t":"2026-07-24T12:08:03Z","eid":"e46d08e65762599b","ag":"agent-beamjl","ev":"move","id":"T-0046","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T12:10:09Z","eid":"32da2a82c92569b5","ag":"agent-fpr","ev":"move","id":"T-0047","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T12:11:18Z","eid":"7470fbb1ed4f6f0a","ag":"agent-dartgroovy","ev":"move","id":"T-0045","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T12:11:19Z","eid":"d48eb697513ed0c3","ag":"agent-beamjl","ev":"move","id":"T-0046","dir":"internal/langspec","fr":"active","to":"done"}
