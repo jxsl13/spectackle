@@ -56,6 +56,10 @@ var extLang = map[string]graph.Lang{
 	".ml":     graph.LangMl,
 	".mli":    graph.LangMl,
 	".r":      graph.LangR,
+	".f90":    graph.LangF90,
+	".f95":    graph.LangF90,
+	".f03":    graph.LangF90,
+	".f08":    graph.LangF90,
 }
 
 // LangOf returns the language for a path, or "" if unrecognized.

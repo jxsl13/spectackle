@@ -270,6 +270,7 @@ checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
 - [docs/spec-cascade.md](docs/spec-cascade.md) — cascading spec bundles: format, resolution, authoring
 - [docs/ears.md](docs/ears.md) — the EARS grammar and linter codes
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)
+- [docs/cookbook-new-language.md](docs/cookbook-new-language.md) — adding a language: one Spec value + two one-line registrations
 - [docs/example-go-cuda.md](docs/example-go-cuda.md) — worked Go → CUDA lifecycle transcript
 - [docs/roadmap.md](docs/roadmap.md) — milestones to self-hosting
 
