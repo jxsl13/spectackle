@@ -147,6 +147,12 @@ func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 		rawNodes = append(rawNodes, pr.Nodes...)
 		rawEdges = append(rawEdges, pr.Edges...)
 	}
+	// commit the batch of parseCached Puts made above (store.Store batches
+	// writes into one transaction — see T-0035); best-effort, since a cache
+	// write failure must never fail the index.
+	if ix.s != nil {
+		_ = ix.s.Flush()
+	}
 
 	nodes, present, remap := disambiguate(rawNodes)
 	ix.g.Upsert(nodes, nil)

@@ -13,7 +13,7 @@ R-0003 measured 21-24s cold for 5000 files - one synchronously committed Exec pe
 
 ## T-0035 store.Flush batching + bench proof
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0020
 
