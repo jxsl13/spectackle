@@ -1,5 +1,9 @@
 # Design sketch — go/types-based call resolution (M3)
 
+> **Decision record: `ADR-0008`** — this decision now lives as a structured ADR in the server
+> (context / decision / consequences / status): `get ADR-0008`, `find scope=adr`.
+> What remains below is the evidence: the measurements, tables and reasoning.
+
 Status: research draft, no implementation. Scope: `callEdges` in
 `internal/index/goparser.go` only; node extraction is unaffected.
 

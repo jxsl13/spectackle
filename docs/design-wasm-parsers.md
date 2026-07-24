@@ -1,5 +1,9 @@
 # Design research — wazero × tree-sitter feasibility (R-0004)
 
+> **Decision record: `ADR-0010`** — this decision now lives as a structured ADR in the server
+> (context / decision / consequences / status): `get ADR-0010`, `find scope=adr`.
+> What remains below is the evidence: the measurements, tables and reasoning.
+
 Status: research, no implementation. Scope: is the M6 "wazero/WASM parser
 backend replaces cgo tree-sitter" target picture (docs/architecture.md §2,
 docs/roadmap.md M6) actually buildable today, and with what first slice?
