@@ -139,9 +139,11 @@ func TestLifecycleE2E(t *testing.T) {
 	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), "P-0001 strided saxpy access") {
 		t.Fatalf("archive did not merge into intent:\n%s", spec)
 	}
+	// gone from work.md, but never from the referenceable universe: get
+	// resolves it as a journal tombstone (LCY-001) instead of nf
 	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "nf") {
-		t.Fatalf("archived item should be gone from work.md: %q", out)
+	if !strings.Contains(out, "archived") || !strings.Contains(out, "journal tombstone") {
+		t.Fatalf("archived item should resolve via tombstone, not nf: %q", out)
 	}
 	// history still knows it
 	out = callText(t, sess, "find", map[string]any{"q": "strided", "scope": "history"})

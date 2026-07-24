@@ -423,6 +423,48 @@ func TestRejectSnapshotKeepsFeedbackFields(t *testing.T) {
 	}
 }
 
+// TestTombstone checks the read-only afterlife of an archived item: Tombstone
+// reconstructs it from its archive journal event (state=archived, kind/title
+// carried over, body = journal summary), and reports ok=false for anything
+// that was never archived.
+func TestTombstone(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "proposal", "vram cache", "Keep kernels resident.", "gpu", "", nil)
+	if _, err := Move(root, "P-0001", item.StateArchived, "shipped"); err != nil {
+		t.Fatal(err)
+	}
+
+	tomb, ok, err := Tombstone(root, "P-0001")
+	if err != nil || !ok {
+		t.Fatalf("Tombstone(P-0001) = %+v, %v, %v", tomb, ok, err)
+	}
+	if tomb.State != item.StateArchived || tomb.Kind != "proposal" || tomb.Title != "vram cache" {
+		t.Fatalf("tombstone incomplete: %+v", tomb)
+	}
+
+	if _, ok, err := Tombstone(root, "P-9999"); err != nil || ok {
+		t.Fatalf("Tombstone(unknown) = ok=%v, err=%v, want ok=false", ok, err)
+	}
+}
+
+// TestDraftArchivedParent checks Draft accepts an archived (Tombstone-only)
+// parent as provenance while still rejecting a parent that resolves nowhere.
+func TestDraftArchivedParent(t *testing.T) {
+	root := ws(t)
+	Draft(root, nil, "proposal", "vram cache", "", "gpu", "", nil)
+	if _, err := Move(root, "P-0001", item.StateArchived, "shipped"); err != nil {
+		t.Fatal(err)
+	}
+
+	it, err := Draft(root, nil, "task", "follow-up", "", "", "P-0001", nil)
+	if err != nil || it.Parent != "P-0001" {
+		t.Fatalf("Draft with archived parent = %+v, %v", it, err)
+	}
+	if _, err := Draft(root, nil, "task", "orphan", "", "", "P-9999", nil); err == nil {
+		t.Fatal("Draft with unknown parent accepted")
+	}
+}
+
 func TestArchiveMergesIntentAndFoldsChildren(t *testing.T) {
 	root := ws(t)
 	Draft(root, nil, "proposal", "strided access", "Delta text.", "gpu", "", nil)

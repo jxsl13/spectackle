@@ -285,7 +285,14 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
-		return s.nearest(id)
+		tomb, tombOk, err := lifecycle.Tombstone(s.ws, id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !tombOk {
+			return s.nearest(id)
+		}
+		return text(item.Record(tomb) + " (archived; journal tombstone)\n")
 	}
 	var b strings.Builder
 	b.WriteString(item.Record(it) + "\n")
@@ -839,15 +846,28 @@ func forwardState(to string) bool {
 	return false
 }
 
-// openNeeds returns the subset of an item's needs that are still unresolved
-// (referenced item exists and is neither done nor archived; a missing
-// reference counts as resolved — archived items leave work.md).
+// openNeeds returns the subset of an item's needs that are still unresolved:
+//   - referenced item exists in work.md and is not done -> open;
+//   - referenced item exists in work.md and is done -> resolved;
+//   - referenced item is gone from work.md but resolves via
+//     lifecycle.Tombstone (i.e. it was archived) -> resolved — archiving is
+//     itself a completion;
+//   - referenced item resolves nowhere at all (bad ID, or gone for any
+//     other reason) -> open, conservatively: unknown is never treated as
+//     done.
 func (s *Server) openNeeds(it item.Item) []string {
 	var open []string
 	for _, n := range it.Needs {
-		if dep, ok, _ := item.Get(s.ws, n); ok && dep.State != item.StateDone {
-			open = append(open, n)
+		if dep, ok, _ := item.Get(s.ws, n); ok {
+			if dep.State != item.StateDone {
+				open = append(open, n)
+			}
+			continue
 		}
+		if _, tombOk, _ := lifecycle.Tombstone(s.ws, n); tombOk {
+			continue
+		}
+		open = append(open, n)
 	}
 	return open
 }

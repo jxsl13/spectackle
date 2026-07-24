@@ -15,7 +15,7 @@ Two lifecycle-integrity bugs found live (D-0002 flow):
 
 ## T-0039 journal tombstones for archived refs + per-line decide options
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0021
 targets: go:lifecycle.archive, go:mcpserver.Server.decideAsk, go:mcpserver.Server.getItem, go:mcpserver.Server.openNeeds

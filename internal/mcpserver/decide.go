@@ -80,25 +80,34 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	dir := ""
 	var blocks item.Item
 	hasBlocks := false
+	blocksID := ""
 	if in.Item != "" {
 		found, ok, err := item.Get(s.ws, in.Item)
 		if err != nil {
 			return nil, nil, err
 		}
-		if !ok {
+		if ok {
+			blocks, hasBlocks = found, true
+			dir, blocksID = found.Dir, found.ID
+		} else if tomb, tombOk, err := lifecycle.Tombstone(s.ws, in.Item); err != nil {
+			return nil, nil, err
+		} else if tombOk {
+			// archived item: keep the block as provenance in the body, but
+			// there is no work.md home to append+Upsert a Needs backlink
+			// into — hasBlocks stays false.
+			dir, blocksID = tomb.Dir, tomb.ID
+		} else {
 			return text("! ARG E - unknown item " + in.Item)
 		}
-		blocks, hasBlocks = found, true
-		dir = found.Dir
 	}
 
 	var bodyLines []string
 	bodyLines = append(bodyLines, "kind: "+kind)
-	if len(opts) > 0 {
-		bodyLines = append(bodyLines, "options: "+strings.Join(opts, ", "))
+	for _, o := range opts {
+		bodyLines = append(bodyLines, "option: "+o)
 	}
-	if hasBlocks {
-		bodyLines = append(bodyLines, "blocks: "+blocks.ID)
+	if blocksID != "" {
+		bodyLines = append(bodyLines, "blocks: "+blocksID)
 	}
 
 	d, err := lifecycle.Draft(s.ws, s.minter(), "decision", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
@@ -160,10 +169,11 @@ func decideChoiceString(kind string, v any) string {
 // decideAnswer resolves an open decision from anywhere, any time — the
 // waiting orchestrator sees it on its next swarm/state/find call (no polling
 // required). Choose is validated against the decision's stored options
-// (parsed from its body — see decideOptions, which understands both the
-// `options: a, b, c` form decideAsk writes and the `outcome=a|b|c` form
-// lifecycle.Escalate writes for its auto-minted decisions); a decision with
-// no stored options (kind=text) accepts free text.
+// (parsed from its body — see decideOptions, which understands decideAsk's
+// current `option: <text>` lines, its legacy `options: a, b, c` form, and
+// the `outcome=a|b|c` form lifecycle.Escalate writes for its auto-minted
+// decisions); a decision with no stored options (kind=text) accepts free
+// text.
 func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.ID) == "" {
 		return text("! ARG E - answer requires id")
@@ -199,15 +209,34 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 }
 
 // decideOptions extracts the fixed option set (if any) a decision was asked
-// with. Two body shapes are understood: decideAsk's own `options: a, b, c`
-// line, and lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
-// foundation, not writable from this package). No match = free text.
+// with. Three body shapes are understood, tried in order:
+//  1. decideAsk's current form: one `option: <text>` line per option,
+//     verbatim (no comma-splitting — an option's own text may contain
+//     commas). This is what NEW decisions write.
+//  2. the legacy `options: a, b, c` comma-joined line decideAsk used to
+//     write — kept forever so existing items/journals stay answerable
+//     without migration (this repo's D-0002 is such an item: its option
+//     text itself contains commas, so the comma-split fragments it into
+//     more pieces than were intended, but that shattered form is exactly
+//     what remains answerable — it is not rewritten to option: lines).
+//  3. lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
+//     foundation, not writable from this package).
+//
+// No match = free text.
 var reOutcome = regexp.MustCompile(`outcome=([a-zA-Z0-9_-]+(?:\|[a-zA-Z0-9_-]+)*)`)
 
 func decideOptions(body string) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "option: "); ok {
+			out = append(out, v)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
 	for _, line := range strings.Split(body, "\n") {
 		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "options: "); ok {
-			var out []string
 			for _, o := range strings.Split(v, ",") {
 				if o = strings.TrimSpace(o); o != "" {
 					out = append(out, o)

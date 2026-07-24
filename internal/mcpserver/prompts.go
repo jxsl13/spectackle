@@ -10,6 +10,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectacle/internal/item"
+	"github.com/jxsl13/spectacle/internal/lifecycle"
+	"github.com/jxsl13/spectacle/internal/workspace"
 )
 
 // loopLines mirrors the lifecycle loop taught by the `instructions` manifest
@@ -180,7 +182,7 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 			// blocked items (item.StateBlocked, set by lifecycle.Escalate) and
 			// items still blocked on an open need (see hasOpenNeeds) are not
 			// actionable work — decide first, via the linked D-item.
-			if cand.State == item.StateBlocked || hasOpenNeeds(cand, byID) {
+			if cand.State == item.StateBlocked || hasOpenNeeds(s.ws, cand, byID) {
 				continue
 			}
 			if cand.State != item.StateApproved {
@@ -263,13 +265,18 @@ func itemsByID(items []item.Item) map[string]item.Item {
 
 // hasOpenNeeds reports whether cand is still blocked on any of its Needs
 // (decision items minted by decide op=ask or lifecycle.Escalate). A need is
-// resolved when the referenced item is done/archived, or gone entirely —
-// archived items leave work.md, so "missing" counts as resolved too.
-func hasOpenNeeds(cand item.Item, byID map[string]item.Item) bool {
+// resolved when the referenced item is done/archived; when it is gone from
+// work.md entirely, it resolves only if lifecycle.Tombstone finds an archive
+// record for it — a need that resolves nowhere at all stays open
+// (conservative: unknown is never treated as done).
+func hasOpenNeeds(ws workspace.Root, cand item.Item, byID map[string]item.Item) bool {
 	for _, n := range cand.Needs {
 		need, ok := byID[n]
 		if !ok {
-			continue // archived (or otherwise gone) = resolved
+			if _, tombOk, _ := lifecycle.Tombstone(ws, n); tombOk {
+				continue // archived = resolved
+			}
+			return true // resolves nowhere = still open
 		}
 		if need.State != item.StateDone && need.State != item.StateArchived {
 			return true

@@ -126,6 +126,72 @@ func TestPromptWorkflowTaskArgument(t *testing.T) {
 	}
 }
 
+// TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen checks LCY-002's
+// two halves of hasOpenNeeds's Tombstone fallback: a Need pointing at an
+// archived item resolves (next does not skip the candidate over it), while a
+// Need pointing at an ID that resolves nowhere at all — never created, or
+// gone for any reason other than archiving — stays conservatively open (next
+// keeps skipping).
+func TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectRootWithPromptsServer(t, root)
+
+	// T-0001: approved, Needs an archived item — must resolve as satisfied.
+	archived, err := lifecycle.Draft(s.ws, nil, "task", "long done", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(s.ws, archived.ID, item.StateArchived, "shipped"); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "needs an archived item"})
+	callText(t, sess, "move", map[string]any{"id": "T-0002", "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": "T-0002", "to": "approved"})
+	it1, ok, err := item.Get(s.ws, "T-0002")
+	if err != nil || !ok {
+		t.Fatalf("T-0002 missing: %v %v", ok, err)
+	}
+	it1.Needs = append(it1.Needs, archived.ID)
+	if err := item.Upsert(s.ws, it1); err != nil {
+		t.Fatal(err)
+	}
+
+	out := getPromptText(t, sess, "next", nil)
+	if !strings.Contains(out, "T-0002") {
+		t.Fatalf("next should surface a candidate whose only need is archived: %q", out)
+	}
+
+	// T-0003: approved, Needs an ID that resolves nowhere — stays open, so
+	// next must keep skipping it in favor of T-0004 (plain, needs nothing).
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "needs a bogus id"})
+	callText(t, sess, "move", map[string]any{"id": "T-0003", "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": "T-0003", "to": "approved"})
+	it3, ok, err := item.Get(s.ws, "T-0003")
+	if err != nil || !ok {
+		t.Fatalf("T-0003 missing: %v %v", ok, err)
+	}
+	it3.Needs = append(it3.Needs, "D-9999")
+	if err := item.Upsert(s.ws, it3); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "plain actionable work"})
+	callText(t, sess, "move", map[string]any{"id": "T-0004", "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": "T-0004", "to": "approved"})
+
+	// re-pick with T-0002 archived away from candidacy would make T-0002's
+	// case ambiguous, so re-check need resolution directly against T-0003 by
+	// draining T-0002 out of the pool first.
+	callText(t, sess, "move", map[string]any{"id": "T-0002", "to": "done"})
+
+	out = getPromptText(t, sess, "next", nil)
+	if strings.Contains(out, "T-0003") {
+		t.Fatalf("next surfaced a candidate whose need resolves nowhere: %q", out)
+	}
+	if !strings.Contains(out, "T-0004") {
+		t.Fatalf("next skipped past the actionable item: %q", out)
+	}
+}
+
 // TestPromptNextSkipsBlockedAndOpenNeeds: `next`'s auto-pick must structurally
 // skip (a) an approved item that is still blocked on an open decide op=ask
 // need, and (b) an item escalated into item.StateBlocked (lifecycle.Escalate)

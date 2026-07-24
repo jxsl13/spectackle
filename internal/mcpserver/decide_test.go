@@ -169,6 +169,96 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	}
 }
 
+// TestDecideAskArchivedItemProvenanceOnly: decide op=ask item=<archived id>
+// must succeed, keep 'blocks: <id>' in the new decision's body as
+// provenance, and leave the archived item strictly untouched — there is no
+// work.md home for it to receive a Needs backlink write.
+func TestDecideAskArchivedItemProvenanceOnly(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectDecide(t, root, nil)
+
+	it, err := lifecycle.Draft(s.ws, s.minter(), "task", "old work", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "shipped"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "still relevant?", "kind": "confirm", "item": it.ID,
+	})
+	if !strings.Contains(out, "need decision D-0001") {
+		t.Fatalf("ask on archived item should still succeed: %q", out)
+	}
+
+	d, ok, err := item.Get(s.ws, "D-0001")
+	if err != nil || !ok {
+		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+	}
+	if !strings.Contains(d.Body, "blocks: "+it.ID) {
+		t.Fatalf("D-0001 body missing blocks provenance: %q", d.Body)
+	}
+
+	// the archived item itself is gone from work.md and Tombstone must still
+	// report it as archived, unmodified by the ask (no Needs write anywhere:
+	// there was never a work.md record to write it into).
+	if _, ok, _ := item.Get(s.ws, it.ID); ok {
+		t.Fatalf("archived item reappeared in work.md: %s", it.ID)
+	}
+	tomb, tombOk, err := lifecycle.Tombstone(s.ws, it.ID)
+	if err != nil || !tombOk || len(tomb.Needs) != 0 {
+		t.Fatalf("archived item tombstone unexpectedly carries Needs: %+v %v %v", tomb, tombOk, err)
+	}
+}
+
+// TestDecideOptionFidelityAndLegacyCompat: options containing commas must
+// round-trip byte-identical through ask -> answer (MCP-001's one `option: `
+// line per option, not the old comma-joined `options: ` line which would
+// shatter them); a legacy comma-joined body (as decideAsk used to write, and
+// as D-0002 in this repo's own work.md still carries) must remain answerable
+// via its comma-split fragments without any migration.
+func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectDecide(t, root, nil)
+
+	callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "pick one", "kind": "radio",
+		"options": []string{"defer, revisit later", "go now"},
+	})
+	d, ok, err := item.Get(s.ws, "D-0001")
+	if err != nil || !ok {
+		t.Fatalf("D-0001 not persisted: %v %v", ok, err)
+	}
+	if !strings.Contains(d.Body, "option: defer, revisit later\n") || !strings.Contains(d.Body, "option: go now") {
+		t.Fatalf("D-0001 body missing per-line option: %q", d.Body)
+	}
+	if strings.Contains(d.Body, "options: ") {
+		t.Fatalf("D-0001 body still uses the legacy comma-joined line: %q", d.Body)
+	}
+
+	out := callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": "D-0001", "choose": "defer, revisit later",
+	})
+	if !strings.Contains(out, "ok D-0001 defer, revisit later") {
+		t.Fatalf("byte-identical comma-containing option should resolve: %q", out)
+	}
+
+	// legacy body shape (comma-joined) must still be answerable, unmigrated.
+	legacy, err := lifecycle.Draft(s.ws, s.minter(), "decision", "legacy ask",
+		"kind: radio\noptions: alpha, beta", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(s.ws, legacy.ID, item.StateSubmitted, ""); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": legacy.ID, "choose": "beta"})
+	if !strings.Contains(out, "ok "+legacy.ID+" beta") {
+		t.Fatalf("legacy comma-split body should still be answerable: %q", out)
+	}
+}
+
 // TestDecideBlockedOverrideOnce: a pre-escalated item (item.StateBlocked,
 // minted the way lifecycle.Escalate does when work op=submit's gate-fail
 // rounds are exhausted — see swarm.go gateFail) resolves via decide
