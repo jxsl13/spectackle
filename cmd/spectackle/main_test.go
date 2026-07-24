@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -15,6 +19,240 @@ import (
 func init() {
 	// Silence logging during tests
 	log.SetOutput(io.Discard)
+}
+
+// callBinPath is the spectackle binary built once by TestMain, shared by
+// every test in this file that needs the `call` subcommand exercised as a
+// real external process (so stdout/stderr separation, and the -root-less
+// self-exec stdio spawn inside internal/mcpclient, are the genuine article
+// rather than an in-process approximation). callBinBuildErr explains why
+// callBinPath is empty, so tests can t.Skip with a clear reason instead of
+// failing on a missing toolchain — same pattern as
+// internal/mcpclient/client_test.go's binPath/binBuildErr.
+var (
+	callBinPath     string
+	callBinBuildErr string
+)
+
+func TestMain(m *testing.M) {
+	os.Exit(runCallBinTestMain(m))
+}
+
+func runCallBinTestMain(m *testing.M) int {
+	dir, err := os.MkdirTemp("", "spectackle-cmd-test-*")
+	if err != nil {
+		callBinBuildErr = "creating temp dir for build output: " + err.Error()
+		return m.Run()
+	}
+	defer os.RemoveAll(dir)
+
+	if _, err := exec.LookPath("go"); err != nil {
+		callBinBuildErr = "go toolchain not found on PATH: " + err.Error()
+		return m.Run()
+	}
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		callBinBuildErr = "runtime.Caller: could not determine this test file's path"
+		return m.Run()
+	}
+	// cmd/spectackle/main_test.go -> repo root is two levels up. Do NOT
+	// depend on a prebuilt /home/user path: build from source here.
+	moduleRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+
+	out := filepath.Join(dir, "spectackle")
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
+	cmd := exec.Command("go", "build", "-o", out, "./cmd/spectackle")
+	cmd.Dir = moduleRoot
+	if output, err := cmd.CombinedOutput(); err != nil {
+		callBinBuildErr = "go build ./cmd/spectackle: " + err.Error() + "\n" + string(output)
+		return m.Run()
+	}
+	callBinPath = out
+
+	return m.Run()
+}
+
+// requireCallBinary skips the test with a clear reason when the toolchain
+// (or the build) wasn't available.
+func requireCallBinary(t *testing.T) string {
+	t.Helper()
+	if callBinPath == "" {
+		t.Skip("spectackle binary unavailable, skipping: " + callBinBuildErr)
+	}
+	return callBinPath
+}
+
+// runCall runs `<bin> call <args...>` to completion and returns its
+// stdout/stderr, without asserting on the exit code (some callers expect
+// non-zero, e.g. the refusal test).
+func runCall(t *testing.T, bin string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	full := append([]string{"call"}, args...)
+	cmd := exec.Command(bin, full...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err = cmd.Run()
+	return outBuf.String(), errBuf.String(), err
+}
+
+// waitForHTTPReady polls addr until a TCP connection succeeds, failing the
+// test if timeout elapses first. Mirrors the readiness loop already used by
+// TestServeNoPidfileFlag.
+func waitForHTTPReady(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, dialErr := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server never became reachable at %s: %v", addr, dialErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestCallStdioSingle: `call state` against a temp workspace, over the
+// default stdio transport (spawns a fresh server). stdout must start with
+// the #version section (see internal/mcpserver/state.go); stderr must
+// carry no tool text — only connection diagnostics belong there (CLI-001
+// binds `serve` on stdio, not `call`, but a spawned child's stderr must
+// still never land on our stdout, and our own diagnostics must stay off of
+// it in the other direction too).
+func TestCallStdioSingle(t *testing.T) {
+	bin := requireCallBinary(t)
+	root := t.TempDir()
+
+	stdout, stderr, err := runCall(t, bin, "-root", root, "state")
+	if err != nil {
+		t.Fatalf("call state (stdio): %v\nstderr: %s", err, stderr)
+	}
+	if !strings.HasPrefix(stdout, "#version") {
+		t.Fatalf("stdout does not start with the #version section:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "#version") {
+		t.Fatalf("stderr unexpectedly carries tool text:\n%s", stderr)
+	}
+}
+
+// TestCallHTTPMatchesStdio: the SAME call (`call state`) issued once over
+// stdio and once over -http against a resident server must render
+// byte-identical stdout. SPECTACKLE_AGENT is pinned via t.Setenv (inherited
+// by both child processes through cmd.Env defaulting to os.Environ()) so
+// both fresh workspaces render the same agent name in the summary line —
+// the same reason internal/mcpclient/client_test.go's
+// TestDialHTTPMatchesStdio pins it.
+func TestCallHTTPMatchesStdio(t *testing.T) {
+	bin := requireCallBinary(t)
+	t.Setenv("SPECTACKLE_AGENT", "call-cmd-byte-equality")
+
+	stdout, stderr, err := runCall(t, bin, "-root", t.TempDir(), "state")
+	if err != nil {
+		t.Fatalf("call state (stdio): %v\nstderr: %s", err, stderr)
+	}
+
+	httpRoot := t.TempDir()
+	addr := freeAddr(t)
+	srv := exec.Command(bin, "serve", "-root", httpRoot, "-http", addr)
+	var srvErr bytes.Buffer
+	srv.Stderr = &srvErr
+	if err := srv.Start(); err != nil {
+		t.Fatalf("start resident server: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = srv.Process.Signal(syscall.SIGTERM)
+		_ = srv.Wait()
+	})
+	waitForHTTPReady(t, addr, 2*time.Second)
+
+	httpOut, httpErrOut, err := runCall(t, bin, "-http", addr, "state")
+	if err != nil {
+		t.Fatalf("call state (http): %v\nstderr: %s\nserver stderr: %s", err, httpErrOut, srvErr.String())
+	}
+
+	if !strings.HasPrefix(httpOut, "#version") {
+		t.Fatalf("http stdout does not start with the #version section:\n%s", httpOut)
+	}
+	if stdout != httpOut {
+		t.Fatalf("rendered output differs by transport (must be byte-identical):\nstdio (%d bytes): %q\nhttp  (%d bytes): %q",
+			len(stdout), stdout, len(httpOut), httpOut)
+	}
+	t.Logf("byte-identical output across transports (%d bytes): %q", len(stdout), stdout)
+}
+
+// TestCallStdinMultiLine: two stdin lines, issued over ONE session (the
+// whole point of the stdin batch mode — reconnecting per line would
+// re-index the workspace on every call). Both tools' output must appear in
+// stdout, in the order the lines were given.
+func TestCallStdinMultiLine(t *testing.T) {
+	bin := requireCallBinary(t)
+	root := t.TempDir()
+
+	cmd := exec.Command(bin, "call", "-root", root)
+	cmd.Stdin = strings.NewReader("{\"name\": \"state\", \"arguments\": {}}\n{\"name\": \"swarm\", \"arguments\": {}}\n")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("call (stdin batch): %v\nstderr: %s", err, stderr.String())
+	}
+
+	out := stdout.String()
+	stateIdx := strings.Index(out, "#version")
+	swarmIdx := strings.Index(out, "ag ")
+	if stateIdx != 0 {
+		t.Fatalf("expected state's #version section at the very start of stdout:\n%s", out)
+	}
+	if swarmIdx < 0 {
+		t.Fatalf("swarm's output (an \"ag \" line) missing from stdout:\n%s", out)
+	}
+	if swarmIdx < stateIdx {
+		t.Fatalf("swarm's output came before state's, want line order preserved:\n%s", out)
+	}
+}
+
+// TestCallRefusalExitsNonZero: `find` with no `q` fails the server's own
+// input-schema validation and comes back flagged IsError. `call` must
+// print the refusal text to stdout (a shell caller has nothing else to
+// show) AND exit non-zero (so it can branch on the gate refusal without
+// parsing prose).
+func TestCallRefusalExitsNonZero(t *testing.T) {
+	bin := requireCallBinary(t)
+	root := t.TempDir()
+
+	stdout, stderr, err := runCall(t, bin, "-root", root, "find", "{}")
+	if err == nil {
+		t.Fatalf("call find {} : expected a non-zero exit, got success\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Fatalf("call find {} : expected the refusal text on stdout, got nothing\nstderr: %s", stderr)
+	}
+	t.Logf("refusal text on stdout: %q", stdout)
+}
+
+// TestCallInstructions: -instructions must print the server's instructions
+// manifest (non-empty, carrying the RECORDS marker — the exact field an
+// earlier hand-rolled wrapper in this project silently dropped) and exit 0.
+func TestCallInstructions(t *testing.T) {
+	bin := requireCallBinary(t)
+	root := t.TempDir()
+
+	stdout, stderr, err := runCall(t, bin, "-root", root, "-instructions")
+	if err != nil {
+		t.Fatalf("call -instructions: %v\nstderr: %s", err, stderr)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Fatal("call -instructions: expected non-empty output")
+	}
+	if !strings.Contains(stdout, "RECORDS") {
+		t.Fatalf("call -instructions: missing the RECORDS marker:\n%s", stdout)
+	}
 }
 
 func writeSpec(t *testing.T, root, content string) {

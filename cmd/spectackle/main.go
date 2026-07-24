@@ -8,13 +8,26 @@
 //	                                  -pidfile, write the PID once the
 //	                                  server is ready and remove it on
 //	                                  shutdown
+//	spectackle call [-root DIR] [-http ADDR] [-instructions] [NAME [JSON]]
+//	                                  make a headless tool call: spawns a
+//	                                  server over stdio, or reaches a
+//	                                  resident one via -http; with NAME,
+//	                                  issues that one call (JSON is its
+//	                                  arguments object); with none, reads
+//	                                  one {"name":...,"arguments":...} JSON
+//	                                  object per non-empty stdin line and
+//	                                  issues them over a single session;
+//	                                  -instructions prints the server's
+//	                                  instructions manifest and exits
 //	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
 //	spectackle reindex [-root DIR] force a cache resync (debugging aid)
 //	spectackle version             print the version
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +36,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,6 +44,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/mcpclient"
 	"github.com/jxsl13/spectackle/internal/mcpserver"
 	"github.com/jxsl13/spectackle/internal/spec"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
@@ -54,6 +69,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "serve":
 		return serve(args[1:])
+	case "call":
+		return call(args[1:])
 	case "lint":
 		return lint(args[1:])
 	case "reindex":
@@ -79,6 +96,16 @@ func usage() {
                                   (workspace auto-detected); with -pidfile,
                                   write the PID once the server is ready
                                   and remove it on shutdown
+  spectackle call [-root DIR] [-http ADDR] [-instructions] [NAME [JSON]]
+                                  make a headless tool call: spawns a server
+                                  over stdio, or reaches a resident one via
+                                  -http; with NAME, issues that one call
+                                  (JSON is its arguments object); with none,
+                                  reads one {"name":...,"arguments":...}
+                                  JSON object per non-empty stdin line and
+                                  issues them over a single session;
+                                  -instructions prints the server's
+                                  instructions manifest and exits
   spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
   spectackle reindex [-root DIR] force a cache resync
   spectackle version             print the version`)
@@ -233,6 +260,119 @@ func runHTTPListener(ctx context.Context, ln net.Listener, handler http.Handler)
 		}
 		return nil
 	}
+}
+
+// call implements the `call` subcommand (CLI-002): a headless tool call
+// against a spectackle server, spawned over stdio or reached over -http,
+// using internal/mcpclient so the handshake and rendering are exactly what
+// every other spectackle surface does — no hand-rolled JSON-RPC framing,
+// no dropped instructions field.
+//
+// Exit codes: 2 for a usage problem (bad arguments/JSON, unreadable stdin
+// line), 1 when the session could not be established or any tool call came
+// back flagged IsError, 0 when every call succeeded.
+func call(args []string) int {
+	fs := flag.NewFlagSet("call", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace detection start / fallback root (stdio transport only)")
+	httpAddr := fs.String("http", "", "reach a resident server at this address (e.g. 127.0.0.1:7331) instead of spawning one over stdio")
+	showInstructions := fs.Bool("instructions", false, "print the server's instructions manifest and exit")
+	_ = fs.Parse(args)
+
+	cfg := mcpclient.Config{Root: *root}
+	if *httpAddr != "" {
+		cfg.Endpoint = httpEndpoint(*httpAddr)
+	}
+
+	ctx := context.Background()
+	sess, err := mcpclient.Dial(ctx, cfg)
+	if err != nil {
+		log.Printf("call: %v", err)
+		return 1
+	}
+	defer sess.Close()
+
+	if *showInstructions {
+		fmt.Println(sess.Instructions())
+		return 0
+	}
+
+	rest := fs.Args()
+	if len(rest) > 2 {
+		log.Printf("call: too many arguments (want NAME [JSON]): %v", rest)
+		return 2
+	}
+	if len(rest) > 0 {
+		c := mcpclient.Call{Name: rest[0]}
+		if len(rest) == 2 {
+			if err := json.Unmarshal([]byte(rest[1]), &c.Arguments); err != nil {
+				log.Printf("call: parse JSON arguments: %v", err)
+				return 2
+			}
+		}
+		out, callErr := sess.Call(ctx, c)
+		fmt.Println(out)
+		if callErr != nil {
+			log.Printf("call: %s: %v", c.Name, callErr)
+			return 1
+		}
+		return 0
+	}
+
+	return callStdin(ctx, sess)
+}
+
+// httpEndpoint normalizes the -http flag's address (e.g. "127.0.0.1:7331",
+// matching serve's own -http flag) into the http(s) URL mcpclient.Config
+// expects. A value that already names a scheme is passed through as-is.
+func httpEndpoint(addr string) string {
+	if strings.Contains(addr, "://") {
+		return addr
+	}
+	return "http://" + addr
+}
+
+// callStdin reads one JSON object per non-empty stdin line, each shaped
+// {"name": ..., "arguments": {...}}, and issues them in order over the
+// single already-dialed session — reconnecting per line would re-index the
+// workspace on every call, the exact cost CLI-002 exists to remove. It
+// keeps going after a refusal (IsError) or a malformed line, reporting
+// which line failed on stderr, and returns non-zero if any line failed.
+func callStdin(ctx context.Context, sess *mcpclient.Session) int {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+
+	failed := false
+	line := 0
+	for scanner.Scan() {
+		line++
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" {
+			continue
+		}
+		var req struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		if err := json.Unmarshal([]byte(text), &req); err != nil {
+			log.Printf("call: line %d: parse JSON: %v", line, err)
+			failed = true
+			continue
+		}
+		out, err := sess.Call(ctx, mcpclient.Call{Name: req.Name, Arguments: req.Arguments})
+		fmt.Println(out)
+		if err != nil {
+			log.Printf("call: line %d (%s): %v", line, req.Name, err)
+			failed = true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("call: reading stdin: %v", err)
+		return 1
+	}
+	if failed {
+		return 1
+	}
+	return 0
 }
 
 func lint(args []string) int {

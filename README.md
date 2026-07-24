@@ -193,72 +193,71 @@ git root, then `-root`).
 
 ## Headless quickstart (driving the server from a coding agent / CI)
 
-No MCP client at hand? The server is plain JSON-RPC 2.0 over stdio — one
-frame per line, stdout carries only JSON-RPC, logs go to stderr. The four
-things that cost time on first contact:
+No MCP client at hand? The binary ships its own MCP client (CLI-002) — no
+external wrapper script needed, no hand-rolled JSON-RPC framing to get
+wrong. Everything goes through the `call` subcommand:
 
-1. **Handshake first**: send `initialize` (with `protocolVersion`), wait for
-   the response, then send the `notifications/initialized` notification.
-   Only then are `tools/call` requests answered.
-2. **One JSON object per line**, no framing headers.
-3. **Name your agent**: set `SPECTACKLE_AGENT=<name>` in the environment so
-   swarm identity (leases, heartbeats, sw learnings) is stable across
-   otherwise short-lived driver sessions — coordination state lives in the
-   shared `.spectackle/cache/coord.db`, not in the process.
-4. **Read the manifest**: the `instructions` field of the `initialize`
-   response IS the workflow contract (lifecycle loop, swarm protocol,
-   orchestration/fan-out and model tiering). Feed it to the driving LLM
-   verbatim — a driver that discards it leaves the LLM without the
-   intended division of labor.
-
-Minimal Python driver (each stdin line = one tool call):
-
-```python
-#!/usr/bin/env python3
-# usage: mcp_call.py <root> <<'JSON'
-# {"name": "swarm", "arguments": {}}
-# {"name": "find", "arguments": {"q": "saxpy", "scope": "code"}}
-# JSON
-import json, subprocess, sys
-
-proc = subprocess.Popen(["./bin/spectackle", "serve", "-root", sys.argv[1]],
-    stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-    stderr=subprocess.DEVNULL, text=True, bufsize=1)
-send = lambda o: (proc.stdin.write(json.dumps(o) + "\n"), proc.stdin.flush())
-def recv():
-    while True:
-        line = proc.stdout.readline()
-        if not line: return None
-        try: return json.loads(line)
-        except json.JSONDecodeError: continue
-
-send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
-      "params": {"protocolVersion": "2025-06-18", "capabilities": {},
-                 "clientInfo": {"name": "driver", "version": "0"}}})
-init = recv()
-print(init.get("result", {}).get("instructions", ""))
-send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-for rid, call in enumerate(map(json.loads, filter(str.strip, sys.stdin)), 100):
-    send({"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": call})
-    r = recv()
-    print(f"\n===> {call['name']}")
-    for c in r.get("result", {}).get("content", []):
-        if c.get("type") == "text": print(c["text"])
+```
+spectackle call [-root DIR] [-http ADDR] [-instructions] [NAME [JSON]]
 ```
 
+**One-shot call** — `NAME` plus an optional JSON arguments object issues
+exactly that one call, spawning a fresh server over stdio and tearing it
+down again:
+
+```sh
+./bin/spectackle call -root . find '{"q": "saxpy", "scope": "code"}'
+```
+
+Only the tool's rendered text lands on stdout, byte-identical, one
+trailing newline — no envelope, no prefix, no banner, so it composes with
+`grep`/`jq`/whatever's next in the pipeline. Connection diagnostics and any
+spawned server's own stderr go to stderr instead. A refusal (`! GATE …`,
+a schema validation error, …) still prints its text to stdout, but exits
+non-zero — script against the exit code, not the prose.
+
+**Multi-call batch** — omit `NAME` and pipe one `{"name": ..., "arguments":
+{...}}` JSON object per line on stdin; every call in the batch runs over a
+**single session**, so the workspace is indexed once for the whole batch
+instead of once per call:
+
+```sh
+./bin/spectackle call -root . <<'JSON'
+{"name": "swarm", "arguments": {}}
+{"name": "find", "arguments": {"q": "saxpy", "scope": "code"}}
+JSON
+```
+
+**The instructions manifest** — `-instructions` prints the server's
+`initialize`-handshake instructions (the workflow contract: lifecycle loop,
+swarm protocol, orchestration/fan-out, model tiering) and exits. Feed it to
+a driving LLM verbatim; dropping it silently is the exact mistake an
+earlier hand-rolled wrapper in this project made.
+
+```sh
+./bin/spectackle call -root . -instructions
+```
+
+**Name your agent**: set `SPECTACKLE_AGENT=<name>` in the environment so
+swarm identity (leases, heartbeats, sw learnings) is stable across
+otherwise short-lived `call` invocations — coordination state lives in the
+shared `.spectackle/cache/coord.db`, not in the process.
+
 First calls of any session: `swarm {}` (who else is working, fresh
-learnings), then `get {"id": "."}` (root rules + active items) — the server
-instructions returned by `initialize` teach the rest of the loop.
+learnings), then `get {"id": "."}` (root rules + active items) — the
+instructions manifest above teaches the rest of the loop.
 
 ## Resident service (recommended for more than one call)
 
-The stdio recipe above is right for what MCP clients do: spawn the binary,
-talk over its stdin/stdout pipes, exit when the client disconnects. Its
-cost is that **every invocation re-indexes the workspace from scratch** —
-163 files on this repo, at each and every start. Fine for a single
-one-shot call; wasteful for a swarm of implementers, a long CI job, or
-anything issuing more than one call, where a resident process indexes
-**once** and answers every later call from the warm cache instead.
+Spawning a fresh server per `call` is right for a single one-shot
+invocation, but its cost is that **every invocation re-indexes the
+workspace from scratch** — 163 files on this repo, at each and every
+start. Wasteful for a swarm of implementers, a long CI job, or anything
+issuing more than one call across separate `call` invocations, where a
+resident process indexes **once** and answers every later call from the
+warm cache instead. (A single `call` invocation with a multi-line stdin
+batch already shares one session and one index — this section is for
+sharing that index *across* invocations too.)
 
 Start it bound to localhost, with a pidfile so it has a stoppable handle:
 
@@ -266,9 +265,17 @@ Start it bound to localhost, with a pidfile so it has a stoppable handle:
 ./bin/spectackle serve -root . -http 127.0.0.1:7331 -pidfile .spectackle/serve.pid &
 ```
 
-Point any Streamable-HTTP-capable MCP client at `http://127.0.0.1:7331` —
-same JSON-RPC frames as the stdio recipe above, only the transport
-changes. Stop it with the pidfile it wrote:
+Point `call` at it with `-http` instead of spawning a fresh stdio server —
+same one-shot and stdin-batch input modes, same byte-identical stdout
+rendering, only the transport changes:
+
+```sh
+./bin/spectackle call -http 127.0.0.1:7331 find '{"q": "saxpy", "scope": "code"}'
+```
+
+Any other Streamable-HTTP-capable MCP client can point at
+`http://127.0.0.1:7331` too. Stop the resident server with the pidfile it
+wrote:
 
 ```sh
 kill "$(cat .spectackle/serve.pid)"
@@ -284,15 +291,15 @@ file is removed automatically on graceful shutdown (SIGINT/SIGTERM); and
 means a server is already running there and overwriting it would strand
 that process with no way to be found and stopped.
 
-**Which one to use**: keep the stdio recipe for anything that registers
-spectackle as an `mcpServers` entry (Claude Code, the Quickstart above,
-every MCP client that spawns the binary itself) — that is the transport
-those clients speak, and swapping it for HTTP would break every existing
-config. Reach for the resident `-http` service when *you* are the one
-issuing repeated calls — a swarm, a script, a CI job — and want to pay the
-163-file index cost once instead of on every call. See also
-[docs/architecture.md](docs/architecture.md) §8 for the v0 caveat (one
-shared server instance backs every HTTP session).
+**Which one to use**: keep the default stdio transport for anything that
+registers spectackle as an `mcpServers` entry (Claude Code, the Quickstart
+above, every MCP client that spawns the binary itself) — that is the
+transport those clients speak, and swapping it for HTTP would break every
+existing config. Reach for the resident `-http` service, and `call -http`,
+when *you* are the one issuing repeated calls — a swarm, a script, a CI
+job — and want to pay the 163-file index cost once instead of on every
+call. See also [docs/architecture.md](docs/architecture.md) §8 for the v0
+caveat (one shared server instance backs every HTTP session).
 
 ## Orchestrated swarm workflow (cheap fresh subagents)
 
