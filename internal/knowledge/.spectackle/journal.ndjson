@@ -1,0 +1,5 @@
+{"t":"2026-07-24T20:59:30Z","eid":"fab158f07d74c579","ag":"orchestrator","ev":"create","id":"P-0076","k":"proposal","ti":"cross-repo knowledge: extract portable records, condense by recurrence, apply additively","dir":"internal/knowledge"}
+{"t":"2026-07-24T20:59:30Z","eid":"ee5692c7562e544d","ag":"orchestrator","ev":"grill","id":"P-0076","dir":"internal/knowledge","gr":"2026-07-24"}
+{"t":"2026-07-24T21:01:56Z","eid":"fc98498ccba3efa4","ag":"orchestrator","ev":"create","id":"T-0108","k":"task","ti":"internal/knowledge: portable artifact format, extraction, recurrence-based merge","dir":"internal/knowledge"}
+{"t":"2026-07-24T21:01:56Z","eid":"1eba2d58ba2e0155","ag":"orchestrator","ev":"move","id":"P-0076","dir":"internal/knowledge","fr":"draft","to":"active"}
+{"t":"2026-07-24T21:01:56Z","eid":"4431d09e0501e798","ag":"orchestrator","ev":"move","id":"T-0108","dir":"internal/knowledge","fr":"draft","to":"active"}
