@@ -1099,6 +1099,95 @@ func (s *Server) compactCandidates(sub string) []string {
 	return out
 }
 
+// mergeCandidates surfaces near-duplicate rule pairs as merge suggestions
+// (MCP-005): same spec file, same EARS pattern, and either sentence-token
+// Jaccard >= 0.6 or identical non-empty applies sets. Suggestion only —
+// merging changes contract semantics and stays a rule op=edit+retire.
+func (s *Server) mergeCandidates(sub string) []string {
+	c, err := spec.Load(s.ws.Dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, f := range c.All() {
+		if !within(sub, f.Dir) {
+			continue
+		}
+		for i := 0; i < len(f.Rules); i++ {
+			for k := i + 1; k < len(f.Rules); k++ {
+				a, b := f.Rules[i], f.Rules[k]
+				if a.Pattern != b.Pattern {
+					continue
+				}
+				j := jaccard(ruleTokens(a.Text), ruleTokens(b.Text))
+				if j >= 0.6 || sameApplies(a.Applies, b.Applies) {
+					out = append(out, fmt.Sprintf("c %s mergeable %s+%s j=%.2f", orDot(f.Dir), a.ID, b.ID, j))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ruleTokens normalizes an EARS sentence for similarity: lowercase, alnum
+// runs only, EARS scaffolding and glue words dropped.
+func ruleTokens(text string) map[string]bool {
+	stop := map[string]bool{
+		"when": true, "while": true, "if": true, "then": true, "where": true,
+		"shall": true, "the": true, "a": true, "an": true, "to": true,
+		"of": true, "and": true, "or": true, "as": true, "is": true,
+	}
+	toks := map[string]bool{}
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			if t := cur.String(); !stop[t] {
+				toks[t] = true
+			}
+			cur.Reset()
+		}
+	}
+	for _, r := range strings.ToLower(text) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			cur.WriteRune(r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return toks
+}
+
+func jaccard(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	inter := 0
+	for t := range a {
+		if b[t] {
+			inter++
+		}
+	}
+	return float64(inter) / float64(len(a)+len(b)-inter)
+}
+
+func sameApplies(a, b []string) bool {
+	if len(a) == 0 || len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]bool, len(a))
+	for _, n := range a {
+		set[n] = true
+	}
+	for _, n := range b {
+		if !set[n] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
 		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
@@ -1106,6 +1195,7 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	defer s.scan.MarkDirty()
 	var b strings.Builder
 	cands := s.compactCandidates(in.Path)
+	cands = append(cands, s.mergeCandidates(in.Path)...)
 	items, err := item.LoadAll(s.ws)
 	if err != nil {
 		return nil, nil, err

@@ -189,8 +189,11 @@ anchors. Run until `ok` before `move to=done`.
   "apply":{"type":"boolean","default":false}}}
 ```
 Candidates: done-unarchived items (apply archives them), journal folds over
-`journal_max`. Folds drop `create/move/rule/drift` noise; **`reject`,
-`archive` and `compact` events are never dropped**.
+`journal_max`, and mergeable rule pairs — `c <dir> mergeable <ID1>+<ID2>
+j=<score>` for same-file, same-pattern rules with sentence-token Jaccard
+≥ 0.6 or identical non-empty applies sets (MCP-005; suggestion only,
+`apply=true` never merges rules). Folds drop `create/move/rule/drift`
+noise; **`reject`, `archive` and `compact` events are never dropped**.
 
 ### 8. `lease` — scope reservations (multi-agent)
 

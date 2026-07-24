@@ -52,3 +52,6 @@ WHEN `commands op=gen` runs without a harness argument and detection finds no ma
 
 ## MCP-004 {applies: go:mcpserver.Server.check}
 WHEN the check tool runs, the server SHALL report each applies target of a live rule that lacks an anchors.tsv row as a single dense `g orphan <rule> <node>` record.
+
+## MCP-005 {applies: go:mcpserver.Server.compact}
+WHEN the compact dry-run runs, the server SHALL report each same-file, same-pattern rule pair with sentence-token Jaccard >= 0.6 or identical non-empty applies sets as one `c <dir> mergeable <ID1>+<ID2>` record, and never merge automatically.

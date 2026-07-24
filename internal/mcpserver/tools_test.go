@@ -405,6 +405,47 @@ func TestCompactKeepsRejections(t *testing.T) {
 	}
 }
 
+// TestCompactMergeableCandidates (MCP-005): two near-identical same-pattern
+// rules in one spec file surface as one `c <dir> mergeable A+B` suggestion
+// in the compact dry-run; a dissimilar third rule is never paired, and
+// apply=true does not merge anything.
+func TestCompactMergeableCandidates(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	add := func(stem, response string) {
+		t.Helper()
+		out := callText(t, sess, "rule", map[string]any{
+			"op": "add", "dir": "merge_probe", "pattern": "U", "stem": stem,
+			"system": "the merge prober", "response": response,
+		})
+		if !strings.Contains(out, "ok "+stem) {
+			t.Fatalf("rule add %s: %q", stem, out)
+		}
+	}
+	add("MRG-A", "write every anchor row for the rule to the anchors file on disk")
+	add("MRG-B", "write every anchor row for the rule to the anchors file")
+	add("MRG-C", "reject a claim whose scope overlaps a live foreign lease")
+
+	out := callText(t, sess, "compact", map[string]any{})
+	if !strings.Contains(out, "mergeable MRG-A-001+MRG-B-001") {
+		t.Fatalf("near-identical pair not suggested: %q", out)
+	}
+	if strings.Contains(out, "MRG-C-001") {
+		t.Fatalf("dissimilar rule must not be paired: %q", out)
+	}
+
+	out = callText(t, sess, "compact", map[string]any{"apply": true})
+	if strings.Contains(out, "ok merged") {
+		t.Fatalf("apply must never auto-merge: %q", out)
+	}
+	for _, id := range []string{"MRG-A-001", "MRG-B-001", "MRG-C-001"} {
+		if got := callText(t, sess, "get", map[string]any{"id": id}); !strings.Contains(got, id) {
+			t.Fatalf("rule %s must survive apply: %q", id, got)
+		}
+	}
+}
+
 // TestCheckOnOwnRepo: the repository itself must come back clean.
 func TestCheckOnOwnRepo(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
