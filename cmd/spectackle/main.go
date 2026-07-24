@@ -20,7 +20,9 @@
 //	                                  -instructions prints the server's
 //	                                  instructions manifest and exits
 //	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-//	spectackle reindex [-root DIR] force a cache resync (debugging aid)
+//	spectackle reindex [-root DIR] rebuild the symbol graph and resync the
+//	                                  spec/doc cache; prints files/nodes/edges
+//	                                  so an operator can confirm it ran
 //	spectackle version             print the version
 package main
 
@@ -36,6 +38,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -47,6 +50,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/mcpclient"
 	"github.com/jxsl13/spectackle/internal/mcpserver"
 	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/store"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -107,7 +111,9 @@ func usage() {
                                   -instructions prints the server's
                                   instructions manifest and exits
   spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
-  spectackle reindex [-root DIR] force a cache resync
+  spectackle reindex [-root DIR] rebuild the symbol graph and resync the
+                                  spec/doc cache; prints files/nodes/edges
+                                  so an operator can confirm it ran
   spectackle version             print the version`)
 }
 
@@ -404,6 +410,18 @@ func lint(args []string) int {
 	return 0
 }
 
+// reindex is DEFECT 3's fix: previously this subcommand only resynced the
+// spec/doc cache (internal/sync) — the symbol graph drift classification
+// actually depends on is built exclusively inside the MCP server
+// (mcpserver.Server.reindex), so this command's name and help text
+// promised a rebuild it never performed. The obvious operator response to
+// a stale graph under a resident -http server (DEFECT 1/DRF-003) was to
+// run `reindex`, and it did nothing. Now it rebuilds the graph too, via
+// mcpserver.BuildGraph — the exact same pipeline (parser list, resolvers,
+// typed-call pass) the server uses, so the two can never drift onto
+// different parser sets — and opens the same persistent parse-blob cache
+// the server would (ws.CacheDir()/parse.db), so a reindex also warms the
+// cache a subsequent `serve` picks up.
 func reindex(args []string) int {
 	root := rootFlag("reindex", args)
 	ws, err := workspace.Detect(root, root)
@@ -425,6 +443,20 @@ func reindex(args []string) int {
 		log.Printf("reindex: %v", err)
 		return 1
 	}
-	log.Printf("reindex: ok (%s)", ws.Dir)
+
+	blobs, err := store.Open(filepath.Join(ws.CacheDir(), "parse.db"))
+	if err != nil {
+		log.Printf("reindex: parse cache: %v (using in-memory store)", err)
+		blobs = store.NewMem()
+	}
+	defer blobs.Close()
+
+	_, st, typed, err := mcpserver.BuildGraph(context.Background(), ws, blobs)
+	if err != nil {
+		log.Printf("reindex: index: %v", err)
+		return 1
+	}
+	log.Printf("reindex: %d files, %d nodes, %d edges (+%d typed calls, %d skipped) (%s)",
+		st.Files, st.Nodes, st.Edges, typed, st.Skipped, ws.Dir)
 	return 0
 }

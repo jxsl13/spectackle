@@ -556,7 +556,11 @@ func auditGate(ws workspace.Root, g graph.Graph, ruleText func(string) (string, 
 		return nil
 	}
 	var offenders []string
-	for _, r := range drift.Classify(ws, g, bound, ruleText) {
+	// nil staleness predicate: the audit gate has no signal for "graph older
+	// than file" (DRF-003 is check-only, wired in internal/mcpserver/tools.go
+	// where the server actually knows its last reindex time) — nil preserves
+	// the pre-DRF-003 hash-based behavior here unchanged.
+	for _, r := range drift.Classify(ws, g, bound, ruleText, nil) {
 		if r.Class == drift.Tightened || r.Class == drift.Diverged {
 			offenders = append(offenders, fmt.Sprintf("! GATE E %s audit %s %s %s",
 				it.ID, r.Anchor.Rule, r.Anchor.Node, r.Class))

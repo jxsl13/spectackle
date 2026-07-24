@@ -200,18 +200,40 @@ type Result struct {
 // alarms — that Pending/Gone short-circuit runs ahead of the two-axis
 // classification below.
 //
+// stale (DRF-003) lets the caller report that the graph is older than a
+// given file on disk — e.g. the resident -http server only rebuilds the
+// graph in Server.reindex (startup/reroot), so an on-disk edit the server
+// never observed leaves a node's Line/EndLine pointing at the wrong lines
+// of the NEW file content; hashing that stale range silently manufactures
+// a hash for a span that isn't the node, which classified as Evolved and
+// auto-healed a false "code changed" verdict (measured twice on
+// go:main.main in this repo). A func, not a timestamp, so a caller with no
+// way to know (a bare cache, a test, internal/lifecycle's audit gate) can
+// pass nil and get exactly today's behavior — nil/zero here always means
+// "no staleness information", never "definitely fresh". When stale(file)
+// reports true for the anchor's current node, Classify short-circuits to
+// Pending — the same "cannot judge yet" verdict an empty graph already
+// gets — before ever computing SpanHash, so a stale graph can't be
+// mistaken for a real hash comparison.
+//
 // Once both axes are known:
 //
 //	code \ rule   same           changed
 //	same          OK / Moved     Tightened  (never healed)
 //	changed       Evolved        Diverged   (never healed)
 //
+// OK requires the node's current file, start line AND end line (DRF-002)
+// to match the anchor exactly; a pure end-line drift (Anchor.End stale
+// while Anchor.Start still matches) falls through to Moved instead of
+// staying OK forever with a wrong printed range — Anchor.End is stamped
+// but was never read by any branch before this fix.
+//
 // Evolved (code moved, rule sentence identical) is the only mechanically
 // healable case: the rule still describes the code correctly, only the
 // anchor's recorded code hash is stale. Tightened and Diverged both involve
 // a rule-sentence change and are never auto-healed — the spec author's
 // intent may have changed the contract, so a human has to look.
-func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(string) (string, bool)) []Result {
+func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(string) (string, bool), stale func(file string) bool) []Result {
 	graphEmpty := len(g.Find("", 1, graph.KUnknown)) == 0
 	var out []Result
 	for _, a := range anchors {
@@ -235,6 +257,12 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(
 				r.Class = Gone
 				break
 			}
+			if stale != nil && stale(n.File) {
+				// Graph older than the file: Line/EndLine cannot be trusted,
+				// so no SpanHash is computed at all (DRF-003).
+				r.Class = Pending
+				break
+			}
 			end := n.EndLine
 			if end == 0 {
 				end = n.Line
@@ -248,10 +276,10 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(
 			codeSame := h == a.CHash
 			ruleSame := curR == a.RHash
 			switch {
-			case codeSame && ruleSame && n.File == a.File && n.Line == a.Start:
+			case codeSame && ruleSame && n.File == a.File && n.Line == a.Start && end == a.End:
 				r.Class = OK
 			case codeSame && ruleSame:
-				r.Class = Moved // position-only change: caller refreshes silently
+				r.Class = Moved // position-only change (incl. end-line-only drift): caller refreshes silently
 			case !codeSame && ruleSame:
 				r.Class = Evolved
 			case codeSame && !ruleSame:

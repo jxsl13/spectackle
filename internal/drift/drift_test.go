@@ -44,7 +44,7 @@ func TestClassify(t *testing.T) {
 	}
 	exists := textOf(ruleText)
 
-	rs := Classify(ws, g, []Anchor{a}, exists)
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
 	if rs[0].Class != OK {
 		t.Fatalf("fresh anchor should be OK, got %s", rs[0].Class)
 	}
@@ -53,7 +53,7 @@ func TestClassify(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\n// shifted\n\nfunc F() int {\n\treturn 1\n}\n"), 0o644)
 	g2 := graph.NewMem()
 	g2.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 5, EndLine: 7}}, nil)
-	rs = Classify(ws, g2, []Anchor{a}, exists)
+	rs = Classify(ws, g2, []Anchor{a}, exists, nil)
 	if rs[0].Class != Moved {
 		t.Fatalf("line shift should be Moved, got %s", rs[0].Class)
 	}
@@ -62,7 +62,7 @@ func TestClassify(t *testing.T) {
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\nfunc F() int {\n\treturn 2\n}\n"), 0o644)
 	g3 := graph.NewMem()
 	g3.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
-	rs = Classify(ws, g3, []Anchor{a}, exists)
+	rs = Classify(ws, g3, []Anchor{a}, exists, nil)
 	if rs[0].Class != Evolved {
 		t.Fatalf("code-only change should be Evolved, got %s", rs[0].Class)
 	}
@@ -75,7 +75,7 @@ func TestClassify(t *testing.T) {
 
 	// code identical, rule sentence changed => Tightened (never healed)
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
-	rs = Classify(ws, g, []Anchor{a}, textOf("The function SHALL return 2 exactly."))
+	rs = Classify(ws, g, []Anchor{a}, textOf("The function SHALL return 2 exactly."), nil)
 	if rs[0].Class != Tightened {
 		t.Fatalf("rule-only change should be Tightened, got %s", rs[0].Class)
 	}
@@ -88,7 +88,7 @@ func TestClassify(t *testing.T) {
 
 	// both code and rule sentence changed => Diverged (never healed)
 	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\nfunc F() int {\n\treturn 2\n}\n"), 0o644)
-	rs = Classify(ws, g3, []Anchor{a}, textOf("The function SHALL return 2 exactly."))
+	rs = Classify(ws, g3, []Anchor{a}, textOf("The function SHALL return 2 exactly."), nil)
 	if rs[0].Class != Diverged {
 		t.Fatalf("both-sides change should be Diverged, got %s", rs[0].Class)
 	}
@@ -96,15 +96,15 @@ func TestClassify(t *testing.T) {
 	// node vanished => Gone; rule vanished => Stale; empty graph => Pending
 	g4 := graph.NewMem()
 	g4.Upsert([]graph.Node{{ID: "go:pkg.Other", File: "pkg/f.go", Line: 1}}, nil)
-	rs = Classify(ws, g4, []Anchor{a}, exists)
+	rs = Classify(ws, g4, []Anchor{a}, exists, nil)
 	if rs[0].Class != Gone {
 		t.Fatalf("missing node should be Gone, got %s", rs[0].Class)
 	}
-	rs = Classify(ws, g3, []Anchor{a}, func(string) (string, bool) { return "", false })
+	rs = Classify(ws, g3, []Anchor{a}, func(string) (string, bool) { return "", false }, nil)
 	if rs[0].Class != Stale {
 		t.Fatalf("missing rule should be Stale, got %s", rs[0].Class)
 	}
-	rs = Classify(ws, graph.NewMem(), []Anchor{a}, exists)
+	rs = Classify(ws, graph.NewMem(), []Anchor{a}, exists, nil)
 	if rs[0].Class != Pending {
 		t.Fatalf("empty graph should degrade to Pending, got %s", rs[0].Class)
 	}
@@ -178,5 +178,180 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---- DRF-002: end-line comparison ----
+
+// TestClassifyEndLineDrift (DRF-002, test 1 of T-0107): a stored anchor
+// whose End disagrees with the node's current EndLine must never classify
+// OK — before this fix, Classify's OK branch compared only File and Start,
+// so Anchor.End (written by Stamp) was never read back by anything. This
+// is the RSV-001 shape live in this repo: internal/resolve/resolver.go
+// recorded 36-44 while go:resolve.Default actually ends at 45, content
+// hash matching the real 36-45 span throughout, and check reported ok.
+func TestClassifyEndLineDrift(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	src := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	exists := func(string) (string, bool) { return "The function SHALL return 1 exactly.", true }
+
+	// Stamp at the node's real span (End=5, matching EndLine), then
+	// hand-shrink the anchor's recorded End to 4 to simulate a row whose
+	// end line drifted after stamping while its content hash — computed
+	// from the node's REAL span at classification time, not the anchor's
+	// recorded range — still matches exactly.
+	a := Stamp(ws, g, "X-TST-002", "The function SHALL return 1 exactly.", "go:pkg.F")
+	if a.End != 5 {
+		t.Fatalf("setup: stamped End = %d, want 5", a.End)
+	}
+	a.End = 4
+
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
+	if rs[0].Class != Moved {
+		t.Fatalf("end-line drift (anchor End=4, node EndLine=5, matching content) should be Moved, got %s", rs[0].Class)
+	}
+}
+
+// TestClassifyExactEndMatchIsOK (DRF-002, test 2 of T-0107): file, start
+// AND end all matching stays OK — the fix must narrow OK, not eliminate it.
+func TestClassifyExactEndMatchIsOK(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	src := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	exists := func(string) (string, bool) { return "The function SHALL return 1 exactly.", true }
+
+	a := Stamp(ws, g, "X-TST-003", "The function SHALL return 1 exactly.", "go:pkg.F")
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
+	if rs[0].Class != OK {
+		t.Fatalf("exact file/start/end match should be OK, got %s", rs[0].Class)
+	}
+}
+
+// ---- DRF-003: staleness guard ----
+
+// TestClassifyStalePending (DRF-003, test 3 of T-0107): a staleness
+// predicate reporting the node's file as newer than the graph must
+// short-circuit to Pending BEFORE any hash comparison — proven by handing
+// Classify an anchor whose CHash could not possibly match the real span
+// (so a hash comparison, if one ran, would classify it Evolved) and
+// confirming Pending anyway, with no NewHash recorded (i.e. SpanHash was
+// never even called).
+func TestClassifyStalePending(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	src := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	exists := func(string) (string, bool) { return "The function SHALL return 1 exactly.", true }
+
+	a := Stamp(ws, g, "X-TST-004", "The function SHALL return 1 exactly.", "go:pkg.F")
+	a.CHash = "0000000000000000" // deliberately wrong: would classify Evolved if a hash comparison ran
+
+	staleCalls := 0
+	stale := func(file string) bool {
+		staleCalls++
+		if file != "pkg/f.go" {
+			t.Fatalf("stale predicate called with unexpected file %q", file)
+		}
+		return true
+	}
+	rs := Classify(ws, g, []Anchor{a}, exists, stale)
+	if rs[0].Class != Pending {
+		t.Fatalf("stale graph should degrade to Pending regardless of the (deliberately wrong) hash, got %s", rs[0].Class)
+	}
+	if rs[0].NewHash != "" {
+		t.Fatalf("Pending from staleness must not carry a computed hash — no comparison should have run, got %q", rs[0].NewHash)
+	}
+	if staleCalls == 0 {
+		t.Fatalf("stale predicate was never called")
+	}
+}
+
+// TestClassifyNilStalePreservesOldBehavior (DRF-003, test 4 of T-0107,
+// regression guard): a nil staleness predicate must behave exactly like
+// Classify did before DRF-003 — hash-based classification, unchanged.
+// internal/lifecycle's audit gate and state's read-only drift section both
+// call Classify with nil (see their call sites) and depend on this.
+func TestClassifyNilStalePreservesOldBehavior(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte("package x\n\nfunc F() int {\n\treturn 2\n}\n"), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	exists := func(string) (string, bool) { return "The function SHALL return 1 exactly.", true }
+
+	// Anchor stamped against the OLD content ("return 1"); the file on disk
+	// now says "return 2" — a genuine code-side change that nil staleness
+	// must still classify as Evolved, exactly as pre-DRF-003 Classify did.
+	a := Anchor{Rule: "X-TST-005", Node: "go:pkg.F", File: "pkg/f.go", Start: 3, End: 5,
+		CHash: NormHash([]byte("func F() int {\n\treturn 1\n}")),
+		RHash: NormHash([]byte("The function SHALL return 1 exactly."))}
+
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
+	if rs[0].Class != Evolved {
+		t.Fatalf("nil staleness should not change hash-based classification, got %s", rs[0].Class)
+	}
+}
+
+// TestClassifyFalseHealGuard (DRF-003, test 5 of T-0107, false-heal
+// reproduction end to end): the graph's node position is stale by four
+// lines — as if four lines were inserted above the function without a
+// reindex, the exact go:main.main shape measured twice in this repo
+// (stored ff8dc53a80235df9, computed 2fd917f5bdf2bc9d over the stale
+// range, classified Evolved, auto-healed). The function's own content is
+// untouched at its real, shifted location. Without a staleness signal,
+// Classify hashes the NEW file at the OLD stale range and gets a
+// different hash — a false Evolved, reproduced here first. With the
+// staleness predicate wired, the same inputs must classify Pending
+// instead, and Pending must never be auto-healed (see check() in
+// internal/mcpserver/tools.go, which only heals Evolved).
+func TestClassifyFalseHealGuard(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	orig := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(orig), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	exists := func(string) (string, bool) { return "The function SHALL return 1 exactly.", true }
+
+	a := Stamp(ws, g, "X-TST-006", "The function SHALL return 1 exactly.", "go:pkg.F")
+
+	// Four lines inserted above the function (its own body byte-for-byte
+	// unchanged) with NO reindex: g still says Line=3/EndLine=5, but F's
+	// real body now lives at 7-9.
+	shifted := "package x\n\n// one\n// two\n// three\n// four\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(shifted), 0o644)
+
+	// Reproduction, no staleness signal: the stale graph range (3-5) read
+	// over the new file content is a different span, hashes differently,
+	// and mis-classifies as Evolved — the exact false heal DRF-003 fixes.
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
+	if rs[0].Class != Evolved {
+		t.Fatalf("setup check: expected the unguarded call to reproduce the false Evolved heal, got %s", rs[0].Class)
+	}
+
+	// With the staleness predicate wired, the same inputs must not
+	// classify Evolved.
+	rs = Classify(ws, g, []Anchor{a}, exists, func(string) bool { return true })
+	if rs[0].Class != Pending {
+		t.Fatalf("stale graph over a real (but relocated) node must not classify Evolved, got %s", rs[0].Class)
 	}
 }

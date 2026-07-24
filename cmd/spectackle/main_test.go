@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -289,6 +291,53 @@ func TestReindexExitCode(t *testing.T) {
 	// cache landed inside .spectackle/cache, never elsewhere in the workspace
 	if _, err := os.Stat(filepath.Join(root, ".spectackle", "cache", "index.db")); err != nil {
 		t.Fatalf("cache not created where expected: %v", err)
+	}
+}
+
+// TestReindexBuildsSymbolGraph is DEFECT 3's proof: `reindex` previously
+// only resynced the spec/doc cache via internal/sync — the symbol graph
+// drift depends on was built exclusively inside the MCP server, so this
+// command's name and help text promised a rebuild it never performed. A
+// workspace with at least one Go file (two functions, one calling the
+// other, so a call edge exists too) must now produce non-zero node AND
+// edge counts, logged in the same "files, nodes, edges" shape
+// mcpserver.Server.reindex already used — the one place an operator can
+// confirm reindex actually ran.
+func TestReindexBuildsSymbolGraph(t *testing.T) {
+	root := t.TempDir()
+	writeSpec(t, root, "---\nschema: v0\n---\n")
+	src := "package pkg\n\nfunc A() int {\n\treturn B()\n}\n\nfunc B() int {\n\treturn 1\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "f.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var logBuf bytes.Buffer
+	origOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(origOut)
+
+	if code := reindex([]string{"-root", root}); code != 0 {
+		t.Fatalf("reindex = %d, want 0: log=%s", code, logBuf.String())
+	}
+
+	out := logBuf.String()
+	m := regexp.MustCompile(`(\d+) files, (\d+) nodes, (\d+) edges`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("reindex log output missing the files/nodes/edges counts: %q", out)
+	}
+	nodes, err := strconv.Atoi(m[2])
+	if err != nil {
+		t.Fatalf("parsing node count %q: %v", m[2], err)
+	}
+	edges, err := strconv.Atoi(m[3])
+	if err != nil {
+		t.Fatalf("parsing edge count %q: %v", m[3], err)
+	}
+	if nodes == 0 {
+		t.Fatalf("reindex reported 0 nodes for a workspace with a Go file: %q", out)
+	}
+	if edges == 0 {
+		t.Fatalf("reindex reported 0 edges for a workspace with a call between two functions: %q", out)
 	}
 }
 

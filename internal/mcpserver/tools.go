@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -966,6 +967,52 @@ func (s *Server) openNeeds(it item.Item) []string {
 
 // ---- check ----
 
+// staleFile reports whether file (repo-relative, as stored on graph.Node)
+// was modified after the active root's graph was last successfully
+// rebuilt (DRF-003). Under the resident -http server, s.reindex only runs
+// at startup and on reroot (SPX-MCP-003 refreshes the .spectackle files,
+// never the graph), so a code edit made through any other channel leaves
+// s.g's node Line/EndLine pointing at positions that no longer mean what
+// they did when they were indexed; hashing that stale range against the
+// new file content silently produces a hash for a span that isn't the
+// node. check wires this into drift.Classify (as its stale predicate) so
+// such an anchor degrades to Pending instead of a hash-based verdict —
+// see drift.Classify's doc comment for the false-heal this closes
+// (go:main.main hashed twice at stale positions in this repo, both
+// auto-healed as Evolved, both wrong).
+//
+// A stat failure (file deleted, permission error) reports not-stale:
+// Classify already has a dedicated Gone path once SpanHash itself fails to
+// read the file, so staleFile's job is narrowly "is the on-disk file newer
+// than the graph", not "does the file still exist".
+func (s *Server) staleFile(file string) bool {
+	fi, err := os.Stat(filepath.Join(s.ws.Dir, file))
+	if err != nil {
+		return false
+	}
+	return fi.ModTime().After(s.indexedAt)
+}
+
+// anchorsNeedRefresh reports whether any anchor's recorded file has changed
+// on disk since the graph was last built — the gate for check's conditional
+// reindex (DRF-003). Anchor.File is used directly rather than resolving
+// through s.g.Node first: it is what SpanHash will read regardless of
+// whether the node itself has since moved files, it is already populated
+// on every non-pending anchor, and checking it costs no graph lookup.
+// Pending anchors (File == "-": the node was never indexed) are skipped —
+// there is nothing on disk yet to compare a graph timestamp against.
+func (s *Server) anchorsNeedRefresh(anchors []drift.Anchor) bool {
+	for _, a := range anchors {
+		if a.File == "-" {
+			continue
+		}
+		if s.staleFile(a.File) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// T-0086 live proof: default budget is 1500 tokens; this comment only
 	// shifts the function's code hash — the MCP-004 rule sentence above is
@@ -1027,10 +1074,32 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	sort.Strings(orphans)
 	lines = append(lines, orphans...)
 
+	// DRF-003 conditional refresh: Pending alone is an incomplete cure. A
+	// resident -http server's graph is only rebuilt at startup/reroot
+	// (SPX-MCP-003 refreshes .spectackle files only), so an out-of-band
+	// code edit leaves anchors classifying Pending forever once staleFile
+	// is wired — a wrong "evolved" answer traded for no answer at all,
+	// which makes drift detection inert exactly under the mode this task
+	// exists to make trustworthy. So: if any anchor's file changed since
+	// the graph was last built, reindex ONCE for this call before
+	// classifying — conditional on real staleness, not per-call. This does
+	// NOT reintroduce the unconditional per-call reindexing P-0077
+	// explicitly rejected ("Indexing this repository costs a full file
+	// walk; paying it per tool call would undo the reason the resident
+	// service exists"): the walk only runs when anchorsNeedRefresh finds a
+	// genuinely stale file, so an unchanged workspace pays nothing extra.
+	// staleFile stays wired into Classify below regardless — if reindex
+	// itself fails, it logs and keeps the previous graph, s.indexedAt is
+	// untouched, staleFile still reports stale, and Classify still falls
+	// back to Pending: a refusal to judge, never a false heal.
+	if s.anchorsNeedRefresh(anchors) {
+		s.reindex()
+	}
+
 	results := drift.Classify(s.ws, s.g, anchors, func(id string) (string, bool) {
 		r, ok := c.Rule(id)
 		return r.Text, ok
-	})
+	}, s.staleFile)
 	changed := false
 	pending := 0
 	healed, audited := 0, 0

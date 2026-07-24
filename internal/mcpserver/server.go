@@ -108,6 +108,17 @@ type Server struct {
 
 	lastSweep time.Time
 
+	// indexedAt is when reindex last successfully rebuilt s.g (captured
+	// before the walk starts, not after — see reindex). check (DRF-003)
+	// compares a node's file ModTime against this to detect a graph that is
+	// older than the file it describes, so it can degrade to Pending
+	// instead of hashing a stale line range against fresh content. Zero
+	// value (never indexed) is handled the same as any other timestamp: any
+	// file's ModTime compares after it, so every node classifies Pending
+	// until the first successful reindex — correct, since there is no graph
+	// yet to trust either way.
+	indexedAt time.Time
+
 	// compact-hint cache (postCall's proactive nudge, T-0093): a debounced
 	// count of root journal events since the last compact, refreshed at most
 	// once every 30s (the same cadence as the stale-agent sweep above) so the
@@ -201,31 +212,57 @@ func openBlobs(ws workspace.Root) store.Store {
 	return b
 }
 
-// reindex rebuilds the symbol graph from the active root (startup and after
-// every reroot — worktree code diverges from main). A failed index run keeps
-// the previous graph: lifecycle tools must survive unparseable trees.
-func (s *Server) reindex() {
+// BuildGraph runs the full index pipeline — hand-written parsers first,
+// then every langspec-registered language (adding a language is one data
+// file in internal/langspec, no wiring), a syntactic pass over root, then
+// the M3 go/types-resolved call-edge upgrade pass — and returns the
+// resulting graph plus the syntactic Stats and the typed-call count.
+//
+// Exported and factored out of (*Server).reindex so the `spectackle
+// reindex` CLI subcommand (cmd/spectackle/main.go) can rebuild the exact
+// same symbol graph drift classification depends on, instead of silently
+// only resyncing the spec/doc cache while claiming to "reindex" (DEFECT 3 /
+// contract-pending T-0107): the two call sites sharing this one function is
+// what keeps them from drifting onto two different parser/resolver lists.
+func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (graph.Graph, index.Stats, int, error) {
 	g := graph.NewMem()
-	// hand-written parsers first, then every langspec-registered language —
-	// adding a language is one data file in internal/langspec, no wiring.
 	parsers := append(
 		[]index.LanguageParser{index.GoParser{}, index.AsmParser{}, index.CudaParser{}},
 		langspec.All()...)
-	ix := index.New(g, s.blobs, parsers,
-		resolve.Default().All(), s.ws.Cfg.Ignore...)
-	st, err := ix.IndexAll(context.Background(), s.ws.Dir)
+	ix := index.New(g, blobs, parsers,
+		resolve.Default().All(), ws.Cfg.Ignore...)
+	st, err := ix.IndexAll(ctx, ws.Dir)
 	if err != nil {
-		log.Printf("index: %v (keeping previous graph)", err)
-		return
+		return g, st, 0, err
 	}
 	// M3 upgrade pass: go/types-resolved call edges (chained selectors,
 	// cross-package methods). Best-effort — a broken module tree must not
 	// take the syntactic graph down with it.
-	typed, tErr := index.ResolveTypedCalls(context.Background(), g, s.ws.Dir, s.blobs)
+	typed, tErr := index.ResolveTypedCalls(ctx, g, ws.Dir, blobs)
 	if tErr != nil {
 		log.Printf("index: typed calls: %v (syntactic graph only)", tErr)
 	}
+	return g, st, typed, nil
+}
+
+// reindex rebuilds the symbol graph from the active root (startup and after
+// every reroot — worktree code diverges from main). A failed index run keeps
+// the previous graph: lifecycle tools must survive unparseable trees.
+//
+// indexedAt is captured BEFORE the walk starts, not after it finishes: a
+// file edited while (or immediately after) the walk is in flight must still
+// be treated as newer than this graph by check's staleness guard (DRF-003)
+// — using the start time is the conservative bound, using the finish time
+// would create a race window where such an edit looks indexed when it isn't.
+func (s *Server) reindex() {
+	t0 := time.Now()
+	g, st, typed, err := BuildGraph(context.Background(), s.ws, s.blobs)
+	if err != nil {
+		log.Printf("index: %v (keeping previous graph)", err)
+		return
+	}
 	s.g = g
+	s.indexedAt = t0
 	log.Printf("index: %d files, %d nodes, %d edges (+%d typed calls, %d skipped)",
 		st.Files, st.Nodes, st.Edges, typed, st.Skipped)
 }
