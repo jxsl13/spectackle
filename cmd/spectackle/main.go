@@ -1,9 +1,13 @@
 // Command spectackle is the spec-driven MCP server for cross-language
 // codebases. Subcommands:
 //
-//	spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
-//	                                         Streamable HTTP when -http is set
-//	                                         (workspace auto-detected)
+//	spectackle serve [-root DIR] [-http ADDR] [-pidfile PATH]
+//	                                  run the MCP server on stdio, or over
+//	                                  Streamable HTTP when -http is set
+//	                                  (workspace auto-detected); with
+//	                                  -pidfile, write the PID once the
+//	                                  server is ready and remove it on
+//	                                  shutdown
 //	spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
 //	spectackle reindex [-root DIR] force a cache resync (debugging aid)
 //	spectackle version             print the version
@@ -69,9 +73,12 @@ func run(args []string) int {
 
 func usage() {
 	log.Print(`usage:
-  spectackle serve [-root DIR] [-http ADDR] run the MCP server on stdio, or over
-                                            Streamable HTTP when -http is set
-                                            (workspace auto-detected)
+  spectackle serve [-root DIR] [-http ADDR] [-pidfile PATH]
+                                  run the MCP server on stdio, or over
+                                  Streamable HTTP when -http is set
+                                  (workspace auto-detected); with -pidfile,
+                                  write the PID once the server is ready
+                                  and remove it on shutdown
   spectackle lint  [PATH]        lint all EARS spec bundles, exit 1 on errors
   spectackle reindex [-root DIR] force a cache resync
   spectackle version             print the version`)
@@ -88,6 +95,7 @@ func serve(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	root := fs.String("root", ".", "workspace detection start / fallback root")
 	httpAddr := fs.String("http", "", "serve over Streamable HTTP on this address (e.g. 127.0.0.1:7331) instead of stdio")
+	pidfile := fs.String("pidfile", "", "write the process PID here once the server is ready to accept requests; removed on shutdown (fails if the file already exists)")
 	_ = fs.Parse(args)
 
 	s, err := mcpserver.New(*root)
@@ -98,6 +106,13 @@ func serve(args []string) int {
 	defer s.Close()
 
 	if *httpAddr == "" {
+		if *pidfile != "" {
+			if err := writePIDFile(*pidfile); err != nil {
+				log.Printf("serve: %v", err)
+				return 1
+			}
+			defer removePIDFile(*pidfile)
+		}
 		log.Printf("spectackle %s serving over stdio", mcpserver.Version)
 		if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			log.Printf("serve: %v", err)
@@ -116,7 +131,7 @@ func serve(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runHTTP(ctx, *httpAddr, handler); err != nil {
+	if err := runHTTP(ctx, *httpAddr, handler, *pidfile); err != nil {
 		log.Printf("serve: %v", err)
 		return 1
 	}
@@ -125,14 +140,58 @@ func serve(args []string) int {
 }
 
 // runHTTP listens on addr and serves handler until ctx is cancelled, then
-// gracefully shuts the server down. See runHTTPListener for the shutdown
-// semantics.
-func runHTTP(ctx context.Context, addr string, handler http.Handler) error {
+// gracefully shuts the server down. If pidfile is non-empty, the PID is
+// written only after the listener is successfully bound (never before — a
+// pidfile that exists while the port is still coming up invites a stop
+// command that races startup) and removed once the server has shut down.
+// See runHTTPListener for the shutdown semantics.
+func runHTTP(ctx context.Context, addr string, handler http.Handler, pidfile string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
+	if pidfile != "" {
+		if err := writePIDFile(pidfile); err != nil {
+			_ = ln.Close()
+			return err
+		}
+		defer removePIDFile(pidfile)
+	}
 	return runHTTPListener(ctx, ln, handler)
+}
+
+// writePIDFile creates path containing the current process's PID (decimal,
+// newline-terminated) with mode 0o644. It refuses to overwrite an existing
+// file: a pre-existing pidfile usually means a live server already claims
+// it, and clobbering it would strand that process with no stoppable handle.
+func writePIDFile(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("pidfile %s already exists (a server may already be running)", path)
+		}
+		return fmt.Errorf("pidfile %s: %w", path, err)
+	}
+	_, writeErr := fmt.Fprintf(f, "%d\n", os.Getpid())
+	closeErr := f.Close()
+	if writeErr != nil || closeErr != nil {
+		_ = os.Remove(path)
+		if writeErr != nil {
+			return fmt.Errorf("pidfile %s: %w", path, writeErr)
+		}
+		return fmt.Errorf("pidfile %s: %w", path, closeErr)
+	}
+	return nil
+}
+
+// removePIDFile removes a pidfile written by writePIDFile. It is a no-op if
+// the file is already gone, and only logs (to stderr, per CLI-001) on any
+// other removal error rather than changing the caller's exit code — pidfile
+// cleanup failing should not mask an otherwise-successful shutdown.
+func removePIDFile(path string) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("serve: failed to remove pidfile %s: %v", path, err)
+	}
 }
 
 // runHTTPListener serves handler on ln until ctx is cancelled (e.g. by a

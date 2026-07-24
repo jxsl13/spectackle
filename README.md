@@ -250,6 +250,50 @@ First calls of any session: `swarm {}` (who else is working, fresh
 learnings), then `get {"id": "."}` (root rules + active items) — the server
 instructions returned by `initialize` teach the rest of the loop.
 
+## Resident service (recommended for more than one call)
+
+The stdio recipe above is right for what MCP clients do: spawn the binary,
+talk over its stdin/stdout pipes, exit when the client disconnects. Its
+cost is that **every invocation re-indexes the workspace from scratch** —
+163 files on this repo, at each and every start. Fine for a single
+one-shot call; wasteful for a swarm of implementers, a long CI job, or
+anything issuing more than one call, where a resident process indexes
+**once** and answers every later call from the warm cache instead.
+
+Start it bound to localhost, with a pidfile so it has a stoppable handle:
+
+```sh
+./bin/spectackle serve -root . -http 127.0.0.1:7331 -pidfile .spectackle/serve.pid &
+```
+
+Point any Streamable-HTTP-capable MCP client at `http://127.0.0.1:7331` —
+same JSON-RPC frames as the stdio recipe above, only the transport
+changes. Stop it with the pidfile it wrote:
+
+```sh
+kill "$(cat .spectackle/serve.pid)"
+```
+
+`-pidfile PATH` is optional (empty by default, no file written) and is not
+gated on `-http` — it helps a backgrounded stdio server exactly the same
+way. Semantics: the PID is written, decimal plus a trailing newline, only
+*after* the listener is bound (never before — a pidfile that exists while
+the port is still coming up would let a stop command race startup); the
+file is removed automatically on graceful shutdown (SIGINT/SIGTERM); and
+`serve` refuses to start if the path already exists, since that usually
+means a server is already running there and overwriting it would strand
+that process with no way to be found and stopped.
+
+**Which one to use**: keep the stdio recipe for anything that registers
+spectackle as an `mcpServers` entry (Claude Code, the Quickstart above,
+every MCP client that spawns the binary itself) — that is the transport
+those clients speak, and swapping it for HTTP would break every existing
+config. Reach for the resident `-http` service when *you* are the one
+issuing repeated calls — a swarm, a script, a CI job — and want to pay the
+163-file index cost once instead of on every call. See also
+[docs/architecture.md](docs/architecture.md) §8 for the v0 caveat (one
+shared server instance backs every HTTP session).
+
 ## Orchestrated swarm workflow (cheap fresh subagents)
 
 This repo is developed the way it's meant to be used: **one strong
@@ -298,8 +342,8 @@ them by disjoint scope (leases prove disjointness), spawns one fresh
 implementer per task in parallel, and serializes only the shared-file
 wiring itself.
 
-For long-running swarms, run the server as a **resident service**
-(`spectackle serve -http <addr>`, see [docs/architecture.md](docs/architecture.md)
+For long-running swarms, run the server as a **resident service** (see
+"Resident service" above, and [docs/architecture.md](docs/architecture.md)
 §8) instead of spawning a fresh stdio process per agent — one shared
 process, one shared cache, no cold-start per implementer.
 
