@@ -19,6 +19,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/store"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // loadPackages is packages.Load, indirected through a package-level var so
@@ -215,10 +216,12 @@ func applyEdges(g graph.Graph, candidates []graph.Edge) []graph.Edge {
 // moduleHashKey computes the cache key for the whole module rooted at root:
 // sha256 over go.mod's raw contents followed by every tracked .go file's
 // (repo-relative slash path, sha256(contents)) pair, in sorted path order.
-// The walk mirrors indexer.go's IndexAll exactly (same ignoreDirs) so the key
-// changes whenever anything packages.Load could see changes — a new/removed
-// file, an edited file, or an edited go.mod (module path, Go version,
-// require/replace directives all affect type-checking).
+// The walk mirrors indexer.go's IndexAll exactly: it skips (a) built-in
+// ignoreDirs by name and (b) any nested git boundary via workspace.IsNestedGitBoundary
+// (linked worktrees, submodules, nested clones), guarded identically so neither fires
+// on the walk root itself. The key changes whenever anything packages.Load could see
+// changes — a new/removed file, an edited file, or an edited go.mod (module path, Go
+// version, require/replace directives all affect type-checking).
 func moduleHashKey(root string) ([32]byte, error) {
 	modBytes, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil {
@@ -232,6 +235,12 @@ func moduleHashKey(root string) ([32]byte, error) {
 		}
 		if d.IsDir() {
 			if ignoreDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+			// any nested git boundary (linked worktree, submodule, or nested
+			// clone) is foreign territory — this must mirror IndexAll's skip
+			// (see indexer.go's IndexAll walk).
+			if p != root && workspace.IsNestedGitBoundary(p) {
 				return filepath.SkipDir
 			}
 			return nil

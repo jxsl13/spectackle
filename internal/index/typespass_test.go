@@ -11,6 +11,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/store"
+	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
 // TestResolveTypedCallsChainedSelector reproduces the design doc's exit
@@ -222,6 +223,57 @@ func (d *D) Sweep() {}
 	}
 	if !found {
 		t.Fatalf("Neighbors(go:a.S.Run, Out, ECall) on the cache-hit graph = %+v, missing go:b.D.Sweep", edges)
+	}
+}
+
+// TestModuleHashKeyNestedGitBoundary proves that a .go file under a nested
+// git boundary (a linked worktree, submodule, or nested clone) does not
+// affect the computed module hash key. The hash key must mirror IndexAll's
+// walk, which skips nested git boundaries entirely so they never contribute
+// to the cache key — this ensures a cache hit remains valid even if such
+// foreign subdirectories change.
+func TestModuleHashKeyNestedGitBoundary(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+	writeFile(t, root, "main.go", `package main
+
+func main() {}
+`)
+
+	// First hash: base tree with just main.go
+	hash1, err := moduleHashKey(root)
+	if err != nil {
+		t.Fatalf("moduleHashKey (before nested boundary): %v", err)
+	}
+
+	// Create a nested git boundary: a directory with a .git file
+	// (simulating a linked worktree or submodule, which have a .git FILE
+	// with "gitdir: ..." content, not a .git DIRECTORY).
+	nestedDir := filepath.Join(root, "nested")
+	if err := os.Mkdir(nestedDir, 0755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	writeFile(t, nestedDir, ".git", "gitdir: /elsewhere/git\n")
+	writeFile(t, nestedDir, "nested.go", `package nested
+
+func Nested() {}
+`)
+
+	// Second hash: tree with the nested boundary and its .go file
+	hash2, err := moduleHashKey(root)
+	if err != nil {
+		t.Fatalf("moduleHashKey (after nested boundary): %v", err)
+	}
+
+	// The hashes must be identical: the walk must have skipped the nested
+	// boundary entirely, so nested.go never contributed to the key.
+	if hash1 != hash2 {
+		t.Errorf("module hash key changed after adding nested git boundary: %x -> %x", hash1, hash2)
+	}
+
+	// Sanity: verify that the nested boundary is actually detected as such.
+	if !workspace.IsNestedGitBoundary(nestedDir) {
+		t.Errorf("IsNestedGitBoundary(%s) = false, want true", nestedDir)
 	}
 }
 

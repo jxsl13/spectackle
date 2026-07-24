@@ -504,3 +504,5 @@
 {"t":"2026-07-24T19:21:47Z","eid":"a8757a044bed57a2","ag":"orchestrator","ev":"create","id":"T-0092","k":"task","ti":"typespass: mirror IndexAll's nested-git-boundary skip in moduleHashKey"}
 {"t":"2026-07-24T19:21:59Z","eid":"4f78e654aabffa89","ag":"orchestrator","ev":"move","id":"T-0091","fr":"draft","to":"active"}
 {"t":"2026-07-24T19:21:59Z","eid":"6ab2050a196f7859","ag":"orchestrator","ev":"move","id":"T-0092","fr":"draft","to":"active"}
+{"t":"2026-07-24T19:25:58Z","eid":"9fcfb94d032b63de","ag":"orchestrator","ev":"move","id":"T-0092","fr":"active","to":"archived"}
+{"t":"2026-07-24T19:25:58Z","eid":"2c70acdbc09be7e7","ag":"orchestrator","ev":"archive","id":"T-0092","k":"task","ti":"typespass: mirror IndexAll's nested-git-boundary skip in moduleHashKey","sum":"task typespass: mirror IndexAll's nested-git-boundary skip in moduleHashKey — IMPLEMENTER IN A DEDICATED WORKTREE (pre-created at .claude/worktrees/impl-b, based on HEAD); NO lifecycle moves; only lease claim, code+test, lease release, report. Scope (disjoint, ONE file plus its test if one exists): internal/index/typespass.go, and internal/index/typespass_test.go if a test file is present. A sib"}
