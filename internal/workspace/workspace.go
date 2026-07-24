@@ -33,7 +33,7 @@ type Config struct {
 	Ignore        []string   `yaml:"ignore"`
 	BudgetDefault int        `yaml:"budget_default"`
 	Compact       CompactCfg `yaml:"compact"`
-	Verify        []string   `yaml:"verify"`        // shell commands gating work-submit (e.g. "make test")
+	Verify        []string   `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
 	Swarm         SwarmCfg   `yaml:"swarm"`
 	WorktreesDir  string     `yaml:"worktrees_dir"` // override for .spectacle/wt (abs or root-relative)
 }
@@ -149,9 +149,11 @@ func (r Root) SpectacleDir(ctx string) string {
 
 // SpecPath / WorkPath / JournalPath locate the three bundle files of a
 // context dir, repo-relative ("" = root).
-func (r Root) SpecPath(ctx string) string    { return filepath.Join(r.SpectacleDir(ctx), "spec.md") }
-func (r Root) WorkPath(ctx string) string    { return filepath.Join(r.SpectacleDir(ctx), "work.md") }
-func (r Root) JournalPath(ctx string) string { return filepath.Join(r.SpectacleDir(ctx), "journal.ndjson") }
+func (r Root) SpecPath(ctx string) string { return filepath.Join(r.SpectacleDir(ctx), "spec.md") }
+func (r Root) WorkPath(ctx string) string { return filepath.Join(r.SpectacleDir(ctx), "work.md") }
+func (r Root) JournalPath(ctx string) string {
+	return filepath.Join(r.SpectacleDir(ctx), "journal.ndjson")
+}
 
 // AnchorsPath is root-only (workspace-wide bindings).
 func (r Root) AnchorsPath() string { return filepath.Join(r.Dir, Dot, "anchors.tsv") }

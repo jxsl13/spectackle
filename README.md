@@ -84,9 +84,9 @@ plugin interfaces for arbitrary languages later.
 | Spec lifecycle: draft/move/archive, revocable rejections, journal corpus | ✅ live |
 | Server-authored contracts (`rule`: slots → compose → lint gate → auto-ID, MCP elicitation) | ✅ live |
 | Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
-| Drift anchors + backprop (`check`/`compact`) | ✅ live (spans pending until M1 graph) |
+| Drift anchors + backprop (`check`/`compact`) | ✅ live |
 | **Multi-agent swarm**: scope leases, shared coord.db, realtime sibling learnings, git-worktree isolation (`work start/submit/abort`) with semantic replay merge | ✅ live |
-| Cross-language graph, tree-sitter/`go/parser` indexing | 🔜 M1/M2 |
+| Cross-language graph: `go/parser` + Plan 9 asm + CUDA line-scanner chains, persistent parse cache | ✅ live (tree-sitter/wazero still future, for full C/C++) |
 | Self-hosting gate | 🔜 M5 ([roadmap](docs/roadmap.md)) |
 
 ## Quickstart

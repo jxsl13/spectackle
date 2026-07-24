@@ -96,6 +96,6 @@ draft the backprop proposal.
 - The rejection search up front and the drift check at the end are what keep
   this loop from ever doing the same failed work twice.
 
-*(Graph-backed records — `n`/`e` lines and anchor spans — go live with the
-M1 indexer; the lifecycle, contracts, rejection corpus and check/compact
-mechanics above run for real today.)*
+*(Graph-backed records — `n`/`e` lines and anchor spans — are live as of the
+M1 indexer, alongside the lifecycle, contracts, rejection corpus and
+check/compact mechanics above.)*

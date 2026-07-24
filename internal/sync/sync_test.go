@@ -59,10 +59,10 @@ func TestRefreshFeedsAllBundleKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for q, kind := range map[string]string{
-		"FTS cache":     "rule",
-		"Testing":       "section",
-		"observable":    "proposal",
-		"reproducible":  "rejection",
+		"FTS cache":    "rule",
+		"Testing":      "section",
+		"observable":   "proposal",
+		"reproducible": "rejection",
 	} {
 		docs, err := s.Cache.Search(q, []string{kind}, 3)
 		if err != nil || len(docs) == 0 {
