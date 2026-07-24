@@ -1,9 +1,12 @@
 # MCP tool surface
 
-Fifteen orthogonal tools (eleven lifecycle + three swarm + one codegen). The Go structs in `internal/mcpserver/tools.go` are
-the normative schema source (SPX-REPO-001 keeps this file consistent with
-them). The server-description (MCP `instructions`, sent in the initialize
-handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
+Sixteen orthogonal tools (eleven lifecycle + three swarm + one codegen + one
+fleet). The Go structs in `internal/mcpserver/tools.go` (and, for `decide`,
+`commands` and `knowledge`, their sibling files `decide.go`/`commands.go`/
+`knowledge.go`) are the normative schema source (SPX-REPO-001 keeps this
+file consistent with them). The server-description (MCP `instructions`, sent
+in the initialize handshake) teaches the lifecycle loop — see
+`internal/mcpserver/server.go`.
 
 ## Design principles
 
@@ -17,7 +20,10 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 - **Corrections instead of errors** (SPX-ARC-003): unknown ID → `nf` with
   the nearest matches.
 - **The LLM never writes .spectackle files** — `draft`, `rule`, `move`,
-  `compact` are the only write paths, and they are server-side.
+  `compact` and `knowledge op=apply` are the only write paths, and they are
+  server-side; `knowledge op=apply` writes through no path of its own — every
+  entry it persists goes through `rule`'s own composer (`spec.AddRule`) or
+  `decide`'s own ADR persistence (`lifecycle.Draft` + `item.Upsert`).
 
 ## Output line grammar
 
@@ -34,6 +40,8 @@ d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|stale)
 d healed <rule> <node> <file>:<s>-<e> was=<h> now=<h>  drift, mechanically healed (evolved)
 d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|diverged)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
+cf <kind> <key> n=<count>                        knowledge merge conflict (same identity, different substance)
+cf> count=<n> <preview> sources=<repo,...>        one conflicting answer inside a cf record
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
@@ -429,7 +437,96 @@ output). Writes go straight to disk (`os.WriteFile`) — these are generated
 repo files, not `.spectackle/` lifecycle state: no journal event, just one
 coord `commands` emit so siblings see it happened in realtime.
 
-### 16. Prompts — slash-command entry points
+### 16. `knowledge` — fleet-portable knowledge (export, merge, apply)
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":       {"enum":["export","merge","apply"]},
+  "source":   {"type":"string","description":"export: repository label; default this binary's own module path"},
+  "entries":  {"type":"array","items":{"type":"object"},"description":"export brownfield path: caller-authored entries — kind, payload fields, asserted_by/derived_from source labels"},
+  "out":      {"type":"string","description":"export: also write the marshaled artifact to this path"},
+  "paths":    {"type":"array","items":{"type":"string"},"description":"merge|apply: artifact file paths to read"},
+  "artifacts":{"type":"array","items":{"type":"string"},"description":"merge|apply: inline marshaled artifacts"},
+  "dir":      {"type":"string","description":"apply: context dir every added entry lands in, default root"},
+  "stem":     {"type":"string","description":"apply: rule ID stem for added rules; default derived from the artifact's first source"}}}
+```
+
+One noun, three ops on `internal/knowledge`'s artifact format (rules, ADRs,
+whitelisted prose sections — see that package's doc comment), matching how
+`decide`, `rule`, `lease` and `work` already put multiple operations behind
+one tool name instead of growing the tool count.
+
+**`export`** produces this workspace's artifact. Two modes: with no
+`entries`, walks the cascade and items via `knowledge.Extract` — `source`
+defaults to this binary's own module path, derived the same way
+`moduleRepoURL` derives its `https://` URL (`debug.ReadBuildInfo`, never
+hardcoded). With `entries`, the **brownfield** path for a repository with no
+`.spectackle` bundle at all: an LLM that surveyed code/tests/docs authors
+entries directly, and every one is routed through `knowledge.NewEntry` —
+validated and content-keyed exactly like an Extracted entry; there is no
+key/id field on an entry, a caller cannot supply one even by mistake. The
+marshaled artifact is always returned inline, and `out=` additionally writes
+it to a path (a fleet workflow needs a file to move between repositories) —
+refused if that path falls inside `.spectackle` (server territory,
+SPX-ARC-005).
+
+**`merge`** parses N artifacts (`paths=` file paths and/or `artifacts=`
+inline text, either or both), folds them with `knowledge.Merge`, and returns
+the condensate plus every conflict as dense `cf` records — conflicts are
+reported, never auto-resolved:
+
+```
+cf <kind> <key> n=<count>
+cf> count=<n> decision="..."|text="..."|prose="..." sources=<repo,repo,...>
+```
+
+one `cf>` line per distinct answer inside the conflict.
+
+**`apply`** folds exactly one artifact (`paths`/`artifacts` — cardinality
+other than 1 is a caller error) into this workspace. **Additive only**: adds
+what the workspace lacks, never deletes, never overwrites a local
+specialization — an identity (`Kind`+content key) the workspace already
+carries is skipped wholesale, its substance never compared, so a
+same-question-different-answer ADR already resolved locally stays exactly as
+this repo decided it. **Idempotent**: applying the same artifact twice adds
+nothing the second time. Dedup is on the **content key**, never on rule ID —
+the receiving repo mints its own IDs (`spec.AddRule`'s usual minting, `dir=`
++ `stem=`, default stem derived from the artifact's first source label), so
+the same sentence arriving twice has to be recognized by what it says.
+`internal/knowledge/apply.go`'s pure diff function is named **`FoldInto`**,
+not `Apply` — `knowledge.Apply` already means "fold a conflict Resolution
+into an artifact" (a different operation on a different pair of types);
+`FoldInto` folds an Artifact into a workspace's own knowledge instead.
+**No new write path**: a rule entry goes through the exact composer `rule
+op=add` uses (`spec.AddRule` — lints, auto-IDs, appends to the scoped
+spec.md); an ADR entry persists exactly like `decide`'s own resolved-decision
+outcome (`lifecycle.Draft` + `item.Upsert`, state set straight to `done`
+since the decision already happened in the artifact's origin repo — there is
+no question left to elicit). An applied rule carries **no `applies`
+binding** on purpose, so it anchors nothing yet — `check`'s coverage-gap
+pass (`g uncovered`, untouched by this tool) is exactly the adoption
+worklist that leaves open. `apply`'s own trailer echoes that same count in
+the same call, so the caller does not need a separate `check` round trip to
+see it:
+
+```
+ok added=<N> skipped=<S> gaps=<G> [unsupported=<U>]
+```
+
+`gaps` is `check`'s own whole-workspace coverage-gap count (`g uncovered`),
+recomputed against the freshly written cascade — not a delta this call
+caused (an applied rule, once it lands under `dir=`, can only ever close a
+coverage gap there, never open one; the number is "how much of the adoption
+worklist is still open", not "how many gaps this call opened"). Contract:
+MCP-009. `unsupported` (only shown when nonzero) counts `intent` entries in
+the incoming artifact: `Extract` keys a whole prose section as one entry,
+but the only existing write path for `## intent` (`spec.AppendIntent`) is
+line-additive, so folding a whole-section blob through it would break
+`FoldInto`'s own idempotence contract on a second apply (the re-extracted,
+now-combined section hashes to a different key than the standalone entry
+that went in) — deliberately left unfolded rather than silently wrong.
+
+### 17. Prompts — slash-command entry points
 
 Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`

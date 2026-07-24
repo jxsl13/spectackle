@@ -55,10 +55,11 @@ func (s *Server) preCall() error {
 	return s.scan.Refresh()
 }
 
-// postCall prepends unseen sibling learnings (sw records) and a proactive
-// compact-due hint (c record, T-0093) to a text result — the piggyback
-// realtime channel. Either block may be empty; the result is only touched
-// when at least one of them has something to say.
+// postCall prepends unseen sibling learnings (sw records), a proactive
+// compact-due hint (c record, T-0093) and a proactive stale-binary hint (sb
+// record, T-0115) to a text result — the piggyback realtime channel. Any
+// block may be empty; the result is only touched when at least one of them
+// has something to say.
 func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 	if res == nil || len(res.Content) == 0 {
 		return res
@@ -87,6 +88,9 @@ func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 		}
 	}
 	if hint := s.compactHint(); hint != "" {
+		b.WriteString(hint + "\n")
+	}
+	if hint := s.staleHint(); hint != "" {
 		b.WriteString(hint + "\n")
 	}
 	if b.Len() == 0 {
@@ -147,6 +151,134 @@ func rootJournalSince(ws workspace.Root) int {
 		since++
 	}
 	return since
+}
+
+// staleCheckInterval caps how often binaryStale re-walks the source tree: a
+// full walk per tool call is unacceptable (T-0115), so the verdict is
+// cached and reused for up to this long — the same 30s cadence already used
+// by the stale-agent sweep (preCall, above) and the compact-hint journal
+// recount (compactHint, above), so the whole file shares one notion of "how
+// stale a cached fact is allowed to get" instead of inventing a second one.
+const staleCheckInterval = 30 * time.Second
+
+// staleHintText names the fix directly (make dev, added by the sibling
+// Makefile task in this same proposal, T-0115/MCP-010) — there is nothing
+// else useful to say once the running binary and the tree on disk have
+// diverged.
+const staleHintText = "sb stale — code changed since build; rebuild+restart: make dev"
+
+// osExecutable is os.Executable, indirected so tests can simulate a lookup
+// failure or an unstattable path without touching the real test binary;
+// staleHint must degrade to silence either way (T-0115), never surface an
+// error on a tool call.
+var osExecutable = os.Executable
+
+// staleHint returns a dense "sb stale" record (T-0115, MCP-010) at most
+// once per crossing, mirroring compactHint's shape exactly: same append
+// point in postCall, same debounce discipline, same terse record style.
+// Unlike compactHint's threshold count, the signal here is a plain boolean
+// (binary built before the newest source file, or not), so the "once per
+// crossing" rule is simpler than compactHint's re-notify-on-further-growth
+// case: the hint fires once when the verdict flips to true, stays silent
+// for the rest of that streak no matter how many more files change, and
+// re-arms only when the verdict flips back to false (a rebuild happened).
+func (s *Server) staleHint() string {
+	if time.Since(s.lastStaleCheck) > staleCheckInterval {
+		s.lastStaleCheck = time.Now()
+		s.stale = binaryStale(s.ws)
+	}
+	if !s.stale {
+		s.staleHinted = false // re-armed: rebuilt, or never stale to begin with
+		return ""
+	}
+	if s.staleHinted {
+		return "" // already surfaced this crossing
+	}
+	s.staleHinted = true
+	return staleHintText
+}
+
+// selfModule reports whether dir/go.mod declares spectackle's own module
+// (modulePath, server.go) — i.e. whether the workspace being served is a
+// checkout of the very repository this binary was built from. That is the
+// ONLY case in which "when was I built" and "when was this tree's source
+// last touched" are the same question (T-0115's premise: "this repository
+// develops itself with itself"). Pointed at an unrelated codebase this
+// binary's own build time has no bearing on that tree's staleness at all —
+// binaryStale must not even walk then, or every spectackle deployment
+// serving a third-party Go project would nag about rebuilding spectackle
+// every time that project's own source changed.
+func selfModule(dir string) bool {
+	raw, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if mod, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(mod) == modulePath
+		}
+	}
+	return false
+}
+
+// binaryStale reports whether any .go file under ws.Dir carries a ModTime
+// newer than the running executable's — the server would then demonstrably
+// be serving code that no longer matches the tree it's rooted in (T-0115).
+// Gated by selfModule: only a checkout of spectackle's own module is ever
+// walked. os.Stat (not Lstat) resolves symlinks on both sides: a dev binary
+// is often one (wrapper scripts, reload tooling), and "when was this code
+// last built" is meaningless against raw link metadata.
+//
+// The walk stops at the first newer file (filepath.SkipAll) — only a
+// boolean is needed, never the actual newest mtime — and prunes exactly
+// like every other workspace walk via ws.SkipDir: vendored trees, nested
+// git boundaries (sibling worktrees!) and configured ignores are pruned
+// before they are ever stat'd, so this cannot degenerate into re-walking
+// every leased worktree or cache dir on every tool call.
+func binaryStale(ws workspace.Root) bool {
+	if !selfModule(ws.Dir) {
+		return false // not spectackle's own module: nothing meaningful to compare
+	}
+	exe, err := osExecutable()
+	if err != nil {
+		return false // no executable path to compare against: stay silent
+	}
+	bin, err := os.Stat(exe)
+	if err != nil {
+		return false // unstattable binary: stay silent, never error the call
+	}
+	binTime := bin.ModTime()
+
+	stale := false
+	_ = filepath.WalkDir(ws.Dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable entry: skip it, don't abort the walk
+		}
+		if d.IsDir() {
+			if p == ws.Dir {
+				return nil
+			}
+			rel, _ := filepath.Rel(ws.Dir, p)
+			rel = filepath.ToSlash(rel)
+			if ws.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(d.Name()) != ".go" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil // unreadable entry: skip it, don't abort the walk
+		}
+		if info.ModTime().After(binTime) {
+			stale = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return stale
 }
 
 func swLine(e coord.Event) string {

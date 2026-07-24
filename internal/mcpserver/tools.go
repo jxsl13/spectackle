@@ -186,6 +186,10 @@ func (s *Server) registerTools() {
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
 		gate(s, s.state))
 
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "knowledge",
+		Description: "Fleet-portable knowledge: export|merge|apply on one artifact format (rules+ADRs+intent, see internal/knowledge). export: this workspace's contracts (or, with entries=, caller-authored brownfield entries validated+keyed like an extracted one) — inline and/or written to out=. merge: N artifacts (paths|artifacts=inline) condensed by recurrence; conflicts (same identity, different substance — ADRs only) reported as cf records, never auto-resolved. apply: fold ONE artifact into this workspace — additive only (never deletes, never overwrites a local answer), idempotent, dedup on content key not ID. Rules go through the same composer rule op=add uses; ADRs persist like decide's resolved outcome. Applied rules carry no applies binding on purpose — check's coverage gaps are the adoption worklist; apply's own gaps= trailer echoes that count in the same call (MCP-009)."},
+		gate(s, s.knowledgeTool))
+
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
 		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {

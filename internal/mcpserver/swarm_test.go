@@ -1,11 +1,13 @@
 package mcpserver
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -349,5 +351,188 @@ func TestCompactHintFiresOncePerCrossing(t *testing.T) {
 	out2 := callText(t, alice, "get", map[string]any{"id": "does-not-matter"})
 	if strings.Contains(out2, "c . journal") {
 		t.Fatalf("compact hint repeated on the very next call: %q", out2)
+	}
+}
+
+// ---- T-0115: stale-binary hint (postCall's second proactive nudge,
+// mirroring compactHint's shape exactly — see swarm.go: staleHint,
+// binaryStale) ----
+
+// fakeBinary creates a stand-in "binary" file with an explicit ModTime, so
+// the tests below can compare it against source mtimes exactly, instead of
+// racing whatever moment `go test` happened to compile the real test
+// binary.
+func fakeBinary(t *testing.T, mtime time.Time) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "spectackle-bin")
+	if err := os.WriteFile(p, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// withFakeExecutable swaps osExecutable (swarm.go's os.Executable
+// indirection, added so this is testable without touching the real running
+// test binary) for the duration of the calling test, restoring the original
+// on cleanup.
+func withFakeExecutable(t *testing.T, path string, err error) {
+	t.Helper()
+	orig := osExecutable
+	osExecutable = func() (string, error) { return path, err }
+	t.Cleanup(func() { osExecutable = orig })
+}
+
+// selfModuleRoot creates a temp directory whose go.mod declares spectackle's
+// own module (modulePath, server.go) — the one precondition binaryStale's
+// selfModule gate requires before it will look at any file's mtime at all
+// (see swarm.go: selfModule). Every test below that needs the walk to
+// actually run uses this instead of a bare t.TempDir(); none of the
+// package's OTHER fixtures (plain temp dirs, gitRoot's throwaway repos) ever
+// declare this module, which is exactly why the gate leaves them silent —
+// see TestStaleHintSilentOutsideOwnModule.
+func selfModuleRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module "+modulePath+"\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// freshGoFile writes a .go file whose ModTime is unambiguously "now" —
+// newer than any fakeBinary stamped with a past timestamp earlier in the
+// same test.
+func freshGoFile(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package p\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(path, now, now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestStaleHintSilentWhenBinaryNewer covers case 1: a binary built after
+// every source file under the root is not stale — no hint, ever.
+func TestStaleHintSilentWhenBinaryNewer(t *testing.T) {
+	root := selfModuleRoot(t)
+	past := time.Now().Add(-time.Hour)
+	if err := os.WriteFile(filepath.Join(root, "old.go"), []byte("package root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(root, "old.go"), past, past); err != nil {
+		t.Fatal(err)
+	}
+	withFakeExecutable(t, fakeBinary(t, time.Now()), nil) // binary freshly "built", after old.go
+
+	s := &Server{ws: workspace.Root{Dir: root}}
+	if hint := s.staleHint(); hint != "" {
+		t.Fatalf("hint fired though the binary postdates every source file: %q", hint)
+	}
+}
+
+// TestStaleHintFiresOnCrossing covers case 2, end-to-end through the real
+// MCP path (postCall wired via the swarm tool, like
+// TestCompactHintFiresOncePerCrossing above): a source file newer than the
+// binary produces exactly one hint naming the rebuild command.
+func TestStaleHintFiresOnCrossing(t *testing.T) {
+	root := selfModuleRoot(t)
+	withFakeExecutable(t, fakeBinary(t, time.Now().Add(-time.Hour)), nil)
+	freshGoFile(t, filepath.Join(root, "pkg", "fresh.go"))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "sb stale") || !strings.Contains(out, "make dev") {
+		t.Fatalf("stale hint missing or doesn't name the rebuild command: %q", out)
+	}
+}
+
+// TestStaleHintOncePerCrossing covers case 3: the very next call, still
+// inside the 30s debounce window and still in the same "stale" streak, must
+// not repeat the hint.
+func TestStaleHintOncePerCrossing(t *testing.T) {
+	root := selfModuleRoot(t)
+	withFakeExecutable(t, fakeBinary(t, time.Now().Add(-time.Hour)), nil)
+	freshGoFile(t, filepath.Join(root, "fresh.go"))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, "sb stale") {
+		t.Fatalf("expected the hint on the crossing call: %q", out)
+	}
+	out2 := callText(t, alice, "get", map[string]any{"id": "does-not-matter"})
+	if strings.Contains(out2, "sb stale") {
+		t.Fatalf("stale hint repeated within the debounce window: %q", out2)
+	}
+}
+
+// TestStaleHintHonorsSkipDir covers case 4 — the one a naive walk fails: a
+// source file newer than the binary but buried under a directory every
+// workspace walk prunes (node_modules is one of workspace's built-in
+// defaultSkipNames, reached only through ws.SkipDir) must NOT trigger the
+// hint. A walk that didn't route through ws.SkipDir would descend into it
+// and report staleness that isn't real.
+func TestStaleHintHonorsSkipDir(t *testing.T) {
+	root := selfModuleRoot(t)
+	withFakeExecutable(t, fakeBinary(t, time.Now().Add(-time.Hour)), nil)
+	freshGoFile(t, filepath.Join(root, "node_modules", "pkg", "fresh.go"))
+
+	s := &Server{ws: workspace.Root{Dir: root}}
+	if hint := s.staleHint(); hint != "" {
+		t.Fatalf("hint fired for a file inside a pruned directory (naive walk): %q", hint)
+	}
+}
+
+// TestStaleHintDegradesToSilence covers case 5: both failure modes —
+// os.Executable itself erroring, and a resolvable path that can't be
+// stat'd — degrade to silence, never to an error surfaced on a tool call.
+func TestStaleHintDegradesToSilence(t *testing.T) {
+	root := selfModuleRoot(t)
+	freshGoFile(t, filepath.Join(root, "fresh.go"))
+
+	t.Run("os.Executable fails", func(t *testing.T) {
+		withFakeExecutable(t, "", errors.New("boom"))
+		s := &Server{ws: workspace.Root{Dir: root}}
+		if hint := s.staleHint(); hint != "" {
+			t.Fatalf("hint fired despite os.Executable failing: %q", hint)
+		}
+	})
+
+	t.Run("binary path unstattable", func(t *testing.T) {
+		withFakeExecutable(t, filepath.Join(t.TempDir(), "does-not-exist"), nil)
+		s := &Server{ws: workspace.Root{Dir: root}}
+		if hint := s.staleHint(); hint != "" {
+			t.Fatalf("hint fired despite an unstattable binary path: %q", hint)
+		}
+	})
+}
+
+// TestStaleHintSilentOutsideOwnModule proves the selfModule gate (swarm.go)
+// that makes the whole feature safe to wire in unconditionally: a workspace
+// that is NOT a checkout of spectackle's own module never triggers the
+// hint, no matter how stale-looking its file mtimes are relative to this
+// process's own executable — comparing them would be meaningless noise for
+// any spectackle deployment serving a third-party codebase. This is also
+// exactly why the rest of this package's fixtures (plain temp dirs, none of
+// which declare spectackle's own module in a go.mod) never see the hint.
+func TestStaleHintSilentOutsideOwnModule(t *testing.T) {
+	root := t.TempDir() // no go.mod at all: the ordinary case for these fixtures
+	withFakeExecutable(t, fakeBinary(t, time.Now().Add(-time.Hour)), nil)
+	freshGoFile(t, filepath.Join(root, "fresh.go"))
+
+	s := &Server{ws: workspace.Root{Dir: root}}
+	if hint := s.staleHint(); hint != "" {
+		t.Fatalf("hint fired for a workspace outside spectackle's own module: %q", hint)
 	}
 }
