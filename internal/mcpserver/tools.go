@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -155,6 +156,26 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
 		Description: "Sibling awareness, zero params: ag agents (item, freshness), l leases, wt open worktrees, sw recent learnings (rejections first). Check before claiming scope or hypothesizing — a sibling may have failed at it already."},
 		gate(s, s.swarm))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "research",
+		Description: "Condensed problem-space pack, STRICTLY read-only: #impact #contracts #rejections #history #docs #gaps #open (q = server-generated open questions). Run BEFORE asking the user or drafting; mint an R-item for a cheap subagent only if this pack cannot answer it. Orchestrator-only — implementers never research."},
+		gate(s, s.research))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "grill",
+		Description: "Critique pack before delegation: #targets #contracts #briefs (b = thin child-task bodies) #tests #rejections #questions. Stamps grilled: <date> on the item — the evidence move checks before approve. Close every gap it surfaces, then approve."},
+		gate(s, s.grill))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
+		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the D-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if err := s.preCall(); err != nil {
+				return nil, nil, err
+			}
+			res, out, err := s.decide(ctx, req, in)
+			return s.postCall(res), out, err
+		})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "state",
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
@@ -457,7 +478,14 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	}
 	if impact.Len() > 0 {
 		b.WriteString("#impact\n")
-		b.WriteString(impact.String())
+		// typed call edges can blow the radius up — keep the pack bounded
+		// (SPX-ARC-002); a cur record marks the cut.
+		lines := strings.Split(strings.TrimRight(impact.String(), "\n"), "\n")
+		kept, cur := budget.TruncateRecords(lines, 0, 1200)
+		b.WriteString(budget.Render(kept, cur))
+		if !strings.HasSuffix(b.String(), "\n") {
+			b.WriteString("\n")
+		}
 	}
 
 	seen := map[string]bool{}
@@ -760,8 +788,37 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			return res, out, err
 		}
 	}
+	// grill/needs gates on forward moves (soft warnings by default;
+	// feedback.grill=require hard-blocks ungrilled proposals).
+	warns := ""
+	if forwardState(in.To) {
+		if pre, ok, _ := item.Get(s.ws, in.ID); ok {
+			if pre.Kind == "proposal" && pre.Grilled == "" {
+				if s.ws.Cfg.Feedback.Grill == "require" {
+					return text("! GRILL E " + in.ID + " ungrilled — grill first (feedback.grill=require)")
+				}
+				warns += "! GRILL W " + in.ID + " ungrilled — grill first or proceed deliberately\n"
+			}
+			if open := s.openNeeds(pre); len(open) > 0 {
+				warns += "! NEEDS W " + in.ID + " open needs: " + strings.Join(open, " ") + "\n"
+			}
+		}
+	}
 	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note)
 	if err != nil {
+		var rex lifecycle.ErrRoundsExhausted
+		if errors.As(err, &rex) {
+			// anti-ping-pong: the reopen budget is spent — server-side
+			// escalation to the blocked side state + auto-minted decision.
+			blocked, dec, eErr := lifecycle.Escalate(s.ws, s.minter(), rex.Item)
+			if eErr != nil {
+				return nil, nil, eErr
+			}
+			_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
+			s.scan.MarkDirty()
+			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
+				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
+		}
 		return text("! ARG E - " + err.Error())
 	}
 	if in.To == item.StateRejected {
@@ -769,7 +826,30 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
 	}
 	s.scan.MarkDirty()
-	return text(item.Record(it) + "\n")
+	return text(warns + item.Record(it) + "\n")
+}
+
+// forwardState reports whether a move target is a forward position in the
+// total order (the grill/needs gates only guard forward progress).
+func forwardState(to string) bool {
+	switch to {
+	case item.StateSubmitted, item.StateApproved, item.StateActive, item.StateDone, item.StateArchived:
+		return true
+	}
+	return false
+}
+
+// openNeeds returns the subset of an item's needs that are still unresolved
+// (referenced item exists and is neither done nor archived; a missing
+// reference counts as resolved — archived items leave work.md).
+func (s *Server) openNeeds(it item.Item) []string {
+	var open []string
+	for _, n := range it.Needs {
+		if dep, ok, _ := item.Get(s.ws, n); ok && dep.State != item.StateDone {
+			open = append(open, n)
+		}
+	}
+	return open
 }
 
 // ---- check ----
@@ -1019,7 +1099,8 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		folded := 0
 		for _, e := range events {
 			switch e.Ev {
-			case journal.EvReject, journal.EvArchive, journal.EvCompact:
+			case journal.EvReject, journal.EvArchive, journal.EvCompact,
+				journal.EvEscalate, journal.EvDecide:
 				keep = append(keep, e)
 			default:
 				folded++
