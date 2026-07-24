@@ -346,6 +346,18 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
 	}
+	if it.Context != "" {
+		b.WriteString("context: " + it.Context + "\n")
+	}
+	if it.Decision != "" {
+		b.WriteString("decision: " + it.Decision + "\n")
+	}
+	if it.Consequences != "" {
+		b.WriteString("consequences: " + it.Consequences + "\n")
+	}
+	if it.Status != "" {
+		b.WriteString("status: " + it.Status + "\n")
+	}
 	return text(b.String())
 }
 

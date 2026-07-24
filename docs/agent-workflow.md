@@ -141,6 +141,39 @@ instead of the size of the codebase: the orchestrator's context stays busy
 briefing and reviewing, never blocked waiting on one implementer to finish
 before starting the next.
 
+## Importing a brownfield repo
+
+Onboarding an existing repo follows a fixed six-step order, run once before
+the normal loop starts:
+
+1. **Index first.** `state/reindex` yields the code graph immediately and
+   costs no decisions — it produces the real node IDs everything else
+   anchors to.
+2. **Survey in parallel.** Fan out read-only subagents over disjoint
+   subtrees, one per top-level package or module; each reports the
+   subtree's purpose, the invariants its code/tests/docs already assert,
+   and candidate contracts. Read-only means no leases and no `work.md`
+   contention, so this fan-out can go as wide as the tree — it is the same
+   fan-out pattern as above, minus the scope collisions, because nothing is
+   being written yet.
+3. **Mint centrally.** The orchestrator turns the survey into `rule
+   op=add` contracts, scoped per context dir and anchored via `applies` to
+   the node IDs from step 1. Implementers never hand-write spec files; the
+   server composes and lints them.
+4. **Capture decisions.** Existing design docs and ADRs become `adr` items
+   via `decide` (context, decision, consequences, status); pure reference
+   docs stay plain `docs` items.
+5. **Baseline.** Run `check` until it comes back clean — the stamped
+   anchors are the point from which drift detection starts meaning
+   anything.
+6. **Then the normal loop** applies: `find scope=rejection`, draft, grill,
+   implement.
+
+Two guardrails keep this from drifting into busywork: encode only the
+invariants the code, tests, and docs actually assert — never invented
+ones — and start with the load-bearing few, letting `check`'s coverage
+gaps show what is still unowned.
+
 ## Worktree isolation & who writes lifecycle state
 
 Two rules keep a parallel fan-out from corrupting shared state:

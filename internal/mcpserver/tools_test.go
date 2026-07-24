@@ -951,6 +951,24 @@ func TestInstructionsTeachTokenEconomy(t *testing.T) {
 	}
 }
 
+// TestInstructionsTeachBrownfieldImportAndRecords (T-0098) asserts that the
+// server's instructions const teaches brownfield-repo onboarding and the
+// records token-economy guardrail.
+func TestInstructionsTeachBrownfieldImportAndRecords(t *testing.T) {
+	if !strings.Contains(instructions, "BROWNFIELD IMPORT") {
+		t.Errorf("instructions missing BROWNFIELD IMPORT paragraph")
+	}
+	if !strings.Contains(instructions, "Survey in parallel") {
+		t.Errorf("instructions missing 'Survey in parallel' step")
+	}
+	if !strings.Contains(instructions, "RECORDS") {
+		t.Errorf("instructions missing RECORDS paragraph")
+	}
+	if !strings.Contains(instructions, "Never paste verbatim") {
+		t.Errorf("instructions missing 'Never paste verbatim' guardrail")
+	}
+}
+
 // TestFindCodeRendersEndLineSpan (T-0049, MCP-002): a node record renders
 // '<file>:<start>-<end>' once EndLine is known and > Line (Bar, a multi-line
 // func), and keeps the plain '<file>:<line>' form when EndLine == Line
@@ -973,5 +991,75 @@ func TestFindCodeRendersEndLineSpan(t *testing.T) {
 	}
 	if strings.Contains(out, "demo.go:5 ") {
 		t.Fatalf("multi-line node must not also render the old single-line form: %q", out)
+	}
+}
+
+// TestGetItemRendersADRFields (T-0097): internal/item already stores the
+// four classic ADR fields (Context/Decision/Consequences/Status) correctly,
+// but getItem never printed them — an agent asking `get ADR-...` only saw
+// the header, targets/rules and body, never the structured record the ADR
+// feature exists to provide. Drive decide op=ask (context=) then op=answer
+// (choose= + consequences=) over the wire — exactly the persistence path
+// decide_test.go's TestDecideAskStoresContextAndProposedStatus /
+// TestDecideAnswerRecordsDecisionStatusAndConsequences exercise directly
+// against the item package — and assert `get` now surfaces all four fields,
+// in the classic ADR order, dense one-field-per-line like the rest of the
+// item header.
+func TestGetItemRendersADRFields(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
+		"context": "Latency-sensitive service; current REST gateway is the bottleneck.",
+	})
+	callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": "ADR-0001", "choose": "grpc",
+		"consequences": "Clients must add a gRPC dependency; REST gateway is deprecated over two releases.",
+	})
+
+	out := callText(t, sess, "get", map[string]any{"id": "ADR-0001"})
+	for _, want := range []string{
+		"context: Latency-sensitive service; current REST gateway is the bottleneck.\n",
+		"decision: grpc\n",
+		"consequences: Clients must add a gRPC dependency; REST gateway is deprecated over two releases.\n",
+		"status: accepted\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("get ADR-0001 missing %q in output: %q", want, out)
+		}
+	}
+	// classic ADR order: context, decision, consequences, status.
+	if strings.Index(out, "context:") > strings.Index(out, "decision:") ||
+		strings.Index(out, "decision:") > strings.Index(out, "consequences:") ||
+		strings.Index(out, "consequences:") > strings.Index(out, "status:") {
+		t.Fatalf("ADR fields out of order: %q", out)
+	}
+}
+
+// TestGetItemNonADRUnchanged (T-0097): a plain proposal's four ADR fields
+// are always empty (only decide-minted `adr` items ever set them), so
+// getItem's new field-emission must stay a no-op for it — output diet
+// (R-0001), no stray empty context:/decision:/consequences:/status: lines,
+// byte-identical to the pre-fix rendering.
+func TestGetItemNonADRUnchanged(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "cache kernels in VRAM",
+		"body": "Keep compiled kernels resident.",
+	})
+	out := callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if !strings.Contains(out, "i P-0001 proposal draft") {
+		t.Fatalf("unexpected header: %q", out)
+	}
+	if !strings.Contains(out, "Keep compiled kernels resident.\n") {
+		t.Fatalf("body missing: %q", out)
+	}
+	for _, field := range []string{"context:", "decision:", "consequences:", "status:"} {
+		if strings.Contains(out, field) {
+			t.Fatalf("non-ADR get output must not render empty ADR field %q: %q", field, out)
+		}
 	}
 }
