@@ -103,16 +103,19 @@ resolvers bridge the FFI boundaries.
 Real output, right now:
 
 ```
-n go:saxpy.Saxpy fn examples/saxpy/saxpy/saxpy.go:21 sig=(n int,a float32,x,y []float32)error
-n c:launch_saxpy fn examples/saxpy/saxpy/kernels/saxpy.cu:14
-n go:main.main~2 fn examples/saxpy/main.go:12 sig=()
-n cu:saxpy_kernel kernel examples/saxpy/saxpy/kernels/saxpy.cu:7
+n go:saxpy.Saxpy fn examples/saxpy/saxpy/saxpy.go:21-36 sig=(n int,a float32,x,y []float32)error
+n c:launch_saxpy fn examples/saxpy/saxpy/kernels/saxpy.cu:14-39
+n go:main.main~2 fn examples/saxpy/main.go:12-24 sig=()
+n cu:saxpy_kernel kernel examples/saxpy/saxpy/kernels/saxpy.cu:7-12
 e go:saxpy.Saxpy cgo c:launch_saxpy via=examples/saxpy/saxpy/saxpy.go:25
 e go:main.main~2 call go:saxpy.Saxpy via=examples/saxpy/main.go:20
 e c:launch_saxpy launch cu:saxpy_kernel via=examples/saxpy/saxpy/kernels/saxpy.cu:27
+r SXP-API-002 E examples/saxpy WHEN Saxpy is called with n less than 1 or a slice shorter than n, the Go binding SHALL return a non-nil `error` before crossing the cgo boundary.
+r SXP-API-001 N examples/saxpy IF a CUDA wrapper returns a non-zero status, THEN the Go binding SHALL wrap the status in an error that contains the numeric CUDA status code.
+r-root SPX-ARC-001 SPX-ARC-002 SPX-ARC-003 SPX-ARC-004 SPX-ARC-005 SPX-REPO-001 SPX-REPO-002 SPX-TST-001 SPX-SWM-001 SPX-SWM-002 SPX-SWM-003 SPX-SWM-004 SPX-SWM-005 SPX-SWM-006 SPX-SWM-007 SPX-ARC-006
 ```
 
-That's `get {"id":"go:saxpy.Saxpy","depth":2}` against the shipped binary on this repo — not a mockup.
+That's `get {"id":"go:saxpy.Saxpy","depth":2}` against the shipped binary on this repo — not a mockup: the `n` spans, the cross-language `e` edges, and the node's binding contracts (`r`/`r-root`) all come from one call.
 
 ## Quickstart
 
@@ -273,7 +276,7 @@ checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
 
 - [docs/lifecycle.md](docs/lifecycle.md) — **the lifecycle architecture**: storage, search, state machine, compacting, drift/backprop
 - [docs/agent-workflow.md](docs/agent-workflow.md) — the orchestrator + fresh-implementer swarm workflow
-- [docs/tools.md](docs/tools.md) — the 14 MCP tools: JSON Schemas + output grammar
+- [docs/tools.md](docs/tools.md) — the 15 MCP tools: JSON Schemas + output grammar
 - [docs/spec-cascade.md](docs/spec-cascade.md) — cascading spec bundles: format, resolution, authoring
 - [docs/ears.md](docs/ears.md) — the EARS grammar and linter codes
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)
