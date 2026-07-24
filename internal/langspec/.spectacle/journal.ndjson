@@ -65,3 +65,7 @@
 {"t":"2026-07-24T12:19:14Z","eid":"a75c427c0c732ab5","ag":"orchestrator","ev":"create","id":"T-0048","k":"task","ti":"langspec call edges (CallRe framework) + C/C++ enable + FFI resolver","dir":"internal/langspec"}
 {"t":"2026-07-24T12:19:28Z","eid":"21e2710148ba4cc6","ag":"orchestrator","ev":"move","id":"P-0026","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-24T12:19:28Z","eid":"cb4097b47fe5faa6","ag":"orchestrator","ev":"move","id":"T-0048","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-24T12:25:46Z","eid":"aa047fa9f0335b53","ag":"agent-callre","ev":"move","id":"T-0048","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-24T12:33:18Z","eid":"f711a29bbafd5391","ag":"agent-callre","ev":"move","id":"T-0048","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-24T12:34:30Z","eid":"8b572b7d383035bb","ag":"orchestrator","ev":"rule","dir":"internal/langspec","op":"edit","rule":"SPX-LSP-001","txt":"The langspec registry SHALL define a language purely as one `Spec` data value so adding a language never modifies the indexing pipeline.","ap":["go:langspec.All"]}
+{"t":"2026-07-24T12:34:30Z","eid":"1ef14d15b960fae0","ag":"orchestrator","ev":"rule","dir":"internal/langspec","op":"edit","rule":"LSP-001","txt":"WHEN a `Spec` sets `CallRe`, the SpecParser SHALL emit `ECall` edges from each Def's brace-counted body span, callee IDs minted in the same language — destinations may be dangling exactly like Go's syntactic pass.","ap":["go:langspec.SpecParser.Parse"]}

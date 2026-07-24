@@ -78,15 +78,19 @@ func TestCSpecNodes(t *testing.T) {
 	byID := cNodesByID(pr)
 
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind    graph.NodeKind
+		Line    int
+		EndLine int // brace-counted body end (LSP-001); bodyless defs: == Line
 	}{
-		"c:launch_saxpy": {graph.KFunc, 4},
-		"c:Point":        {graph.KType, 6},
-		"c:Named":        {graph.KType, 10},
-		"c:Color":        {graph.KType, 14},
-		"c:MAX":          {graph.KFunc, 16},
-		"c:helper":       {graph.KFunc, 18},
+		"c:launch_saxpy": {graph.KFunc, 4, 4},
+		"c:Point":        {graph.KType, 6, 6},
+		"c:Named":        {graph.KType, 10, 10},
+		"c:Color":        {graph.KType, 14, 14},
+		"c:MAX":          {graph.KFunc, 16, 16},
+		// helper's body spans lines 18-31 (if/for/while/switch nested inside):
+		// CallRe is enabled for cSpec, so EndLine now reflects the real
+		// brace-counted span instead of collapsing to Line.
+		"c:helper": {graph.KFunc, 18, 31},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -99,8 +103,8 @@ func TestCSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangC {
 			t.Errorf("%s Lang = %v, want c", id, n.Lang)
@@ -129,14 +133,87 @@ func TestCSpecNoFalsePositivesOnControlFlow(t *testing.T) {
 	}
 }
 
-func TestCSpecNoEdges(t *testing.T) {
+// TestCSpecCallEdgesFromControlFlowFixture reuses cSrc (helper()'s body) to
+// prove LSP-001 and the Stop list together: the only call inside helper's
+// nested if/for/while/switch/return block is do_something(1, 2) — every
+// control-flow keyword that looks like `word (` must NOT become an edge
+// (Stop-listed), and do_something must become exactly one c:helper ->
+// c:do_something ECall edge at its call site.
+func TestCSpecCallEdgesFromControlFlowFixture(t *testing.T) {
 	p := SpecParser{S: cSpec}
 	pr, err := p.Parse("x.c", cSrc)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(pr.Edges) != 0 {
-		t.Errorf("cSpec Parse must not emit edges, got %+v", pr.Edges)
+	if len(pr.Edges) != 1 {
+		t.Fatalf("want exactly 1 ECall edge, got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	e := pr.Edges[0]
+	if e.Src != "c:helper" || e.Dst != "c:do_something" || e.Kind != graph.ECall {
+		t.Errorf("edge = %+v, want c:helper -ECall-> c:do_something", e)
+	}
+	if e.File != "x.c" || e.Line != 30 {
+		t.Errorf("edge File/Line = %q/%d, want x.c/30 (the do_something(1, 2) call site)", e.File, e.Line)
+	}
+}
+
+// cCallSrc is the PART 2 acceptance fixture: kernel_launch() calls helper()
+// and printf() (the two expected ECall edges) plus every negative case named
+// in the task brief — `if (`, `sizeof(`, and a recursive self-call — none of
+// which may produce an edge.
+var cCallSrc = []byte(`static void helper(void) {
+}
+
+static int kernel_launch(int n) {
+    if (n > 0) {
+        return n;
+    }
+    int sz = sizeof(int);
+    helper();
+    printf("launched %d\n", sz);
+    return kernel_launch(n - 1);
+}
+`)
+
+func TestCSpecCallEdgesKernelLaunch(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("launch.c", cCallSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Edges) != 2 {
+		t.Fatalf("want exactly 2 ECall edges (helper, printf), got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	want := map[graph.NodeID]int{"c:helper": 9, "c:printf": 10}
+	got := map[graph.NodeID]int{}
+	for _, e := range pr.Edges {
+		if e.Src != "c:kernel_launch" {
+			t.Errorf("edge Src = %q, want c:kernel_launch: %+v", e.Src, e)
+		}
+		if e.Kind != graph.ECall {
+			t.Errorf("edge Kind = %v, want ECall: %+v", e.Kind, e)
+		}
+		if e.File != "launch.c" {
+			t.Errorf("edge File = %q, want launch.c: %+v", e.File, e)
+		}
+		got[e.Dst] = e.Line
+	}
+	for dst, wantLine := range want {
+		gotLine, ok := got[dst]
+		if !ok {
+			t.Errorf("missing edge to %s, got edges %+v", dst, pr.Edges)
+			continue
+		}
+		if gotLine != wantLine {
+			t.Errorf("edge to %s at line %d, want %d", dst, gotLine, wantLine)
+		}
+	}
+	// negatives: `if (`, `sizeof(`, and the recursive self-call to
+	// kernel_launch must never appear as edge destinations.
+	for _, banned := range []graph.NodeID{"c:if", "c:sizeof", "c:kernel_launch"} {
+		if line, ok := got[banned]; ok {
+			t.Errorf("false positive edge to %s at line %d: if/sizeof/own-name must never become call edges", banned, line)
+		}
 	}
 }
 

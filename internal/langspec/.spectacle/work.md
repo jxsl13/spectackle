@@ -18,7 +18,7 @@ Rollback: framework flag-off = no CallRe set means zero behavior change for all 
 
 ## T-0048 langspec call edges (CallRe framework) + C/C++ enable + FFI resolver
 kind: task
-state: approved
+state: done
 created: 2026-07-24
 parent: P-0026
 
