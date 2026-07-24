@@ -10,7 +10,10 @@
 package index
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/gob"
 	"os"
 	"path"
 	"path/filepath"
@@ -188,13 +191,32 @@ func (ix *indexer) IndexPaths(ctx context.Context, paths []string) (Stats, error
 }
 
 // parseCached returns the parse result for a file, using the content-hash
-// store to skip re-parsing unchanged files across runs.
+// store to skip re-parsing unchanged files across runs. The hash is computed
+// here (before the Get) so a nil store or a cold cache both fall through to
+// an ordinary parse; a successful Put is best-effort — cache-write failures
+// must never fail the index.
 func parseCached(s store.Store, p LanguageParser, rel string, src []byte) (ParseResult, error) {
-	// The store round-trips gob blobs in M2; M0's in-memory store keeps parses
-	// only per process. Either way the parser is the source of truth, so on any
-	// miss (or a nil store) we simply parse.
-	_ = s
-	return p.Parse(rel, src)
+	hash := sha256.Sum256(src)
+	if s != nil {
+		if e, ok := s.Get(rel, hash); ok {
+			var pr ParseResult
+			if err := gob.NewDecoder(bytes.NewReader(e.Blob)).Decode(&pr); err == nil {
+				return pr, nil
+			}
+			// corrupt/incompatible blob: fall through and reparse.
+		}
+	}
+	pr, err := p.Parse(rel, src)
+	if err != nil {
+		return ParseResult{}, err
+	}
+	if s != nil {
+		var buf bytes.Buffer
+		if encErr := gob.NewEncoder(&buf).Encode(pr); encErr == nil {
+			_ = s.Put(store.Entry{Path: rel, Hash: hash, Blob: buf.Bytes()})
+		}
+	}
+	return pr, nil
 }
 
 // siteKey identifies a symbol by its defining file plus base ID — the unit

@@ -10,6 +10,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
 	stdsync "sync"
 	"time"
 
@@ -43,6 +44,7 @@ type Server struct {
 	main   workspace.Root // the MAIN repo root (immutable after New)
 	ws     workspace.Root // the ACTIVE root — re-rooted to a worktree during `work`
 	cache  *cache.Cache   // active root's index cache
+	blobs  store.Store    // active root's persistent parse-blob cache
 	scan   *sync.Scanner
 	g      graph.Graph
 	cd     *coord.DB // shared swarm coordination (main repo's cache dir)
@@ -109,6 +111,7 @@ func New(root string) (*Server, error) {
 		g:     graph.NewMem(),
 		cd:    cd,
 		agent: agent,
+		blobs: openBlobs(ws),
 	}
 	s.reindex()
 	s.mcp = mcp.NewServer(&mcp.Implementation{
@@ -120,12 +123,24 @@ func New(root string) (*Server, error) {
 	return s, nil
 }
 
+// openBlobs opens the persistent parse-blob cache of a root (warm graph
+// starts across sessions — the point of the resident -http service). A
+// failed open degrades to the in-memory store: caching is never load-bearing.
+func openBlobs(ws workspace.Root) store.Store {
+	b, err := store.Open(filepath.Join(ws.CacheDir(), "parse.db"))
+	if err != nil {
+		log.Printf("parse cache: %v (using in-memory store)", err)
+		return store.NewMem()
+	}
+	return b
+}
+
 // reindex rebuilds the symbol graph from the active root (startup and after
 // every reroot — worktree code diverges from main). A failed index run keeps
 // the previous graph: lifecycle tools must survive unparseable trees.
 func (s *Server) reindex() {
 	g := graph.NewMem()
-	ix := index.New(g, store.NewMem(),
+	ix := index.New(g, s.blobs,
 		[]index.LanguageParser{index.GoParser{}, index.AsmParser{}, index.CudaParser{}},
 		resolve.Default().All())
 	st, err := ix.IndexAll(context.Background(), s.ws.Dir)
@@ -145,6 +160,9 @@ func (s *Server) MCP() *mcp.Server { return s.mcp }
 // an open worktree's record survives in coord.db for reclaim.
 func (s *Server) Close() error {
 	err := s.cache.Close()
+	if bErr := s.blobs.Close(); err == nil {
+		err = bErr
+	}
 	if dErr := s.cd.Deregister(); err == nil {
 		err = dErr
 	}
@@ -174,7 +192,9 @@ func (s *Server) reroot(dir, item string) error {
 		return err
 	}
 	s.cache.Close()
+	s.blobs.Close()
 	s.ws, s.cache = nws, nc
+	s.blobs = openBlobs(nws)
 	s.scan = &sync.Scanner{Root: nws, Cache: nc}
 	s.wtItem = item
 	s.reindex() // the graph must reflect the newly active root

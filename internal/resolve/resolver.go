@@ -21,8 +21,8 @@ type FileSet interface {
 // BindingResolver inspects the graph plus the source files of its languages
 // and returns cross-language edges to be added.
 type BindingResolver interface {
-	Name() string             // "cgo", "plan9asm", "cuda", "gpupipe"
-	Langs() []graph.Lang      // languages whose file changes require a re-run
+	Name() string        // "cgo", "plan9asm", "cuda", "gpupipe"
+	Langs() []graph.Lang // languages whose file changes require a re-run
 	Resolve(ctx context.Context, g graph.Graph, fs FileSet) ([]graph.Edge, error)
 }
 

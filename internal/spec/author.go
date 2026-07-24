@@ -19,11 +19,11 @@ import (
 
 // AuthorReq describes one rule to persist.
 type AuthorReq struct {
-	Dir       string // context dir ("" = root)
-	Stem      string // ID stem, e.g. "CUDA-KRN"; default: stem of last rule in target file
-	ForceID   string // exact ID to use (replay); skips minting, still lints
+	Dir       string                                    // context dir ("" = root)
+	Stem      string                                    // ID stem, e.g. "CUDA-KRN"; default: stem of last rule in target file
+	ForceID   string                                    // exact ID to use (replay); skips minting, still lints
 	Mint      func(stem string, floor int) (int, error) // collision-free minter (swarm coord); nil = local scan
-	Sentence  string // composed EARS sentence
+	Sentence  string                                    // composed EARS sentence
 	Rationale string
 	Applies   []string
 }

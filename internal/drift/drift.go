@@ -153,8 +153,8 @@ func Stamp(ws workspace.Root, g graph.Graph, rule, ruleText string, node graph.N
 
 // Result is one classified anchor.
 type Result struct {
-	Anchor Anchor
-	Class  Class
+	Anchor  Anchor
+	Class   Class
 	NewHash string
 }
 

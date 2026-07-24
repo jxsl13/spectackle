@@ -1,0 +1,3 @@
+{"t":"2026-07-24T02:58:33Z","eid":"8156418e6b52c7e7","ag":"orchestrator","ev":"create","id":"T-0016","k":"task","ti":"sqlite parse-blob store + cache-accelerated IndexAll","dir":"internal/store"}
+{"t":"2026-07-24T02:59:27Z","eid":"0ca3428def457525","ag":"agent-store","ev":"move","id":"T-0016","dir":"internal/store","fr":"draft","to":"active"}
+{"t":"2026-07-24T03:02:31Z","eid":"b0fd862e41ff692e","ag":"agent-store","ev":"move","id":"T-0016","dir":"internal/store","fr":"active","to":"done"}
