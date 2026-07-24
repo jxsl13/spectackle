@@ -12,3 +12,6 @@ The langspec registry SHALL define a language purely as one `Spec` data value so
 
 ## LSP-001 {applies: go:langspec.SpecParser.Parse}
 WHEN a `Spec` sets `CallRe`, the SpecParser SHALL emit `ECall` edges from each Def's brace-counted body span, callee IDs minted in the same language — destinations may be dangling exactly like Go's syntactic pass.
+
+## LSP-002 {applies: go:langspec.SpecParser.callEdges}
+WHEN CallRe captures a callee in a QualFileStem language, the SpecParser SHALL mint the callee destination with the same file-stem qualification as definitions, leaving QualFlat callee minting byte-identical.

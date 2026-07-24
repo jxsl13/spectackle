@@ -25,6 +25,12 @@ jobs:
       - name: test
         run: go test -race ./...
 
+      - name: coverage (M5 gate)
+        run: make cover
+
+      - name: fuzz (M4 linter hardening)
+        run: make fuzz
+
       - name: lint specs
         run: ./bin/spectackle lint .
 

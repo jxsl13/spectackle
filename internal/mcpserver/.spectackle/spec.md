@@ -33,13 +33,10 @@ WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules a
 Rationale: root rules are stable knowledge after the first get; empty sections are pure filler.
 ## SPX-MCP-005 {applies: go:mcpserver.Server.state}
 WHEN the state tool is invoked, the server SHALL render the `#version` `#items` `#rules` `#graph` `#swarm` `#drift` `#health` sections as dense records and perform zero `.spectacle` writes.
-
 ## SPX-MCP-006 {applies: go:mcpserver.Server.research}
 WHEN the research tool is invoked, the server SHALL render the condensed pack sections `#impact` `#contracts` `#rejections` `#history` `#docs` `#gaps` `#open` and perform zero `.spectacle` writes.
-
 ## SPX-MCP-007 {applies: go:mcpserver.Server.grill}
 WHEN the grill tool completes its critique pack, the server SHALL stamp the item header field `grilled:` with the current date as fold-proof evidence.
-
 ## MCP-001 {applies: go:mcpserver.Server.decideAsk}
 WHEN `decide op=ask` stores a decision's option set, the spectacle server SHALL persist each option as its own `option:` body line so `decideOptions` reproduces every option byte-identically.
 
@@ -49,3 +46,11 @@ WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL
 
 ## MCP-003 {applies: go:mcpserver.Server.registerTools}
 WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectacle server SHALL elicit the harness choice via `Session.Elicit` (one boolean per harness) and, headless, mint an open `decision` item instead of guessing.
+
+## MCP-004 {applies: go:mcpserver.Server.check}
+WHEN the check tool runs, the server SHALL report each applies target of a live rule that lacks an anchors.tsv row as a single dense `g orphan <rule> <node>` record.
+## MCP-005 {applies: go:mcpserver.Server.compact}
+WHEN the compact dry-run runs, the server SHALL report each same-file, same-pattern rule pair with sentence-token Jaccard >= 0.6 or identical non-empty applies sets as one `c <dir> mergeable <ID1>+<ID2>` record, and never merge automatically.
+
+## MCP-006 {applies: go:mcpserver.Server.registerTools}
+The server instructions manifest SHALL carry a TOKEN ECONOMY paragraph mapping shell grep, find and sed exploration to the find, get and check tools and forbidding shell edits of .spectackle files.

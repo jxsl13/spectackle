@@ -13,3 +13,6 @@ The linter SHALL classify every rule into exactly one of the 6 EARS patterns or 
 
 ## SPX-EARS-003
 The linter SHALL match EARS keywords case-sensitively so that lowercase words inside code fragments such as `if (i < n)` never trigger a pattern.
+
+## SPX-EARS-004 {applies: go:ears.LintSentence,go:ears.ParseRules,go:ears.StripFrontMatter}
+The EARS linter SHALL process arbitrary byte input in LintSentence, ParseRules and StripFrontMatter without panicking.

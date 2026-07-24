@@ -40,9 +40,10 @@ revocable back to any pre-`done` state. Full rules:
 
 ## `make all` must be green before any PR
 
-`make all` runs build, vet, test, spec lint, and smoke. It must pass locally
+`make all` runs build, vet, test, spec lint, smoke, and the coverage gate
+(`cover`, ≥70%). It must pass locally
 before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml))
-re-runs the same steps plus the self-hosting `check` gate, and does not
+re-runs the same steps plus `make fuzz` and the self-hosting `check` gate, and does not
 merge red.
 
 ## `.spectackle/` is server-written only

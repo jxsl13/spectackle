@@ -35,7 +35,10 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 type findIn struct {
 	Q     string `json:"q" jsonschema:"text or ID fragment"`
 	Scope string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|rejection|history|all, default all"`
-	K     int    `json:"k,omitempty" jsonschema:"max results, default 8"`
+	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
+	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
+	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 type getIn struct {
@@ -81,6 +84,7 @@ type checkIn struct {
 	Path   string `json:"path,omitempty" jsonschema:"subtree, default workspace"`
 	Fix    bool   `json:"fix,omitempty" jsonschema:"auto-draft backprop proposals for drift, default false"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 type compactIn struct {
@@ -215,16 +219,36 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if in.Scope == "" {
 		in.Scope = "all"
 	}
+	if in.Budget <= 0 {
+		in.Budget = 2000
+	}
 	if in.Scope == "code" {
-		nodes := s.g.Find(in.Q, in.K, graph.KUnknown)
+		k := in.K
+		if in.Focus != "" {
+			k *= 4 // over-fetch, PPR decides the final K (SPX-GRA-004)
+		}
+		nodes := s.g.Find(in.Q, k, graph.KUnknown)
 		if len(nodes) == 0 {
 			return text("ok no code matches")
+		}
+		if in.Focus != "" {
+			if _, ok := s.g.Node(graph.NodeID(in.Focus)); !ok {
+				return s.nearest(in.Focus)
+			}
+			score := graph.PersonalizedRank(s.g, []graph.NodeID{graph.NodeID(in.Focus)}, 4, 20, 0.85)
+			sort.SliceStable(nodes, func(i, j int) bool {
+				return score[nodes[i].ID] > score[nodes[j].ID]
+			})
+			if len(nodes) > in.K {
+				nodes = nodes[:in.K]
+			}
 		}
 		var lines []string
 		for _, n := range nodes {
 			lines = append(lines, nodeLine(n))
 		}
-		return text(budget.Render(lines, ""))
+		kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
+		return text(budget.Render(kept, cur))
 	}
 	kinds, ok := scopeKinds[in.Scope]
 	if !ok {
@@ -267,7 +291,8 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 			lines = append(lines, fmt.Sprintf("i %s %s %s %s", d.ID, d.Kind, dir, d.Title))
 		}
 	}
-	return text(budget.Render(lines, ""))
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
+	return text(budget.Render(kept, cur))
 }
 
 // ---- get ----
@@ -285,9 +310,9 @@ func (s *Server) get(in getIn) (*mcp.CallToolResult, any, error) {
 	case strings.HasPrefix(id, "sec:"):
 		return s.getSection(id)
 	case strings.Contains(id, ":") && !strings.Contains(id, "/"):
-		return s.getNode(id, in.Depth, in.Budget)
+		return s.getNode(id, in.Depth, in.Budget, budget.Resume(in.Cur))
 	default:
-		return s.getPath(id, in.Budget)
+		return s.getPath(id, in.Budget, budget.Resume(in.Cur))
 	}
 }
 
@@ -372,7 +397,7 @@ func (s *Server) getSection(id string) (*mcp.CallToolResult, any, error) {
 	return s.nearest(id)
 }
 
-func (s *Server) getNode(id string, depth, tokBudget int) (*mcp.CallToolResult, any, error) {
+func (s *Server) getNode(id string, depth, tokBudget, offset int) (*mcp.CallToolResult, any, error) {
 	n, ok := s.g.Node(graph.NodeID(id))
 	if !ok {
 		return s.nearest(id)
@@ -389,11 +414,21 @@ func (s *Server) getNode(id string, depth, tokBudget int) (*mcp.CallToolResult, 
 			lines = append(lines, fmt.Sprintf("e %s %s %s via=%s:%d", e.Src, e.Kind, e.Dst, e.File, e.Line))
 		}
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, tokBudget)
+	// binding contracts of the requested node only (SPX-SPC-007) — impact
+	// neighbors stay bare; root-scoped rules collapse to one r-root record.
+	if c, err := spec.Load(s.ws.Dir); err == nil {
+		var rl, rootIDs []string
+		splitContractRules(c.ForNode(id, n.File), nil, map[string]bool{}, &rl, &rootIDs)
+		lines = append(lines, rl...)
+		if len(rootIDs) > 0 {
+			lines = append(lines, "r-root "+strings.Join(rootIDs, " "))
+		}
+	}
+	kept, cur := budget.TruncateRecords(lines, offset, tokBudget)
 	return text(budget.Render(kept, cur))
 }
 
-func (s *Server) getPath(p string, tokBudget int) (*mcp.CallToolResult, any, error) {
+func (s *Server) getPath(p string, tokBudget, offset int) (*mcp.CallToolResult, any, error) {
 	p = strings.Trim(filepath.ToSlash(p), "/")
 	if p == "." {
 		p = ""
@@ -430,7 +465,7 @@ func (s *Server) getPath(p string, tokBudget int) (*mcp.CallToolResult, any, err
 	if len(lines) == 0 {
 		return text("ok nothing scoped to " + orDot(p))
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, tokBudget)
+	kept, cur := budget.TruncateRecords(lines, offset, tokBudget)
 	return text(budget.Render(kept, cur))
 }
 
@@ -929,6 +964,27 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// orphan applies targets: a live rule declares {applies: node} but the
+	// (rule,node) anchor row is missing — binding intent without a binding
+	// (MCP-004). One dense record per missing pair.
+	anchored := map[string]bool{}
+	for _, a := range anchors {
+		anchored[a.Rule+"\x00"+string(a.Node)] = true
+	}
+	var orphans []string
+	for _, f := range c.All() {
+		for _, r := range f.Rules {
+			for _, node := range r.Applies {
+				if !anchored[r.ID+"\x00"+node] {
+					orphans = append(orphans, fmt.Sprintf("g orphan %s %s", r.ID, node))
+				}
+			}
+		}
+	}
+	sort.Strings(orphans)
+	lines = append(lines, orphans...)
+
 	results := drift.Classify(s.ws, s.g, anchors, func(id string) bool {
 		_, ok := c.Rule(id)
 		return ok
@@ -983,7 +1039,7 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	if len(lines) == 0 {
 		return text("ok")
 	}
-	kept, cur := budget.TruncateRecords(lines, 0, in.Budget)
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
 
@@ -1078,6 +1134,95 @@ func (s *Server) compactCandidates(sub string) []string {
 	return out
 }
 
+// mergeCandidates surfaces near-duplicate rule pairs as merge suggestions
+// (MCP-005): same spec file, same EARS pattern, and either sentence-token
+// Jaccard >= 0.6 or identical non-empty applies sets. Suggestion only —
+// merging changes contract semantics and stays a rule op=edit+retire.
+func (s *Server) mergeCandidates(sub string) []string {
+	c, err := spec.Load(s.ws.Dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, f := range c.All() {
+		if !within(sub, f.Dir) {
+			continue
+		}
+		for i := 0; i < len(f.Rules); i++ {
+			for k := i + 1; k < len(f.Rules); k++ {
+				a, b := f.Rules[i], f.Rules[k]
+				if a.Pattern != b.Pattern {
+					continue
+				}
+				j := jaccard(ruleTokens(a.Text), ruleTokens(b.Text))
+				if j >= 0.6 || sameApplies(a.Applies, b.Applies) {
+					out = append(out, fmt.Sprintf("c %s mergeable %s+%s j=%.2f", orDot(f.Dir), a.ID, b.ID, j))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ruleTokens normalizes an EARS sentence for similarity: lowercase, alnum
+// runs only, EARS scaffolding and glue words dropped.
+func ruleTokens(text string) map[string]bool {
+	stop := map[string]bool{
+		"when": true, "while": true, "if": true, "then": true, "where": true,
+		"shall": true, "the": true, "a": true, "an": true, "to": true,
+		"of": true, "and": true, "or": true, "as": true, "is": true,
+	}
+	toks := map[string]bool{}
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			if t := cur.String(); !stop[t] {
+				toks[t] = true
+			}
+			cur.Reset()
+		}
+	}
+	for _, r := range strings.ToLower(text) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			cur.WriteRune(r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return toks
+}
+
+func jaccard(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	inter := 0
+	for t := range a {
+		if b[t] {
+			inter++
+		}
+	}
+	return float64(inter) / float64(len(a)+len(b)-inter)
+}
+
+func sameApplies(a, b []string) bool {
+	if len(a) == 0 || len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]bool, len(a))
+	for _, n := range a {
+		set[n] = true
+	}
+	for _, n := range b {
+		if !set[n] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
 		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
@@ -1085,6 +1230,7 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	defer s.scan.MarkDirty()
 	var b strings.Builder
 	cands := s.compactCandidates(in.Path)
+	cands = append(cands, s.mergeCandidates(in.Path)...)
 	items, err := item.LoadAll(s.ws)
 	if err != nil {
 		return nil, nil, err

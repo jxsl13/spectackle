@@ -80,9 +80,10 @@ The LLM **never writes spec files**: everything lives in versioned
 sprawl), written exclusively by the server; the SQLite/FTS5 cache underneath
 is local-only and rebuilds from disk (no migrations, pre-v1 by design).
 
-Initial focus: **Go** with arbitrary native bindings (cgo/C, C++, CUDA,
-Plan 9 ASM, Objective-C/Metal, Vulkan); parser and resolver layers are
-plugin interfaces for arbitrary languages later.
+Focus: **Go** with arbitrary native bindings (cgo/C, C++, CUDA, Plan 9 ASM,
+Objective-C/Metal; Vulkan future); the langspec parser layer makes a language
+one data value ([cookbook](docs/cookbook-new-language.md), 29 languages),
+resolvers bridge the FFI boundaries.
 
 ## Status (v0, pre-release — anything may break)
 
@@ -94,8 +95,8 @@ plugin interfaces for arbitrary languages later.
 | Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
 | Drift anchors + backprop (`check`/`compact`) | ✅ live |
 | **Multi-agent swarm**: scope leases, shared coord.db, realtime sibling learnings, git-worktree isolation (`work start/submit/abort`) with semantic replay merge | ✅ live |
-| Cross-language graph: `go/parser` + Plan 9 asm + CUDA line-scanner chains, persistent parse cache | ✅ live (tree-sitter/wazero still future, for full C/C++) |
-| Self-hosting gate | 🔜 M5 ([roadmap](docs/roadmap.md)) |
+| Cross-language graph: `go/parser` + Plan 9 asm + CUDA chains, langspec (29 data-driven languages incl. ObjC/Metal, [cookbook](docs/cookbook-new-language.md)), gpupipe Metal launch + message-send edges, persistent parse cache | ✅ live (wazero/tree-sitter still future, for full C/C++) |
+| Self-hosting gate: CI runs lint + check + coverage (≥70%) + fuzz; features developed through the server's own lifecycle | ✅ live ([roadmap](docs/roadmap.md)) |
 
 ## The chain, live
 
@@ -156,7 +157,7 @@ git root, then `-root`).
 ## Headless quickstart (driving the server from a coding agent / CI)
 
 No MCP client at hand? The server is plain JSON-RPC 2.0 over stdio — one
-frame per line, stdout carries only JSON-RPC, logs go to stderr. The three
+frame per line, stdout carries only JSON-RPC, logs go to stderr. The four
 things that cost time on first contact:
 
 1. **Handshake first**: send `initialize` (with `protocolVersion`), wait for
@@ -167,6 +168,11 @@ things that cost time on first contact:
    swarm identity (leases, heartbeats, sw learnings) is stable across
    otherwise short-lived driver sessions — coordination state lives in the
    shared `.spectackle/cache/coord.db`, not in the process.
+4. **Read the manifest**: the `instructions` field of the `initialize`
+   response IS the workflow contract (lifecycle loop, swarm protocol,
+   orchestration/fan-out and model tiering). Feed it to the driving LLM
+   verbatim — a driver that discards it leaves the LLM without the
+   intended division of labor.
 
 Minimal Python driver (each stdin line = one tool call):
 
@@ -192,7 +198,8 @@ def recv():
 send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
       "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                  "clientInfo": {"name": "driver", "version": "0"}}})
-recv()
+init = recv()
+print(init.get("result", {}).get("instructions", ""))
 send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 for rid, call in enumerate(map(json.loads, filter(str.strip, sys.stdin)), 100):
     send({"jsonrpc": "2.0", "id": rid, "method": "tools/call", "params": call})
@@ -270,6 +277,7 @@ checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
 - [docs/spec-cascade.md](docs/spec-cascade.md) — cascading spec bundles: format, resolution, authoring
 - [docs/ears.md](docs/ears.md) — the EARS grammar and linter codes
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)
+- [docs/cookbook-new-language.md](docs/cookbook-new-language.md) — adding a language: one Spec value + two one-line registrations
 - [docs/example-go-cuda.md](docs/example-go-cuda.md) — worked Go → CUDA lifecycle transcript
 - [docs/roadmap.md](docs/roadmap.md) — milestones to self-hosting
 

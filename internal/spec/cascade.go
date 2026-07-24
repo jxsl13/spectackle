@@ -239,6 +239,36 @@ func (c *Cascade) ForPath(rel string) []ResolvedRule {
 	return out
 }
 
+// ForNode returns the rules binding a graph node (SPX-SPC-007): rules whose
+// applies list names the node ID come first — explicit bindings are the
+// strongest signal — followed by the cascade rules of the node's file,
+// deduplicated by rule ID.
+func (c *Cascade) ForNode(id, file string) []ResolvedRule {
+	var out []ResolvedRule
+	taken := map[string]bool{}
+	for i := range c.files {
+		sf := &c.files[i]
+		for _, r := range sf.Rules {
+			for _, n := range r.Applies {
+				if n == id && !taken[r.ID] {
+					taken[r.ID] = true
+					out = append(out, ResolvedRule{Rule: r, ScopeDir: scopeDirLabel(sf.Dir)})
+					break
+				}
+			}
+		}
+	}
+	if file != "" {
+		for _, r := range c.ForPath(file) {
+			if !taken[r.ID] {
+				taken[r.ID] = true
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
 func scopeDirLabel(dir string) string {
 	if dir == "" {
 		return "."

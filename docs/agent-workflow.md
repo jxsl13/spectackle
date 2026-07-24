@@ -262,3 +262,14 @@ at a time through `lease`/`move`, with disjointness guaranteed by scope
 leases rather than by coordination overhead. Self-hosting the workflow is
 milestone 5 on the roadmap ([docs/roadmap.md](docs/roadmap.md)) — this
 document describes the steady state that milestone converges on.
+
+## Token economy: shell vs server
+
+| Shell habit | Server tool | Why |
+|---|---|---|
+| grep/rg <symbol> | find q=<symbol> scope=code | Returns IDs + spans (O(results)), not file contents (O(codebase)) |
+| grep -r over specs/history | find scope=rule\|rejection\|history | FTS5 over structured records, not O(files) text search |
+| find(1) by filename | find scope=code | Signatures and file paths match too; ranked results |
+| where is X defined / what calls X | get id=<node> depth=N | Cross-language call graph, not grep-inferred guesses |
+| sed-style bulk edit | get depth first, then edit | Survey sites via get depth; sed is the edit, never the search |
+| grep or sed .spectackle/ | find/get for reads, tools only for writes | Server-owned files: reads via API, writes via tools |

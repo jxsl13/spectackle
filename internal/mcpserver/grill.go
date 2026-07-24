@@ -29,6 +29,7 @@ import (
 type grillIn struct {
 	ID     string `json:"id" jsonschema:"item ID, e.g. P-0007"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
@@ -99,7 +100,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 
 	lines = append(lines, fmt.Sprintf("ok grilled %s %s", it.ID, it.Grilled))
 
-	kept, cur := budget.TruncateRecords(lines, 0, in.Budget)
+	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
 
