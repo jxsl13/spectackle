@@ -45,3 +45,6 @@ Rationale: comma-joined storage shattered comma-containing options — no byte-i
 
 ## MCP-002 {applies: go:graph.Node}
 WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL emit the definition span as `file:start-end` so agents see where a function ends without reading the file.
+
+## MCP-003 {applies: go:mcpserver.Server.registerTools}
+WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectacle server SHALL elicit the harness choice via `Session.Elicit` (one boolean per harness) and, headless, mint an open `decision` item instead of guessing.
