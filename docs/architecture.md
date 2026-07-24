@@ -122,6 +122,15 @@ read-only except the lifecycle write paths (`draft`, `rule`, `move`,
 
 `internal/mcpserver` uses the **official MCP Go SDK**
 (`github.com/modelcontextprotocol/go-sdk` v1.6.1): typed tool handlers,
-schemas inferred from Go structs, stdio transport (`mcp.StdioTransport`).
-Streamable HTTP can be added later without touching tool code. stdout is
-reserved for JSON-RPC frames; all logging goes to stderr (SPX-ARC-001).
+schemas inferred from Go structs. Two transports share the same tool code:
+stdio (`mcp.StdioTransport`, the default) and Streamable HTTP
+(`spectacle serve -http ADDR`, via `mcp.NewStreamableHTTPHandler`). `-http`
+is meant for running spectacle as a resident local service — graph and
+cache stay warm across agent sessions instead of being rebuilt on every
+stdio launch. v0 limitation: `NewStreamableHTTPHandler` is given a single
+`getServer` closure that always returns the same `*mcp.Server`, so one
+process instance backs every HTTP session — lifecycle/worktree state
+(`work op=start`, leases, the active root) is shared across all connected
+HTTP clients, not isolated per session. The stdout-reserved-for-JSON-RPC
+rule (SPX-ARC-001) applies to the stdio transport; in both modes all
+logging goes to stderr.
