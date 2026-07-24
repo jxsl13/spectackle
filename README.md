@@ -137,9 +137,57 @@ First calls of any session: `swarm {}` (who else is working, fresh
 learnings), then `get {"id": "."}` (root rules + active items) — the server
 instructions returned by `initialize` teach the rest of the loop.
 
+## Orchestrated swarm workflow (cheap fresh subagents)
+
+This repo is developed the way it's meant to be used: **one strong
+orchestrator plus a swarm of fresh, minimal-context implementer agents on a
+cheaper model.** The two roles never overlap:
+
+- **Orchestrator** (strong model, persistent context) — drafts proposals,
+  writes exhaustive task bodies, reviews implementer output, runs the final
+  gate/verify, merges, and is the *only* role that commits or opens PRs.
+- **Implementer** (cheap model, e.g. Claude Sonnet, zero prior context) —
+  pulls exactly one approved task, does no exploration, implements it,
+  tests it, and hands it back.
+
+Each implementer is spawned fresh with nothing but two inputs: (a) the
+task's full brief (`get <T-id>` — exact files, APIs, commands, constraints,
+already resolved by the orchestrator) and (b) the headless driver recipe
+above. The implementer loop is fixed and mechanical:
+
+```
+1. lease claim  — claim the task's declared scope (paths); on conflict,
+                   pick a different task, never wait idle.
+2. move active  — move the task id to "active".
+3. implement    — edit only the declared scope; run the declared
+                   build/test/verify commands until green.
+4. move done    — move the task id to "done".
+5. lease release — release the claimed scope immediately.
+```
+
+Why this shape: **exploration is the most expensive part of agentic
+coding**, not editing — so the server replaces it for the orchestrator
+(`find`/`get`/context packs instead of grepping the tree) and the task body
+replaces it for the implementer (nothing to discover, only to execute).
+**Disjointness** across concurrently running implementers is enforced by
+scope leases, not by convention — two agents can never legally touch the
+same paths at once. The shared `.spectacle/cache/coord.db` (leases,
+learnings, rejections, journal) is the swarm's common brain: every sibling
+sees claims and rejections in real time via `swarm`, so failed approaches
+are never retried blind.
+
+For long-running swarms, run the server as a **resident service**
+(`spectacle serve -http <addr>`, see [docs/architecture.md](docs/architecture.md)
+§8) instead of spawning a fresh stdio process per agent — one shared
+process, one shared cache, no cold-start per implementer.
+
+Full role breakdown, sequence diagram, and the "exhaustive task body"
+checklist: [docs/agent-workflow.md](docs/agent-workflow.md).
+
 ## Documentation
 
 - [docs/lifecycle.md](docs/lifecycle.md) — **the lifecycle architecture**: storage, search, state machine, compacting, drift/backprop
+- [docs/agent-workflow.md](docs/agent-workflow.md) — the orchestrator + fresh-implementer swarm workflow
 - [docs/tools.md](docs/tools.md) — the 7 MCP tools: JSON Schemas + output grammar
 - [docs/spec-cascade.md](docs/spec-cascade.md) — cascading spec bundles: format, resolution, authoring
 - [docs/ears.md](docs/ears.md) — the EARS grammar and linter codes
