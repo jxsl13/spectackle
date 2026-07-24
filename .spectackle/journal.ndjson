@@ -148,3 +148,8 @@
 {"t":"2026-07-24T20:03:41Z","eid":"2a0fca8120959bf2","ag":"orchestrator","ev":"create","id":"T-0097","k":"task","ti":"get must render the ADR fields (context/decision/consequences/status)"}
 {"t":"2026-07-24T20:03:53Z","eid":"de5f9b41aaf93ed0","ag":"orchestrator","ev":"move","id":"T-0096","fr":"draft","to":"active"}
 {"t":"2026-07-24T20:03:53Z","eid":"9d877077479b8818","ag":"orchestrator","ev":"move","id":"T-0097","fr":"draft","to":"active"}
+{"t":"2026-07-24T20:05:37Z","eid":"1fd2a3a419c3f453","ag":"orchestrator","ev":"create","id":"P-0068","k":"proposal","ti":"instructions: brownfield import recipe + compacted record-keeping rule"}
+{"t":"2026-07-24T20:05:37Z","eid":"f5992cbeb3d72f73","ag":"orchestrator","ev":"grill","id":"P-0068","gr":"2026-07-24"}
+{"t":"2026-07-24T20:05:37Z","eid":"ed91f6d664780e5b","ag":"orchestrator","ev":"move","id":"P-0068","fr":"draft","to":"active"}
+{"t":"2026-07-24T20:06:08Z","eid":"ea01cbf267f3a148","ag":"orchestrator","ev":"create","id":"T-0098","k":"task","ti":"add BROWNFIELD and RECORDS paragraphs to the instructions manifest"}
+{"t":"2026-07-24T20:06:08Z","eid":"1916ca9712749a10","ag":"orchestrator","ev":"move","id":"T-0098","fr":"draft","to":"active"}
