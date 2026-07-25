@@ -138,3 +138,10 @@ TESTS: scripted and httptest — reopen flips ready back to draft and the record
 VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
 SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
 ROLLBACK: additive method and one call site.
+
+## B-01KYDS0ZXYESB86SZY6VA8YBM0 archived transition for a never-active item pushes a branch that was never created
+kind: bug
+state: draft
+created: 2026-07-25
+
+Reproduced live: moving a draft bug straight to archived (records-only closure, fix already merged elsewhere) emitted g records committed onto the currently checked-out branch, then GIT E push src refspec spectackle/<id> does not match any — gitFlowMerge assumes the item owns a feature branch, but EnsureBranch only runs on the active transition. Consequences: the records commit strands unpushed on whatever branch happens to be checked out, and the default branch never receives the closure until an unrelated item branch carries it along. Never-silent held (the failure was loud) but the mechanics are wrong. Expected: when the item has no feature branch at archive time, land the records commit on the default branch directly — commit on a temporary ref or the default branch, push it, and fall back to opening a records-only PR when the direct push is rejected by branch protection; never reference a branch that was never created. Scope: gitFlowMerge and gitOpenPR branch-existence guards in internal/mcpserver/gitflow.go. VERIFY: unit test moving a draft item to archived in an online-mode fixture asserts no push of a nonexistent ref is attempted and the records commit reaches the default branch or an explicit PR; plus the live transcript stops showing GIT E src refspec on records-only closures.
