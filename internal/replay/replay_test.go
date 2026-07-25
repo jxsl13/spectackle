@@ -215,3 +215,92 @@ func TestRunReconcilesStaleAnchorsOnRuleEdit(t *testing.T) {
 		t.Fatalf("replayed edit must reconcile away go:pkg.A, leaving only go:pkg.B: %v", rows)
 	}
 }
+
+// rawJournalLine appends one pre-marshaled journal line, bypassing
+// journal.Append's eid minting — the shape of pre-swarm history.
+func rawJournalLine(t *testing.T, dir, line string) {
+	t.Helper()
+	f, err := os.OpenFile(dir+"/"+workspace.Dot+"/journal.ndjson",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunSkipsBaselinePreEidEvents: a pre-eid event present in main's journal
+// at the branch point is inherited by every worktree; replay must skip it as
+// baseline instead of failing the whole submit (it is already materialized on
+// main, and compact can never clear it — archive lines are kept verbatim).
+func TestRunSkipsBaselinePreEidEvents(t *testing.T) {
+	legacy := `{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"P-0002","k":"proposal","ti":"legacy","sum":"pre-swarm archive"}`
+
+	dir := t.TempDir()
+	main := workspace.Root{Dir: dir}
+	if err := main.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	rawJournalLine(t, dir, legacy)
+	if err := wt.InitTestRepo(dir); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	base, err := wt.Head(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wtDir := t.TempDir()
+	wtWS := workspace.Root{Dir: wtDir}
+	if err := wtWS.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	rawJournalLine(t, wtDir, legacy) // inherited at branch time
+	if err := journal.Append(wtWS, "", journal.Event{
+		Ev: journal.EvCreate, ID: "T-0001", K: "task", Ti: "new work",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := item.Upsert(wtWS, item.Item{
+		ID: "T-0001", Kind: "task", State: item.StateDraft, Title: "new work",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cd := openCoord(t, main)
+	rep, err := Run(main, wtWS, "T-0001", base, cd, graph.NewMem())
+	if err != nil {
+		t.Fatalf("Run must skip the inherited pre-eid baseline event: %v", err)
+	}
+	if rep.Events != 1 {
+		t.Fatalf("Events = %d, want 1 (the legacy line is baseline, not delta)", rep.Events)
+	}
+	mainEvents, err := journal.Read(main, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(mainEvents); n != 2 {
+		t.Fatalf("main journal has %d events, want 2 (legacy + replayed create)", n)
+	}
+}
+
+// TestRunRejectsNonBaselinePreEidEvents: a no-eid event that is NOT in the
+// branch-point baseline violates the append invariant and must stay fatal.
+func TestRunRejectsNonBaselinePreEidEvents(t *testing.T) {
+	main, base := mainRepo(t)
+
+	wtDir := t.TempDir()
+	wtWS := workspace.Root{Dir: wtDir}
+	if err := wtWS.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	rawJournalLine(t, wtDir,
+		`{"t":"2026-07-24T00:36:59Z","ev":"archive","id":"P-0099","k":"proposal","ti":"rogue","sum":"never on main"}`)
+
+	cd := openCoord(t, main)
+	if _, err := Run(main, wtWS, "T-0001", base, cd, graph.NewMem()); err == nil {
+		t.Fatal("Run must reject a no-eid event absent from the baseline")
+	}
+}

@@ -2,66 +2,6 @@
 schema: v0
 ---
 
-## ADR-0008 Should GoParser.callEdges keep minting call edges syntactically, or add a go/types semantic pass to fix silently-dropped chained-selector calls?
-kind: adr
-state: done
-created: 2026-07-24
-context: callEdges mints ECall edges from source-text spelling; any chained selector (s.cd.Sweep()) has fn.X typed as another SelectorExpr, falls through the switch, and the call is silently dropped instead of emitted as a prunable dangling edge. Confirmed live: get go:coord.DB.Sweep depth=1 shows zero incoming edges although internal/mcpserver/swarm.go:51 calls it. packages.Load type-checks the whole module transitively, ~10-100x slower than a bare go/parser.ParseFile per file — unacceptable as the steady-state per-file cost in the walk-hash-cache pipeline. Source: docs/design-go-types-calls.md.
-decision: two-tier hybrid: syntactic pass stays the fast always-on path, add a go/types upgrade pass scoped to IndexAll, cached by module hash
-consequences: Direct and embedded-selector method calls (the s.cd.Sweep() class of gap) become resolvable; regression test: get go:coord.DB.Sweep depth=1 must show go:mcpserver.Server.preCall as an incoming caller. Interface dispatch is explicitly deferred to M3+, resolving only to the interface method node. The cgo boundary stays owned by resolve.CgoResolver. Cross-module resolution beyond the repo root is out of scope for the first cut.
-status: accepted
-
-kind: radio
-option: keep syntactic-only resolution (status quo)
-option: replace the syntactic pass entirely with go/packages+go/types on every parse
-option: two-tier hybrid: syntactic pass stays the fast always-on path, add a go/types upgrade pass scoped to IndexAll, cached by module hash
-choice: two-tier hybrid: syntactic pass stays the fast always-on path, add a go/types upgrade pass scoped to IndexAll, cached by module hash
-
-## ADR-0009 Should spectackle build node-removal machinery for incremental IndexPaths, or keep the full-IndexAll rebuild?
-kind: adr
-state: done
-created: 2026-07-24
-context: Measured on this repo (73 files, 13.7k LOC): IndexAll is 40-42ms cold / 14-15ms warm in memory, 340-390ms cold / 19-20ms warm on sqlite. A 5000-file synthetic tree (245k LOC, 2.4x the M4 gate) warm-rebuilds in 333-383ms (mem) / 591-748ms (sqlite) — 7-15x under the M4 budget of 100k LOC indexed under 5s warm. Extrapolating the sqlite-warm slope (~120-150us/file), full rebuild only risks the 5s budget around 30k-40k files (~1.5-2M LOC), 15-20x past the gate's reference size. Removal machinery's payoff is bounded by savings against an already sub-second warm baseline. Source: docs/design-incremental-index.md.
-decision: rebuild-from-cache (status quo): IndexPaths stays a no-op, full IndexAll every refresh
-consequences: Zero new code and no new invariants beyond SPX-GRA-001/002; removal complexity is deferred until warm IndexAll approaches multi-second cost. Stated reopen criterion: once a real target repo's warm IndexAll measures within 2x of the 5s M4 budget, reopen starting from the per-file ownership index (smaller and more testable than the sweep scheduler). Two unrelated gaps flagged as worth fixing regardless: batching store.Put writes, and scoping ResolveTypedCalls' module-hash key to the changed file set.
-status: accepted
-
-kind: radio
-option: per-file ownership index plus RemoveFile(path), then reparse
-option: generation-stamped nodes with a lazy sweep
-option: rebuild-from-cache (status quo): IndexPaths stays a no-op, full IndexAll every refresh
-choice: rebuild-from-cache (status quo): IndexPaths stays a no-op, full IndexAll every refresh
-
-## ADR-0010 Given correctness-first evaluation, should spectackle stay on cgo tree-sitter, adopt wazero/wasm for C/C++ only, or secure WASI grammars for CUDA/ObjC first?
-kind: adr
-state: done
-created: 2026-07-24
-context: Evaluation axis (user steer 2026-07-24): correctness first, performance second — a real tree-sitter grammar gives fidelity on hard C/C++ constructs (macros, multi-line declarators, templates) that langspec's regex approximation cannot match. Measured: bit-level parity with the cSpec oracle (1151 symbols, 0 regressions); latency 2.0-5.4s per 100k LOC, reframed as NOT decisive because it is a one-time initial-read cost the M2 parse-blob cache amortizes; binary size 9.24MB, within the 10MB budget. Availability: no WASI-sdk-era grammar wasm exists for CUDA (zero release assets) or ObjC (only a pre-wasi-sdk Emscripten build). Source: docs/design-wasm-parsers.md, final Recommendation section.
-decision: secure or hand-compile wasi-sdk grammar wasm for CUDA/ObjC as the first buildable slice, then adopt wazero/tree-sitter for fidelity
-consequences: Enables the correctness upgrade over langspec's regex approximation once CUDA/ObjC grammars exist, but defers the actual backend migration until that grammar-availability work is done (upstream-adjacent build work, not a drop-in). The ~9.24MB binary cost for C+C++ is accepted as within budget. Latency is explicitly not gated on — it is absorbed by the parse-blob cache. Still open: which loading strategy wins (static-binary embedding vs a runtime-pluggable grammar loader, unbuilt anywhere today). langspec remains the shipping breadth track, unaffected either way. Supersedes the earlier defer verdict recorded in the same document.
-status: accepted
-
-kind: radio
-option: stay on cgo tree-sitter, do not pursue wazero/wasm further
-option: adopt wazero/wasm now for C/C++ only, leaving CUDA/ObjC on cgo permanently
-option: secure or hand-compile wasi-sdk grammar wasm for CUDA/ObjC as the first buildable slice, then adopt wazero/tree-sitter for fidelity
-choice: secure or hand-compile wasi-sdk grammar wasm for CUDA/ObjC as the first buildable slice, then adopt wazero/tree-sitter for fidelity
-
-## ADR-0011 Scored against the four PoC exit criteria, should spectackle adopt malivvan/tree-sitter now, invest in a wasi-sdk pipeline, or stay on cgo past M6?
-kind: adr
-state: done
-created: 2026-07-24
-context: PoC scored on a 51-file/9621-LOC corpus against design-wasm-parsers section 5's four criteria: PARITY PASS (1151/1151 matched, 0 regressions); SIZE PASS (8.82MB delta, ~88% of the 10MB budget, vs 22.1MB for the production binary with all four cgo backends); LATENCY FAIL (2.06-6.4s per 100k LOC vs 52-73ms for cSpec, only 0.8-2.4x headroom, violating the 5s budget in 2 of 5 runs; root cause isolated to the binding's per-call uint64 allocation churn, heap 46MB to 476MB over 6 GC-disabled passes, not wazero itself); AVAILABILITY FAIL (tree-sitter-cuda has zero published wasm assets; tree-sitter-objc's only wasm predates the wasi-sdk switch). Source: docs/design-wasm-poc-c.md.
-decision: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
-consequences: SUPERSEDED by the correctness-first re-reading of this same PoC data (see the wazero grammar-availability ADR): that later decision pursues wasi-sdk grammars rather than staying on cgo indefinitely. As written, this verdict kept langspec and the existing cgo backends as the investment target. The size result is retained as evidence that a single-language wasm engine fits budget. Criteria latency and availability can be re-scored cheaply by rerunning the same PoC once a batched-read binding or wasi-sdk-era CUDA/ObjC wasm appears. poc/wasmparse remains disposable by design.
-status: accepted
-
-kind: radio
-option: adopt malivvan/tree-sitter (wazero/wasm) as-is for the C parser
-option: invest in a wasi-sdk build pipeline and a batched-read binding now
-option: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
-choice: stay on cgo tree-sitter past M6; do not adopt this PoC's stack
-
 ## P-0083 the dev server always runs the current build: one command to rebuild and restart, and a hint when it drifts
 kind: proposal
 state: active
@@ -83,52 +23,86 @@ Rejected: rebuilding automatically inside the server. A process that replaces it
 
 Rejected: a file watcher. It adds a dependency and a background goroutine to answer a question that a stat at tool-call time already answers, and the answer is only interesting when someone is actually using the server.
 
-## T-0114 make dev: one idempotent command that rebuilds and restarts the resident server
-kind: task
+## B-0001 replay rejects worktree journals inheriting pre-eid baseline events; suggested compact cannot clear them
+kind: bug
 state: active
-created: 2026-07-24
-parent: P-0083
-targets: Makefile, CONTRIBUTING.md, README.md
+created: 2026-07-25
+targets: internal/replay/replay.go
 
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first; do not explore beyond the files named here.
+DEFECT
+replay.Run errors on ANY worktree journal event with empty Eid (replay.go:74) with the hint "compact on main first". The repo's root journal carries 7 pre-swarm archive events (2026-07-24, before Eid existed); every worktree inherits them at branch time, so every work op=submit fails. The hinted remedy cannot work: compact's journal fold keeps reject/archive/compact events verbatim (tools.go compact) and only runs past Compact.JournalMax — pre-eid archive events are permanent by design. Net effect: any workspace with pre-swarm archive history is permanently unable to submit worktrees. Reproduced on this repo with T-0114's verified worktree.
 
-GOAL
-One command that leaves the resident server running the code currently in the tree. The pieces exist and are simply not composed: the Makefile builds, serve -http runs resident, and -pidfile makes stopping a kill against a known file. Compose them.
+CAUSE
+The eid guard fires before the baseline filter. A no-eid event inherited from the branch-point baseline is by definition already materialized on main and needs no replay; only a NON-baseline event without eid is a real invariant violation.
 
-SCOPE (lease exactly these three)
-  Makefile
-  CONTRIBUTING.md
-  README.md          the resident-service section only — add the make target as the recommended path; do not restructure
-Do NOT touch internal/ or cmd/ at all. A sibling task owns internal/mcpserver right now, and a second sibling is adding the staleness hint inside the server — your half is purely the operator-facing command. .spectackle files are server-owned: never edit them by hand.
+FIX (decision)
+baselineEids additionally collects a legacy-key set (T+Ev+ID) for baseline events lacking eid; the delta loop skips a no-eid worktree event whose legacy key is in that baseline set and keeps the hard error for no-eid events NOT in the baseline (reworded, since compact cannot help). Both sides key through journal.Event's parsed time to avoid format drift. Rejected: backfilling eids during compact — changes archived history bytes, and existing worktrees still carry the pre-eid copies, so the error would persist until every open worktree is re-branched.
 
-WHAT TO BUILD
-A make target (name it dev) that, in order: builds the binary the way the existing build target does; stops a server already running for this workspace; starts a new one over Streamable HTTP with a pidfile; waits until it actually answers before returning.
-Add companion targets for the two halves that are useful alone: stopping, and reporting whether one is running. Keep the names obvious.
-Make the address and pidfile path overridable variables with sane defaults, following the file's existing style (GO, BIN, FUZZTIME, COVER_MIN are all overridable — match that).
-
-THE THREE THINGS THAT MAKE OR BREAK IT
-1. Idempotent, and never two servers on one port. Running the target twice in a row must leave exactly one server. A half-dead second process bound to nothing is worse than a stale first one. Stopping must succeed when nothing is running (fresh clone, first use) rather than failing the target.
-2. Readiness must be proven by an actual tool call, not by a listening socket. The process binds the port before it finishes indexing, so a socket probe hands back a server that answers nothing. Use the binary's own call subcommand against the endpoint (spectackle call -http ADDR state) in a bounded retry loop, and fail the target with a clear message if it never answers — do not loop forever.
-3. A stale pidfile must not wedge it. serve refuses to start when the pidfile already exists (O_EXCL, deliberate: an existing pidfile usually means a live server). If the recorded process is gone, the target must clear the file and proceed; if it is alive, it must stop it first. Read cmd/spectackle/main.go's pidfile handling before writing this — match its semantics rather than guessing them.
-
-DOCUMENTATION
-CONTRIBUTING.md: state the invariant plainly — this repository develops itself with itself, so the resident server IS the product under change, and it must be rebuilt and restarted after every merged feature or fix. Name the command. Give the reason rather than only the rule: a stale binary answers plausibly from code that no longer exists, which reads as a defect in the feature you just shipped. The `make all` section is the natural neighbor.
-README: in the existing resident-service section, present the make target as the recommended way to start it, keeping the manual invocation for anyone not using make.
-
-VERIFY (run every one; report real output, never predicted)
-  make build
-  make dev            twice in a row -- report both transcripts and prove exactly one server is running afterwards
-  the stop target, then the status target, showing it reports not-running
-  make dev with a stale pidfile present whose PID is dead -- must recover, not wedge
-  make dev on a port already occupied by something else -- must fail with a clear message rather than hang
-  make all            must still be green end to end
-Paste the real output of each. A target that works only on the happy path is not done.
-
-EXIT CRITERION
-make dev is idempotent, proves readiness with a real tool call, recovers from a stale pidfile, fails loudly on an occupied port, make all is green, and both documents state the invariant with its reason.
+VERIFY
+go test ./internal/replay/... -race with two new tests (baseline pre-eid event skipped; non-baseline pre-eid event still errors); go test ./...; live: T-0114 work op=submit succeeds after this fix.
 
 ROLLBACK
-Make targets and prose. Removing the targets and reverting the two documents restores the prior state; no Go code, schema, record or anchor is touched, and nothing else in the Makefile depends on the new targets.
+One function's return set and one loop condition; reverting replay.go restores prior behavior. No schema, record or journal format change.
 
-REPORT BACK
-The target names and variables, the real transcript of every verification above including the two failure cases, and anything you deliberately did NOT do.
+## B-0004 MergeMain hardcodes the branch name main, so submit silently merges a stale ref and dies at the fast-forward on repos developing on another branch
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+wt.MergeMain runs git merge --no-edit main inside the worktree. When the primary checkout's development branch is not literally named main (observed live: claude/repo-mcp-spec-driven-3l93dx at fb11265, with a stale local main 77 commits behind on a diverged lineage), the merge is a silent no-op against the stale ref, GATE 2 passes trivially, and FFMain then fails with exit 128 diverging-branches because the worktree branch never picked up the real tip. Every worktree submit in such a repo fails identically; T-0115 reproduced it end to end. Secondary observation: workSubmit leaves the coord worktree state stamped gating/integrating on early return, which is cosmetic (submit does not check it) but misleading in swarm output.
+
+CAUSE
+The integration target is a naming convention, not a resolved fact. The correct target is whatever branch the primary checkout has checked out — already discoverable from the worktree via CommonRoot + symbolic-ref.
+
+FIX (decision)
+MergeMain resolves the primary checkout via CommonRoot(wtRoot) and merges its current branch (symbolic-ref --short HEAD), falling back to the literal main only when resolution fails (non-worktree callers, tests) and to the HEAD sha when the primary checkout is detached. Signature unchanged, so the leased swarm.go call site is untouched. Rejected: passing the branch through workSubmit — correct too, but needlessly edits a file another agent holds a lease on, and every future caller would have to re-derive the same fact.
+
+VERIFY
+go test ./internal/wt/... -race with a new regression test (primary checkout on a non-main branch, commit lands on it after worktree creation, MergeMain in the worktree picks it up so FFMain succeeds); go test ./...; live: T-0115 and T-0111 submits complete.
+
+ROLLBACK
+One function body; reverting restores prior behavior. No schema or record change.
+
+## B-0005 CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+wt.git() returns strings.TrimSpace over the whole combined output. For git status --porcelain that strips the leading space of the FIRST line only, so an unstaged entry like ' M .spectackle/anchors.tsv' arrives as 'M .spectackle/anchors.tsv' and CommitCode's l[0] != ' ' staged-detection reads it as staged. When the only remaining diff after the code-only add is .spectackle state (near-universal at submit time: the code commit already exists from a prior gate round), CommitCode issues a commit with nothing staged and git exits 1 — work op=submit fails with ! WT E commit. Reproduced live by T-0111 (byte-level transform confirmed); would also have hit T-0115's retry.
+
+CAUSE
+Positional-whitespace parsing of an output channel that a shared helper normalizes for unrelated callers (rev-parse et al. want the trailing newline gone).
+
+FIX (decision)
+Stop parsing porcelain for stagedness: git diff --cached --quiet exits non-zero exactly when the index differs from HEAD, immune to any output trimming. Rejected: un-trimming git() (every other caller depends on the normalization); a second raw-output helper (an exit-code probe is strictly simpler than a second output contract).
+
+VERIFY
+go test ./internal/wt/... -race with a new regression test (worktree whose only dirt is an unstaged .spectackle file: CommitCode must report committed=false with no error — fails before the fix, passes after); go test ./...; live: T-0111 and T-0115 submits complete.
+
+ROLLBACK
+One detection block in CommitCode; reverting restores prior behavior. No schema or record change.
+
+## B-0006 worktree .spectackle live state blocks MergeMain: seeded uncommitted by copyBundles, excluded by CommitCode, refused by git when main's tip touches the same files
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+copyBundles snapshots main's live .spectackle bundles into a fresh worktree as uncommitted working-tree files (deliberate: bundles may be ahead of HEAD), and CommitCode's codeOnly pathspec keeps them out of every branch commit (deliberate: replay.Run reconciles record state semantically, git never merges it). Net effect: every worktree carries permanent uncommitted .spectackle diffs. While MergeMain silently merged a stale ref (B-0004) this was invisible; merging the real advancing tip — whose commits touch the same journal files — makes git abort with would-be-overwritten-by-merge. Deterministic for every worktree by construction; reproduced by T-0115 and expected identically for T-0111.
+
+CAUSE
+The live record snapshot and the git merge share paths but not ownership: the files are replay's input and must survive verbatim, yet they sit in git's working tree where a merge is entitled to update them.
+
+FIX (decision)
+MergeMain preserves and restores: before merging (only when no merge is already in progress), save the bytes of every modified-tracked and untracked working-tree path under a .spectackle dir, clear them (checkout for tracked, remove for untracked), merge, then write the exact bytes back — replay's input survives verbatim, the merge sees a clean tree, and replay stays the sole owner of record-state reconciliation. Rejected: discarding the local .spectackle diffs (loses the worktree's own record delta — item moves, rule events — that replay must apply); git stash (pop conflicts on the same paths reintroduce the problem nondeterministically); committing bundles in worktrees (contradicts the standing design that git never carries record-state merges).
+
+VERIFY
+go test ./internal/wt/... -race with a regression test (worktree with local journal edit, main commits a change to the same file, MergeMain succeeds, local bytes preserved, FFMain follows); go test ./...; live: T-0111 and T-0115 submits complete.
+
+ROLLBACK
+One helper and one call inside MergeMain; reverting restores prior behavior. No schema or record change.
