@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0119 end-terminated languages onto EndSpan: lua, ruby, elixir, julia, fortran — spans, call edges, Def fixes
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0084
 refs: R-0005, ADR-0012
