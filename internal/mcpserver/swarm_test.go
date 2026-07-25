@@ -476,12 +476,35 @@ func writeGoFileAt(t *testing.T, root, rel string, mtime time.Time) {
 
 // staleWorkspace builds a fresh scaffolded workspace root for the staleness
 // tests below — no git needed, the swarm/get tools it exercises don't touch
-// version control.
+// version control. Its go.mod declares spectackle's OWN module: every test
+// using this fixture runs the test binary itself (Version keeps its "-dev"
+// default, see server.go), so this fixture is the "dev build serving
+// spectackle's own tree" half of staleEligible — the half that must still
+// produce today's hint behavior (T-01KYD8H / issue #29). The unrelated-
+// module half is foreignModuleWorkspace below.
 func staleWorkspace(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	ws := workspace.Root{Dir: root}
 	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"),
+		[]byte("module "+modulePath+"\n\ngo 1.25.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// foreignModuleWorkspace is staleWorkspace with its go.mod overwritten to
+// declare a module OTHER than spectackle's own — a dev build pointed at
+// someone else's repository, the second way issue #29's advice could be
+// unfollowable even once the release-vs-dev half is fixed.
+func foreignModuleWorkspace(t *testing.T) string {
+	t.Helper()
+	root := staleWorkspace(t)
+	if err := os.WriteFile(filepath.Join(root, "go.mod"),
+		[]byte("module example.com/someone/else\n\ngo 1.25.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -602,4 +625,130 @@ func TestStaleHintSilentOnExecutableFailure(t *testing.T) {
 			t.Fatalf("unstattable binary degraded to a tool error, not silence: %q", out)
 		}
 	})
+}
+
+// ---- stale-binary eligibility gate (issue #29 / T-01KYD8H) ----
+//
+// staleHint used to fire from ANY binary serving ANY tree, including a
+// released, installed binary whose own repository's sources are (almost
+// always) newer than the binary — unfollowable advice on every single
+// tool call, since the install has no Makefile to run "make dev" from.
+// The two tests below cover the eligibility gate's failure half; the
+// existing tests above (staleWorkspace, a dev-Version test binary serving
+// a workspace whose go.mod matches spectackle's own module) are the
+// success half and are deliberately left as they were.
+
+// TestStaleHintSilentOnReleaseBuild: a stamped release Version never
+// hints, on any tree, and — the point of gating BEFORE the walk — never
+// even resolves the executable to check. execPath is swapped for a spy
+// so a walk that ran despite the gate would be caught here, not just
+// coincidentally produce the right answer.
+func TestStaleHintSilentOnReleaseBuild(t *testing.T) {
+	root := staleWorkspace(t) // spectackle's own module — proves (a) alone gates
+	bin := currentExecutableModTime(t)
+	// newer than the binary: would fire the hint were the walk ever reached.
+	writeGoFileAt(t, root, "pkg/newer.go", bin.Add(time.Hour))
+
+	origVersion := Version
+	Version = "v0.3.0" // stamped release: no "dev" marker
+	t.Cleanup(func() { Version = origVersion })
+
+	walked := false
+	origExec := execPath
+	execPath = func() (string, error) { walked = true; return origExec() }
+	t.Cleanup(func() { execPath = origExec })
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if strings.Contains(out, staleHintText) {
+		t.Fatalf("stale hint fired on a released Version: %q", out)
+	}
+	if walked {
+		t.Fatalf("binaryStale's walk ran despite a released Version — staleEligible should short-circuit before execPath is ever called")
+	}
+
+	// same released Version, a second call: still nothing, still no walk.
+	out2 := callText(t, alice, "get", map[string]any{"id": "does-not-matter"})
+	if strings.Contains(out2, staleHintText) {
+		t.Fatalf("stale hint fired on a released Version (second call): %q", out2)
+	}
+	if walked {
+		t.Fatalf("binaryStale's walk ran on a later call despite a released Version")
+	}
+}
+
+// TestStaleHintSilentOnUnrelatedModule: a dev-Version test binary (the
+// same binary every test in this file runs as) serving a tree whose
+// go.mod declares a DIFFERENT module must not hint either — the advice
+// names spectackle's own Makefile target, unfollowable against a
+// repository that isn't spectackle at all.
+func TestStaleHintSilentOnUnrelatedModule(t *testing.T) {
+	root := foreignModuleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	writeGoFileAt(t, root, "pkg/newer.go", bin.Add(time.Hour))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if strings.Contains(out, staleHintText) {
+		t.Fatalf("stale hint fired though the served workspace is not spectackle's own module: %q", out)
+	}
+}
+
+// TestReadModulePath exercises the go.mod line scan directly: the exact
+// shapes it must tolerate (surrounding whitespace, a go.mod with more than
+// just the module line, one with none at all) without pulling in
+// golang.org/x/mod/modfile for a single directive.
+func TestReadModulePath(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+		wantOK  bool
+	}{
+		{"simple", "module github.com/example/foo\n\ngo 1.25.0\n", "github.com/example/foo", true},
+		{"leading blank lines", "\n\nmodule github.com/example/foo\n", "github.com/example/foo", true},
+		{"indented", "   module github.com/example/foo  \n", "github.com/example/foo", true},
+		{"no module line", "go 1.25.0\n", "", false},
+		{"empty file", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := readModulePath(dir)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("readModulePath(%q) = (%q, %v), want (%q, %v)", tt.content, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+
+	t.Run("missing go.mod", func(t *testing.T) {
+		got, ok := readModulePath(t.TempDir())
+		if ok || got != "" {
+			t.Errorf("readModulePath on a dir with no go.mod = (%q, %v), want (\"\", false)", got, ok)
+		}
+	})
+}
+
+// TestIsDevBuild pins the substring rule against both shapes Version
+// actually takes: the compiled-in default (server.go) and a -ldflags
+// stamped release tag.
+func TestIsDevBuild(t *testing.T) {
+	orig := Version
+	t.Cleanup(func() { Version = orig })
+
+	Version = "0.2.0-dev"
+	if !isDevBuild() {
+		t.Errorf("isDevBuild() = false for the compiled-in dev default %q", Version)
+	}
+	Version = "v0.3.0"
+	if isDevBuild() {
+		t.Errorf("isDevBuild() = true for a stamped release tag %q", Version)
+	}
 }
