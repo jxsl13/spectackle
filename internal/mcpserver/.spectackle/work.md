@@ -2,34 +2,6 @@
 schema: v0
 ---
 
-## T-0129 tool-surface invariant: no bundle directory may appear outside a legitimate context dir
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-0087
-refs: B-0003
-targets: internal/mcpserver/invariants_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. NEW FILE ONLY — do not edit any existing file in internal/mcpserver; siblings and future tasks touch those.
-
-CLASS (B-0003, read it with get id=B-0003): one call site passed an item ID where journal.Append expects a context dir, which scaffolded a directory named after the item at the repo root that then read as a context dir, polluting state and rule listings. The defect is not that one argument; it is that nothing checks where bundles may exist.
-
-THE INVARIANT
-Over a scratch git-backed workspace, exercise the mutating tool surface end to end through the in-memory MCP session helpers already in this package (connectRoot/callText in tools_test.go — reuse them, do not build a new harness): draft of every kind the tool accepts, move across the forward states including rejected-with-note and archived, rule add plus edit plus retire, decide ask and answer, grill, work start then abort, work start then submit, lease claim and release, compact, and knowledge apply if it is reachable without a fixture artifact. Then walk the whole workspace tree and assert that every directory containing a .spectackle folder is a legitimate context dir: a directory that existed as a source directory before the run, or the workspace root itself. In particular no such parent may match item.IDRe — that is B-0003's exact shape and the cheapest tripwire for the whole class.
-
-Fail with the offending path and the tool sequence that produced it, not a bare boolean, so the next occurrence is diagnosable from the failure alone. Keep the walk skipping the worktree directory the work op=start leg creates: a worktree legitimately carries its own bundles.
-
-VERIFY (run every one, real output, never predicted)
-  go build ./...
-  go test <your packages> -race
-  go test ./...
-  go vet <your packages>
-  /home/user/spectackle/bin/spectackle lint
-PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it encodes (revert the guard, restore the old gate, whatever is minimal), show the test failing, restore, show it passing. A green invariant that would also be green against the broken code is worthless; paste both transcripts.
-
-ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
-REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
-
 ## T-0130 worktree submit end to end under the four conditions the old tests never had
 kind: task
 state: approved
