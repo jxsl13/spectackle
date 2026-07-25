@@ -59,19 +59,44 @@ func TestSearchSanitizing(t *testing.T) {
 
 func TestFileStat(t *testing.T) {
 	c := open(t, t.TempDir())
-	if _, _, ok := c.FileStat("x"); ok {
+	if _, _, _, ok := c.FileStat("x"); ok {
 		t.Fatal("unknown path reported present")
 	}
-	if err := c.PutFileStat("x", 42, 7); err != nil {
+	if err := c.PutFileStat("x", 42, 7, "aabb"); err != nil {
 		t.Fatal(err)
 	}
-	if mt, sz, ok := c.FileStat("x"); !ok || mt != 42 || sz != 7 {
-		t.Fatalf("FileStat = %d %d %v", mt, sz, ok)
+	if mt, sz, sha, ok := c.FileStat("x"); !ok || mt != 42 || sz != 7 || sha != "aabb" {
+		t.Fatalf("FileStat = %d %d %q %v", mt, sz, sha, ok)
 	}
 	// upsert
-	c.PutFileStat("x", 43, 8)
-	if mt, _, _ := c.FileStat("x"); mt != 43 {
-		t.Fatalf("upsert failed: %d", mt)
+	c.PutFileStat("x", 43, 8, "ccdd")
+	if mt, _, sha, _ := c.FileStat("x"); mt != 43 || sha != "ccdd" {
+		t.Fatalf("upsert failed: %d %q", mt, sha)
+	}
+}
+
+// The hash is the whole point of the row: metadata can repeat across a
+// content change, so a stat write that keeps mtime and size but carries a new
+// sha must still land, and a row must never read back with a stale hash.
+func TestFileStatHashTracksContentNotMetadata(t *testing.T) {
+	c := open(t, t.TempDir())
+	if err := c.PutFileStat("bundle", 100, 64, "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.PutFileStat("bundle", 100, 64, "new"); err != nil {
+		t.Fatal(err)
+	}
+	mt, sz, sha, ok := c.FileStat("bundle")
+	if !ok || mt != 100 || sz != 64 || sha != "new" {
+		t.Fatalf("same-metadata rehash not recorded: %d %d %q %v", mt, sz, sha, ok)
+	}
+	// A row written without a hash must read back as "content unknown"
+	// (empty), never as a hash that happens to match anything.
+	if err := c.PutFileStat("nohash", 1, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, sha, ok := c.FileStat("nohash"); !ok || sha != "" {
+		t.Fatalf("empty hash must round-trip empty: %q %v", sha, ok)
 	}
 }
 
@@ -79,7 +104,7 @@ func TestGenerationMismatchRebuilds(t *testing.T) {
 	dir := t.TempDir()
 	c := open(t, dir)
 	c.ReplaceDocs(".", []string{"rule"}, []Doc{{Kind: "rule", ID: "X-001", Dir: ".", Title: "t", Body: "persist me"}})
-	c.PutFileStat("f", 1, 1)
+	c.PutFileStat("f", 1, 1, "deadbeef")
 
 	// same generation: reopen keeps data
 	c.Close()
@@ -97,7 +122,7 @@ func TestGenerationMismatchRebuilds(t *testing.T) {
 	if docs, _ := c3.Search("persist", nil, 3); len(docs) != 0 {
 		t.Fatalf("gen mismatch must drop docs: %+v", docs)
 	}
-	if _, _, ok := c3.FileStat("f"); ok {
+	if _, _, _, ok := c3.FileStat("f"); ok {
 		t.Fatal("gen mismatch must drop file stats")
 	}
 }
