@@ -234,6 +234,206 @@ func TestCppSpecAllmanMethodCallEdges(t *testing.T) {
 	}
 }
 
+// cppT0122Src is R-0005's gap-cpp fixture (scratchpad/gap-cpp/sample.cpp),
+// copied verbatim as the regression input for T-0122's cpp.go hardening:
+// inline class-body methods (a one-liner getter and a same-line-brace
+// virtual override), a destructor, a nested type, `enum class`, an
+// out-of-line template method (`Stack<T>::push`), an operator overload, and
+// a multi-line free-function signature.
+var cppT0122Src = []byte(`struct Point {
+    int x;
+    int y;
+};
+
+class Shape {
+public:
+    virtual double describe() const {
+        return 0.0;
+    }
+    virtual ~Shape() {}
+};
+
+class Circle : public Shape {
+public:
+    Circle(double r);
+    double area() const;
+    double radius() const { return radius_; }
+
+private:
+    double radius_;
+};
+
+double Circle::area() const {
+    return 3.14159 * radius_ * radius_;
+}
+
+std::ostream& operator<<(std::ostream& os, const Circle& c) {
+    os << c.radius();
+    return os;
+}
+
+template <typename T>
+class Stack {
+public:
+    void push(const T& value);
+
+private:
+    std::vector<T> data_;
+};
+
+template <typename T>
+void Stack<T>::push(const T& value) {
+    data_.push_back(value);
+}
+
+template <typename T>
+T add(T a, T b) {
+    return a + b;
+}
+
+enum class Color { Red, Green, Blue };
+
+static int helper(int n,
+                   int m) {
+    return add(n, m);
+}
+
+class Outer {
+public:
+    struct Inner {
+        int value;
+    };
+};
+`)
+
+// TestCppSpecT0122InlineClassBodyMethods covers R-0005 cpp.md's [high]
+// "Inline class-body method definitions" finding: an indented one-liner
+// getter (`radius`) and an indented same-line-brace virtual override
+// (`describe`, body on following lines) were both previously invisible
+// because the free-function Def is anchored at column zero.
+func TestCppSpecT0122InlineClassBodyMethods(t *testing.T) {
+	p := SpecParser{S: cppSpec}
+	pr, err := p.Parse("x.cpp", cppT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+
+	if n, ok := byID["cpp:describe"]; !ok {
+		t.Fatalf("node cpp:describe missing, got %+v", pr.Nodes)
+	} else {
+		if n.Kind != graph.KMethod {
+			t.Errorf("cpp:describe Kind = %v, want KMethod", n.Kind)
+		}
+		if n.Line != 8 || n.EndLine != 10 {
+			t.Errorf("cpp:describe Line/EndLine = %d/%d, want 8/10", n.Line, n.EndLine)
+		}
+	}
+	if n, ok := byID["cpp:radius"]; !ok {
+		t.Fatalf("node cpp:radius missing, got %+v", pr.Nodes)
+	} else {
+		if n.Kind != graph.KMethod {
+			t.Errorf("cpp:radius Kind = %v, want KMethod", n.Kind)
+		}
+		if n.Line != 18 || n.EndLine != 18 {
+			t.Errorf("cpp:radius Line/EndLine = %d/%d, want 18/18", n.Line, n.EndLine)
+		}
+	}
+}
+
+// TestCppSpecT0122Destructor covers R-0005 cpp.md's [high] "Destructor
+// definitions" finding: `~Shape` can never be captured by the plain
+// free-function Def because `~` is not a word character.
+func TestCppSpecT0122Destructor(t *testing.T) {
+	p := SpecParser{S: cppSpec}
+	pr, err := p.Parse("x.cpp", cppT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+	n, ok := byID["cpp:~Shape"]
+	if !ok {
+		t.Fatalf("node cpp:~Shape missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KMethod {
+		t.Errorf("cpp:~Shape Kind = %v, want KMethod", n.Kind)
+	}
+	if n.Line != 11 {
+		t.Errorf("cpp:~Shape Line = %d, want 11", n.Line)
+	}
+	// The destructor's own name must never collide with its class's KType
+	// node: "Shape" (the class) and "~Shape" (the destructor) are distinct
+	// NodeIDs.
+	if _, ok := byID["cpp:Shape"]; !ok {
+		t.Error("node cpp:Shape (the class) missing — destructor fix must not clobber the class's own KType node")
+	}
+}
+
+// TestCppSpecT0122NestedTypeAndEnumClass covers R-0005 cpp.md's [high]
+// "Nested type declarations" and [high] "enum / enum class type
+// declarations" findings.
+func TestCppSpecT0122NestedTypeAndEnumClass(t *testing.T) {
+	p := SpecParser{S: cppSpec}
+	pr, err := p.Parse("x.cpp", cppT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+
+	if n, ok := byID["cpp:Inner"]; !ok {
+		t.Fatalf("node cpp:Inner missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KType {
+		t.Errorf("cpp:Inner Kind = %v, want KType", n.Kind)
+	}
+	if n, ok := byID["cpp:Color"]; !ok {
+		t.Fatalf("node cpp:Color missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KType {
+		t.Errorf("cpp:Color Kind = %v, want KType", n.Kind)
+	}
+}
+
+// TestCppSpecT0122TemplateMethodOperatorAndMultiLineSig covers R-0005
+// cpp.md's [high] "Out-of-line template method definitions"
+// (`Stack<T>::push`), [medium] "Operator overload definitions"
+// (`operator<<`), and [medium] "Multi-line function signatures" (`static
+// int helper(int n,\n int m) {`) findings, plus the cascading call edge
+// (helper -> add) that a missed multi-line signature used to erase.
+func TestCppSpecT0122TemplateMethodOperatorAndMultiLineSig(t *testing.T) {
+	p := SpecParser{S: cppSpec}
+	pr, err := p.Parse("x.cpp", cppT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+
+	if n, ok := byID["cpp:push"]; !ok {
+		t.Fatalf("node cpp:push missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KFunc {
+		t.Errorf("cpp:push Kind = %v, want KFunc", n.Kind)
+	}
+	if n, ok := byID["cpp:operator<<"]; !ok {
+		t.Fatalf("node cpp:operator<< missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KFunc {
+		t.Errorf("cpp:operator<< Kind = %v, want KFunc", n.Kind)
+	}
+	n, ok := byID["cpp:helper"]
+	if !ok {
+		t.Fatalf("node cpp:helper missing, got %+v", pr.Nodes)
+	}
+	if n.Line != 54 || n.EndLine != 57 {
+		t.Errorf("cpp:helper Line/EndLine = %d/%d, want 54/57", n.Line, n.EndLine)
+	}
+	foundEdge := false
+	for _, e := range pr.Edges {
+		if e.Src == "cpp:helper" && e.Dst == "cpp:add" && e.Kind == graph.ECall {
+			foundEdge = true
+		}
+	}
+	if !foundEdge {
+		t.Errorf("missing edge cpp:helper -> cpp:add, got edges %+v", pr.Edges)
+	}
+}
+
 func TestCppSpecDeterministic(t *testing.T) {
 	p := SpecParser{S: cppSpec}
 	pr1, err := p.Parse("shapes.cpp", cppSrc)
