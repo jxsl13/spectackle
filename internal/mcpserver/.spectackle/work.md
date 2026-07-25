@@ -67,7 +67,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## B-01KYDDR98HEXE80DJ3JJCY9A8M the draft pull request cannot be opened on entry to active: the branch has no commits yet
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 targets: internal/mcpserver/gitflow.go
 

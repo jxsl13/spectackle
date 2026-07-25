@@ -50,30 +50,62 @@ func TestGitHubOpenCreatesDraft(t *testing.T) {
 	}
 }
 
-func TestGitHubReadyClearsDraft(t *testing.T) {
-	var gotMethod, gotPath string
-	var gotBody map[string]any
-	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
-		gotMethod, gotPath = r.Method, r.URL.Path
-		json.NewDecoder(r.Body).Decode(&gotBody)
+// TestGitHubReadyUsesGraphQLMutation.
+//
+// The previous version of this test stubbed a PATCH carrying draft:false and
+// asserted the stub was called — and it passed, while production did not work
+// at all: GitHub's REST pulls endpoint accepts that PATCH, answers 200, and
+// leaves the pull request a draft. A stub that returns what you hope for tests
+// your hope, not the API. Found live, on a pull request the automation reported
+// as readied and which GitHub still showed as a draft.
+//
+// So this test pins the mechanism that actually works: the
+// markPullRequestReadyForReview GraphQL mutation, addressed by node ID.
+func TestGitHubReadyUsesGraphQLMutation(t *testing.T) {
+	var gotQuery string
+	var gotVars map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		gotQuery, gotVars = body.Query, body.Variables
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{
-			"number": 42, "html_url": "https://github.com/jxsl13/spectackle/pull/42", "draft": false,
-		})
-	})
+		w.Write([]byte(`{"data":{"markPullRequestReadyForReview":{"pullRequest":{"number":42,"isDraft":false,"url":"https://github.com/jxsl13/spectackle/pull/42"}}}}`))
+	}))
+	t.Cleanup(srv.Close)
 
-	pr, err := g.Ready(PR{Number: 42, Branch: "agent/forge-client"})
+	g := &GitHub{Owner: "jxsl13", Repo: "spectackle", Token: "t", GraphQLURL: srv.URL}
+	pr, err := g.Ready(PR{Number: 42, Branch: "b", NodeID: "PR_node_42"})
 	if err != nil {
 		t.Fatalf("Ready: %v", err)
 	}
 	if pr.Draft {
 		t.Fatalf("Ready did not clear draft: %+v", pr)
 	}
-	if gotMethod != http.MethodPatch || gotPath != "/repos/jxsl13/spectackle/pulls/42" {
-		t.Fatalf("Ready request = %s %s", gotMethod, gotPath)
+	if !strings.Contains(gotQuery, "markPullRequestReadyForReview") {
+		t.Fatalf("Ready did not use the mutation: %q", gotQuery)
 	}
-	if draft, ok := gotBody["draft"].(bool); !ok || draft {
-		t.Fatalf("Ready request body did not send draft:false: %v", gotBody)
+	if gotVars["id"] != "PR_node_42" {
+		t.Fatalf("Ready addressed the wrong node: %v", gotVars)
+	}
+}
+
+// TestGitHubReadyRefusesToClaimSuccessWhileStillDraft: if the forge answers
+// that the pull request is STILL a draft, that is an error, not a success to
+// report. The whole defect this replaced was the automation announcing a ready
+// pull request that was not one.
+func TestGitHubReadyRefusesToClaimSuccessWhileStillDraft(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"markPullRequestReadyForReview":{"pullRequest":{"number":42,"isDraft":true,"url":"u"}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	g := &GitHub{Owner: "jxsl13", Repo: "spectackle", Token: "t", GraphQLURL: srv.URL}
+	if _, err := g.Ready(PR{Number: 42, Branch: "b", NodeID: "n"}); err == nil {
+		t.Fatal("Ready reported success while the PR was still a draft")
 	}
 }
 
