@@ -117,7 +117,7 @@ REPORT BACK: each invariant with the class it generalizes, the failing-then-pass
 
 ## T-0131 freshness follows content: fix B-0009 and assert it per bundle kind
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0087
 refs: B-0009
