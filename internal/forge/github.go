@@ -273,9 +273,62 @@ func (g *GitHub) Merge(pr PR) (MergeResult, error) {
 		return MergeResult{Merged: m.Merged, SHA: m.SHA}, nil
 	case http.StatusForbidden:
 		return MergeResult{Merged: false, Reason: ReasonNoPermission}, nil
+	case http.StatusMethodNotAllowed, http.StatusConflict:
+		// Transient by design on GitHub's side, and both observed live within
+		// seconds of a push to the head: 405 while mergeability is being
+		// recomputed, 409 when the head advanced under the merge call. A
+		// value, not an error, so the caller retries this and nothing else.
+		return MergeResult{Merged: false, Reason: ReasonNotReady}, nil
 	default:
 		return MergeResult{}, fmt.Errorf("forge: merge PR #%d: %s: %s", pr.Number, http.StatusText(status), strings.TrimSpace(string(raw)))
 	}
+}
+
+// Checks reduces the head's check runs to one CheckState.
+//
+// The reduction order matters: any failed run makes the whole verdict
+// Failing even while others still run — a red that is already certain must
+// not be waited on; any still-running run with no failure yet is Pending;
+// all-concluded-benign is Passing; and zero runs is None, the
+// repository-without-CI case, which must be distinguishable from Passing
+// because it is the caller's cue that there is nothing to wait FOR.
+func (g *GitHub) Checks(pr PR) (CheckState, error) {
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", g.Owner, g.Repo, url.PathEscape(pr.Branch))
+	status, raw, err := g.request(http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK {
+		return "", fmt.Errorf("forge: check runs for %s: %s: %s", pr.Branch, http.StatusText(status), strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		CheckRuns []struct {
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("forge: decode check runs: %w", err)
+	}
+	if len(out.CheckRuns) == 0 {
+		return ChecksNone, nil
+	}
+	pending := false
+	for _, r := range out.CheckRuns {
+		if r.Status != "completed" {
+			pending = true
+			continue
+		}
+		switch r.Conclusion {
+		case "success", "neutral", "skipped":
+		default:
+			return ChecksFailing, nil
+		}
+	}
+	if pending {
+		return ChecksPending, nil
+	}
+	return ChecksPassing, nil
 }
 
 // Find returns the pull request already open for branch, if any — the

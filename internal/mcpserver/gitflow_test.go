@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jxsl13/spectackle/internal/forge"
 
 	"github.com/jxsl13/spectackle/internal/item"
 )
@@ -195,5 +198,120 @@ func writeOfflineGitConfig(t *testing.T, root string) {
 	}
 	if err := os.WriteFile(p, []byte("schema: v1\ngit:\n  mode: offline\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// scriptedForge serves awaitChecksAndMerge tests: Checks answers states in
+// order (last one repeats), Merge answers results in order.
+type scriptedForge struct {
+	checks  []forge.CheckState
+	merges  []forge.MergeResult
+	nChecks int
+	nMerges int
+}
+
+func (f *scriptedForge) Open(branch, base, title, body string) (forge.PR, error) {
+	return forge.PR{}, nil
+}
+func (f *scriptedForge) Ready(pr forge.PR) (forge.PR, error)        { return pr, nil }
+func (f *scriptedForge) Find(branch string) (forge.PR, bool, error) { return forge.PR{}, false, nil }
+func (f *scriptedForge) Checks(pr forge.PR) (forge.CheckState, error) {
+	i := f.nChecks
+	if i >= len(f.checks) {
+		i = len(f.checks) - 1
+	}
+	f.nChecks++
+	return f.checks[i], nil
+}
+func (f *scriptedForge) Merge(pr forge.PR) (forge.MergeResult, error) {
+	i := f.nMerges
+	if i >= len(f.merges) {
+		i = len(f.merges) - 1
+	}
+	f.nMerges++
+	return f.merges[i], nil
+}
+
+func runGate(t *testing.T, f *scriptedForge, budget time.Duration) string {
+	t.Helper()
+	res := &gitFlowResult{}
+	awaitChecksAndMerge(f, forge.PR{Number: 7}, budget, time.Millisecond, res)
+	return res.String()
+}
+
+// TestMergeGateWaitsForPendingThenMerges: the CI wait the LLM used to perform
+// by hand, now mechanical — pending twice, then passing, then merged.
+func TestMergeGateWaitsForPendingThenMerges(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksPending, forge.ChecksPending, forge.ChecksPassing},
+		merges: []forge.MergeResult{{Merged: true, SHA: "abc"}},
+	}
+	out := runGate(t, f, time.Second)
+	if !strings.Contains(out, "checks pending — waiting") || !strings.Contains(out, "merged abc") {
+		t.Fatalf("wait-then-merge not reported: %q", out)
+	}
+}
+
+// TestMergeGateRefusesRed: a red head is never merged mechanically, and the
+// refusal says so. Merge must not have been called at all.
+func TestMergeGateRefusesRed(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksFailing}, merges: []forge.MergeResult{{Merged: true}}}
+	out := runGate(t, f, time.Second)
+	if !strings.Contains(out, "checks failing") {
+		t.Fatalf("red head not refused loudly: %q", out)
+	}
+	if f.nMerges != 0 {
+		t.Fatalf("Merge was called on a red head %d times", f.nMerges)
+	}
+}
+
+// TestMergeGateBudgetSpentOnPending: checks that never conclude spend the
+// budget and refuse with the budget named (B-01KYDH's required wording), so
+// the operator knows the loop closed without landing.
+func TestMergeGateBudgetSpentOnPending(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksPending}}
+	out := runGate(t, f, 5*time.Millisecond)
+	if !strings.Contains(out, "still pending after") || !strings.Contains(out, "retry budget spent") {
+		t.Fatalf("budget-spent refusal missing: %q", out)
+	}
+	if f.nMerges != 0 {
+		t.Fatal("Merge was called while checks never concluded")
+	}
+}
+
+// TestMergeGateRetriesNotReady: the two transient refusals observed live —
+// 405 mergeability recompute, 409 head-out-of-date — surface as
+// ReasonNotReady and are retried until the forge settles.
+func TestMergeGateRetriesNotReady(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksNone},
+		merges: []forge.MergeResult{
+			{Merged: false, Reason: forge.ReasonNotReady},
+			{Merged: false, Reason: forge.ReasonNotReady},
+			{Merged: true, SHA: "def"},
+		},
+	}
+	out := runGate(t, f, time.Second)
+	if !strings.Contains(out, "merged def") {
+		t.Fatalf("transient refusals not retried to success: %q", out)
+	}
+	if f.nMerges != 3 {
+		t.Fatalf("expected 3 merge attempts, got %d", f.nMerges)
+	}
+}
+
+// TestMergeGateNoPermissionNeverRetried: no-permission is a stable answer,
+// not a transient one — one attempt, loud refusal, done.
+func TestMergeGateNoPermissionNeverRetried(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksNone},
+		merges: []forge.MergeResult{{Merged: false, Reason: forge.ReasonNoPermission}},
+	}
+	out := runGate(t, f, time.Second)
+	if !strings.Contains(out, forge.ReasonNoPermission) {
+		t.Fatalf("no-permission refusal missing: %q", out)
+	}
+	if f.nMerges != 1 {
+		t.Fatalf("no-permission was retried: %d attempts", f.nMerges)
 	}
 }
