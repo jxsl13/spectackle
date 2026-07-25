@@ -141,7 +141,7 @@ ROLLBACK: additive method and one call site.
 
 ## T-01KYDN4Z88ETHA2AMRAN0DM0W6 runners fire only at finalization: draft pull requests skip CI, done gates locally before flipping ready, skipped stubs never count as green
 kind: task
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 
