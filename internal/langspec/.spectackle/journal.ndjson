@@ -110,3 +110,4 @@
 {"t":"2026-07-25T13:26:07Z","eid":"781cdd75abb1b88d","ag":"ag-e9bc","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
 {"t":"2026-07-25T13:28:54Z","eid":"9de3a97de5c97e42","ag":"impl-t0119","ev":"submit","id":"T-0119","dir":"internal/langspec","note":"branch spectackle/T-0119: 6 events, 0 rules, 2 items replayed"}
 {"t":"2026-07-25T13:29:00Z","eid":"a686545c6294f793","ag":"impl-t0119","ev":"move","id":"T-0119","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-25T13:30:04Z","eid":"8613f15be4fcf2e7","ag":"impl-t0123","ev":"start","id":"T-0123","dir":"internal/langspec","note":"branch spectackle/T-0123 base fbdc934942f8"}
