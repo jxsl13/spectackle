@@ -371,3 +371,44 @@ func TestTransportRetryNetworkError(t *testing.T) {
 		t.Fatalf("transport failure lacks retry accounting: %v", err)
 	}
 }
+
+// TestGitHubChecksAllSkippedIsPendingWithCI: a head whose runs all concluded
+// skipped — the draft-skip workflow's signature — has never been tested and
+// must read Pending while workflows exist, or the await after the ready flip
+// would merge untested work on the strength of runs that deliberately did
+// nothing (B-01KYDN's predecessor-verdict defect in a new costume).
+func TestGitHubChecksAllSkippedIsPendingWithCI(t *testing.T) {
+	for _, tc := range []struct {
+		workflows string
+		want      CheckState
+	}{
+		{`{"workflows":[{"state":"active"}]}`, ChecksPending},
+		{`{"workflows":[]}`, ChecksNone},
+	} {
+		g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			if strings.Contains(r.URL.Path, "/actions/workflows") {
+				w.Write([]byte(tc.workflows))
+				return
+			}
+			w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"skipped"},{"status":"completed","conclusion":"skipped"}]}`))
+		})
+		got, err := g.Checks(PR{Number: 1, Branch: "b"})
+		if err != nil || got != tc.want {
+			t.Fatalf("all-skipped with workflows=%s: %s, %v; want %s", tc.workflows, got, err, tc.want)
+		}
+	}
+}
+
+// TestGitHubChecksRealGreenAmongSkippedPasses: one genuine success among
+// skipped stubs is real evidence — Passing.
+func TestGitHubChecksRealGreenAmongSkippedPasses(t *testing.T) {
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"skipped"},{"status":"completed","conclusion":"success"}]}`))
+	})
+	got, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err != nil || got != ChecksPassing {
+		t.Fatalf("real green among skipped: %s, %v; want passing", got, err)
+	}
+}

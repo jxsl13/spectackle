@@ -4,10 +4,22 @@ on:
   push:
     branches: [main]
   pull_request:
+    # ready_for_review is the finalization trigger: the server flips a task's
+    # pull request out of draft at done, and THAT is when the one real CI run
+    # belongs. synchronize/opened stay listed so draft pushes still produce a
+    # (skipped) run record, keeping the check history continuous.
+    types: [opened, reopened, synchronize, ready_for_review]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Draft pull requests never consume a runner: work in progress is gated
+    # LOCALLY (the workspace verify commands run at done, before the ready
+    # flip), and the runner fires once, at finalization. This condition is
+    # what turns the draft-while-working / ready-at-done mapping into the CI
+    # minimization — measured before: three runs per task branch where one
+    # suffices.
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v4
 
