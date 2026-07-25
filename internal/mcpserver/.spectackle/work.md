@@ -67,7 +67,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## T-01KYDBWE98FPZ9X5X714RV2ZJQ couple the state transitions to the git workflow in the server
 kind: task
-state: draft
+state: done
 created: 2026-07-25
 parent: P-01KYDBRWFZFXSBRF4PNRD6R4D9
 refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4

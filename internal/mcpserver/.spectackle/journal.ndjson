@@ -260,3 +260,5 @@
 {"t":"2026-07-25T18:24:17Z","eid":"27322cdcefc2a023","ag":"ag-04a4","ev":"grill","id":"T-01KYD88M80EQEAJDW0AB243ZK2","dir":"internal/mcpserver","gr":"2026-07-25"}
 {"t":"2026-07-25T18:39:41Z","eid":"a6ece8f4bd9073cc","ag":"ag-0cf3","ev":"move","id":"T-01KYD88M80EQEAJDW0AB243ZK2","dir":"internal/mcpserver","fr":"draft","to":"submitted"}
 {"t":"2026-07-25T19:26:25Z","eid":"da93b264084293f9","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","k":"task","ti":"couple the state transitions to the git workflow in the server","dir":"internal/mcpserver"}
+{"t":"2026-07-25T19:46:04Z","eid":"e0c696a8efc62d3d","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-25T19:53:42Z","eid":"dd9ca3d7d70ece06","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","dir":"internal/mcpserver","fr":"active","to":"done"}
