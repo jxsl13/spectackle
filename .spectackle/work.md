@@ -2,22 +2,6 @@
 schema: v0
 ---
 
-## ADR-0012 R-0005 found major parser gaps in 30 of 32 languages. Which remediation path should spectackle take?
-kind: adr
-state: done
-created: 2026-07-25
-context: Empirical per-language probes show three fixable classes: missing/over-strict langspec Def regexes (data-only fixes, biggest recall wins: JS/TS class methods, Java constructors, Python async def, C# Allman braces, Rust const fn, Swift override init, plus asm/cuda/go hand-parser fixes), an engine gap for end-terminated languages (no body spans, some with no call edges: ruby, lua, elixir, julia, fortran, perl, php, r, shell), and the standing wazero/tree-sitter alternative (ADR-0010/0011: latency-red, availability-gated for CUDA/ObjC, but would fix span+edge+Def classes wholesale where grammars exist). Correctness-first axis per prior user steer.
-decision: engine-endspan: harden regexes AND add end-keyword span/edge support to the langspec engine
-consequences: Stays pure Go (no wazero adoption; ADR-0010 availability gate unchanged). Two work streams: (1) per-language Def/Call regex hardening across all 27 brace-style langspec files plus the go/asm/cuda hand parsers; (2) a langspec engine extension for end-keyword-terminated blocks (lua, ruby, elixir, julia, fortran) providing real body spans and enabling call-edge extraction where CallRe is nil today (also perl/php/r/shell, which are brace-style and just lack CallRe). Trade-off accepted: regex hardening is asymptotically inferior to a real grammar, but every identified miss is a bounded pattern fix, and the wazero option remains open behind its availability gate.
-status: accepted
-
-kind: radio
-option: harden-langspec: fix Def/Call regexes per language + hand-parser fixes, keep pure-Go chain
-option: engine-endspan: harden regexes AND add end-keyword span/edge support to the langspec engine
-option: wazero-partial: adopt wazero/tree-sitter for the worst offenders where grammars exist, langspec for the rest
-option: record-only: keep findings as research, no implementation now
-choice: engine-endspan: harden regexes AND add end-keyword span/edge support to the langspec engine
-
 ## P-0084 langspec engine: end-keyword body spans, so end-terminated languages get real spans and call edges
 kind: proposal
 state: active
@@ -47,29 +31,6 @@ grilled: 2026-07-25
 targets: internal/index
 
 Per ADR-0012 resolving R-0005. Three empirically confirmed hand-parser gaps. Go (nodes perfect, two edge-coverage holes): callEdges/typedCallEdges walk only *ast.FuncDecl bodies, skipping package-level var F = func(){} initializer bodies, and the callee switch handles only *ast.Ident/*ast.SelectorExpr, dropping explicit generic instantiation Foo[T]() (*ast.IndexExpr/*ast.IndexListExpr). Asm: TEXT/GLOBL patterns miss file-local <> suffixed symbols, <ABIInternal>-tagged symbols (pervasive since Go 1.17), and quoted method-shaped linker symbols. CUDA: static-qualified __global__ kernels (and sibling modifier-order forms) mint no node. Fix in the hand parsers with the R-0005 scratch fixtures as regression inputs. Two disjoint tasks: go edge coverage; asm+cuda symbol patterns. Exit: previously-missed forms produce nodes/edges over the fixtures, package tests green under -race. Rollback: bounded pattern/switch-case additions, revertible per file.
-
-## T-0118 langspec engine: Spec.EndSpan keyword-counting body spans (cspan.KeywordSpan)
-kind: task
-state: done
-created: 2026-07-25
-parent: P-0084
-refs: R-0005, ADR-0012
-targets: internal/cspan/cspan.go, internal/cspan/cspan_test.go, internal/langspec/langspec.go, internal/langspec/langspec_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-GOAL: end-terminated languages currently get EndLine==Line and can never emit call edges (SpecParser.Parse bounds bodies only via cspan.Span brace counting; luaSpec's comment documents the limitation). Add the keyword-counting alternative.
-
-DESIGN (fixed):
-1. internal/cspan: add KeywordSpan(lines []string, start int, open, close *regexp.Regexp) (end int, ok bool) alongside Span — depth-counts open/close matches per line from the def line (the def line itself counts as one open when it matches open), returns the line index where depth returns to 0. Handle one-line bodies (open and close on the def line). Keep cspan a leaf package (stdlib + regexp only). Do NOT modify Span.
-2. internal/langspec: Spec gains EndSpan *EndSpanSpec {Open, Close *regexp.Regexp}. In Parse, when def.Kind is KFunc/KMethod: if S.EndSpan != nil use cspan.KeywordSpan for the body span (and feed the existing callEdges loop, gated on CallRe != nil exactly as today); else the current cspan.Span path, byte-identical. EndSpan nil must change NOTHING (mirror the CallRe-nil guarantee and its TestSpecParserNoEdgesWithoutCallRe-style guard).
-
-TESTS: cspan_test.go — KeywordSpan over lua-style (function/if/for/do..end) and ruby-style (def/class/module..end) snippets incl. nested blocks, one-line bodies, unterminated body (ok=false); langspec_test.go — a synthetic end-language Spec proves multi-line EndLine and ECall edges from the spanned body, plus the nil-EndSpan no-change guard.
-
-Do NOT touch any per-language data file (a sibling task owns the five end-language files and starts after you merge). .spectackle files are server-owned.
-
-VERIFY: go build ./... ; go test ./internal/cspan/... ./internal/langspec/... -race ; go test ./... ; go vet ./internal/cspan/... ./internal/langspec/... ; /home/user/spectackle/bin/spectackle lint.
-ROLLBACK: additive function + optional field; revert restores brace-only. REPORT: the exact EndSpanSpec shape, test list with real output, anything deliberately not done.
 
 ## B-0009 search cache staleness: bundle freshness is decided by mtime and size alone, while the files table's sha column is never written or read
 kind: bug

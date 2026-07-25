@@ -74,23 +74,31 @@ func TestTypescriptSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// Two nodes here are what T-0120 added, and both were [high] R-0005
+	// findings: ts:app.greet is a class method (no method Def existed at
+	// all before), ts:app.area is the same Def matching a body-less
+	// interface member, which the Def documents as deliberate. EndLine now
+	// differs from Line wherever a brace body spans lines, because
+	// typescriptSpec sets CallRe.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"ts:app.run":       {graph.KFunc, 1},
-		"ts:app.Foo":       {graph.KType, 5},
-		"ts:app.add":       {graph.KFunc, 9},
-		"ts:app.fetchData": {graph.KFunc, 11},
-		"ts:app.mul":       {graph.KFunc, 15},
-		"ts:app.square":    {graph.KFunc, 17},
-		"ts:app.Shape":     {graph.KType, 19},
-		"ts:app.Point":     {graph.KType, 23},
-		"ts:app.ID":        {graph.KType, 28},
-		"ts:app.Callback":  {graph.KType, 30},
-		"ts:app.Color":     {graph.KType, 32},
-		"ts:app.Direction": {graph.KType, 38},
-		"ts:app.App":       {graph.KFunc, 43},
+		"ts:app.run":       {graph.KFunc, 1, 3},
+		"ts:app.Foo":       {graph.KType, 5, 5},
+		"ts:app.greet":     {graph.KFunc, 6, 6},
+		"ts:app.add":       {graph.KFunc, 9, 9},
+		"ts:app.fetchData": {graph.KFunc, 11, 13},
+		"ts:app.mul":       {graph.KFunc, 15, 15},
+		"ts:app.square":    {graph.KFunc, 17, 17},
+		"ts:app.Shape":     {graph.KType, 19, 19},
+		"ts:app.area":      {graph.KFunc, 20, 20},
+		"ts:app.Point":     {graph.KType, 23, 23},
+		"ts:app.ID":        {graph.KType, 28, 28},
+		"ts:app.Callback":  {graph.KType, 30, 30},
+		"ts:app.Color":     {graph.KType, 32, 32},
+		"ts:app.Direction": {graph.KType, 38, 38},
+		"ts:app.App":       {graph.KFunc, 43, 45},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -103,8 +111,8 @@ func TestTypescriptSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.Lang("ts") {
 			t.Errorf("%s Lang = %v, want ts", id, n.Lang)

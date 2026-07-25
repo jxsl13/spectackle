@@ -27,8 +27,16 @@ topological │  cascading spec bundles      (.spectackle/spec.md)  │
 
 ## Quickstart
 
-Grab a prebuilt binary — no build required. Download the archive for your
-OS/arch from the [latest release](https://github.com/jxsl13/spectackle/releases/latest);
+Grab a prebuilt binary — no build required.
+
+Via Homebrew, on macOS and Linux alike:
+
+```sh
+brew install jxsl13/tap/spectackle
+```
+
+Or download the archive for your OS/arch from the
+[latest release](https://github.com/jxsl13/spectackle/releases/latest);
 assets are named `spectackle_<os>_<arch>.tar.gz` (`.zip` on Windows), for
 `linux`/`darwin`/`windows` × `amd64`/`arm64`, alongside `checksums.txt`.
 
@@ -266,19 +274,6 @@ server-written file carries a schema stamp, so a format change is a hard,
 obvious break instead of a silent divergence between what an old file
 contains and what new code expects.
 
-## Status (v0, pre-release — anything may break)
-
-| Component | State |
-|---|---|
-| EARS linter + cascading spec bundles | ✅ live |
-| Spec lifecycle: draft/move/archive, revocable rejections, journal corpus, ADRs as first-class structured records (context/decision/consequences/status, `find scope=adr`) | ✅ live |
-| Server-authored contracts (`rule`: slots → compose → lint gate → auto-ID, MCP elicitation) | ✅ live |
-| Unified search (`find`) over rules/items/history/rejections (SQLite FTS5, pure Go) | ✅ live |
-| Drift anchors + backprop (`check`/`compact`) | ✅ live |
-| **Multi-agent swarm**: scope leases, shared coord.db, realtime sibling learnings, git-worktree isolation (`work start/submit/abort`) with semantic replay merge | ✅ live |
-| Cross-language graph: `go/parser` + Plan 9 asm + CUDA chains, langspec (29 data-driven languages incl. ObjC/Metal, [cookbook](docs/cookbook-new-language.md)), gpupipe Metal launch + message-send edges, persistent parse cache | ✅ live (wazero/tree-sitter still future, for full C/C++) |
-| Self-hosting gate: CI runs lint + check + coverage (≥70%) + fuzz; features developed through the server's own lifecycle | ✅ live ([roadmap](docs/roadmap.md)) |
-
 ## The chain, live
 
 Real output, right now:
@@ -320,6 +315,35 @@ Register with Claude Code (or any MCP client):
 
 The workspace root is auto-detected (`.spectackle/config.yaml` marker, then
 git root, then `-root`).
+
+## CI/CD
+
+Two GitHub Actions workflows, both mirroring what `make` already does
+locally — so a green `make all` on your machine is the same gate CI runs.
+
+**CI** (`.github/workflows/ci.yml`, on every push to `main` and every pull
+request): `make build`, `go vet ./...`, `go test -race ./...`, the coverage
+gate (`make cover`, ≥70%), the EARS linter fuzz run (`make fuzz`),
+`spectackle lint .` over every spec bundle, and `make smoke`.
+
+The last step is the self-hosting gate and the one worth knowing about: CI
+spawns the freshly built server over stdio and calls the `check` tool on
+this very repository, requiring output that is exactly `ok`. A drift
+finding, an unanchored contract, or finished lifecycle items left
+unarchived all fail the build — the repository's own records are part of
+what CI verifies, not just its code.
+
+**Release** (`.github/workflows/release.yml`, on any `v*` tag push): runs
+`go test -race ./...` as a gate, then goreleaser builds and publishes
+CGO-free binaries for linux, darwin and windows on amd64 and arm64, with
+archives, `checksums.txt` and a generated changelog. The version reported
+by `spectackle version` is stamped from the tag at build time. A Homebrew
+formula covering macOS and Linux is pushed to `jxsl13/homebrew-tap` in the
+same run; no code-signing certificate is involved anywhere in the pipeline.
+
+Cutting a release is one command — see
+[docs/release.md](docs/release.md), including `make release-snapshot` for a
+local dry run that publishes nothing.
 
 ### Entry points
 
@@ -671,7 +695,8 @@ look like a local contract, which structurally it is not.
 - [docs/architecture.md](docs/architecture.md) — cross-language AST analysis (parsers, resolvers, graph)
 - [docs/cookbook-new-language.md](docs/cookbook-new-language.md) — adding a language: one Spec value + two one-line registrations
 - [docs/example-go-cuda.md](docs/example-go-cuda.md) — worked Go → CUDA lifecycle transcript
-- [docs/roadmap.md](docs/roadmap.md) — milestones to self-hosting
+- [docs/release.md](docs/release.md) — cutting a release: tag, gate, artifacts
+- [docs/roadmap.md](docs/roadmap.md) — milestones and what is still open
 
 ## Dogfooding
 

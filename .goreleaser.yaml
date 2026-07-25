@@ -32,6 +32,44 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Homebrew tap — a FORMULA, deliberately not a cask, for two reasons.
+#
+# 1. Platform coverage: Homebrew installs casks on macOS only, so a cask
+#    would leave `brew install` broken for Linux users. A formula serves
+#    both from one artifact.
+# 2. No signing, no Gatekeeper workaround: Homebrew attaches the macOS
+#    quarantine attribute to cask downloads but not to formula installs, so
+#    an unsigned binary needs neither an Apple Developer ID plus
+#    notarization nor a postflight `xattr -dr` hook that trains users to
+#    disarm Gatekeeper.
+#
+# Accepted cost: GoReleaser deprecated `brews` in favor of `homebrew_casks`.
+# v2.17.0 still accepts it and emits a correct formula, but `goreleaser
+# check` exits non-zero on the deprecation (it is not part of CI, so nothing
+# is gated today) and a future release may drop the block. The release
+# workflow therefore pins its goreleaser version instead of tracking
+# `latest`, so removal upstream can never break a release without an
+# explicit bump on our side. See T-0132 for the trade-off in full.
+brews:
+  - name: spectackle
+    ids:
+      - spectackle
+    repository:
+      owner: jxsl13
+      name: homebrew-tap
+      # GITHUB_TOKEN is scoped to THIS repository and cannot push to the tap
+      # repository, so the release workflow passes a separate token.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/jxsl13/spectackle
+    description: Token-efficient, spec-driven MCP server for cross-language codebases
+    license: MIT
+    # skip_upload on a prerelease tag: a -rc or -beta must not become the
+    # version `brew install spectackle` resolves to.
+    skip_upload: auto
+    test: |
+      system "#{bin}/spectackle", "version"
+
 changelog:
   use: github
   filters:
