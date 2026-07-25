@@ -94,7 +94,7 @@ The tool's final input struct, the name you chose for the workspace-apply functi
 
 ## T-0115 server hints when its own binary is older than the sources it serves
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0083
 targets: internal/mcpserver/swarm.go, internal/mcpserver/swarm_test.go
