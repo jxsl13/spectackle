@@ -151,3 +151,75 @@ What mechanisms would make the workflow structurally demand that a problem be ex
 METHOD: six independent lenses, run in parallel, each answering from evidence rather than from opinion, then synthesized.
 
 EXIT CRITERION: a ranked set of concrete mechanism proposals, each with the failure it would have caught in this repository's own history, its token and latency cost, and its ceremony risk with a mitigation. Anything that cannot name a real failure it would have caught is to be reported as such and dropped.
+
+## B-01KYD1G9G1EVCAEWWVFR15GRT3 rule op=edit silently discards the edit and answers ok when the pattern slot is omitted
+kind: bug
+state: draft
+created: 2026-07-25
+targets: internal/mcpserver/tools.go, internal/spec/author.go
+
+GitHub issue 25. Reported from field use of the released binary while migrating an external spec bundle: fifteen consecutive rule op=edit calls all answered ok and all were no-ops, discovered only by re-reading the file.
+
+OBSERVED: omitting the pattern slot on edit writes nothing, raises nothing, and returns the success record. Worse, the W001 lint finding printed alongside is computed against the OLD text, so it describes a rule state that exists neither before nor after the call.
+
+ISOLATED CAUSE (from the report, verify before fixing): the edit path is gated on pattern being non-empty. With it empty the EARS recomposition branch is skipped entirely, yet control still falls through to the success return. The slot validation that would have caught the incomplete set sits BEHIND that branch, which is why a pattern-bearing call with missing slots correctly refuses while a pattern-less one silently succeeds. system and response alone are also insufficient. The error channel itself is healthy: an unknown rule ID fails correctly.
+
+WHY IT IS THE WORST OF THE SIX: the tool contract is that all writes go through tools and the caller never edits these files. An agent following that contract has no independent way to verify a write landed, so it trusts ok. A silent no-op converts directly into spec drift that surfaces much later, with a stale lint line arguing the old text is current.
+
+FIX DIRECTION: either apply the edit using the stored pattern, which makes partial edits work, or fail loudly like the sibling paths. Decide which, and note the reporter's cheap detection heuristic: add echoes a composed r line and a no-op edit does not, so the echo's presence is a usable success signal even before the fix.
+
+VERIFY: regression test over the reproduction — edit without pattern must either apply or refuse, never answer ok unchanged; the lint finding accompanying an edit must be computed against the text actually stored.
+
+## B-01KYD1G9J5EHBBT823EK0MGT3T indexer walks gitignored paths, so vendored and virtualenv copies inflate the graph and steal the unsuffixed node ID
+kind: bug
+state: draft
+created: 2026-07-25
+targets: internal/index/indexer.go, internal/workspace/workspace.go
+
+GitHub issue 26. Reported from field use on a real working checkout.
+
+OBSERVED: the walk descends into gitignored directories. One real symbol yields three nodes, one per copy. The ranking is the damaging part: the copy inside .venv sorts FIRST and receives the unsuffixed node ID, so an agent anchoring a rule via applies to the top-ranked ID pins its contract to a file inside a virtualenv.
+
+FIELD MEASUREMENT: same commit, same code — a clean checkout indexes 1809 files, the long-lived working checkout indexes 24083. Thirteen times the index, from a gitignored 1.2 GB virtualenv and a 1.2 GB model directory.
+
+WHY IT MATTERS BEYOND SIZE: it works directly against the token-economy premise the server advertises, since the result set is inflated with copies the repository itself declares irrelevant.
+
+SCOPE NOTE FROM THE REPORTER, worth trusting: registered git worktrees are ALREADY skipped correctly in every position tested, so the gap is specifically gitignore, not extra directories in general. The existing ignore and ignore_regex config knobs do let an operator patch this per repository, but that inverts the default — every new checkout gets a polluted graph until someone enumerates their own ignore list a second time.
+
+FIX DIRECTION: honor gitignore during the walk. Decide how: parsing gitignore semantics correctly is more than a prefix match (negation, directory-only patterns, nested files), so consider asking git itself, and weigh that against the cost of a subprocess per index and the behavior in a non-git workspace, which must keep working.
+
+VERIFY: the reproduction yields exactly one node for the real symbol, with the real source file's path; a non-git workspace still indexes everything; a repository with negated gitignore patterns behaves as git does.
+
+## B-01KYD1G9KQF87REB16T0AXRDYP workspace resolution walks past .git files, so a nested worktree can never be the root and writes land in the parent checkout
+kind: bug
+state: draft
+created: 2026-07-25
+targets: internal/workspace/workspace.go
+
+GitHub issue 27. Reported from field use with an agent harness that places worktrees inside the repository.
+
+OBSERVED: root resolution walks up from the given start to the nearest ancestor containing a .git DIRECTORY, skipping .git FILES. A git worktree nested inside its main checkout therefore never becomes the workspace root, not even with an absolute -root naming it. The bundle is written to the enclosing checkout, and the reported path is printed relative to the resolved root, which hides where the write actually went — the answer reads as if it landed locally.
+
+THE REPORTER PINNED THE RULE with three probes rather than guessing: -root pointing at a different repository does target that repository, so the flag works; with no git anywhere above, the workspace anchors at the given directory rather than walking to the filesystem root; and a worktree placed OUTSIDE the main checkout does get its own bundle. The discriminator is exactly whether a .git directory exists above.
+
+WHY IT MATTERS: several coding harnesses place agent worktrees inside the repository. Under this behavior every such agent writes to the shared main checkout's bundle regardless of what it passes, which is precisely the collision the swarm and lease design exists to prevent.
+
+FIX DIRECTION: a .git file marks a worktree root and should terminate the upward walk exactly as a .git directory does. Note the tension the reporter names: centralizing the bundle at the main checkout may be deliberate, since work op=start manages worktrees itself and the worktrees directory defaults inside the repository. If so the bug is narrower but still real — an explicit -root must not silently resolve elsewhere, and the reported path must be unambiguous about which root it is relative to. Decide and record which reading is correct.
+
+VERIFY: the reproduction writes into the worktree's own bundle; a worktree outside the checkout keeps working; work op=start's own worktrees continue to resolve as they do today.
+
+## B-01KYD1G9PSEH5AQHAV7N4ZQ4BT a degraded index is invisible through the MCP surface: state answers ok graph after the typed-call pass fails
+kind: bug
+state: draft
+created: 2026-07-25
+targets: internal/mcpserver/state.go, internal/index/typespass.go
+
+GitHub issue 28. Reported from field use where the target repository's Go version exceeded the toolchain the released binary was built with.
+
+OBSERVED: the typed-call pass failed on 72 packages and the graph silently degraded to syntactic-only. The only notice is a line on reindex's stderr, which an agent driving the server through the call subcommand or over stdio and HTTP never sees. Through the tool surface, state answers ok graph with node and edge counts and no mention of the degradation. check likewise reports nothing.
+
+WHY IT IS DANGEROUS RATHER THAN UNTIDY: the degradation removes exactly the capability the instructions advertise as the reason to prefer get depth over shell search — cross-language impact radius, and what calls X. With the typed pass gone there are no typed call edges at all, so an impact query returns a confident-looking but structurally incomplete answer. The tool still responds, still says ok, and the caller has no signal to distrust the radius. An agent consulting get depth=2 before editing a symbol underestimates blast radius and never learns why.
+
+FIX DIRECTION, two independent closures, either of which suffices and both of which are cheap: propagate the index-degradation state into state and check as a first-class record an agent can branch on, naming the cause and the affected package count; and have reindex report the toolchain mismatch as an actionable diagnostic, since it already prints both versions and rebuilding with a newer Go is a fix the operator can act on immediately.
+
+VERIFY: with a forced typed-pass failure, state emits a degradation record rather than a bare ok; the record names the cause; a healthy index emits nothing extra, so the output diet is preserved.
