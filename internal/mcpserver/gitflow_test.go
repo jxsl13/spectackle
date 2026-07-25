@@ -315,3 +315,56 @@ func TestMergeGateNoPermissionNeverRetried(t *testing.T) {
 		t.Fatalf("no-permission was retried: %d attempts", f.nMerges)
 	}
 }
+
+func runReport(t *testing.T, f *scriptedForge, budget time.Duration) string {
+	t.Helper()
+	res := &gitFlowResult{}
+	awaitChecksReport(f, forge.PR{Number: 9, URL: "u"}, budget, time.Millisecond, res)
+	return res.String()
+}
+
+// TestDoneReportPassing / Failing / BudgetSpent pin done's half of the shared
+// wait (T-01KYDJC): the LLM waits on the transition, the verdict lands in the
+// result, and a red head is a finding — not a refusal, since the lifecycle
+// state is the server's own and a forge cannot veto it.
+func TestDoneReportPassing(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksPending, forge.ChecksPassing}}
+	out := runReport(t, f, time.Second)
+	if !strings.Contains(out, "checks pending — waiting") || !strings.Contains(out, "checks passing") {
+		t.Fatalf("wait-then-pass not reported: %q", out)
+	}
+}
+
+func TestDoneReportFailing(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksFailing}}
+	out := runReport(t, f, time.Second)
+	if !strings.Contains(out, "! CI E") || !strings.Contains(out, "checks failing") {
+		t.Fatalf("red head not reported as a finding: %q", out)
+	}
+	if !strings.Contains(out, "item stays done") {
+		t.Fatalf("the report must say the state did not move: %q", out)
+	}
+}
+
+func TestDoneReportBudgetSpent(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksPending}}
+	out := runReport(t, f, 5*time.Millisecond)
+	if !strings.Contains(out, "verdict unknown at done") {
+		t.Fatalf("budget-spent wording missing: %q", out)
+	}
+}
+
+// TestSharedWaitOneImplementation: both endings run the same loop — asserted
+// by behavior, not by inspection: the scripted forge's pending sequence is
+// consumed identically by both, so a drift in either loop's polling shows as
+// a different consumption count.
+func TestSharedWaitOneImplementation(t *testing.T) {
+	fa := &scriptedForge{checks: []forge.CheckState{forge.ChecksPending, forge.ChecksPending, forge.ChecksPassing},
+		merges: []forge.MergeResult{{Merged: true, SHA: "x"}}}
+	runGate(t, fa, time.Second)
+	fb := &scriptedForge{checks: []forge.CheckState{forge.ChecksPending, forge.ChecksPending, forge.ChecksPassing}}
+	runReport(t, fb, time.Second)
+	if fa.nChecks != fb.nChecks {
+		t.Fatalf("gate polled %d times, report %d — the two loops have drifted", fa.nChecks, fb.nChecks)
+	}
+}

@@ -311,13 +311,17 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	}
 	if !pr.Draft {
 		res.addf("g pr %d ready (already)", pr.Number)
-		return res
-	}
-	if pr, err = f.Ready(pr); err != nil {
+	} else if pr, err = f.Ready(pr); err != nil {
 		res.addf("! GIT W %s pr ready: %s", it.ID, err)
 		return res
+	} else {
+		res.addf("g pr %d ready %s", pr.Number, pr.URL)
 	}
-	res.addf("g pr %d ready %s", pr.Number, pr.URL)
+	// done then WAITS for the head's CI verdict and carries it in this very
+	// result — the blocking-await model (T-01KYDJC): the LLM waits on the
+	// transition while the server polls, and learns about a red head in the
+	// same breath as declaring done, not at archive time.
+	awaitChecksReport(f, pr, mergeWaitBudget, mergePollInterval, res)
 	return res
 }
 
@@ -427,38 +431,24 @@ var (
 //
 // Free-standing rather than a Server method so the tests can drive it with a
 // scripted Forge and millisecond budgets, no Server required.
+//
+// The waiting itself lives in awaitChecks, SHARED with done's report-only
+// conclusion (awaitChecksReport): one polling implementation, two endings —
+// done reports the verdict, archive gates the merge on it. Two copies of a
+// budgeted polling loop is how the two would drift.
 func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
-	deadline := time.Now().Add(waitBudget)
-	waited := false
-	for {
-		state, err := f.Checks(pr)
-		if err != nil {
-			res.addf("! GIT W pr %d checks: %s", pr.Number, err)
-			return
-		}
-		switch state {
-		case forge.ChecksFailing:
-			res.addf("! GIT W pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
-			return
-		case forge.ChecksNone:
-			res.addf("g pr %d checks none — nothing to wait for", pr.Number)
-		case forge.ChecksPassing:
-			if waited {
-				res.addf("g pr %d checks passing", pr.Number)
-			}
-		case forge.ChecksPending:
-			if time.Now().After(deadline) {
-				res.addf("! GIT W pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
-				return
-			}
-			if !waited {
-				res.addf("g pr %d checks pending — waiting up to %s", pr.Number, waitBudget)
-				waited = true
-			}
-			time.Sleep(poll)
-			continue
-		}
-		break
+	state := awaitChecks(f, pr, waitBudget, poll, res)
+	switch state {
+	case forge.ChecksFailing:
+		res.addf("! GIT W pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
+		return
+	case forge.ChecksPending:
+		res.addf("! GIT W pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
+		return
+	case "":
+		return // Checks itself failed; awaitChecks already reported it
+	case forge.ChecksPassing:
+		res.addf("g pr %d checks passing", pr.Number)
 	}
 
 	for attempt := 1; ; attempt++ {
@@ -480,6 +470,60 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 			return
 		}
 		time.Sleep(poll)
+	}
+}
+
+// awaitChecks polls the head's CI verdict until it concludes or the budget is
+// spent, emitting the waiting record once. It returns the FINAL observed
+// state: Passing or None concluded; Failing is a conclusion the caller words
+// (done reports it, archive refuses on it); Pending means the budget ran out;
+// "" means Checks itself errored, already reported here.
+func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) forge.CheckState {
+	deadline := time.Now().Add(waitBudget)
+	waited := false
+	for {
+		state, err := f.Checks(pr)
+		if err != nil {
+			res.addf("! GIT W pr %d checks: %s", pr.Number, err)
+			return ""
+		}
+		switch state {
+		case forge.ChecksNone:
+			res.addf("g pr %d checks none — nothing to wait for", pr.Number)
+			return state
+		case forge.ChecksPassing:
+			return state
+		case forge.ChecksFailing:
+			return state
+		case forge.ChecksPending:
+			if time.Now().After(deadline) {
+				return state
+			}
+			if !waited {
+				res.addf("g pr %d checks pending — waiting up to %s", pr.Number, waitBudget)
+				waited = true
+			}
+			time.Sleep(poll)
+		}
+	}
+}
+
+// awaitChecksReport is done's conclusion of the shared wait: the LLM waits on
+// the transition while the server polls, and the verdict lands in this very
+// result (the blocking-await model the user chose over a background push —
+// see T-01KYDJC's record of that refinement). The item stays done whatever
+// the verdict: the lifecycle state is the server's own and a forge cannot
+// veto it. What changes is what the caller KNOWS — an implementer that just
+// declared done learns that CI disagrees in the same breath, while the
+// context of what changed is still hot.
+func awaitChecksReport(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
+	switch awaitChecks(f, pr, waitBudget, poll, res) {
+	case forge.ChecksFailing:
+		res.addf("! CI E pr %d checks failing %s — item stays done; fix and reopen, or archive will refuse the merge", pr.Number, pr.URL)
+	case forge.ChecksPending:
+		res.addf("! CI W pr %d checks still pending after %s — verdict unknown at done; archive will wait again", pr.Number, waitBudget)
+	case forge.ChecksPassing:
+		res.addf("g pr %d checks passing", pr.Number)
 	}
 }
 
