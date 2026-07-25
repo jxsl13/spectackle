@@ -22,7 +22,7 @@ VERIFY: an installed binary in an unrelated repository emits no hint on any tool
 
 ## T-01KYD88M80EQEAJDW0AB243ZK2 research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed
 kind: task
-state: draft
+state: submitted
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HNHEYAB0WF42BTR31CW

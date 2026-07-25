@@ -272,35 +272,9 @@ SCOPE: the coord lock generalization plus the four writers named above. Do not c
 ROLLBACK: the wrapper is one function; removing its calls returns to today's unlocked behavior. Say in the report whether any caller became structurally dependent on the lock beyond mutual exclusion.
 REPORT BACK: where the lock is acquired and why there, the lock naming scheme and its granularity, the ordering you established against leases, the -count=20 result verbatim, each test's real result, and anything deliberately not done.
 
-## P-01KYD7QT8YE6PAT515BGPQ5VM4 review and validation are recorded independent verdicts: grill reviews the draft with feedback and a research path, a validation phase judges the implementation, both bound to reviewer identity
-kind: proposal
-state: draft
-created: 2026-07-25
-refs: R-0007, P-01KYD47GZ7FAMAGM4NEF0BQS8T, P-01KYD6VP6VE2Z8A517AT3RP39T
-grilled: 2026-07-25
-targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/lifecycle/lifecycle.go, docs/lifecycle.md
-
-PROBLEM. Two review moments exist in the loop and neither is a review. Before implementation, grill renders a pack and stamps a date - the stamp records that rendering happened, not that anyone read the pack, closed its gaps, or fed anything back into the body; twelve grills in this repository's history changed zero bodies. After implementation there is no phase at all: the submit gate runs commands, check scans the workspace, and done rolls into archived on the orchestrator's say-so - nobody is charged with judging whether the implementation is correct, the tests test anything, the benchmarks are honest, or the work is complete against its brief; and whatever the orchestrator does notice reaches the implementer as chat, not as a recorded finding the next round can be held to.
-
-DESIGN DECISIONS, with the alternatives rejected and why:
-1. NO NEW LIFECYCLE STATES. done -> active is already the single sanctioned backward hop (docs/lifecycle.md:142), with a reopen counter, feedback.max_rounds and escalation to blocked (SPX-SWM-007). The validation phase gates done -> archived and uses the existing reopen as its feedback channel. Rejected alternative: a new validating state between done and archived - it would touch every state-order comparison, every forward-skip rule and every replay path for a distinction the reopen counter already expresses.
-2. VERDICTS ARE RECORDED EVENTS BOUND TO CONTENT AND IDENTITY. A review or validation verdict is a journal event carrying the reviewing agent's identity (every journal event already stamps ag) and the hash of what was reviewed (item body for grill; diff for validation). A verdict from the same agent that authored the item (create event's ag) or implemented it (start/submit events' ag) is REFUSED by the server - independence stops being a convention and becomes a computed invariant. A body or diff that changes after the verdict invalidates it by hash mismatch. Rejected alternative: trusting the orchestrator to use different subagents - that is a written-half control; R-0007's organizing finding is that written-half controls are fakeable and this one would be fakeable by simple forgetting.
-3. THE SERVER RENDERS AND RECORDS; AGENTS JUDGE. The server computes the packs (grill's critique classes; validation's diff/tests/bench/completeness findings), records verdicts, and gates moves. The judgment itself - reading the pack, deciding, writing findings - is agent work, done by a fresh subagent precisely so its answer is independent of the main context. Rejected alternative: the server scoring quality itself via heuristics - that is how the word-presence checks happened.
-4. GRILL MAY DEMAND RESEARCH, NOT PERFORM IT. When grill's computed classes surface unknowns (unanchored targets, zero history/rejection hits for the problem class), the pack emits a research-needed record that counts as an open gap until an R-item exists and is cited. The research itself is a normal R-item driven by the normal flow. Rejected alternative: grill spawning or inlining research - the server cannot run agents, and a tool that blocks on exploration violates SPX-MCP-001's response bound.
-
-WHEN EACH STEP HAPPENS (the placement, part of this elaboration): research (optional, on grill demand) and grill-with-verdict happen between draft and approved - move to=approved gates on a clean independent review verdict. Implementation happens active -> done exactly as today. Validation happens between done and archived - move to=archived gates on a clean independent validation verdict; findings reopen done -> active with the findings as the implementer's next brief, counting a round; max_rounds escalates to blocked as today. Nothing else moves.
-
-CHILD TASKS: one supersedes the earlier grill-verdict draft (same computed classes, now with the verdict event, identity binding and research-demand path); one builds the validation phase (pack, verdict, gate, reopen feedback). The archive-gate task for research consumption (under the backpropagation proposal) is unchanged and composes: an R-item grill demanded must still end consumed or closed.
-
-TOKEN BOUNDS. Verdict events are one journal line each. The validation pack is budget-truncated like grill's. Independence checks are O(item's journal events), already loaded. The expensive mechanisms R-0007 ranked low (mutant kill, oracle ratchet) remain explicitly out of scope until the anti-ceremony lens re-runs against measured costs from these phases.
-
-EXIT CRITERION. On this repository: a draft item receives an independent review verdict from a second agent identity and cannot reach approved before; a done item with a planted vacuous test receives a validation finding, reopens with the finding as its brief, and cannot reach archived until a re-validation verdict is clean.
-
-ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (require vs warn); removing the config key returns to warn, reverting the commits returns to today. Verdict events in journals are inert history for a reverted server.
-
 ## P-01KYD87FJREJ5SD0G2RDCMZ32Y turn review from assertion into evidence: run the gate that exists, then make grill and validation compute what they cannot fake
 kind: proposal
-state: draft
+state: submitted
 created: 2026-07-25
 refs: R-0007, P-01KYD47GZ7FAMAGM4NEF0BQS8T
 grilled: 2026-07-25
@@ -332,7 +306,7 @@ CHILD TASKS: the grill-verdict and validation-phase tasks live under the review-
 
 ## P-01KYD87FX0F6YRX49R3A8TB6E4 backpropagation: every loop result flows back into the workspace, and the server names the next step so no step can be silently skipped
 kind: proposal
-state: draft
+state: submitted
 created: 2026-07-25
 refs: R-0007, P-01KYD6VP6VE2Z8A517AT3RP39T
 grilled: 2026-07-25
@@ -358,114 +332,9 @@ ROLLBACK. Each surface change is a template/instruction edit; the R-item gate is
 
 SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 touches the move path in tools.go, which the grill-verdict task under the review-and-validation proposal (title: grill computes its critique and stamps a verdict) restructures first - task 2 declares NEEDS on that task BY TITLE and runs after it merges. No task ID is cited here by prefix guess; the prior draft's lesson is recorded: reference sibling work by exact title phrase or full minted ID, never by a predicted prefix.
 
-## T-01KYD87YYZFSJVGX74JG2HD4V3 grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted
-kind: task
-state: draft
-created: 2026-07-25
-parent: P-01KYD7QT8YE6PAT515BGPQ5VM4
-refs: R-0007, T-01KYD72GCXF998EDDG3BPKZT9W
-grilled: 2026-07-25
-targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/journal/journal.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task supersedes the rejected draft it cites in refs; everything that draft specified remains in force here and is restated - nothing is inherited by pointer.
-
-WHY. R-0007's organizing finding: every review mechanism splits into a server-computed half the author cannot fake and a written half they can, and grill today is almost entirely the written half. Twelve grill events exist in this repository; every one fired 0-91s after the item's create event and not one body was ever revised in response. A date stamp records that a pack rendered, not that anyone reviewed anything. This task makes grill compute what it can compute, and makes the review itself a RECORDED, INDEPENDENT verdict: a journal event carrying the reviewing agent's identity and the hash of the body it reviewed, refused when the reviewer is the item's author, gating approval. The reviewing agent is a fresh subagent by design - the server enforces the independence it cannot create.
-
-VERIFIED GROUND (do not re-derive)
-- grill.go:97 renders #questions via grillQuestions(it); :101 stamps it.Grilled unconditionally; :165 applies briefHeuristics to child-task bodies.
-- briefHeuristics (grill.go:177): len<300, no "/", no "go test"/"make". grillQuestions (grill.go:242): substring tests for scope/rollback/exit-criterion; plus hasRecordedDeliberation (structural, checks refs and rejected alternatives - KEEP).
-- Move gate: tools.go:1329-1338 - feedback.grill=require refuses ungrilled proposals, else warns. Item.Grilled is a plain string, kept on reopen (lifecycle.go:380), replayed via Gr.
-- Journal: every event stamps ag (journal.Append fills e.Ag from root.Agent); event kinds live in journal.go:31-46; EvGrill exists. The item's author identity is the create event's ag; a worktree implementer's identity is the start/submit events' ag.
-- grillIn.Budget defaults to 1500 with truncation + resume cursor.
-- SPECTACKLE_AGENT sets the per-process agent identity; per-call stdio clients each carry their own.
-
-WHAT TO BUILD
-1. COMPUTED CLASSES in the pack, each one output line per finding, all counted into open=<n>:
-   a. path-existence: path-shaped tokens in the body that do not exist in the worktree -> "g nopath <token>".
-   b. verify-executability: VERIFY-block lines matching a known-bad table -> "g badverify <pattern>". Seed with exactly two recorded failures: lint -root (B-0010) and reading $? after a pipe. The table is a var in grill.go.
-   c. irreversibility-from-targets: targets matching journal.ndjson, coord.db, SchemaStamp/migration paths, or target count >= 8 -> "g irreversible <target>" / "g blast <n> targets", demanding a RESTORE or ROLLBACK section heading exist. STATED LIMIT, verbatim in a code comment: this is a TRIPWIRE against omission, not a verification of substance - T-0137 gamed the old word-check with a well-formed paragraph and a heading requirement is gameable the same way; substance is judged by the independent reviewer's verdict (this task) and declared-vs-landed divergence (T-0135's 4-declared/15-landed) is NOT detectable pre-implementation here - it is the validation phase's #diff offscope/untouched computation (sibling task).
-   d. environment differential, five axes, each anchored to a recorded defect: primary-branch-name (B-0004), git-dir-shape file-vs-dir (B-01KYD1G9K), root-kind worktree-vs-checkout (B-0002), process-topology shared-vs-per-call (B-01KYD57F), path-normalization case/sep (T-0136's d-bus finding). Render "e <axis> live=<v> tests=<v|absent>"; tests= from a static scan of target packages' _test.go files. absent counts as open ONLY when the item's targets touch that axis's subsystem; state the per-axis scoping condition in the report.
-   e. research-demand: when the item's targets include a path no rule's dir or applies covers AND grillRejections plus the history search return zero hits for the item's title terms, emit "g research-needed <topic>" - the item is in unknown territory and the pack cannot substitute for a study. The gap closes when the item's refs cite an R-item (any state). Novelty detection is those two computed signals only - no semantic scoring.
-2. VERDICT EVENT. New journal kind EvReview. A new grill op records the verdict: grill op=verdict id=<item> pass=<bool> findings=<text>. The server computes bodyHash = sha256 of the item's body at verdict time and writes it into the event. REFUSALS, each with a dense error: (i) verdict agent ag equals the create event's ag -> "! REVIEW E <id> reviewer is the author - use a fresh agent identity"; (ii) open>0 from the latest pack render and pass=true -> refused, the computed gaps are not the reviewer's to waive; (iii) no pack was rendered for the current body (stored render-hash mismatch) -> refused, the reviewer must grill the current body first. findings text is the feedback: journaled verbatim, rendered by get on the item so the author's next revision sees it.
-3. STAMP AND GATE. Grilled becomes "<date> open=<n>" written at pack render (n = computed findings). move to=approved under feedback.grill=require additionally requires a passing EvReview whose bodyHash matches the CURRENT body and whose ag differs from the author - a body edited after review needs re-review by construction. Without require: warn lines, same computations. Legacy bare-date stamps: treated as no verdict (require refuses, warn names why).
-4. DELETE: the scope/rollback/exit-criterion substring questions and the short-body/no-path/no-verify heuristics. ALSO DELETE the substring half of hasRecordedDeliberation: the anti-ceremony validation of this task set found its second path is strings.Contains(body, "rejected") (grill.go:275) - a bare word-presence test of exactly the species this task removes, satisfiable by writing "we rejected X" without weighing anything. The deliberation check becomes refs-only: an ADR, research, or rejection-tombstone ref counts; prose never does. KEEP: the refs path, grillTests, grillRejections. #questions shrinks to the refs-only deliberation check.
-5. BUDGET. New sections respect grillIn.Budget; computed findings and the verdict line render before lower-value sections; the verdict line is exempt from truncation.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- Author-verdict refusal: create as agent A, verdict as A refused with the exact record; as agent B accepted. Use two Server instances with distinct SPECTACKLE_AGENT (the twoAgents helper pattern in swarm_test.go).
-- Hash binding: verdict as B, then edit the body (re-draft path or direct item write in the test), then move to=approved under require -> refused naming stale review; re-grill + re-verdict -> approved succeeds.
-- Waiver refusal: plant a nopath finding, verdict pass=true refused while open>0.
-- research-demand: a fixture item targeting an uncovered path with zero history hits trips it; adding an R-item ref closes it.
-- Each computed class fires on a synthetic item constructed to trip exactly it and stays silent otherwise.
-- Word padding changes nothing: a body containing scope, rollback, exit criterion still counts its computed gaps.
-- Byte bound, COMPUTED not self-reported (the independence validation of this task set found the prior draft left this as prose a same-model verifier would rubber-stamp): a Go test renders the pack on a fixed synthetic item and asserts the output stays under a hardcoded byte ceiling, the ceiling committed with a comment naming the measured pre-change base (mirror the manifest-size test pattern). The P-0088 before/after counts still go in the report, but the regression bound is the test.
-- Red-run: the move-gate test and the author-refusal test are written first and shown failing against current code; paste both failing outputs.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional - the flag form is entry one of your own known-bad table)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a DIFFERENT agent identity re-runs the refusal and hash-binding tests from the diff alone and additionally performs one real review: grill a live draft in the worktree, write a verdict, confirm the gate honors it. Verdict recorded in the archive note.
-
-SCOPE: grill.go, the move gate in tools.go, the EvReview constant in journal.go, tests. Do not touch the item model (Grilled stays a string), lifecycle.go's state machine, templates, prompts, or the validation phase (sibling task). tools.go is shared with two sibling tasks - the lease serializes; do not run concurrently.
-ROLLBACK: revert the commit. Stamps "<date> open=<n>" stay parseable via the legacy bare-date path you keep; EvReview events in journals are inert history for a reverted server - verify a pre-revert journal still replays post-revert and state it in the report.
-REPORT BACK: where each class and refusal is computed, the per-axis scoping conditions, both byte counts, each test's real result including both red-runs, the replay-after-revert check, anything deliberately not done.
-
-## T-01KYD87ZA6F83AKH7THFKBBFZA validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief
-kind: task
-state: draft
-created: 2026-07-25
-parent: P-01KYD7QT8YE6PAT515BGPQ5VM4
-refs: R-0007
-grilled: 2026-07-25
-targets: internal/mcpserver/validate.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/workspace/workspace.go, internal/wt/wt.go, docs/lifecycle.md
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-NEEDS: the grill-verdict task (grill computes its critique and stamps a verdict) must be MERGED first - this task mirrors its verdict/identity/hash machinery and shares the move path in tools.go. Do not start while it is open.
-
-WHY. After implementation the loop has no judge. The submit gate runs commands (pass/fail, no judgment), check scans workspace consistency, and done rolls into archived on the orchestrator's say-so. Nobody is charged with: is the implementation correct against its brief, do the new tests actually test the change, are benchmark claims honest, is the work complete. And when the orchestrator does notice something, the feedback reaches the implementer as chat - unrecorded, unsearchable, not binding on the next round. This task builds the validation phase: a computed pack over the item's real diff, an independent recorded verdict gating done -> archived, and findings that reopen the item through the EXISTING done -> active hop (docs/lifecycle.md:142) so the feedback IS the next brief and rounds count toward the existing feedback.max_rounds escalation (SPX-SWM-007). No new lifecycle states.
-
-VERIFIED GROUND (do not re-derive)
-- done -> active is the sanctioned backward hop with a reopen counter and escalate-to-blocked at max_rounds; lifecycle keeps Grilled on reopen (lifecycle.go:380). Rounds already replay.
-- Journal events stamp ag; the implementer's identity is the item's start/submit events' ag; EvGrill is the pattern for a feedback event kind. The grill-verdict task (NEEDS) lands EvReview and the identity/hash refusal pattern - MIRROR it, do not reinvent it.
-- The item's diff is recoverable: the submit path merges a worktree branch; the merge commit and the branch (spectackle/<item-id>) name the change. git diff against the pre-merge parent bounds the reviewed surface. For items implemented without a worktree, fall back to the diff of the commits whose messages cite the item ID; when neither exists, the pack says so and the verdict proceeds on pack-absent evidence - validation must not be skippable just because attribution is hard, but it must say what it could not see.
-- workspace config feedback block exists (FeedbackCfg, workspace.go ~:53) with Grill string knob - add Validate string knob beside it, same semantics (require|warn, default warn).
-
-WHAT TO BUILD
-1. A validate TOOL (new file internal/mcpserver/validate.go), read-computed like grill, budget-truncated (default 1500), sections all computed:
-   #diff - files changed with +/- counts, SPLIT into: declared targets touched, declared targets NEVER touched (finding "v untouched <target>"), files changed OUTSIDE targets (finding "v offscope <file>"). Bounded 20 lines + tail. This is where declared-vs-landed divergence is caught - T-0135 declared four files and landed fifteen, and no pre-implementation check can see that; this computation is the mechanism that would have.
-   #tests - test honesty, computed, each a finding line: (a) production symbols added/changed in the diff with zero references from any test in the diff or existing tests -> "v untested <symbol>" (graph + diff parse, cap 10); (b) anti-vacuity over CHANGED test files only: a subtest loop body containing no assertion call, a range-over-collection whose assertions sit only inside the range with no emptiness guard -> "v vacuous <file:line>" (AST, cap 10); (c) a test file changed with zero production files changed and the item is kind=bug -> "v testonly - bug fix with no production change" (the fix-in-test smell).
-   #bench - only when the diff touches Benchmark funcs or *_bench_test.go: (a) a Benchmark whose loop does not consume b.N or b.Loop -> "v fakebench <func>" (AST); (b) benchmark numbers claimed in the item's report/notes with no matching Benchmark func in the diff -> "v benchclaim <name>". The validator agent re-runs ONLY the named benchmarks with -benchtime=1x as an execution proof; performance regressions are its judgment, not a server computation.
-   #verify - the declared gate/verify commands and their last recorded result from the submit gate journal trail, so the validator sees what was proven versus asserted.
-2. GIT AUTOMATION, user-authorized for this set: the server performs actual git commits as phase checkpoints, WITHOUT the driving agent doing anything - the commit is a side effect of the tool call, the agent issues no git commands and needs no git knowledge for it. One workspace config knob git_commits: phases|off, DEFAULT phases (the point is zero agent effort; off exists for repos that refuse tool-made commits). Two uses: (a) DIFF BINDING BY SHA - the validation pack and verdict bind to the git commit range (merge-base of the item's branch to its merge commit, or the commit set citing the item ID), recorded as SHAs in the EvValidate event; a SHA range is content-addressed by git itself, so the stale-verdict check becomes a SHA comparison, no bespoke hashing. (b) PHASE CHECKPOINT COMMITS - when the server writes .spectackle state for a verdict, reopen or gated archive, it commits EXACTLY the .spectackle paths it wrote, message "spectackle: <ev> <item-display-id> [pass|findings=<n>]", so every phase transition is a git-visible, attributable checkpoint. HARD LIMITS: the server never commits files outside .spectackle/ trees, never amends, never pushes - remotes stay with the orchestrator and CI; when the repository has no git or the paths are gitignored, the tool call succeeds and the checkpoint is skipped silently (a checkpoint is a bonus, never a failure mode). Precedent: the submit path already commits and merges via internal/wt; reuse its plumbing, do not shell out anew. ALSO WIRE the same checkpoint behavior into the EvReview verdict path the NEEDS task landed (it merges before this task, so the retrofit lands here): grill op=verdict under git_commits=phases checkpoints its journal write identically. Add a test per phase: verdict, reopen, archive each produce exactly one commit touching only .spectackle paths with the specified message shape; with git_commits=off, zero commits, byte-identical journal behavior; in a workspace without git, no error.
-3. VERDICT: validate op=verdict id=<item> pass=<bool> findings=<text>. Journal kind EvValidate. Refusals mirror EvReview exactly: same-agent (verdict ag equals any start/submit ag of the item, OR the create ag when no start exists) -> "! VALIDATE E <id> validator implemented this - use a fresh agent identity"; pass=true while the pack's computed findings > 0 -> refused (computed findings are not waivable; the validator judges ON TOP of them, never instead of them); diffHash mismatch (diff changed since last pack render) -> refused, re-render first.
-3. GATE + FEEDBACK LOOP: move to=archived (and the shortcut that implies it) for kind=task and kind=bug requires, under feedback.validate=require, a passing EvValidate with matching diffHash and independent ag; warn mode warns. A verdict with pass=false REOPENS the item: server performs done -> active, increments the existing round counter, and writes the findings into the journal; get on the reopened item renders the findings as the FIRST section - the feedback is the brief. max_rounds exhaustion escalates to blocked exactly as today - no new escalation path.
-4. Documentation: docs/lifecycle.md gains the validation hop in its state diagram prose (done -> archived gated; done -> active on findings), one short section. The workflow template is OWNED by the backward-path task under the backpropagation proposal - do not edit it here; note the dependency in your report instead.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- Implementer-verdict refusal: start+submit as agent A (worktree e2e path exists in worktree_e2e_test.go to crib), verdict as A refused; as B accepted.
-- Waiver refusal: plant an untouched target, pass=true refused while findings>0.
-- Reopen loop: verdict pass=false moves done -> active, rounds increments, get renders the findings first, and a second implementation round followed by clean re-validation archives.
-- Diff binding: verdict, then one more commit citing the item, then move to=archived under require -> refused stale; re-render + re-verdict -> succeeds.
-- Each computed finding class fires on a fixture built to trip exactly it (vacuous subtest, fake bench without b.N, untouched target, offscope file) and stays silent on clean fixtures.
-- Escalation unchanged: exhausting max_rounds through repeated failing verdicts lands in blocked with the ADR-item exactly as SPX-SWM-007 specifies (existing tests untouched).
-- Cost: one validate call on a real merged item in this repository - report wall time and output bytes; must satisfy SPX-MCP-001 (2s warm, 1 MiB reads).
-- Red-run: the archive-gate test written first, shown failing against current code; paste the failing output.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a different agent identity performs one real validation on a merged item in the worktree - renders the pack, records a verdict, confirms the gate honors it and a false verdict reopens - from the diff alone. Verdict recorded in the archive note.
-
-SCOPE: validate.go (new), the move-gate addition in tools.go, EvValidate in journal.go, the FeedbackCfg knob in workspace.go, docs/lifecycle.md, tests. Do not touch grill.go (the NEEDS task owns it), the state-order table, templates, or prompts. tools.go is shared with sibling tasks - the lease serializes.
-ROLLBACK: revert the commit; feedback.validate absent means warn, so removing the key alone already disarms the gate. EvValidate events are inert history for a reverted server - verify replay of a pre-revert journal and state it in the report.
-REPORT BACK: where the diff is recovered from and the fallback used, each refusal's implementation, the reopen wiring into the existing rounds machinery, wall time and bytes on the real-item run, each test's real result including the red-run, anything deliberately not done.
-
 ## T-01KYD87ZN7EJ49CMSEQE9XGGWS package-local contract coverage: silent by default with visibility in state, counted by check only under coverage_gate
 kind: task
-state: draft
+state: submitted
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72GQ6E2ZV0HX8S443NPY6
@@ -506,7 +375,7 @@ REPORT BACK: the COVERED implementation, both pasted check runs with empty diff,
 
 ## T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression
 kind: task
-state: draft
+state: submitted
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72H15EPV8KCW6ASSMEFZX
@@ -551,7 +420,7 @@ REPORT BACK: measured wall time and bytes on the internal/mcpserver run, both fi
 
 ## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
 kind: task
-state: draft
+state: submitted
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HB0FHX9G80DQGS9YBB1
@@ -598,7 +467,7 @@ REPORT BACK: manifest base and final sizes, template base and final line counts,
 
 ## P-01KYD8HSZ0ERTBFBBEVQD68M4R the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail
 kind: proposal
-state: draft
+state: submitted
 created: 2026-07-25
 refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4
 grilled: 2026-07-25
@@ -628,65 +497,9 @@ ROLLBACK. git_commits: off disarms the engine without a rebuild; reverting the c
 
 CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch across CONTRIBUTING, docs and instructions. The validation-phase task sheds its narrower git section to the engine at its next redraft.
 
-## T-01KYD8M8RXEXPVTCWTMY962PQQ edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
-kind: task
-state: draft
-created: 2026-07-25
-parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
-refs: R-0007
-grilled: 2026-07-25
-targets: internal/mcpserver/tools.go, internal/mcpserver/server.go, internal/wt/wt.go, internal/workspace/workspace.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-NEEDS: the coord.db serialization task (title: serialize server-side whole-file rewrites through the coord.db lock table) must be MERGED first - two server processes on one checkout race the git index exactly like they race work.md, and the commit step belongs inside the same cross-process serialization. Do not start while it is open.
-
-WHY. The requirement is followability: a human reading git log alone must see every decision - each state-machine edge as its own commit, message carrying what moved, from where to where, by whom, and the reasoning note. Today the journal knows this and git does not: reconciliation happens only when an orchestrator remembers to commit, in batches whose messages summarize. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command (user authorization: fully automatic, without the LLM doing anything).
-
-VERIFIED GROUND (do not re-derive)
-- gate[T] (tools.go:175-185) wraps every tool handler: s.mu.Lock, preCall, handler, postCall. The rule tool inlines the identical pattern at tools.go:200-210. These two sites are the complete write surface - no .spectackle write happens outside a tool call.
-- Every state edge appends a journal event with agent identity (journal.Append stamps ag, eid, timestamp). Event kinds: journal.go:31-46.
-- wt.CommitCode (wt.go:111) commits in a worktree today - the plumbing precedent; reuse or extract, do not duplicate git exec logic.
-- P-0009 (archived): one move call per forward jump. Commit granularity inherits it: ONE call = ONE edge traversal = ONE commit, even when the jump skips states (draft->active is one decision, one commit).
-- workspace config: FeedbackCfg pattern at workspace.go:53 for adding the knob.
-
-WHAT TO BUILD
-1. CAPTURE: during a tool call, record which journal events the call appended and which .spectackle paths it wrote (choose the mechanism from reading the code - an events buffer on the Server filled by the append path, or a pre/post diff of journal lengths plus a written-paths set; justify the choice in the report; it must be exact, not a glob of everything dirty).
-2. COMMIT STEP in gate (and the rule tool's inline twin), after the handler returns success, before postCall renders: if the call wrote .spectackle state and git_commits=edges, commit EXACTLY the .spectackle paths this call wrote, via explicit-pathspec commit semantics (git commit restricted to named paths so a user's concurrently staged work is NEVER swept in - state which git invocation form guarantees this and prove it with the staged-bystander test below). One commit per call. A call that wrote nothing commits nothing. A failed handler commits nothing.
-3. MESSAGE FORMAT, structured and immutable-safe:
-   subject: spectackle(<ev>): <full-item-or-rule-id> <from>-><to | one-clause decision>
-   body: the decision note verbatim (move notes, verdict findings, rejection reasons; empty note renders the item title).
-   trailers: Spectackle-Ev, Spectackle-Item (FULL ID - a display-short prefix is unambiguous only at that instant, T-0136, and commits are immutable), Spectackle-From, Spectackle-To (when applicable), Spectackle-Agent, Spectackle-Eid.
-   Multi-event calls (a move that cascades child updates) still produce one commit: primary event in the subject, sibling events as additional Spectackle-Eid trailers.
-4. CONFIG: git_commits: edges|off in workspace config, DEFAULT edges. off produces byte-identical tool behavior and zero commits (test). This knob supersedes the phases|off draft in the validation-phase task; that task sheds its git section at its next redraft - do not implement anything from it here beyond what this body states.
-5. SAFETY RAILS, each tested: no git repo or .spectackle gitignored -> skip silently, tool call succeeds (a checkpoint is a bonus, never a failure mode); index.lock contention -> bounded retry with backoff, then skip with one journal-only warning event, never a tool error; never push, never amend, never commit paths outside .spectackle trees; detached HEAD or mid-rebase -> skip silently.
-6. SUBMIT-PATH COEXISTENCE: work op=start/submit/abort already create branches, merge and commit code (internal/wt). The edge engine must not double-commit what the submit path commits: during a work call the engine commits only the journal/state writes the call made OUTSIDE the code merge (read the submit flow first; state in the report exactly which commits a submit now produces and why each exists).
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- One edge, one commit: draft then move to=approved then move to=rejected produces exactly three commits, subjects matching the format, trailers parseable by git interpret-trailers.
-- Forward-skip is one commit: move draft->active yields one commit whose Spectackle-From/To are draft/active.
-- Decision visibility: git log --grep=<full-item-id> returns that item's complete edge history and nothing else, on a fixture driving the full lifecycle.
-- Staged-bystander: stage an unrelated source file, run a draft call; the edge commit contains only .spectackle paths, the bystander stays staged and uncommitted.
-- off knob: byte-identical journal and tool output, zero commits.
-- No-git workspace: calls succeed, zero errors.
-- Concurrency: the twoAgents topology (two servers, one root) driving concurrent drafts produces one commit per call with no index.lock failure surfacing to either caller (this is the test that requires the NEEDS ordering).
-- Failed handler: a refused move (e.g. unknown ID) commits nothing.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  In the worktree: run one draft + one move headlessly, paste git log --format=full -3 output showing the structured messages.
-  Red-run: the one-edge-one-commit test written first, shown failing against current code; paste the failing output.
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier re-runs the staged-bystander, off-knob and concurrency tests from the diff alone, then drives one real lifecycle and reads the log; verdict recorded in the archive note.
-
-SCOPE: gate and the rule inline twin in tools.go, the capture mechanism, git plumbing shared with internal/wt, the config knob, tests. Do not touch lifecycle.go's state machine, grill.go, templates, prompts, or the merge-policy docs (sibling task).
-ROLLBACK: git_commits: off disarms without rebuild; reverting the commit removes the engine; existing edge commits are inert history.
-REPORT BACK: the capture mechanism chosen and why, the exact git invocation form for pathspec-only commits, the submit-path commit inventory, each test's real result including the red-run, measured wall-time overhead per call (report the delta on 10 sequential draft calls), anything deliberately not done.
-
 ## T-01KYD8M955E9NBPH27D21E4J9J merge policy: never squash - merge commits everywhere the workflow speaks, so the per-edge decision trail survives into main
 kind: task
-state: draft
+state: submitted
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007
@@ -724,3 +537,196 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the 
 SCOPE: the three named markdown files. No Go code, no templates (backward-path task owns them), no .goreleaser.yaml, no workflow yml.
 ROLLBACK: revert the commit; the repository settings revert by hand.
 REPORT BACK: the final CONTRIBUTING section verbatim, the grep output, the release-notes filter decision and any named follow-up, anything deliberately not done.
+
+## P-01KYD9466KEPWBV2RBK7EQM202 review and validation are recorded independent verdicts: grill reviews the draft with feedback and a research path, a validation phase judges the implementation, both bound to reviewer identity
+kind: proposal
+state: submitted
+created: 2026-07-25
+refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4, R-0005
+grilled: 2026-07-25
+targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/lifecycle/lifecycle.go, docs/lifecycle.md
+
+Supersedes the draft in refs: its central claim - identity binding as a computed invariant - was proven overclaimed by this set's own validation round against the real code, and the corrected design plus the honest limit are below. Everything else re-recorded intact.
+
+PROBLEM. Two review moments exist in the loop and neither is a review. Before implementation, grill renders a pack and stamps a date - the stamp records that rendering happened, not that anyone read the pack or fed anything back; twelve grills in this repository's history changed zero bodies. After implementation there is no phase at all: the submit gate runs commands, check scans the workspace, done rolls into archived on the orchestrator's say-so - nobody is charged with judging correctness, test honesty, benchmark honesty, or completeness, and whatever the orchestrator notices reaches the implementer as chat, not as a recorded finding the next round is held to.
+
+DESIGN DECISIONS, with rejected alternatives:
+1. NO NEW LIFECYCLE STATES. done -> active is the single sanctioned backward hop (docs/lifecycle.md:142) with a reopen counter, feedback.max_rounds and escalation (SPX-SWM-007). Validation gates done -> archived and reopens through the existing hop. Rejected: a new validating state - touches every state-order comparison and replay path for a distinction the reopen counter already expresses.
+2. VERDICTS ARE RECORDED EVENTS BOUND TO CONTENT AND IDENTITY. A verdict is a journal event carrying the reviewing agent's identity and the hash (or git SHA range) of what was reviewed; the server refuses a verdict whose identity matches the item's author or implementer, and refuses a verdict from an EPHEMERAL identity - server.go:173 reads SPECTACKLE_AGENT once per process and falls back to coord.GenName(), a random name, so without the ephemeral refusal a per-call client with the env unset would pass the author-check by pure chance (found by this set's validation). A shared resident connection carries one identity for all callers (B-0002 lineage), so verdicts are per-call stdio operations with a deliberately set agent name - the docs say exactly that.
+THE HONEST LIMIT, stated here because the earlier draft claimed too much: what the server computes is deliberate-identity divergence, not independence. It defends against FORGETTING to use a separate reviewer - the failure mode R-0007 documented as fakeable-by-forgetting - not against a driver minting a second name purely to clear the gate while sharing every blind spot. That residual is accepted, stated in code comments and docs, and mitigated only by process guidance (fresh context or different model for reviewers), which the server cannot verify. Rejected alternative: claiming the check IS independence - that is how overclaims calcify.
+3. THE SERVER RENDERS AND RECORDS; AGENTS JUDGE. The server computes the packs and refusals, records verdicts, gates moves. The judgment - reading, deciding, writing findings - is agent work in a fresh subagent. Findings are floored (non-empty on fail, warn under 80 chars) and capped (2000 bytes stored): the one artifact whose value depends on the reviewer thinking must be neither empty nor unbounded. Rejected: the server scoring quality itself - that is how the word-presence checks happened.
+4. GRILL MAY DEMAND RESEARCH, NOT PERFORM IT. When the pack's computed classes surface unknown territory (uncovered target paths, zero history/rejection hits), grill emits a research-needed record counting as an open gap until the item cites an R-item that names the flagged path or term VERBATIM (token match, not semantic scoring - and not any-R-item, which this set's validation showed was gameable). Grounding: R-0005 is the defect class - thirty of thirty-two language recognizers shipped with gaps because novel territory was entered without a study; a demanded R-item is the study. Rejected: grill spawning research - the server cannot run agents and a blocking tool violates SPX-MCP-001.
+
+WHEN EACH STEP HAPPENS: research (on grill demand) and grill-with-verdict between draft and approved - move to=approved gates on a clean independent review verdict. Implementation active -> done as today. Validation between done and archived - move to=archived gates on a clean independent validation verdict; findings reopen done -> active with the findings as the implementer's next brief, counting a round; max_rounds escalates to blocked as today. Nothing else moves.
+
+CHILD TASKS: one supersedes the earlier grill-verdict draft (computed classes, verdict event, identity+ephemeral refusals, research-demand); one builds the validation phase (pack, verdict, gate, reopen feedback, note auto-fill from the verdict). Git checkpoint commits are OWNED by the commit-log-is-the-decision-log proposal, not here.
+
+TOKEN BOUNDS. Verdict events are one journal line; findings capped at 2000 bytes; packs budget-truncated; independence checks O(item's journal events), already loaded. Mutant-kill and oracle-ratchet stay out of scope until the anti-ceremony lens re-runs against measured costs.
+
+EXIT CRITERION. On this repository: a draft receives an independent review verdict from a second, deliberately named agent identity and cannot reach approved before; a done item with a planted vacuous test receives a validation finding, reopens with the finding as its brief, and cannot reach archived until re-validation is clean; an ephemeral-identity verdict is refused with the exact record.
+
+ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (require|warn); removing the key returns to warn, reverting the commits returns to today. Verdict events in journals are inert history for a reverted server.
+
+## T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted
+kind: task
+state: submitted
+created: 2026-07-25
+parent: P-01KYD9466KEPWBV2RBK7EQM202
+refs: R-0007, T-01KYD87YYZFSJVGX74JG2HD4V3
+grilled: 2026-07-25
+targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/journal/journal.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task supersedes the rejected draft it cites in refs; everything that draft specified remains in force here and is restated - nothing is inherited by pointer.
+
+WHY. R-0007's organizing finding: every review mechanism splits into a server-computed half the author cannot fake and a written half they can, and grill today is almost entirely the written half. Twelve grill events exist in this repository; every one fired 0-91s after the item's create event and not one body was ever revised in response. A date stamp records that a pack rendered, not that anyone reviewed anything. This task makes grill compute what it can compute, and makes the review itself a RECORDED, INDEPENDENT verdict: a journal event carrying the reviewing agent's identity and the hash of the body it reviewed, refused when the reviewer is the item's author, gating approval. The reviewing agent is a fresh subagent by design - the server enforces the independence it cannot create.
+
+VERIFIED GROUND (do not re-derive)
+- grill.go:97 renders #questions via grillQuestions(it); :101 stamps it.Grilled unconditionally; :165 applies briefHeuristics to child-task bodies.
+- briefHeuristics (grill.go:177): len<300, no "/", no "go test"/"make". grillQuestions (grill.go:242): substring tests for scope/rollback/exit-criterion; plus hasRecordedDeliberation (structural, checks refs and rejected alternatives - KEEP).
+- Move gate: tools.go:1329-1338 - feedback.grill=require refuses ungrilled proposals, else warns. Item.Grilled is a plain string, kept on reopen (lifecycle.go:380), replayed via Gr.
+- Journal: every event stamps ag (journal.Append fills e.Ag from root.Agent); event kinds live in journal.go:31-46; EvGrill exists. The item's author identity is the create event's ag; a worktree implementer's identity is the start/submit events' ag.
+- grillIn.Budget defaults to 1500 with truncation + resume cursor.
+- SPECTACKLE_AGENT sets the per-process agent identity; per-call stdio clients each carry their own.
+
+WHAT TO BUILD
+1. COMPUTED CLASSES in the pack, each one output line per finding, all counted into open=<n>:
+   a. path-existence: path-shaped tokens in the body that do not exist in the worktree -> "g nopath <token>".
+   b. verify-executability: VERIFY-block lines matching a known-bad table -> "g badverify <pattern>". Seed with exactly two recorded failures: lint -root (B-0010) and reading $? after a pipe. The table is a var in grill.go.
+   c. irreversibility-from-targets: targets matching journal.ndjson, coord.db, SchemaStamp/migration paths, or target count >= 8 -> "g irreversible <target>" / "g blast <n> targets", demanding a RESTORE or ROLLBACK section heading exist. STATED LIMIT, verbatim in a code comment: this is a TRIPWIRE against omission, not a verification of substance - T-0137 gamed the old word-check with a well-formed paragraph and a heading requirement is gameable the same way; substance is judged by the independent reviewer's verdict (this task) and declared-vs-landed divergence (T-0135's 4-declared/15-landed) is NOT detectable pre-implementation here - it is the validation phase's #diff offscope/untouched computation (sibling task).
+   d. environment differential, five axes, each anchored to a recorded defect: primary-branch-name (B-0004), git-dir-shape file-vs-dir (B-01KYD1G9K), root-kind worktree-vs-checkout (B-0002), process-topology shared-vs-per-call (B-01KYD57F), path-normalization case/sep (T-0136's d-bus finding). Render "e <axis> live=<v> tests=<v|absent>"; tests= from a static scan of target packages' _test.go files. absent counts as open ONLY when the item's targets touch that axis's subsystem; state the per-axis scoping condition in the report.
+   e. research-demand: when the item's targets include a path no rule's dir or applies covers AND grillRejections plus the history search return zero hits for the item's title terms, emit "g research-needed <topic>" - the item is in unknown territory and the pack cannot substitute for a study. The gap closes when the item's refs cite an R-item (any state). Novelty detection is those two computed signals only - no semantic scoring.
+2. VERDICT EVENT. New journal kind EvReview. A new grill op records the verdict: grill op=verdict id=<item> pass=<bool> findings=<text>. The server computes bodyHash = sha256 of the item's body at verdict time and writes it into the event. REFUSALS, each with a dense error: (i) verdict agent ag equals the create event's ag -> "! REVIEW E <id> reviewer is the author - use a fresh agent identity"; (ii) open>0 from the latest pack render and pass=true -> refused, the computed gaps are not the reviewer's to waive; (iii) no pack was rendered for the current body (stored render-hash mismatch) -> refused, the reviewer must grill the current body first; (iv) pass=false with empty findings -> refused, a failing verdict must say why - the findings become the author's next brief; (v) the verdict caller's identity is EPHEMERAL -> refused: server.go:173 reads SPECTACKLE_AGENT once per process and falls back to coord.GenName(), a RANDOM name - the anti-ceremony validation proved a per-call stdio client with the env unset gets a fresh random identity every call, so the author-check would pass by pure chance with zero independence. The server therefore records whether each event's identity was env-set or generated (one boolean on the event, or a name-shape check if GenName names are reliably distinguishable - decide from the code, justify), and verdicts from generated identities are refused: "! REVIEW E <id> anonymous reviewer - set SPECTACKLE_AGENT to a deliberate name". The RESIDENT-SERVER corollary, stated in docs and the refusal hint: a shared resident connection carries ONE identity for all its callers (the B-0002 lineage), so review and validation verdicts are per-call stdio operations with an explicitly set agent name - the docs instruct exactly that invocation. FINDINGS FLOOR, layered honestly: on pass=false, findings must be non-empty (hard refusal above) and under 80 characters draws a one-line warn record (tripwire against token-thin reviews, gameable by padding and known to be - same layering as the research-gate note floor); on pass=true findings stay optional, a clean pass needs no essay. findings text is journaled verbatim and rendered by get on the item so the author's next revision sees it.
+IDENTITY LIMIT, verbatim in a code comment and in docs (the independence validation of this set demanded this callout): what the refusal computes is ag-string divergence, not independence. It defends against FORGETTING to use a separate reviewer - the failure mode R-0007 documented - not against a driver minting a second identity purely to clear the gate while sharing every blind spot. That residual is accepted and stated, never claimed away; process guidance (different model or fresh context for reviewers) lives in the workflow docs, outside what the server can verify.
+3. STAMP AND GATE. Grilled becomes "<date> open=<n>" written at pack render (n = computed findings). move to=approved under feedback.grill=require additionally requires a passing EvReview whose bodyHash matches the CURRENT body and whose ag differs from the author - a body edited after review needs re-review by construction. Without require: warn lines, same computations. Legacy bare-date stamps: treated as no verdict (require refuses, warn names why).
+4. DELETE: the scope/rollback/exit-criterion substring questions and the short-body/no-path/no-verify heuristics. ALSO DELETE the substring half of hasRecordedDeliberation: the anti-ceremony validation of this task set found its second path is strings.Contains(body, "rejected") (grill.go:275) - a bare word-presence test of exactly the species this task removes, satisfiable by writing "we rejected X" without weighing anything. The deliberation check becomes refs-only: an ADR, research, or rejection-tombstone ref counts; prose never does. KEEP: the refs path, grillTests, grillRejections. #questions shrinks to the refs-only deliberation check.
+5. BUDGET. New sections respect grillIn.Budget; computed findings and the verdict line render before lower-value sections; the verdict line is exempt from truncation.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- Author-verdict refusal: create as agent A, verdict as A refused with the exact record; as agent B accepted. Use two Server instances with distinct SPECTACKLE_AGENT (the twoAgents helper pattern in swarm_test.go).
+- Hash binding: verdict as B, then edit the body (re-draft path or direct item write in the test), then move to=approved under require -> refused naming stale review; re-grill + re-verdict -> approved succeeds.
+- Waiver refusal: plant a nopath finding, verdict pass=true refused while open>0.
+- research-demand: a fixture item targeting an uncovered path with zero history hits trips it; adding an R-item ref closes it.
+- Each computed class fires on a synthetic item constructed to trip exactly it and stays silent otherwise.
+- Word padding changes nothing: a body containing scope, rollback, exit criterion still counts its computed gaps.
+- Byte bound, COMPUTED not self-reported (the independence validation of this task set found the prior draft left this as prose a same-model verifier would rubber-stamp): a Go test renders the pack on a fixed synthetic item and asserts the output stays under a hardcoded byte ceiling, the ceiling committed with a comment naming the measured pre-change base (mirror the manifest-size test pattern). The P-0088 before/after counts still go in the report, but the regression bound is the test.
+- Red-run: the move-gate test and the author-refusal test are written first and shown failing against current code; paste both failing outputs.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional - the flag form is entry one of your own known-bad table)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a DIFFERENT agent identity re-runs the refusal and hash-binding tests from the diff alone and additionally performs one real review: grill a live draft in the worktree, write a verdict, confirm the gate honors it. Verdict recorded in the archive note.
+
+SCOPE: grill.go, the move gate in tools.go, the EvReview constant in journal.go, tests. Do not touch the item model (Grilled stays a string), lifecycle.go's state machine, templates, prompts, or the validation phase (sibling task). tools.go is shared with FOUR other open tasks (validation phase, coverage, research gate, edge-commit engine) plus the rule-edit draft - the lease serializes all of them; do not run concurrently with any.
+ROLLBACK: revert the commit. Stamps "<date> open=<n>" stay parseable via the legacy bare-date path you keep; EvReview events in journals are inert history for a reverted server - verify a pre-revert journal still replays post-revert and state it in the report.
+REPORT BACK: where each class and refusal is computed, the per-axis scoping conditions, both byte counts, each test's real result including both red-runs, the replay-after-revert check, anything deliberately not done.
+
+## T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief
+kind: task
+state: submitted
+created: 2026-07-25
+parent: P-01KYD9466KEPWBV2RBK7EQM202
+refs: R-0007, T-01KYD87ZA6F83AKH7THFKBBFZA
+grilled: 2026-07-25
+targets: internal/mcpserver/validate.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/workspace/workspace.go, internal/wt/wt.go, docs/lifecycle.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+NEEDS: the grill-verdict task (grill computes its critique and stamps a verdict) must be MERGED first - this task mirrors its verdict/identity/hash machinery and shares the move path in tools.go. Do not start while it is open.
+
+WHY. After implementation the loop has no judge. The submit gate runs commands (pass/fail, no judgment), check scans workspace consistency, and done rolls into archived on the orchestrator's say-so. Nobody is charged with: is the implementation correct against its brief, do the new tests actually test the change, are benchmark claims honest, is the work complete. And when the orchestrator does notice something, the feedback reaches the implementer as chat - unrecorded, unsearchable, not binding on the next round. This task builds the validation phase: a computed pack over the item's real diff, an independent recorded verdict gating done -> archived, and findings that reopen the item through the EXISTING done -> active hop (docs/lifecycle.md:142) so the feedback IS the next brief and rounds count toward the existing feedback.max_rounds escalation (SPX-SWM-007). No new lifecycle states.
+
+VERIFIED GROUND (do not re-derive)
+- done -> active is the sanctioned backward hop with a reopen counter and escalate-to-blocked at max_rounds; lifecycle keeps Grilled on reopen (lifecycle.go:380). Rounds already replay.
+- Journal events stamp ag; the implementer's identity is the item's start/submit events' ag; EvGrill is the pattern for a feedback event kind. The grill-verdict task (NEEDS) lands EvReview and the identity/hash refusal pattern - MIRROR it, do not reinvent it.
+- The item's diff is recoverable: the submit path merges a worktree branch; the merge commit and the branch (spectackle/<item-id>) name the change. git diff against the pre-merge parent bounds the reviewed surface. For items implemented without a worktree, fall back to the diff of the commits whose messages cite the item ID; when neither exists, the pack says so and the verdict proceeds on pack-absent evidence - validation must not be skippable just because attribution is hard, but it must say what it could not see.
+- workspace config feedback block exists (FeedbackCfg, workspace.go ~:53) with Grill string knob - add Validate string knob beside it, same semantics (require|warn, default warn).
+
+WHAT TO BUILD
+1. A validate TOOL (new file internal/mcpserver/validate.go), read-computed like grill, budget-truncated (default 1500), sections all computed:
+   #diff - files changed with +/- counts, SPLIT into: declared targets touched, declared targets NEVER touched (finding "v untouched <target>"), files changed OUTSIDE targets (finding "v offscope <file>"). Bounded 20 lines + tail. This is where declared-vs-landed divergence is caught - T-0135 declared four files and landed fifteen, and no pre-implementation check can see that; this computation is the mechanism that would have.
+   #tests - test honesty, computed, each a finding line: (a) production symbols added/changed in the diff with zero references from any test in the diff or existing tests -> "v untested <symbol>" (graph + diff parse, cap 10); (b) anti-vacuity over CHANGED test files only: a subtest loop body containing no assertion call, a range-over-collection whose assertions sit only inside the range with no emptiness guard -> "v vacuous <file:line>" (AST, cap 10); (c) a test file changed with zero production files changed and the item is kind=bug -> "v testonly - bug fix with no production change" (the fix-in-test smell).
+   #bench - only when the diff touches Benchmark funcs or *_bench_test.go: (a) a Benchmark whose loop does not consume b.N or b.Loop -> "v fakebench <func>" (AST); (b) benchmark numbers claimed in the item's report/notes with no matching Benchmark func in the diff -> "v benchclaim <name>". Both classes capped at 10 + tail like #tests (the validation round flagged the missing per-section cap). The validator agent re-runs ONLY the named benchmarks with -benchtime=1x as an execution proof; performance regressions are its judgment, not a server computation.
+   #verify - the declared gate/verify commands and their last recorded result from the submit gate journal trail, so the validator sees what was proven versus asserted.
+2. DIFF BINDING BY SHA: the validation pack and verdict bind to the git commit range (merge-base of the item's branch to its merge commit; fallback below), recorded as SHAs in the EvValidate event - a SHA range is content-addressed by git itself, so the stale-verdict check is a SHA comparison, no bespoke hashing. CITATION RULE for the no-worktree fallback, exact (the independence validation flagged the prior vagueness): a commit cites the item iff its message carries the FULL item ID as a word-delimited token in the subject (the submit path's existing "spectackle <item-id>: ..." convention) or a Spectackle-Item trailer equal to the full ID (the edge-commit engine's format, sibling proposal). Short prefixes never match - a prefix is unambiguous only at the instant it was rendered. When neither worktree nor citing commits exist, the pack states pack-absent evidence and the verdict proceeds on it - validation must not be skippable because attribution is hard, but it must say what it could not see.
+COMMIT CHECKPOINTS ARE NOT THIS TASK: the per-edge commit of .spectackle writes (including verdict events) is owned by the edge-commit engine task under the commit-log-is-the-decision-log proposal (title: edge-commit engine in gate). Do not implement any git committing here; this task only READS git for the diff and the SHA binding.
+3. VERDICT: validate op=verdict id=<item> pass=<bool> findings=<text>. Journal kind EvValidate. FINDINGS RULES mirror EvReview exactly: pass=false with empty findings refused (the findings are the reopened item's next brief); under 80 chars draws a warn tripwire; stored findings are capped at 2000 bytes with a truncation marker (the validation round found the prior draft left this field unbounded - an LLM-written field replayed on every future get must have a ceiling). Ephemeral-identity refusal mirrors EvReview: verdicts from a generated (env-unset) agent identity are refused; review and validation are per-call stdio operations with a deliberate SPECTACKLE_AGENT. NOTE AUTO-FILL, closing the two-rounds-open empty-note defect: when move to=archived on a task or bug carries no note, the server writes the note FROM the passing EvValidate verdict (pass, findings summary, validator identity, SHA range) - the archive note stops being fakeable prose because it is derived from the recorded verdict, with zero agent effort. An explicit note, when given, is appended after the derived part, never instead of it. Other refusals mirror EvReview: same-agent (verdict ag equals any start/submit ag of the item, OR the create ag when no start exists) -> "! VALIDATE E <id> validator implemented this - use a fresh agent identity"; pass=true while the pack's computed findings > 0 -> refused (computed findings are not waivable; the validator judges ON TOP of them, never instead of them); diffHash mismatch (diff changed since last pack render) -> refused, re-render first.
+3. GATE + FEEDBACK LOOP: move to=archived (and the shortcut that implies it) for kind=task and kind=bug requires, under feedback.validate=require, a passing EvValidate with matching diffHash and independent ag; warn mode warns. A verdict with pass=false REOPENS the item: server performs done -> active, increments the existing round counter, and writes the findings into the journal; get on the reopened item renders the findings as the FIRST section - the feedback is the brief. max_rounds exhaustion escalates to blocked exactly as today - no new escalation path.
+4. Documentation: docs/lifecycle.md gains the validation hop in its state diagram prose (done -> archived gated; done -> active on findings), one short section. The workflow template is OWNED by the backward-path task under the backpropagation proposal - do not edit it here; note the dependency in your report instead.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- Implementer-verdict refusal: start+submit as agent A (worktree e2e path exists in worktree_e2e_test.go to crib), verdict as A refused; as B accepted.
+- Waiver refusal: plant an untouched target, pass=true refused while findings>0.
+- Reopen loop: verdict pass=false moves done -> active, rounds increments, get renders the findings first, and a second implementation round followed by clean re-validation archives.
+- Diff binding: verdict, then one more commit citing the item, then move to=archived under require -> refused stale; re-render + re-verdict -> succeeds.
+- Each computed finding class fires on a fixture built to trip exactly it (vacuous subtest, fake bench without b.N, untouched target, offscope file) and stays silent on clean fixtures.
+- Escalation unchanged: exhausting max_rounds through repeated failing verdicts lands in blocked with the ADR-item exactly as SPX-SWM-007 specifies (existing tests untouched).
+- Cost: one validate call on a real merged item in this repository - report wall time and output bytes; must satisfy SPX-MCP-001 (2s warm, 1 MiB reads).
+- Red-run: the archive-gate test written first, shown failing against current code; paste the failing output.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a different agent identity performs one real validation on a merged item in the worktree - renders the pack, records a verdict, confirms the gate honors it and a false verdict reopens - from the diff alone. Verdict recorded in the archive note.
+
+SCOPE: validate.go (new), the move-gate addition in tools.go, EvValidate in journal.go, the FeedbackCfg knob in workspace.go, docs/lifecycle.md, tests. Do not touch grill.go (the NEEDS task owns it), the state-order table, templates, or prompts. tools.go is shared with sibling tasks - the lease serializes.
+ROLLBACK: revert the commit; feedback.validate absent means warn, so removing the key alone already disarms the gate. EvValidate events are inert history for a reverted server - verify replay of a pre-revert journal and state it in the report.
+REPORT BACK: where the diff is recovered from and the fallback used, each refusal's implementation, the reopen wiring into the existing rounds machinery, wall time and bytes on the real-item run, each test's real result including the red-run, anything deliberately not done.
+
+## T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
+kind: task
+state: submitted
+created: 2026-07-25
+parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
+refs: R-0007, T-01KYD8M8RXEXPVTCWTMY962PQQ
+grilled: 2026-07-25
+targets: internal/mcpserver/tools.go, internal/mcpserver/server.go, internal/wt/wt.go, internal/workspace/workspace.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+NEEDS: the coord.db serialization task (title: serialize server-side whole-file rewrites through the coord.db lock table) must be MERGED first - two server processes on one checkout race the git index exactly like they race work.md, and the commit step belongs inside the same cross-process serialization. Do not start while it is open.
+
+WHY. The requirement is followability: a human reading git log alone must see every decision - each state-machine edge as its own commit, message carrying what moved, from where to where, by whom, and the reasoning note. Today the journal knows this and git does not: reconciliation happens only when an orchestrator remembers to commit, in batches whose messages summarize. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command (user authorization: fully automatic, without the LLM doing anything).
+
+VERIFIED GROUND (do not re-derive)
+- gate[T] (tools.go:175-185) wraps every tool handler: s.mu.Lock, preCall, handler, postCall. The rule tool inlines the identical pattern at tools.go:200-210. These two sites are the complete write surface - no .spectackle write happens outside a tool call.
+- Every state edge appends a journal event with agent identity (journal.Append stamps ag, eid, timestamp). Event kinds: journal.go:31-46.
+- wt.CommitCode (wt.go:111) commits in a worktree today - the plumbing precedent; reuse or extract, do not duplicate git exec logic.
+- P-0009 (archived): one move call per forward jump. Commit granularity inherits it: ONE call = ONE edge traversal = ONE commit, even when the jump skips states (draft->active is one decision, one commit).
+- workspace config: FeedbackCfg pattern at workspace.go:53 for adding the knob.
+
+WHAT TO BUILD
+1. CAPTURE: during a tool call, record which journal events the call appended and which .spectackle paths it wrote (choose the mechanism from reading the code - an events buffer on the Server filled by the append path, or a pre/post diff of journal lengths plus a written-paths set; justify the choice in the report; it must be exact, not a glob of everything dirty).
+2. COMMIT STEP in gate (and the rule tool's inline twin), after the handler returns success, before postCall renders: if the call wrote .spectackle state and git_commits=edges, commit EXACTLY the .spectackle paths this call wrote, via explicit-pathspec commit semantics (git commit restricted to named paths so a user's concurrently staged work is NEVER swept in - state which git invocation form guarantees this and prove it with the staged-bystander test below). One commit per call. A call that wrote nothing commits nothing. A failed handler commits nothing.
+3. MESSAGE FORMAT, structured and immutable-safe:
+   subject: spectackle(<ev>): <full-item-or-rule-id> <from>-><to | one-clause decision>
+   body: the decision note verbatim (move notes, verdict findings, rejection reasons; empty note renders the item title).
+   trailers: Spectackle-Ev, Spectackle-Item (FULL ID - a display-short prefix is unambiguous only at that instant, T-0136, and commits are immutable), Spectackle-From, Spectackle-To (when applicable), Spectackle-Agent, Spectackle-Eid.
+   Multi-event calls (a move that cascades child updates) still produce one commit: primary event in the subject, sibling events as additional Spectackle-Eid trailers.
+4. CONFIG: git_commits: edges|off in workspace config, DEFAULT edges. off produces byte-identical tool behavior and zero commits (test). This knob supersedes the phases|off draft in the validation-phase task; that task sheds its git section at its next redraft - do not implement anything from it here beyond what this body states.
+5. SAFETY RAILS, each tested: no git repo or .spectackle gitignored -> skip silently, tool call succeeds (a checkpoint is a bonus, never a failure mode); index.lock contention -> bounded retry with backoff, then skip with one journal-only warning event, never a tool error; never push, never amend, never commit paths outside .spectackle trees; detached HEAD or mid-rebase -> skip silently.
+6. REPLAY RECONCILIATION - the B-0006 question, answered (the anti-ceremony validation raised it as severe and it must be in your ground truth): wt.CommitCode deliberately EXCLUDES .spectackle (":(exclude).spectackle", comment: live replay input, deliberately uncommitted), and MergeMain's preserveSpectackle exists because a worktree and the primary checkout touching the same journal paths concurrently was defect B-0006. The edge engine does NOT change any of that: TREE CONTENT of .spectackle on main remains owned by replay + preserveSpectackle exactly as today - the code merge continues to exclude .spectackle, preserveSpectackle stays authoritative, and journals are never git-merged (append-only files conflict trivially; the replay machinery exists because git merge cannot reconcile them). What the engine adds is HISTORY: edge commits made inside a worktree live on that worktree's branch, and because the merge policy is never-squash (sibling task), the merge commit's second parent keeps them readable in git log forever - the decision trail survives while the tree stays replay-owned. Consequence to state in code comments and prove with a test: after a submit, main's .spectackle content equals what replay produced (byte-check against a no-engine control run), AND git log --grep on the item ID shows the worktree-side edge commits through the merge parent. One validator recommended defaulting this feature off as redundant with the journal's eid/ag event log; the requirement is explicit that the trail must be in git for humans, so the default stays edges and the dissent is recorded here.
+7. SUBMIT-PATH COEXISTENCE: work op=start/submit/abort already create branches, merge and commit code (internal/wt). The edge engine must not double-commit what the submit path commits: during a work call the engine commits only the journal/state writes the call made OUTSIDE the code merge (read the submit flow first; state in the report exactly which commits a submit now produces and why each exists).
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- One edge, one commit: draft then move to=approved then move to=rejected produces exactly three commits, subjects matching the format, trailers parseable by git interpret-trailers.
+- Forward-skip is one commit: move draft->active yields one commit whose Spectackle-From/To are draft/active.
+- Decision visibility: git log --grep=<full-item-id> returns that item's complete edge history and nothing else, on a fixture driving the full lifecycle.
+- Staged-bystander: stage an unrelated source file, run a draft call; the edge commit contains only .spectackle paths, the bystander stays staged and uncommitted.
+- off knob: byte-identical journal and tool output, zero commits.
+- No-git workspace: calls succeed, zero errors.
+- Concurrency: the twoAgents topology (two servers, one root) driving concurrent drafts produces one commit per call with no index.lock failure surfacing to either caller (this is the test that requires the NEEDS ordering).
+- Failed handler: a refused move (e.g. unknown ID) commits nothing.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  In the worktree: run one draft + one move headlessly, paste git log --format=full -3 output showing the structured messages.
+  Red-run: the one-edge-one-commit test written first, shown failing against current code; paste the failing output.
+CROSS-VERIFICATION (orchestrator, after done): an independent verifier re-runs the staged-bystander, off-knob and concurrency tests from the diff alone, then drives one real lifecycle and reads the log; verdict recorded in the archive note.
+
+SCOPE: gate and the rule inline twin in tools.go, the capture mechanism, git plumbing shared with internal/wt, the config knob, tests. Do not touch lifecycle.go's state machine, grill.go, templates, prompts, or the merge-policy docs (sibling task).
+ROLLBACK: git_commits: off disarms without rebuild; reverting the commit removes the engine; existing edge commits are inert history.
+REPORT BACK: the capture mechanism chosen and why, the exact git invocation form for pathspec-only commits, the submit-path commit inventory, each test's real result including the red-run, measured wall-time overhead per call (report the delta on 10 sequential draft calls), anything deliberately not done.
