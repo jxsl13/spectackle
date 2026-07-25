@@ -196,7 +196,17 @@ const staleCheckInterval = 30 * time.Second
 // surfaced for a given crossing the hint stays silent (staleHinted) until
 // the verdict drops back to "not stale" (a rebuild ran — re-armed) and
 // crosses again. Empty string = nothing to say right now.
+//
+// Gated by staleEligible BEFORE any of the above: the advice is only
+// followable on a dev build of spectackle serving spectackle's own tree
+// (issue #29 — a released binary answering ANY tree, which is what every
+// installed user runs, fired this on every call, telling them to run a
+// Makefile target their tree does not have). Checking eligibility first
+// means an ineligible binary never pays for binaryStale's walk either.
 func (s *Server) staleHint() string {
+	if !staleEligible(s.ws) {
+		return ""
+	}
 	if time.Since(s.lastStaleCheck) > staleCheckInterval {
 		s.lastStaleCheck = time.Now()
 		s.staleVerdict = binaryStale(s.ws)
@@ -210,6 +220,72 @@ func (s *Server) staleHint() string {
 	}
 	s.staleHinted = true
 	return "h . binary stale — rebuild+restart: make dev"
+}
+
+// staleEligible reports whether staleHint's "make dev" advice could
+// possibly be actionable. BOTH must hold:
+//   - isDevBuild: this binary is itself an unreleased development build,
+//     not a stamped release — a released binary can't act on "make dev"
+//     regardless of whose tree it is serving.
+//   - servesOwnModule: the tree being served is spectackle's OWN module —
+//     a dev build pointed at some other repository can't run spectackle's
+//     Makefile against it either.
+//
+// Neither alone suffices (see the doc comments below); this is exactly
+// the pair of conditions issue #29 identified as missing, checked once,
+// cheaply, before binaryStale's directory walk runs at all.
+func staleEligible(ws workspace.Root) bool {
+	return isDevBuild() && servesOwnModule(ws)
+}
+
+// isDevBuild reports whether Version still reads as an unstamped
+// development build rather than a released tag. A release build injects a
+// bare semver tag via -ldflags (see server.go's Version comment); the
+// compiled-in default, and every dev or test binary that never runs that
+// ldflags step, keeps the "-dev" suffix — so a substring check is the
+// same distinction that comment already documents, just made queryable.
+func isDevBuild() bool {
+	return strings.Contains(Version, "dev")
+}
+
+// servesOwnModule reports whether ws is spectackle's own checkout, judged
+// by its go.mod module directive against modulePath. This deliberately
+// reads the SERVED workspace's go.mod from disk rather than reusing
+// moduleRepoURL/debug.ReadBuildInfo: build info describes what this
+// binary was compiled FROM, which is fixed at compile time, while s.ws
+// can be re-rooted onto any repository on disk (work op=start moves it to
+// a worktree, and nothing stops that worktree from belonging to a
+// different module than the running binary) — the only fact that can
+// answer "whose tree is this" is the tree itself.
+//
+// A go.mod that can't be read, or that doesn't declare a module (no Go
+// project at ws.Dir, or a monorepo subdir whose go.mod lives elsewhere),
+// degrades to false, not true: ownership defaults to unconfirmed, and an
+// unconfirmed tree gets silence, not a hint — the same direction every
+// other failure branch around staleness already degrades (see
+// binaryStale's doc comment).
+func servesOwnModule(ws workspace.Root) bool {
+	path, ok := readModulePath(ws.Dir)
+	return ok && path == modulePath
+}
+
+// readModulePath extracts the module directive from dir/go.mod with a raw
+// line scan rather than golang.org/x/mod/modfile: that package is today
+// only an indirect dependency (pulled in transitively, not by this repo's
+// own code), and reading one directive line does not earn promoting it to
+// a direct one — typespass.go already reads go.mod's raw bytes for its
+// cache key for the identical reason.
+func readModulePath(dir string) (string, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.TrimSpace(rest), true
+		}
+	}
+	return "", false
 }
 
 // execPath resolves the running executable's path. A package var (not a
