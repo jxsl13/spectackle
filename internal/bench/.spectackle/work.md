@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYDPSW87FKX8FWQBVNDN89TT the harness: generated all-state fixtures, a scripted lifecycle driver over the real tool surface, token and validity metering, A/B against two builds
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYDPRXQSF8XAP1HCHY7390T8
 rounds: 1
