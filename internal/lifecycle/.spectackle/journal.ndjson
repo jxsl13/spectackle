@@ -27,3 +27,5 @@
 {"t":"2026-07-25T16:51:48Z","eid":"f948e726a16a4912","ag":"ag-0ee0","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"dd44d55ee7f24410","nh":"f3684333a47914ea"}
 {"t":"2026-07-25T17:16:26Z","eid":"cde3accad17aaafd","ag":"ag-cb6e","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"dd44d55ee7f24410","nh":"f3684333a47914ea"}
 {"t":"2026-07-25T16:50:52Z","eid":"1fe1fdcc07179525","ag":"ag-a5ea","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"dd44d55ee7f24410","nh":"f3684333a47914ea"}
+{"t":"2026-07-25T19:07:07Z","eid":"cced764b88048e35","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDAS36XFHJ8X3H1Q8Y845FF","k":"task","ti":"exhaustive, deterministic transition matrix over every state pair","dir":"internal/lifecycle"}
+{"t":"2026-07-25T19:10:21Z","eid":"6d1dfe2702582647","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDAS36XFHJ8X3H1Q8Y845FF","dir":"internal/lifecycle","fr":"draft","to":"done"}
