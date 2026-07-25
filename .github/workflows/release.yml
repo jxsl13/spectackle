@@ -51,7 +51,12 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          # Pinned, not `latest`: .goreleaser.yaml uses the deprecated
+          # `brews` block (the only way to reach Linux via Homebrew — see the
+          # comment there). Tracking `latest` would turn its eventual removal
+          # upstream into a broken release with no change of ours. Bump this
+          # deliberately, after re-running `make release-snapshot`.
+          version: "~> v2.17"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
