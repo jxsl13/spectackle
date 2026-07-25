@@ -111,6 +111,66 @@ type SpecParser struct {
 	S Spec
 }
 
+// spanEligibleKinds is the set of graph.NodeKinds whose Def hits Parse gives
+// a multi-line body span to and — when the Spec sets CallRe — scans for call
+// edges. It is the named replacement for the hardcoded `KFunc || KMethod`
+// gate that predated every kernel-bearing langspec language (B-0008).
+//
+// The membership rule is "the kind denotes a callable unit: a named body of
+// executable statements whose calls belong to it". Admitted:
+//   - KFunc, KMethod — the original pair, unchanged.
+//   - KKernel — B-0008 proper. A metal `kernel`/`vertex`/`fragment` or glsl
+//     entry point is an ordinary brace body that merely carries a distinct
+//     kind because it is dispatched rather than called; T-0122 observed
+//     msl:shade_pixels -> msl:computeNormal never minting on the gap-metal
+//     fixture despite metalSpec setting CallRe. Nothing about the scan
+//     differs for a kernel, so nothing justified excluding it.
+//
+// Deliberately still excluded, having been checked rather than inherited:
+//   - KType — a class/struct/trait/enum is a *container*, not a callable
+//     unit: the calls inside it belong to its member functions, which mint
+//     their own KFunc/KMethod nodes and their own edges. Admitting it was
+//     tried and rejected — it makes a C++ `class Shape { virtual double
+//     area() = 0; }` mint a bogus cpp:Shape -> cpp:area ECall (the exact
+//     case TestCppSpecNoEdges pins) and moves the EndLine of every class in
+//     ~15 languages off the contract their per-language tests assert.
+//   - KVar — a binding, not a unit of execution. The registry's only KVar
+//     declarer (rustSpec's const/static Def) requires a `NAME:` type
+//     annotation and therefore always matches a `;`-terminated line, which
+//     cspan.Span already refuses; admitting it would buy nothing observable
+//     and widen the gate on speculation.
+//   - KUnknown is the zero value and names nothing; KFile and KDir are
+//     synthetic container nodes the indexer mints, never a source line a Def
+//     matches; KAsmProc belongs to the hand-written index.AsmParser, whose
+//     TEXT procedures have neither braces nor an end keyword to count.
+//
+// Registry invariant C (registry_test.go) holds every kind a CallRe-setting
+// Spec declares against this set plus that reviewed exclusion list, so a
+// language introducing some *other* kind fails loudly instead of silently
+// minting no edges the way KKernel did.
+//
+// Widening is safe by construction rather than by luck: cspan.Span already
+// returns ok=false for any def line with no brace body (prototypes,
+// `;`-terminated lines, braceless declarations) and cspan.KeywordSpan does
+// the same when the open keyword does not match, so the kind gate was never
+// what kept a braceless def from wandering into the next one — it only ever
+// hid bodies that do exist.
+var spanEligibleKinds = [...]graph.NodeKind{
+	graph.KFunc, graph.KMethod, graph.KKernel,
+}
+
+// spanEligible reports whether Def hits of this kind get a body span and,
+// with CallRe set, call edges. See spanEligibleKinds for the membership
+// rationale.
+func spanEligible(k graph.NodeKind) bool {
+	for _, e := range spanEligibleKinds {
+		if k == e {
+			return true
+		}
+	}
+	return false
+}
+
 // Lang identifies the parser's language.
 func (p SpecParser) Lang() graph.Lang { return p.S.Lang }
 
@@ -161,9 +221,11 @@ func (p SpecParser) Extensions() []string { return p.S.Exts }
 
 // Parse scans one source file line by line, trying each Def in order
 // against every line and minting a node per match. When the Spec sets
-// CallRe, each KFunc/KMethod hit also gets its body span scanned for call
-// edges (LSP-001: "WHEN a Spec sets CallRe, the SpecParser SHALL emit ECall
-// edges from each Def's brace-counted body span"): the body span itself is
+// CallRe, each callable-unit hit — KFunc, KMethod or KKernel, see
+// spanEligibleKinds for why those three and not the rest — also gets its
+// body span scanned for call edges (LSP-001: "WHEN a Spec sets CallRe, the
+// SpecParser SHALL emit ECall edges from each Def's brace-counted body
+// span"): the body span itself is
 // brace-counted via cspan.Span, unless the Spec sets EndSpan, in which case
 // it is keyword-counted via cspan.KeywordSpan instead (for end-terminated
 // languages with no braces at all). With CallRe unset — the default — no
@@ -203,7 +265,7 @@ func (p SpecParser) Parse(path string, src []byte) (index.ParseResult, error) {
 			}
 			id := graph.NodeID(ids.Mint(string(p.S.Lang), p.qualify(path, name)))
 			endLine := lineNo
-			if p.S.CallRe != nil && (def.Kind == graph.KFunc || def.Kind == graph.KMethod) {
+			if p.S.CallRe != nil && spanEligible(def.Kind) {
 				var bodyEnd int
 				var ok bool
 				if p.S.EndSpan != nil {
