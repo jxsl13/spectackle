@@ -55,7 +55,7 @@ choice: short-prefix: store the full UUIDv7 base32 ID, display and accept a shor
 
 ## T-0136 tool boundary: accept a short ID prefix everywhere an ID is taken, and name ambiguities
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0088
 refs: ADR-0013
