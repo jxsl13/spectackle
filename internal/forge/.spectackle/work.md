@@ -19,7 +19,7 @@ REMAINING RISK, unchanged by this fix: any forge operation whose stub is written
 
 ## T-01KYDKNR0SF3XA0FECWZYFMKVX forge transport retries network and 5xx failures with backoff inside a five minute budget before surfacing
 kind: task
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 
