@@ -39,12 +39,46 @@ var cSpec = Spec{
 	Defs: []Def{
 		{
 			Kind: graph.KFunc,
-			// Function prototype or definition, e.g.
-			// `int launch_saxpy(int n, float a, const float *x, float *y);`
-			// or `static void helper(void) {`. The trailing `[^;{}]*` keeps
-			// multi-statement control-flow lines (which contain `;` inside
-			// the parens, e.g. a for-loop header) from matching.
-			Re:   regexp.MustCompile(`^(?:[A-Za-z_][\w\s\*]*?[\s\*])(\w+)\s*\([^;{}]*\)\s*[;{]\s*$`),
+			// Function prototype or definition where the return type AND name
+			// both live on this physical line, e.g.
+			// `int launch_saxpy(int n, float a, const float *x, float *y);`,
+			// `static void helper(void) {`, a same-line one-liner body
+			// (`int add(int a, int b) { return a + b; }`), or a bare Allman
+			// signature with nothing after the closing paren (brace deferred
+			// to a following line, depth-counted by cspan.Span — see T-0053).
+			// The trailing alternation is: balanced params + optional
+			// `;`/`{...}` tail (prototype, K&R, or Allman-with-nothing-after),
+			// OR params ending in `,` (an unclosed multi-line parameter list
+			// that continues on the next physical line). Non-empty params
+			// content may never *start* with `*`: that shape is
+			// `NAME(*rest...`, which is what a function-pointer typedef's
+			// `(*Alias)(...)` looks like once `Alias` has been mistaken for
+			// the "name" (e.g. `typedef int (*BinOp)(int, int);` would
+			// otherwise mint a bogus `int` node) — real parameter lists never
+			// open with a bare `*` before any type.
+			Re:   regexp.MustCompile(`^(?:[A-Za-z_][\w\s\*]*?[\s\*])(\w+)\s*\((?:[^*;{}][^;{}]*\)\s*(?:[;{].*)?|\)\s*(?:[;{].*)?|[^*;{}][^;{}]*,\s*)$`),
+			Name: 1,
+		},
+		{
+			Kind: graph.KFunc,
+			// Same shapes as the Def above, but for the physical line where
+			// the return type was left on a *previous* line entirely (Allman
+			// with the type on its own line, e.g. `int\nsubtract(int a, int
+			// b)\n{`, or a multi-line parameter list whose first line is
+			// `compute_average(int values[], int count,` with `double
+			// weight)` on the type's own earlier line too) — this line has no
+			// type prefix at all, just `name(...`. Requiring a mandatory
+			// prefix (as the Def above does) is what keeps single-token
+			// control keywords (`if (`, `for (`, `while (`, `switch (`) from
+			// ever being captured as Name there; here, with no prefix at all,
+			// the same risk is closed a different way: the balanced-close
+			// alternative only accepts params that are empty, exactly `void`,
+			// or contain a `,`/space/`*`/`[`/`]` — real parameter lists
+			// almost always look like `TYPE name[, ...]`, while a bare
+			// control-flow condition (`x`, `n <= 1`, `i`) never does, so
+			// `if (n <= 1)`-shaped lines never match this Def even though
+			// they'd otherwise satisfy the "no prefix, ends after `)`" shape.
+			Re:   regexp.MustCompile(`^(\w+)\s*\((?:(?:|void|[\w\s\*\[\],]*[\s,][\w\s\*\[\],]*)\)\s*(?:[;{].*)?|[\w\s\*\[\],]*,\s*)$`),
 			Name: 1,
 		},
 		{
@@ -52,6 +86,16 @@ var cSpec = Spec{
 			// `struct Point {`, `typedef struct Point {`, `enum Color {`,
 			// `union U {`.
 			Re:   regexp.MustCompile(`^(?:typedef\s+)?(?:struct|union|enum)\s+(\w+)`),
+			Name: 1,
+		},
+		{
+			Kind: graph.KType,
+			// Function-pointer typedef, e.g. `typedef int (*BinOp)(int,
+			// int);` — the aliased name is wrapped as `(*Name)`, so it can
+			// never satisfy the KFunc Defs above (Name isn't immediately
+			// followed by `(`) nor the struct/union/enum Def above (there's
+			// no struct/union/enum keyword at all).
+			Re:   regexp.MustCompile(`^typedef\s+[\w\s\*]+?\(\s*\*\s*(\w+)\s*\)\s*\(`),
 			Name: 1,
 		},
 		{

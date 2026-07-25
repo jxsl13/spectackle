@@ -126,6 +126,107 @@ foo(N) ->
 	}
 }
 
+// TestErlangSpecGuardClause pins down R-0005's headline miss: a function
+// clause head with a guard expression (`when ... ->`) — the old regex
+// required `->` to land immediately after the closing `)`.
+func TestErlangSpecGuardClause(t *testing.T) {
+	p := SpecParser{S: erlangSpec}
+	pr, err := p.Parse("app.erl", []byte(`classify(X) when X > 0 ->
+    positive;
+classify(0) ->
+    zero;
+classify(X) when X < 0 ->
+    negative.
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// All three clauses (two guarded, one bare) mint the same collision-
+	// prone ID, per this Def's documented multi-clause behavior — so check
+	// pr.Nodes directly (nodesByID's map would only keep the last write)
+	// exactly like TestErlangSpecMultiClause does.
+	var lines []int
+	for _, nd := range pr.Nodes {
+		if nd.ID == "erl:app.classify" {
+			if nd.Kind != graph.KFunc {
+				t.Errorf("erl:app.classify Kind = %v, want KFunc", nd.Kind)
+			}
+			lines = append(lines, nd.Line)
+		}
+	}
+	if want := []int{1, 3, 5}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("erl:app.classify clause lines = %v, want %v (got nodes %+v)", lines, want, pr.Nodes)
+	}
+}
+
+// TestErlangSpecMultiLineHead pins down R-0005's headline miss: a function
+// head whose args and `->` wrap to a later physical line — the old regex
+// needed `)`+`->` on the SAME line as the name.
+func TestErlangSpecMultiLineHead(t *testing.T) {
+	p := SpecParser{S: erlangSpec}
+	pr, err := p.Parse("app.erl", []byte(`combine(A,
+        B) ->
+    A + B.
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["erl:app.combine"]
+	if !ok {
+		t.Fatalf("erl:app.combine missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Line != 1 {
+		t.Errorf("combine = %+v, want KFunc Line=1", n)
+	}
+}
+
+// TestErlangSpecRecordType pins down R-0005's two headline misses:
+// `-record(name, {fields}).` and `-type name() :: ...` declarations, the
+// two core Erlang type-definition forms, previously had no Def at all.
+func TestErlangSpecRecordType(t *testing.T) {
+	p := SpecParser{S: erlangSpec}
+	pr, err := p.Parse("app.erl", []byte(`-record(person, {name, age}).
+
+-type option() :: {ok, term()} | {error, term()}.
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	if n, ok := byID["erl:app.person"]; !ok {
+		t.Errorf("erl:app.person missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KType {
+		t.Errorf("person Kind = %v, want KType", n.Kind)
+	}
+	if n, ok := byID["erl:app.option"]; !ok {
+		t.Errorf("erl:app.option missing, got %+v", pr.Nodes)
+	} else if n.Kind != graph.KType {
+		t.Errorf("option Kind = %v, want KType", n.Kind)
+	}
+}
+
+// TestErlangSpecNoCallEdges pins down that erlangSpec deliberately leaves
+// CallRe nil (R-0005 scope: Erlang has no braces for cspan.Span to count) —
+// zero edges are emitted even when a body plainly calls other local
+// functions.
+func TestErlangSpecNoCallEdges(t *testing.T) {
+	p := SpecParser{S: erlangSpec}
+	pr, err := p.Parse("app.erl", []byte(`run(X) ->
+    Y = helper(X, X),
+    classify(Y).
+
+helper(X, Y) ->
+    X + Y.
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Edges) != 0 {
+		t.Errorf("got %d edges, want 0 (CallRe deliberately unset for Erlang): %+v", len(pr.Edges), pr.Edges)
+	}
+}
+
 func TestErlangSpecRegisteredInAll(t *testing.T) {
 	found := false
 	for _, p := range All() {

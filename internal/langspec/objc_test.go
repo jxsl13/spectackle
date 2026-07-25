@@ -173,6 +173,209 @@ int prototype(int x);
 	}
 }
 
+// objcT0122Src is R-0005's gap-objc fixture (scratchpad/gap-objc/Sample.m),
+// copied verbatim as the regression input for T-0122's objc.go hardening:
+// a @protocol declaration, a category, a single-line method
+// declaration/definition pair (viewDidLoad, in both @interface and
+// @implementation), dot-syntax and nested/chained message sends, and a
+// plain C function calling another plain C function.
+var objcT0122Src = []byte(`@protocol SomeProtocol
+- (void)protocolMethod;
+@end
+
+@interface Foo : NSObject <SomeProtocol>
+- (void)viewDidLoad;
+@end
+
+@interface Foo (Helpers)
+- (void)addHelperSubview;
+@end
+
+@implementation Foo
+
+- (void)viewDidLoad {
+    [self.tableView reloadData];
+    [[self view] addSubview:self.tableView];
+}
+
+@end
+
+@implementation Foo (Helpers)
+
+- (void)addHelperSubview {
+    [self viewDidLoad];
+}
+
+@end
+
+int add(int a, int b) {
+    return a + b;
+}
+
+int helperMultiply(int a, int b) {
+    int sum = add(a, b);
+    return sum * 2;
+}
+`)
+
+// TestObjcSpecT0122Protocol covers R-0005 objc.md's [high] "@protocol
+// declarations are not matched by any Def pattern" finding.
+func TestObjcSpecT0122Protocol(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("Sample.m", objcT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["objc:Sample.SomeProtocol"]
+	if !ok {
+		t.Fatalf("node objc:Sample.SomeProtocol missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KType {
+		t.Errorf("objc:Sample.SomeProtocol Kind = %v, want KType", n.Kind)
+	}
+	if n.Line != 1 {
+		t.Errorf("objc:Sample.SomeProtocol Line = %d, want 1", n.Line)
+	}
+}
+
+// TestObjcSpecT0122AllmanCFunction covers R-0005 objc.md's [high] "C
+// function definition with Allman-style brace" finding, using the
+// gap-objc2/Min.m minimized confirmation fixture.
+func TestObjcSpecT0122AllmanCFunction(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	src := []byte("void plainAllman(int x)\n{\n  NSLog(@\"%d\", x);\n}\n")
+	pr, err := p.Parse("Min.m", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["objc:Min.plainAllman"]
+	if !ok {
+		t.Fatalf("node objc:Min.plainAllman missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc {
+		t.Errorf("objc:Min.plainAllman Kind = %v, want KFunc", n.Kind)
+	}
+	if n.Line != 1 || n.EndLine != 4 {
+		t.Errorf("objc:Min.plainAllman Line/EndLine = %d/%d, want 1/4 (Allman body scanned)", n.Line, n.EndLine)
+	}
+}
+
+// TestObjcSpecT0122CategoryDistinctFromBaseClass covers R-0005 objc.md's
+// [medium] "Category syntax ... captured by the same KType regex as the
+// base class" finding: `@interface Foo (Helpers)` must mint a name distinct
+// from the base class's own "Foo" node, not a fourth indistinguishable
+// "Foo".
+func TestObjcSpecT0122CategoryDistinctFromBaseClass(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("Sample.m", objcT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	if _, ok := byID["objc:Sample.Foo"]; !ok {
+		t.Fatalf("node objc:Sample.Foo (base class) missing, got %+v", pr.Nodes)
+	}
+	foundCategory := false
+	for id, n := range byID {
+		if id != "objc:Sample.Foo" && n.Kind == graph.KType && strings.HasPrefix(string(id), "objc:Sample.Foo") {
+			foundCategory = true
+		}
+	}
+	if !foundCategory {
+		t.Errorf("no distinct category KType node found (want something like objc:Sample.Foo (Helpers)), got %+v", pr.Nodes)
+	}
+}
+
+// TestObjcSpecT0122SingleLineDeclarationVsDefinition covers R-0005
+// objc.md's [high] "@interface/@protocol method prototypes ... matched by
+// the same KMethod Def regex as real definitions" finding for the
+// single-line case (the common shape): viewDidLoad is declared with `;` in
+// the @interface and defined with a body in the @implementation — only the
+// real, located definition should exist as a node, and only it should be a
+// valid ECall edge target.
+//
+// NOT FULLY FIXED (documented, see objc.go's KMethod Def comment and
+// T-0122's final report): a *multi-line* selector's declaration and
+// definition share an identical first physical line (the terminating `;`
+// or `{` only appears on a later line), which a per-line regex cannot
+// distinguish without cross-line state; that specific shape (R-0005
+// objc.md's exact `configureWithName:...age:...` example) still mints a
+// phantom node from the declaration, same as before this task.
+func TestObjcSpecT0122SingleLineDeclarationVsDefinition(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("Sample.m", objcT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["objc:Sample.viewDidLoad"]
+	if !ok {
+		t.Fatalf("node objc:Sample.viewDidLoad missing, got %+v", pr.Nodes)
+	}
+	// Only ONE viewDidLoad-named node total: the @interface's `- (void)
+	// viewDidLoad;` (line 6) must not also mint a phantom.
+	count := 0
+	for _, nd := range pr.Nodes {
+		if nd.ID == "objc:Sample.viewDidLoad" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("got %d objc:Sample.viewDidLoad nodes, want exactly 1 (the @implementation definition, not the @interface declaration)", count)
+	}
+	if n.Line != 15 {
+		t.Errorf("objc:Sample.viewDidLoad Line = %d, want 15 (the real @implementation body, not line 6's declaration)", n.Line)
+	}
+}
+
+// TestObjcSpecT0122DotSyntaxAndNestedSendEdges covers R-0005 objc.md's
+// [high] "Message send whose receiver uses property dot-syntax" and
+// [medium] "Nested/chained message sends" findings.
+func TestObjcSpecT0122DotSyntaxAndNestedSendEdges(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("Sample.m", objcT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := map[[2]string]bool{
+		{"objc:Sample.viewDidLoad", "objc:Sample.reloadData"}:  false, // dot-syntax receiver
+		{"objc:Sample.viewDidLoad", "objc:Sample.addSubview"}: false, // outer of a nested send
+	}
+	for _, e := range pr.Edges {
+		key := [2]string{string(e.Src), string(e.Dst)}
+		if _, ok := want[key]; ok {
+			want[key] = true
+		}
+	}
+	for k, found := range want {
+		if !found {
+			t.Errorf("missing expected edge %s -> %s, got edges %+v", k[0], k[1], pr.Edges)
+		}
+	}
+}
+
+// TestObjcSpecT0122PlainCFunctionCallEdge covers R-0005 objc.md's [high]
+// "Plain C function calling another plain C function (no bracket syntax)
+// never produces a call edge" finding.
+func TestObjcSpecT0122PlainCFunctionCallEdge(t *testing.T) {
+	p := SpecParser{S: objcSpec}
+	pr, err := p.Parse("Sample.m", objcT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	found := false
+	for _, e := range pr.Edges {
+		if e.Src == "objc:Sample.helperMultiply" && e.Dst == "objc:Sample.add" && e.Kind == graph.ECall {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing edge objc:Sample.helperMultiply -> objc:Sample.add, got edges %+v", pr.Edges)
+	}
+}
+
 func TestObjcSpecRegisteredInAll(t *testing.T) {
 	found := false
 	for _, p := range All() {

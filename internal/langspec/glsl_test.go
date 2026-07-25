@@ -111,6 +111,111 @@ if (x > 0) {
 	}
 }
 
+// glslT0122Src is R-0005's gap-glsl fixture (scratchpad/gap-glsl/
+// shader.comp), copied verbatim as the regression input for T-0122's
+// glsl.go hardening: struct declarations, a multi-line function signature,
+// and a caller chain to probe call-edge extraction.
+var glslT0122Src = []byte(`struct Material {
+    vec3 albedo;
+    float roughness;
+};
+
+struct Light {
+    vec3 position;
+    vec3 color;
+};
+
+vec3 computeLighting(
+    vec3 normal,
+    vec3 lightDir,
+    vec3 lightColor
+) {
+    float ndotl = max(dot(normal, lightDir), 0.0);
+    return lightColor * ndotl;
+}
+
+float luminance(vec3 c) {
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 shade(Material m, Light l) {
+    vec3 lighting = computeLighting(vec3(0.0, 1.0, 0.0), l.position, l.color);
+    float lum = luminance(m.albedo);
+    return lighting * lum;
+}
+`)
+
+// TestGlslSpecT0122Structs covers R-0005 glsl.md's [high] "struct
+// declarations" finding: GLSL's only named-type construct was entirely
+// absent from glslSpec's Defs before T-0122.
+func TestGlslSpecT0122Structs(t *testing.T) {
+	p := SpecParser{S: glslSpec}
+	pr, err := p.Parse("shader.comp", glslT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	for _, id := range []graph.NodeID{"glsl:Material", "glsl:Light"} {
+		n, ok := byID[id]
+		if !ok {
+			t.Fatalf("node %s missing, got %+v", id, pr.Nodes)
+		}
+		if n.Kind != graph.KType {
+			t.Errorf("%s Kind = %v, want KType", id, n.Kind)
+		}
+	}
+}
+
+// TestGlslSpecT0122MultiLineSignature covers R-0005 glsl.md's [high]
+// "multi-line function signature" finding (computeLighting: params wrapped
+// across lines before the opening brace) and its [medium] "function body
+// end line" consequence (EndLine used to always equal Line).
+func TestGlslSpecT0122MultiLineSignature(t *testing.T) {
+	p := SpecParser{S: glslSpec}
+	pr, err := p.Parse("shader.comp", glslT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["glsl:computeLighting"]
+	if !ok {
+		t.Fatalf("node glsl:computeLighting missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc {
+		t.Errorf("glsl:computeLighting Kind = %v, want KFunc", n.Kind)
+	}
+	if n.Line != 11 || n.EndLine != 18 {
+		t.Errorf("glsl:computeLighting Line/EndLine = %d/%d, want 11/18", n.Line, n.EndLine)
+	}
+}
+
+// TestGlslSpecT0122CallEdges covers R-0005 glsl.md's [high] "call edges
+// between functions" finding: glslSpec.CallRe was nil before T-0122, so
+// SpecParser.callEdges was never invoked for GLSL at all, for any
+// construct.
+func TestGlslSpecT0122CallEdges(t *testing.T) {
+	p := SpecParser{S: glslSpec}
+	pr, err := p.Parse("shader.comp", glslT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := map[[2]string]bool{
+		{"glsl:shade", "glsl:computeLighting"}: false,
+		{"glsl:shade", "glsl:luminance"}:       false,
+	}
+	for _, e := range pr.Edges {
+		key := [2]string{string(e.Src), string(e.Dst)}
+		if _, ok := want[key]; ok {
+			want[key] = true
+		}
+	}
+	for k, found := range want {
+		if !found {
+			t.Errorf("missing expected edge %s -> %s, got edges %+v", k[0], k[1], pr.Edges)
+		}
+	}
+}
+
 func TestGlslSpecRegisteredInAll(t *testing.T) {
 	found := false
 	for _, p := range All() {

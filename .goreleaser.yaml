@@ -32,6 +32,40 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Homebrew tap. No code-signing certificate is involved anywhere here: the
+# released binaries are unsigned, and the post-install hook below strips the
+# quarantine attribute macOS attaches to a cask download, which is the
+# alternative to an Apple Developer ID plus notarization. The hook probes for
+# xattr first so a machine without it still installs cleanly.
+#
+# Casks, not the older `brews` formula block, because GoReleaser deprecated
+# that block and this repository's release workflow tracks goreleaser
+# `latest` — a deprecated field would break on some future release with no
+# change of ours. Consequence worth knowing: Homebrew casks are macOS-only,
+# so Linux users install from the release tarball (see the README quickstart)
+# rather than through brew.
+homebrew_casks:
+  - name: spectackle
+    ids:
+      - spectackle
+    repository:
+      owner: jxsl13
+      name: homebrew-tap
+      # GITHUB_TOKEN is scoped to THIS repository and cannot push to the tap
+      # repository, so the release workflow passes a separate token.
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/jxsl13/spectackle
+    description: Token-efficient, spec-driven MCP server for cross-language codebases
+    # skip_upload on a prerelease tag: a -rc or -beta must not become the
+    # version `brew install spectackle` resolves to.
+    skip_upload: auto
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/spectackle"]
+          end
+
 changelog:
   use: github
   filters:

@@ -266,6 +266,167 @@ func TestCSpecDeterministic(t *testing.T) {
 	}
 }
 
+// cT0122Src is R-0005's gap-c fixture (scratchpad/gap-c/sample.c), copied
+// verbatim as the regression input for T-0122's c.go hardening: same-line
+// one-liner bodies, Allman signatures (brace on its own line, and return
+// type on its own line too), multi-line parameter lists, and a
+// function-pointer typedef. The anonymous `typedef struct { ... } Complex;`
+// finding from R-0005's c.md is deliberately NOT fixed here (see T-0122's
+// final report): the alias name only appears on the struct's *closing*
+// line, which is structurally identical to a plain `struct Named { ... }
+// Named;` closing line (see cSrc's Named fixture above) — matching it
+// unconditionally would mint a second, duplicate "c:Named"-shaped node for
+// every already-tagged typedef struct, which is worse than the gap it
+// would close, and there is no per-line-regex way to tell the two shapes
+// apart without carrying state across lines.
+var cT0122Src = []byte(`typedef int (*BinOp)(int, int);
+
+int add(int a, int b) { return a + b; }
+
+static int square(int x) { return x * x; }
+
+int
+subtract(int a, int b)
+{
+    return a - b;
+}
+
+double
+compute_average(int values[], int count,
+                 double weight)
+{
+    return 0.0;
+}
+
+char *
+format_point(int x)
+{
+    return add(x, x);
+}
+
+int compute_total(int a, int b) {
+    int sum = add(a, b);
+    int sq = square(sum);
+    return sq;
+}
+`)
+
+// TestCSpecT0122SameLineBody covers R-0005 c.md's [high] "single-line
+// (same-line) function body" finding: a K&R one-liner whose body text
+// follows the opening `{` on the same physical line used to be excluded by
+// the old `[;{]\s*$` end anchor.
+func TestCSpecT0122SameLineBody(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("x.c", cT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+	for _, id := range []graph.NodeID{"c:add", "c:square"} {
+		n, ok := byID[id]
+		if !ok {
+			t.Fatalf("node %s missing, got %+v", id, pr.Nodes)
+		}
+		if n.Kind != graph.KFunc {
+			t.Errorf("%s Kind = %v, want KFunc", id, n.Kind)
+		}
+	}
+	if n := byID["c:add"]; n.Line != 3 {
+		t.Errorf("c:add Line = %d, want 3", n.Line)
+	}
+	if n := byID["c:square"]; n.Line != 5 {
+		t.Errorf("c:square Line = %d, want 5", n.Line)
+	}
+	if n := byID["c:add"]; n.EndLine != 3 {
+		t.Errorf("c:add EndLine = %d, want 3 (single-line body)", n.EndLine)
+	}
+}
+
+// TestCSpecT0122AllmanAndMultiLineSignature covers R-0005 c.md's [high]
+// "Allman/BSD-style signature" (opening brace AND return type each on their
+// own line) and [high] "multi-line parameter list" findings.
+func TestCSpecT0122AllmanAndMultiLineSignature(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("x.c", cT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+
+	want := map[graph.NodeID]struct{ Line, EndLine int }{
+		"c:subtract":        {8, 11},
+		"c:compute_average": {14, 18},
+		"c:format_point":    {21, 24},
+	}
+	for id, w := range want {
+		n, ok := byID[id]
+		if !ok {
+			t.Fatalf("node %s missing, got %+v", id, pr.Nodes)
+		}
+		if n.Kind != graph.KFunc {
+			t.Errorf("%s Kind = %v, want KFunc", id, n.Kind)
+		}
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
+		}
+	}
+}
+
+// TestCSpecT0122FunctionPointerTypedef covers R-0005 c.md's [medium]
+// "function-pointer typedef" finding (`typedef int (*BinOp)(int, int);`)
+// and pins the regression this fix could have introduced: the return-type
+// token ("int") sitting right before the `(*Alias)` declarator must never
+// itself be mistaken for a KFunc def (see the Def's own comment in c.go).
+func TestCSpecT0122FunctionPointerTypedef(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("x.c", cT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cNodesByID(pr)
+	n, ok := byID["c:BinOp"]
+	if !ok {
+		t.Fatalf("node c:BinOp missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KType {
+		t.Errorf("c:BinOp Kind = %v, want KType", n.Kind)
+	}
+	if n.Line != 1 {
+		t.Errorf("c:BinOp Line = %d, want 1", n.Line)
+	}
+	if _, ok := byID["c:int"]; ok {
+		t.Error("false positive node c:int: the function-pointer typedef's return type must never be captured as a def name")
+	}
+}
+
+// TestCSpecT0122CallEdgesFromFixedDefs proves the cascade R-0005 c.md's
+// EDGES section documents: format_point -> add and compute_total ->
+// add/square only exist once add/square/format_point are themselves real
+// nodes (previously missed defs silently erased their own call edges too).
+func TestCSpecT0122CallEdgesFromFixedDefs(t *testing.T) {
+	p := SpecParser{S: cSpec}
+	pr, err := p.Parse("x.c", cT0122Src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	want := map[[2]graph.NodeID]bool{
+		{"c:format_point", "c:add"}:    false,
+		{"c:compute_total", "c:add"}:    false,
+		{"c:compute_total", "c:square"}: false,
+	}
+	for _, e := range pr.Edges {
+		key := [2]graph.NodeID{e.Src, e.Dst}
+		if _, ok := want[key]; ok {
+			want[key] = true
+		}
+	}
+	for k, found := range want {
+		if !found {
+			t.Errorf("missing expected edge %s -> %s, got edges %+v", k[0], k[1], pr.Edges)
+		}
+	}
+}
+
 // TestIndexAllSaxpyExampleCChainWithHeader is the e2e acceptance test named
 // in the task brief: index the real examples/saxpy fixture with GoParser +
 // CudaParser + langspec.All() (which now includes cSpec) and confirm the

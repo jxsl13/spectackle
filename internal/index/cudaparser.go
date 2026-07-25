@@ -32,6 +32,16 @@ func (CudaParser) Lang() graph.Lang { return graph.LangCuda }
 // Extensions are the file suffixes this parser claims.
 func (CudaParser) Extensions() []string { return []string{".cu", ".cuh"} }
 
+// cudaParserCacheVersion discriminates cached parse blobs produced by this
+// parser. BUMP IT whenever Parse's output changes for input it already
+// accepted (B-0007); T-0126 (static __global__, __launch_bounds__,
+// __device__ functions and methods, extern "C" blocks) is exactly such a
+// change.
+const cudaParserCacheVersion = "cu-2"
+
+// CacheVersion implements CacheVersioner.
+func (CudaParser) CacheVersion() string { return cudaParserCacheVersion }
+
 var (
 	// cudaKernelRe matches a __global__ kernel definition, e.g.
 	// `__global__ void saxpy_kernel(int n, float a, const float *x, float *y) {`

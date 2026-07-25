@@ -394,3 +394,76 @@ func TestResolveTypedCallsRepo(t *testing.T) {
 		t.Fatalf("Neighbors(go:coord.DB.Sweep, In, ECall) = %+v, missing go:mcpserver.Server.preCall", edges)
 	}
 }
+
+// TestResolveTypedCallsInvalidatesOnPassVersion is B-0007's second half: the
+// typed pass has its own whole-module cache, so an upgrade that resolves a
+// callee it used to miss (T-0125) would otherwise replay the pre-upgrade
+// edge list forever on an unchanged tree. Mirror image of
+// TestResolveTypedCallsCacheHitSkipsLoad: there the sentinel must NOT be
+// reached, here it MUST be, because a bumped version has to miss.
+func TestResolveTypedCallsInvalidatesOnPassVersion(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+	writeFile(t, root, "a/a.go", `package a
+
+func Caller() { Callee() }
+
+func Callee() {}
+`)
+
+	s := store.NewMem()
+	ctx := context.Background()
+
+	g1 := graph.NewMem()
+	if _, err := newTestIndexer(g1).IndexAll(ctx, root); err != nil {
+		t.Fatalf("IndexAll (1st): %v", err)
+	}
+	if _, err := ResolveTypedCalls(ctx, g1, root, s); err != nil {
+		t.Fatalf("ResolveTypedCalls (cold): %v", err)
+	}
+
+	// stand in the next build's pass version, leaving the tree untouched.
+	prevVer := typedPassCacheVersion
+	typedPassCacheVersion = prevVer + "-upgraded"
+	defer func() { typedPassCacheVersion = prevVer }()
+
+	reached := errors.New("sentinel: loadPackages reached")
+	prevLoad := loadPackages
+	loadPackages = func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return nil, reached
+	}
+	defer func() { loadPackages = prevLoad }()
+
+	g2 := graph.NewMem()
+	if _, err := newTestIndexer(g2).IndexAll(ctx, root); err != nil {
+		t.Fatalf("IndexAll (2nd): %v", err)
+	}
+	_, err := ResolveTypedCalls(ctx, g2, root, s)
+	if !errors.Is(err, reached) {
+		t.Fatalf("an upgraded pass version must miss the module cache and recompute; got err = %v", err)
+	}
+}
+
+// TestModuleHashKeyCoversPassVersion pins the mechanism the test above
+// exercises behaviorally: same tree, different pass version, different key.
+func TestModuleHashKeyCoversPassVersion(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+	writeFile(t, root, "a/a.go", "package a\n\nfunc A() {}\n")
+
+	before, err := moduleHashKey(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := typedPassCacheVersion
+	typedPassCacheVersion = prev + "-upgraded"
+	defer func() { typedPassCacheVersion = prev }()
+
+	after, err := moduleHashKey(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("module cache key ignored the typed-pass version: an upgraded pass would reuse stale edges")
+	}
+}

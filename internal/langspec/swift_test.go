@@ -66,22 +66,30 @@ func TestSwiftSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// EndLine now reflects the true brace-counted body span (R-0005:
+	// swiftSpec.CallRe was nil before this fix, which collapsed every
+	// node's span to its declaration line regardless of body length).
+	// KType nodes are never span-computed (langspec.go only spans
+	// KFunc/KMethod), so their EndLine stays equal to Line; `area` (a
+	// protocol requirement with no body) and `greet` (single-line body)
+	// are also unaffected.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind    graph.NodeKind
+		Line    int
+		EndLine int
 	}{
-		"swift:app.topLevel":    {graph.KFunc, 1},
-		"swift:app.make":        {graph.KFunc, 5},
-		"swift:app.viewDidLoad": {graph.KFunc, 9},
-		"swift:app.Foo":         {graph.KType, 13},
-		"swift:app.init":        {graph.KFunc, 14},
-		"swift:app.Point":       {graph.KType, 19},
-		"swift:app.Color":       {graph.KType, 22},
-		"swift:app.Shape":       {graph.KType, 26},
-		"swift:app.area":        {graph.KFunc, 27},
-		"swift:app.Counter":     {graph.KType, 30},
-		"swift:app.Bar":         {graph.KType, 33},
-		"swift:app.greet":       {graph.KFunc, 34},
+		"swift:app.topLevel":    {graph.KFunc, 1, 3},
+		"swift:app.make":        {graph.KFunc, 5, 7},
+		"swift:app.viewDidLoad": {graph.KFunc, 9, 11},
+		"swift:app.Foo":         {graph.KType, 13, 13},
+		"swift:app.init":        {graph.KFunc, 14, 16},
+		"swift:app.Point":       {graph.KType, 19, 19},
+		"swift:app.Color":       {graph.KType, 22, 22},
+		"swift:app.Shape":       {graph.KType, 26, 26},
+		"swift:app.area":        {graph.KFunc, 27, 27},
+		"swift:app.Counter":     {graph.KType, 30, 30},
+		"swift:app.Bar":         {graph.KType, 33, 33},
+		"swift:app.greet":       {graph.KFunc, 34, 34},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -94,8 +102,8 @@ func TestSwiftSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.Lang("swift") {
 			t.Errorf("%s Lang = %v, want swift", id, n.Lang)
@@ -103,6 +111,125 @@ func TestSwiftSpecNodes(t *testing.T) {
 		if n.File != "pkg/app.swift" {
 			t.Errorf("%s File = %q, want pkg/app.swift", id, n.File)
 		}
+	}
+}
+
+// TestSwiftSpecOverrideInit pins down R-0005's headline miss: a subclass's
+// `override init(...)` didn't match because `override` was missing from the
+// init Def's modifier whitelist.
+func TestSwiftSpecOverrideInit(t *testing.T) {
+	p := SpecParser{S: swiftSpec}
+	pr, err := p.Parse("app.swift", []byte(`class Dog: Animal {
+    override init(name: String) {
+        super.init(name: name)
+    }
+}
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["swift:app.init"]
+	if !ok {
+		t.Fatalf("swift:app.init missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Line != 2 {
+		t.Errorf("init = %+v, want KFunc Line=2", n)
+	}
+}
+
+// TestSwiftSpecFailableInit pins down R-0005's failable/IUO initializer
+// miss: the old `(init)\s*\(` shape required the paren immediately after
+// the literal `init`, so `init?`/`init!` never matched.
+func TestSwiftSpecFailableInit(t *testing.T) {
+	p := SpecParser{S: swiftSpec}
+	pr, err := p.Parse("app.swift", []byte(`required init?(coder: NSCoder) {
+    super.init()
+}
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	if _, ok := byID["swift:app.init"]; !ok {
+		t.Fatalf("swift:app.init missing for failable init, got %+v", pr.Nodes)
+	}
+}
+
+// TestSwiftSpecSubscriptDeinit pins down R-0005's subscript (medium) and
+// deinit (low, but free) misses: neither had a matching Def.
+func TestSwiftSpecSubscriptDeinit(t *testing.T) {
+	p := SpecParser{S: swiftSpec}
+	pr, err := p.Parse("app.swift", []byte(`struct Point {
+    subscript(index: Int) -> Double {
+        get { 0 }
+        set { }
+    }
+}
+
+class Animal {
+    deinit {
+        print("bye")
+    }
+}
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	if _, ok := byID["swift:app.subscript"]; !ok {
+		t.Errorf("swift:app.subscript missing, got %+v", pr.Nodes)
+	}
+	if _, ok := byID["swift:app.deinit"]; !ok {
+		t.Errorf("swift:app.deinit missing, got %+v", pr.Nodes)
+	}
+}
+
+// TestSwiftSpecCallEdges pins down R-0005's most consequential miss: CallRe
+// was nil, so zero ECall edges were ever emitted for Swift regardless of
+// content — impact BFS (`get`/depth=N) was a permanent no-op.
+func TestSwiftSpecCallEdges(t *testing.T) {
+	p := SpecParser{S: swiftSpec}
+	src := []byte(`struct Point {
+    static func hypot(_ a: Double, _ b: Double) -> Double {
+        return a + b
+    }
+
+    func distance(to other: Point) -> Double {
+        return Point.hypot(1, 2)
+    }
+}
+
+func combine(_ a: Int, _ b: Int) -> Int {
+    let sum = addHelper(a, b)
+    return sum
+}
+
+private func addHelper(_ a: Int, _ b: Int) -> Int {
+    return a + b
+}
+`)
+	pr, err := p.Parse("app.swift", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	var combineID graph.NodeID
+	for _, n := range pr.Nodes {
+		if n.ID == "swift:app.combine" {
+			combineID = n.ID
+		}
+	}
+	if combineID == "" {
+		t.Fatalf("swift:app.combine missing, got %+v", pr.Nodes)
+	}
+	found := false
+	for _, e := range pr.Edges {
+		if e.Src == combineID && e.Kind == graph.ECall && e.Dst == "swift:app.addHelper" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("combine() missing call edge to addHelper; got edges %+v", pr.Edges)
 	}
 }
 

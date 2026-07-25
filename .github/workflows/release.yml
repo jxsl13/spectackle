@@ -11,6 +11,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The secrets context is NOT available in a step-level `if`, only in
+    # `env:` and `with:`, so the App-configured probe below reads this
+    # job-level env var instead of the secret directly.
+    env:
+      TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,6 +29,25 @@ jobs:
       - name: test
         run: go test -race ./...
 
+      # Pushing the cask to jxsl13/homebrew-tap needs a token scoped to THAT
+      # repository; the built-in GITHUB_TOKEN only ever covers this one and
+      # cannot be widened. Preferred path: a GitHub App installed on the tap
+      # repository mints an installation token here, valid one hour and
+      # revoked when the job ends, so nothing long-lived is stored — only the
+      # App id and its private key, which cannot push anything by themselves.
+      # Skipped cleanly when the App is not configured; the step below then
+      # falls back to a classic/fine-grained PAT secret, and if neither
+      # exists the release still succeeds without updating the tap.
+      - name: mint tap token
+        id: tap_token
+        if: ${{ env.TAP_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -31,3 +55,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap_token.outputs.token || secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
