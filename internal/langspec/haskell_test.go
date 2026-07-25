@@ -108,6 +108,81 @@ func TestHaskellSpecNegativeLines(t *testing.T) {
 	}
 }
 
+// TestHaskellSpecMultiLineSignature pins down R-0005's headline miss: a
+// top-level signature with the name alone on its own line and `::` landing
+// on the indented continuation line.
+func TestHaskellSpecMultiLineSignature(t *testing.T) {
+	p := SpecParser{S: haskellSpec}
+	pr, err := p.Parse("app.hs", []byte(`multiply
+  :: Int -> Int -> Int
+multiply x y = x * y
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["hs:app.multiply"]
+	if !ok {
+		t.Fatalf("hs:app.multiply missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Line != 1 {
+		t.Errorf("multiply = %+v, want KFunc Line=1", n)
+	}
+	// Exactly one node: the equation line `multiply x y = x * y` must not
+	// also mint a second, colliding node.
+	count := 0
+	for _, nd := range pr.Nodes {
+		if nd.ID == "hs:app.multiply" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("got %d nodes named hs:app.multiply, want 1: %+v", count, pr.Nodes)
+	}
+}
+
+// TestHaskellSpecOperatorDef pins down R-0005's symbolic/operator-named
+// top-level definition miss: the primary signature Def's name group cannot
+// match a parenthesized operator token at all.
+func TestHaskellSpecOperatorDef(t *testing.T) {
+	p := SpecParser{S: haskellSpec}
+	pr, err := p.Parse("app.hs", []byte(`(<+>) :: Int -> Int -> Int
+(<+>) a b = add a b
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+	n, ok := byID["hs:app.<+>"]
+	if !ok {
+		t.Fatalf("hs:app.<+> missing, got %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Line != 1 {
+		t.Errorf("<+> = %+v, want KFunc Line=1", n)
+	}
+}
+
+// TestHaskellSpecNoCallEdges pins down that haskellSpec deliberately leaves
+// CallRe nil (R-0005 scope: Haskell has no braces for cspan.Span to count,
+// and layout-sensitive call extraction is out of this line-scanner's
+// reach) — zero edges are emitted even when a body plainly calls other
+// top-level functions.
+func TestHaskellSpecNoCallEdges(t *testing.T) {
+	p := SpecParser{S: haskellSpec}
+	pr, err := p.Parse("app.hs", []byte(`add :: Int -> Int -> Int
+add x y = x + y
+
+main :: IO ()
+main = print (add 1 2)
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Edges) != 0 {
+		t.Errorf("got %d edges, want 0 (CallRe deliberately unset for Haskell): %+v", len(pr.Edges), pr.Edges)
+	}
+}
+
 func TestHaskellSpecRegisteredInAll(t *testing.T) {
 	found := false
 	for _, p := range All() {
