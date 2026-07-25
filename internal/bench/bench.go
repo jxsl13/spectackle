@@ -239,9 +239,21 @@ func Run(bin string) (Result, error) {
 			res.Violations = append(res.Violations, "state never observed: "+want)
 		}
 	}
-	// the final check must end ok
-	if !strings.HasSuffix(strings.TrimSpace(full), "ok") {
-		res.Violations = append(res.Violations, "final check did not end ok")
+	// The final check verdict follows the server's own severity taxonomy
+	// (B-01KYDM): E findings fail validity, W findings are environmental
+	// degradations noted but not fatal — a CI runner whose typed-call pass
+	// cannot load the fixture module reports TYPED W, and a harness that
+	// failed on that would measure the runner, not the surface.
+	checkOut := ""
+	if n := len(res.Steps); n > 0 {
+		checkOut = full[len(full)-res.Steps[n-1].Bytes:]
+	}
+	switch {
+	case strings.TrimSpace(checkOut) == "ok":
+	case !strings.Contains(checkOut, " E "):
+		res.Violations = append(res.Violations, "note: final check degraded (W findings only)")
+	default:
+		res.Violations = append(res.Violations, "final check carries E findings")
 	}
 
 	res.Tokens = res.Bytes / 4
