@@ -53,36 +53,6 @@ option: discriminator: sequential ID plus a per-clone suffix, unique but not glo
 blocks: P-0088
 choice: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
 
-## T-0136 tool boundary: accept a short ID prefix everywhere an ID is taken, and name ambiguities
-kind: task
-state: done
-created: 2026-07-25
-parent: P-0088
-refs: ADR-0013
-targets: internal/mcpserver/tools.go, internal/mcpserver/tools_test.go, internal/mcpserver/decide.go, internal/mcpserver/grill.go, docs/tools.md
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-BLOCKED-ON: the internal/ids and internal/item tasks under P-0088 must both be merged first; verify before starting and stop if either is missing.
-
-WHAT TO BUILD (ADR-0013's display half)
-Every tool argument that takes an item ID must accept the shortest unambiguous prefix as well as the full ID: get, move, draft parent and refs, decide item and id, grill, work, lease, knowledge where applicable. Resolve through internal/ids against the set of known IDs, which includes live items AND archived ones reachable as journal tombstones — an ID that only exists as a tombstone must still resolve, or archived history becomes unreferenceable.
-Rendering: outputs emit the shortened form, computed against the same known set, so a copied ID from any output is accepted back verbatim. Full IDs must always remain acceptable.
-Ambiguity is an error, never a guess: refuse with the existing dense error style, naming every candidate so the caller can disambiguate in one more call. A prefix matching nothing keeps the existing not-found behavior with nearest matches.
-docs/tools.md must state the prefix rule once, plainly, since the schema comments are the contract agents read.
-
-TESTS
-  full ID and short prefix both resolve to the same record, through more than one tool.
-  an ambiguous prefix refuses and names every candidate.
-  an unknown prefix answers not-found, not ambiguity.
-  a tombstoned archived ID resolves by prefix.
-  rendered output uses the short form and feeding it straight back resolves.
-
-VERIFY: go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL, B-0010). Then drive it live over a scratch workspace with the call subcommand: draft, then get by a short prefix, then force an ambiguity and show the error.
-SCOPE: the five named files. Do not touch internal/ids or internal/item (merged siblings), and do not start the migration.
-ROLLBACK: resolution is additive at the boundary; removing it leaves full IDs working exactly as before.
-REPORT BACK: the resolution helper's shape, where you hooked it in, the live transcript, each test's real result, anything deliberately not done.
-
 ## T-0138 automatic schema-stamped migration: a workspace on the old ID scheme upgrades itself instead of being refused
 kind: task
 state: approved

@@ -25,3 +25,4 @@
 {"t":"2026-07-25T09:36:27Z","eid":"c813505f7609f432","ag":"ag-ca42","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"091180e34657f091","nh":"dd44d55ee7f24410"}
 {"t":"2026-07-25T09:38:55Z","eid":"fb2f70b5dcf8d7a2","ag":"orchestrator","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"091180e34657f091","nh":"dd44d55ee7f24410"}
 {"t":"2026-07-25T16:51:48Z","eid":"f948e726a16a4912","ag":"ag-0ee0","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"dd44d55ee7f24410","nh":"f3684333a47914ea"}
+{"t":"2026-07-25T17:16:26Z","eid":"cde3accad17aaafd","ag":"ag-cb6e","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"dd44d55ee7f24410","nh":"f3684333a47914ea"}
