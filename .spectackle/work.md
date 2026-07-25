@@ -158,25 +158,6 @@ SCOPE: the migration package plus the stamp constant and the load hooks it needs
 ROLLBACK: restoring the previous stamp constant and removing the hook returns to refuse-on-mismatch; already-migrated workspaces then need the retained pre-migration copy, which is why keeping it is a required property above.
 REPORT BACK: where you hooked the migration and why there, how atomicity and recovery are achieved, the before/after counts on the repository copy, each test's real result, anything deliberately not done.
 
-## R-0006 cross-clone ID collision reproduced end to end, and the data loss it causes
-kind: research
-state: draft
-created: 2026-07-25
-refs: P-0088, ADR-0013
-targets: internal/coord, internal/replay
-
-Empirical reproduction of the defect P-0088 exists to fix, driven through the real MCP server rather than argued from code.
-
-SETUP: two independent clones of this repository. coord.db is confirmed absent from both, since .spectackle/cache is gitignored, so each clone derives its own counter from the committed records.
-
-OBSERVED: each clone drafted one task, concurrently and without knowledge of the other. Both minted the identical ID T-0139 for entirely different work. This is not a race inside one machine, which the serialized coord transaction already prevents; it is two counters that no merge reconciles.
-
-CONSEQUENCE: reconciling the two records by ID, which is exactly what replay does for items via Upsert, leaves get T-0139 returning only the second clone's task. The first clone's task is unreachable from the live records; the sole remaining trace is its create event in the journal, so history knows the work existed while the ID now resolves to something else. Rules are protected from this by replay's remap path; items never were.
-
-WHY IT MATTERS FOR THE MIGRATION: the same two-clone setup is the honest verification for the new scheme. After T-0134 through T-0138 land, repeating this must produce two different IDs and both tasks must remain reachable.
-
-HARNESS: a dogfood workspace built from this repository's real records (18 context dirs, 927 journal events, 235 archived tombstones) is the migration fixture of record. It is far richer than any synthetic one, and notably its check reports pending anchors because only records were copied without sources, so it exercises record migration rather than drift.
-
 ## R-0007 how to make the workflow force multi-perspective analysis, so specifications stop shipping with implementation gaps
 kind: research
 state: active
