@@ -108,7 +108,8 @@ file-cascade rules as `r` records, root-scoped ones collapsed to one
   "body":   {"type":"string"},
   "targets":{"type":"array","items":{"type":"string"}},
   "parent": {"type":"string"},
-  "dir":    {"type":"string"}}}
+  "dir":    {"type":"string"},
+  "refs":   {"type":"array","items":{"type":"string"}}}}
 ```
 Server assigns ID (`P-0001`…) and context dir (targets→deepest common
 context, else root). With `targets` the response is the **context pack**:
@@ -118,6 +119,17 @@ rules collapse into a single `r-root` ID-only line instead of repeating
 their full text every draft, and any of the three sections with nothing to
 report is omitted outright rather than filled with an `ok` placeholder
 (SPX-MCP-004).
+
+`refs` cites other item IDs this item draws on — research, an ADR, a prior
+proposal, any kind — and is validated before the item is persisted: an ID
+that resolves to neither a live item nor a journal-tombstoned (archived)
+one refuses with `! ARG E - unknown refs: ...` and writes nothing. A
+citation to an archived item is legitimate (its outcome lives in the
+journal, per `find scope=history`) and passes. `get` on an item with refs
+renders a `refs <id> <id> ...` line after `rules`; `grill` on a `proposal`
+with no `ADR-`/`R-` ref and no rejected-alternative prose in its body asks
+`q no deliberation recorded: no ADR/research ref and no rejected
+alternative`.
 
 ### 4. `rule` — author EARS contracts (the only rule write path)
 

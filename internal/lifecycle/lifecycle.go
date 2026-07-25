@@ -107,7 +107,16 @@ type Minter func(kind string, floor int) (int, error)
 
 // Draft creates a new item (state=draft) in the correct context dir:
 // explicit dir > deepest common context dir of the targets > root.
-func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string, targets []string) (item.Item, error) {
+//
+// refs is variadic so every pre-existing call site (none of which cite
+// anything) keeps compiling unchanged — pass zero or more item IDs to
+// stitch a citation set into the same single item.Upsert this function
+// already performs. Draft does not validate refs itself (it has no
+// journal-tombstone-aware "known ID" set to check against, and a
+// self-reference cannot happen here since the ID does not exist yet
+// anyway); callers that need validation (see item.UnknownRefs) must do it
+// before calling Draft and refuse on a non-empty result.
+func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string, targets []string, refs ...string) (item.Item, error) {
 	if !item.ValidKind(kind) {
 		return item.Item{}, fmt.Errorf("lifecycle: unknown kind %q", kind)
 	}
@@ -144,7 +153,7 @@ func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string
 	it := item.Item{
 		ID: item.NextID(kind, max), Kind: kind, State: item.StateDraft,
 		Title: strings.TrimSpace(title), Dir: ctx, Parent: parent,
-		Targets: targets, Body: strings.TrimSpace(body),
+		Targets: targets, Body: strings.TrimSpace(body), Refs: refs,
 	}
 	if err := item.Upsert(ws, it); err != nil {
 		return item.Item{}, err

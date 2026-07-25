@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -576,6 +577,34 @@ func TestDraftArchivedParent(t *testing.T) {
 	}
 	if _, err := Draft(root, nil, "task", "orphan", "", "", "P-9999", nil); err == nil {
 		t.Fatal("Draft with unknown parent accepted")
+	}
+}
+
+// TestDraftPersistsRefs checks Draft threads refs through to the persisted
+// item in its one Upsert (no draft-then-patch second write): the item
+// returned by Draft and the item reloaded from work.md both carry the refs,
+// and omitting refs entirely (the pre-T-0117 call shape, still used by every
+// other caller) leaves the field empty exactly as before.
+func TestDraftPersistsRefs(t *testing.T) {
+	root := ws(t)
+	it, err := Draft(root, nil, "proposal", "cached prefetch", "", "", "", nil, "R-0001", "ADR-0001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"R-0001", "ADR-0001"}; !reflect.DeepEqual(it.Refs, want) {
+		t.Fatalf("Draft return Refs = %v, want %v", it.Refs, want)
+	}
+	reloaded, ok, err := item.Get(root, it.ID)
+	if err != nil || !ok {
+		t.Fatalf("item.Get(%s) = ok=%v, err=%v", it.ID, ok, err)
+	}
+	if want := []string{"R-0001", "ADR-0001"}; !reflect.DeepEqual(reloaded.Refs, want) {
+		t.Fatalf("reloaded Refs = %v, want %v", reloaded.Refs, want)
+	}
+
+	it2, err := Draft(root, nil, "task", "no refs", "", "", "", nil)
+	if err != nil || len(it2.Refs) != 0 {
+		t.Fatalf("Draft without refs = %+v, %v", it2, err)
 	}
 }
 

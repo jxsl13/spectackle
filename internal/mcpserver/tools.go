@@ -56,6 +56,7 @@ type draftIn struct {
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
 	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID (tasks under a proposal)"`
 	Dir     string   `json:"dir,omitempty" jsonschema:"force context dir; default derived from targets"`
+	Refs    []string `json:"refs,omitempty" jsonschema:"item IDs this item cites — research/ADR/proposal, any kind"`
 }
 
 type ruleIn struct {
@@ -397,6 +398,9 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	if len(it.Rules) > 0 {
 		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
 	}
+	if len(it.Refs) > 0 {
+		b.WriteString("refs " + strings.Join(it.Refs, " ") + "\n")
+	}
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
 	}
@@ -564,7 +568,18 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			return res, out, err
 		}
 	}
-	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets)
+	if len(in.Refs) > 0 {
+		known, err := s.knownRefIDs()
+		if err != nil {
+			return nil, nil, err
+		}
+		// selfID is "" — the item being drafted has no ID yet, so
+		// self-reference cannot occur here; UnknownRefs still guards it.
+		if bad := item.UnknownRefs("", in.Refs, known); len(bad) > 0 {
+			return text("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+		}
+	}
+	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets, in.Refs...)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
@@ -648,6 +663,35 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	return text(b.String())
+}
+
+// knownRefIDs builds the "known" set draft's refs validation checks
+// candidate citations against via item.UnknownRefs: every live item ID
+// (item.LoadAll) plus every ID still answerable as a journal tombstone — an
+// item archived out of work.md is a legitimate citation target (see
+// lifecycle.Tombstone's doc comment). Built as one set over one journal
+// pass instead of probing lifecycle.Tombstone per candidate ref; the scan
+// mirrors exactly what Tombstone itself looks for (journal.ReadAll,
+// e.Ev == journal.EvArchive) rather than re-deriving the journal format.
+func (s *Server) knownRefIDs() (map[string]bool, error) {
+	known := map[string]bool{}
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		known[it.ID] = true
+	}
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvArchive {
+			known[e.ID] = true
+		}
+	}
+	return known, nil
 }
 
 // splitContractRules buckets resolved rules into full r-lines (rl) and
