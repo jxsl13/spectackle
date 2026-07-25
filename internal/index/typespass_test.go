@@ -277,6 +277,84 @@ func Nested() {}
 	}
 }
 
+// TestTypedCallEdgesClosureVarAndGenericInstantiation is the typed pass's
+// half of the two fixture-derived gaps (scratchpad findings/go.md, copied
+// from gap-go/sample.go): a package-level closure var body (`var Multiplier
+// = func(x int) int { return Add(x, x) }`) and an explicit generic
+// instantiation call (`Sum[int](...)`) must both be found by the go/types
+// -backed typedCallEdges. This calls typedCallEdges directly against a
+// loaded package rather than going through the combined IndexAll +
+// ResolveTypedCalls pipeline, so a syntactic-pass hit (GoParser now finds
+// both shapes too) can never mask a typed-pass miss here.
+func TestTypedCallEdgesClosureVarAndGenericInstantiation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+	writeFile(t, root, "shapes/sample.go", `package shapes
+
+var Multiplier = func(x int) int {
+	return Add(x, x)
+}
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func Sum[T int | float64](vs []T) T {
+	var total T
+	for _, v := range vs {
+		total += v
+	}
+	return total
+}
+
+func Run() int {
+	total := Sum[int]([]int{1, 2, 3})
+	return total + Add(1, 2)
+}
+`)
+
+	cfg := &packages.Config{
+		Dir:  root,
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
+	}
+	pkgs, err := loadPackages(cfg, "./...")
+	if err != nil {
+		t.Fatalf("packages.Load: %v", err)
+	}
+	if len(pkgs) != 1 || len(pkgs[0].Syntax) != 1 {
+		t.Fatalf("packages.Load: got %d package(s), want 1 with 1 file", len(pkgs))
+	}
+	p := pkgs[0]
+	for _, e := range p.Errors {
+		t.Fatalf("package error: %v", e)
+	}
+
+	edges := typedCallEdges(p.Fset, p.TypesInfo, p.Syntax[0], "shapes/sample.go")
+	bySrc := map[graph.NodeID][]graph.Edge{}
+	for _, e := range edges {
+		bySrc[e.Src] = append(bySrc[e.Src], e)
+	}
+
+	multDsts := map[graph.NodeID]bool{}
+	for _, e := range bySrc["go:shapes.Multiplier"] {
+		multDsts[e.Dst] = true
+	}
+	if !multDsts["go:shapes.Add"] {
+		t.Errorf("typedCallEdges: Multiplier edges = %v, want go:shapes.Add present", multDsts)
+	}
+
+	runDsts := map[graph.NodeID]bool{}
+	for _, e := range bySrc["go:shapes.Run"] {
+		runDsts[e.Dst] = true
+	}
+	if !runDsts["go:shapes.Sum"] {
+		t.Errorf("typedCallEdges: Run edges = %v, want go:shapes.Sum present", runDsts)
+	}
+	if !runDsts["go:shapes.Add"] {
+		t.Errorf("typedCallEdges: Run edges = %v, want go:shapes.Add present", runDsts)
+	}
+}
+
 // TestResolveTypedCallsRepo is the design doc's real-world regression test
 // (§4/§1): the actual spectackle repo has s.cd.Sweep() in
 // internal/mcpserver/swarm.go, a chained selector through a *coord.DB field,
