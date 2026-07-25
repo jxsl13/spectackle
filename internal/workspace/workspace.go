@@ -4,7 +4,9 @@
 //
 // Root detection order: walk up from the start dir for .spectackle/config.yaml
 // (the root marker — nested context dirs also have .spectackle/ folders, so the
-// folder alone is ambiguous), then for .git, then fall back to the -root flag.
+// folder alone is ambiguous), then for .git (directory or file — a linked git
+// worktree's .git is a file, and it terminates the walk exactly like a real
+// checkout's .git directory does), then fall back to the -root flag.
 package workspace
 
 import (
@@ -105,9 +107,15 @@ func Detect(start, flagRoot string) (Root, error) {
 	}); ok {
 		return load(d)
 	}
-	if d, ok := walkUp(abs, func(dir string) bool {
-		return dirExists(filepath.Join(dir, ".git"))
-	}); ok {
+	// IsNestedGitBoundary stats .git regardless of file-vs-directory: a linked
+	// git worktree has a .git FILE (a "gitdir: ..." pointer), not a directory.
+	// Walking past it used to land Detect on the enclosing main checkout
+	// instead — harmless for main-repo resolution below (git rev-parse finds
+	// the real common dir independently), but fatal for an explicit -root
+	// naming the worktree itself: the active root would silently move to a
+	// different directory than the one named, and every bundle write would
+	// land in the shared main checkout instead (issue 27).
+	if d, ok := walkUp(abs, IsNestedGitBoundary); ok {
 		return load(d)
 	}
 	if flagRoot != "" {
@@ -541,9 +549,4 @@ func ensureLines(path string, lines ...string) error {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
-}
-
-func dirExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
 }

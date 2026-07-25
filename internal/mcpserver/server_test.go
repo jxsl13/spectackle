@@ -57,6 +57,59 @@ func TestNewRebindsExistingWorktree(t *testing.T) {
 	}
 }
 
+// TestNewMainResolutionUnchangedForNestedWorktree guards issue 27's fix
+// (workspace.Detect now treats a .git FILE, not just a .git directory, as a
+// boundary that stops the upward walk) against collapsing the ACTIVE root
+// and the MAIN root into the same thing. New() resolves them separately on
+// purpose: coordination state (coord.db, leases, agents) must keep living in
+// the main checkout even when the server is rooted at a linked worktree, and
+// main resolution goes through wt.CommonRoot's `git rev-parse
+// --show-toplevel --git-common-dir`, not through Detect's marker walk — so
+// it was never expected to move, but that is worth asserting rather than
+// assuming, especially right after changing what Detect's walk stops at.
+// work op=start's own worktree (created under .spectackle/wt/, carrying a
+// committed .spectackle/config.yaml) is exactly this fixture, and doubles as
+// the "work op=start's own worktrees resolve as before" check: New(wtRoot)
+// must still adopt it (TestNewRebindsExistingWorktree covers that half; this
+// test covers that .ws and .main land on the right directories).
+func TestNewMainResolutionUnchangedForNestedWorktree(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	prop := draftID(t, alice, map[string]any{
+		"kind": "proposal", "title": "main resolution probe", "targets": []string{"main.go"}})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
+	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
+	wtRoot := wtRootOf(t, out, prop)
+
+	s2, err := New(wtRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	if s2.ws.Dir != wtRoot {
+		t.Fatalf("active root = %s, want the worktree %s", s2.ws.Dir, wtRoot)
+	}
+	// resolved through realPath: wt.CommonRoot's main resolution goes through
+	// `git rev-parse`, which reports the symlink-resolved path (e.g.
+	// /private/var/... on macOS, where t.TempDir() itself returns the
+	// /var/... alias) — a byte-for-byte compare against root would fail on
+	// that alone, not on anything this test actually cares about.
+	if realPath(t, s2.main.Dir) != realPath(t, root) {
+		t.Fatalf("main root = %s, want the enclosing checkout %s (coordination state must not have moved)", s2.main.Dir, root)
+	}
+}
+
+func realPath(t *testing.T, p string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 // TestWorkAbortJournalsIntoItemDir: the abort event belongs in the item's
 // context-dir journal — passing the item ID as the dir scaffolded a bogus
 // <item-id>/.spectackle directory at the repo root (B-0003).
