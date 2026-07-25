@@ -48,6 +48,17 @@ func TestJuliaSpecLangExtensions(t *testing.T) {
 	}
 }
 
+// TestJuliaSpecNodes' EndLine expectations were updated by T-0119: juliaSpec
+// now sets CallRe + EndSpan, so every `function ... end` body here
+// keyword-counts to its real span. Short-form one-liners (square) and
+// KType defs (struct/abstract type — only KFunc/KMethod are ever
+// span-computed) correctly stay Line==EndLine, since they truly have no
+// "end"-delimited body to find (or, for KType, are never spanned at all).
+// The pre-T-0119 assertion (EndLine always equals Line, even for `function`
+// bodies) was pinning down exactly the "span defect" finding this task
+// fixes ([high]: "call/launch edges are structurally never emitted ... As a
+// direct consequence EndLine is also always == Line"), so updating it here
+// is the fix, not a regression.
 func TestJuliaSpecNodes(t *testing.T) {
 	p := SpecParser{S: juliaSpec}
 	pr, err := p.Parse("pkg/app.jl", juliaSrc)
@@ -57,16 +68,16 @@ func TestJuliaSpecNodes(t *testing.T) {
 	byID := nodesByID(pr)
 
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"jl:app.run":       {graph.KFunc, 1},
-		"jl:app.Base.show": {graph.KFunc, 5},
-		"jl:app.push!":     {graph.KFunc, 9},
-		"jl:app.square":    {graph.KFunc, 13},
-		"jl:app.Point":     {graph.KType, 15},
-		"jl:app.Color":     {graph.KType, 20},
-		"jl:app.Shape":     {graph.KType, 26},
+		"jl:app.run":       {graph.KFunc, 1, 3},
+		"jl:app.Base.show": {graph.KFunc, 5, 7},
+		"jl:app.push!":     {graph.KFunc, 9, 11},
+		"jl:app.square":    {graph.KFunc, 13, 13},
+		"jl:app.Point":     {graph.KType, 15, 15},
+		"jl:app.Color":     {graph.KType, 20, 20},
+		"jl:app.Shape":     {graph.KType, 26, 26},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -79,14 +90,94 @@ func TestJuliaSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangJl {
 			t.Errorf("%s Lang = %v, want jl", id, n.Lang)
 		}
 		if n.File != "pkg/app.jl" {
 			t.Errorf("%s File = %q, want pkg/app.jl", id, n.File)
+		}
+	}
+}
+
+// juliaGapFixtureSrc reuses gap-julia/sample.jl's macro-definition,
+// where-clause, and call-edge constructs from R-0005's empirical
+// findings — every one of these was a [high] miss before T-0119:
+//   - `macro mytime(ex) ... end`: no Def pattern covered macro definitions
+//     at all.
+//   - `scale(x::T) where T = x * 2`: the short-form Def regex required `=`
+//     immediately after the closing paren, so a `where` clause in between
+//     broke the match entirely.
+//   - `area` calling `helper`/`scale`, and `run_all` calling `normalize!`:
+//     zero call edges were ever produced for Julia.
+var juliaGapFixtureSrc = []byte(`function area(c::Circle)
+    r2 = helper(c.r)
+    return scale(r2)
+end
+
+helper(x) = x * x
+
+scale(x::T) where T = x * 2
+
+macro mytime(ex)
+    return :( @time $(esc(ex)) )
+end
+
+function run_all(p::Point)
+    @mytime normalize!(p)
+    return area(p)
+end
+
+function normalize!(p::Point)
+    p.x = p.x / 2
+    return p
+end
+`)
+
+func TestJuliaSpecGapFixtureMacroWhereClauseAndEdges(t *testing.T) {
+	p := SpecParser{S: juliaSpec}
+	pr, err := p.Parse("sample.jl", juliaGapFixtureSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+
+	macro, ok := byID["jl:sample.mytime"]
+	if !ok {
+		t.Fatalf("jl:sample.mytime (macro def) missing, got %+v", pr.Nodes)
+	}
+	if macro.Kind != graph.KFunc || macro.Line != 10 || macro.EndLine != 12 {
+		t.Errorf("mytime = %+v, want KFunc Line/EndLine 10/12", macro)
+	}
+
+	scale, ok := byID["jl:sample.scale"]
+	if !ok {
+		t.Fatalf("jl:sample.scale (where-clause short-form) missing, got %+v", pr.Nodes)
+	}
+	if scale.Line != scale.EndLine {
+		t.Errorf("scale Line/EndLine = %d/%d, want equal (short-form one-liner, no body)", scale.Line, scale.EndLine)
+	}
+
+	// area calls helper and scale; run_all calls normalize! (bang name —
+	// CallRe must capture the trailing "!" or this edge resolves to a
+	// never-minted "normalize" instead of the real "normalize!" node).
+	wantEdges := map[graph.NodeID][]graph.NodeID{
+		"jl:sample.area":    {"jl:sample.helper", "jl:sample.scale"},
+		"jl:sample.run_all": {"jl:sample.normalize!"},
+	}
+	for src, dsts := range wantEdges {
+		for _, dst := range dsts {
+			found := false
+			for _, e := range pr.Edges {
+				if e.Src == src && e.Dst == dst {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("missing ECall edge %s -> %s, got edges %+v", src, dst, pr.Edges)
+			}
 		}
 	}
 }

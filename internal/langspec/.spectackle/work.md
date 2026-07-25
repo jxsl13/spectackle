@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0119 end-terminated languages onto EndSpan: lua, ruby, elixir, julia, fortran — spans, call edges, Def fixes
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0084
 refs: R-0005, ADR-0012
@@ -50,7 +50,7 @@ ROLLBACK: per-file regex/data changes, individually revertible. REPORT BACK: per
 
 ## T-0121 langspec hardening jvm/dotnet: java, kotlin, scala, groovy, csharp
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0085
 refs: R-0005, ADR-0012

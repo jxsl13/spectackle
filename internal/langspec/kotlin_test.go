@@ -61,20 +61,21 @@ func TestKotlinSpecNodes(t *testing.T) {
 	byID := nodesByID(pr)
 
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind    graph.NodeKind
+		Line    int
+		EndLine int // 0 means "same as Line"
 	}{
-		"kt:app.topLevel":  {graph.KFunc, 1},
-		"kt:app.fetchData": {graph.KFunc, 5},
-		"kt:app.identity":  {graph.KFunc, 9},
-		"kt:app.Foo":       {graph.KType, 11},
-		"kt:app.Point":     {graph.KType, 14},
-		"kt:app.Color":     {graph.KType, 16},
-		"kt:app.Shape":     {graph.KType, 20},
-		"kt:app.Singleton": {graph.KType, 22},
-		"kt:app.Drawable":  {graph.KType, 25},
-		"kt:app.draw":      {graph.KFunc, 26},
-		"kt:app.Marker":    {graph.KType, 29},
+		"kt:app.topLevel":  {graph.KFunc, 1, 3}, // brace-counted body now that CallRe is wired (R-0005)
+		"kt:app.fetchData": {graph.KFunc, 5, 7},
+		"kt:app.identity":  {graph.KFunc, 9, 0}, // expression body `= x`, no brace: span unchanged
+		"kt:app.Foo":       {graph.KType, 11, 0},
+		"kt:app.Point":     {graph.KType, 14, 0},
+		"kt:app.Color":     {graph.KType, 16, 0},
+		"kt:app.Shape":     {graph.KType, 20, 0},
+		"kt:app.Singleton": {graph.KType, 22, 0},
+		"kt:app.Drawable":  {graph.KType, 25, 0},
+		"kt:app.draw":      {graph.KFunc, 26, 0}, // abstract decl, no body: span unchanged
+		"kt:app.Marker":    {graph.KType, 29, 0},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -84,11 +85,15 @@ func TestKotlinSpecNodes(t *testing.T) {
 		if !ok {
 			t.Fatalf("node %s missing, got %+v", id, pr.Nodes)
 		}
+		wantEnd := w.EndLine
+		if wantEnd == 0 {
+			wantEnd = w.Line
+		}
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != wantEnd {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, wantEnd)
 		}
 		if n.Lang != graph.Lang("kt") {
 			t.Errorf("%s Lang = %v, want kt", id, n.Lang)
@@ -126,6 +131,100 @@ class Neg {
 	}
 	if _, ok := byID["kt:neg.Neg"]; !ok {
 		t.Errorf("class Neg missing, got %+v", pr.Nodes)
+	}
+}
+
+// kotlinGapSrc reproduces the R-0005 gap-fixture constructs previously
+// missed/mis-captured by kotlinSpec (findings/kotlin.md, scratch fixture
+// gap-kotlin/Sample.kt): extension functions whose receiver type must NOT
+// be captured as the name, a named companion object, and the intra-file
+// calls that exercise the CallRe wiring fixing both call edges and
+// EndLine spans.
+var kotlinGapSrc = []byte(`fun String.shout(): String {
+    return this.uppercase()
+}
+
+fun <T> List<T>.second(): T {
+    return this[1]
+}
+
+fun caller(): String {
+    return "hi".shout()
+}
+
+class Factory {
+    companion object Creator {
+        fun create(): Factory {
+            return Factory()
+        }
+    }
+}
+`)
+
+// TestKotlinSpecGapFixes pins down the R-0005 [high]/[medium] fixes: the
+// extension-function receiver-vs-name disambiguation, the named
+// companion-object Def, and CallRe-driven edges/EndLine spans.
+func TestKotlinSpecGapFixes(t *testing.T) {
+	p := SpecParser{S: kotlinSpec}
+	pr, err := p.Parse("pkg/gap.kt", kotlinGapSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := nodesByID(pr)
+
+	want := map[graph.NodeID]struct {
+		Kind    graph.NodeKind
+		Line    int
+		EndLine int
+	}{
+		"kt:gap.shout":   {graph.KFunc, 1, 3},   // extension fun on String: name must be "shout", not "String"
+		"kt:gap.second":  {graph.KFunc, 5, 7},   // generic extension fun on List<T>: name must be "second", not "List"
+		"kt:gap.caller":  {graph.KFunc, 9, 11},  // calls "hi".shout()
+		"kt:gap.Factory": {graph.KType, 13, 13}, // class
+		"kt:gap.Creator": {graph.KType, 14, 14}, // named companion object
+		"kt:gap.create":  {graph.KFunc, 15, 17}, // calls Factory()
+	}
+	if len(pr.Nodes) != len(want) {
+		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
+	}
+	for id, w := range want {
+		n, ok := byID[id]
+		if !ok {
+			t.Fatalf("node %s missing, got %+v", id, pr.Nodes)
+		}
+		if n.Kind != w.Kind {
+			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
+		}
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
+		}
+	}
+	// The extension-function receiver types must never mint their own
+	// spurious nodes.
+	if _, ok := byID["kt:gap.String"]; ok {
+		t.Error("extension-function receiver `String` was wrongly captured as a function name")
+	}
+	if _, ok := byID["kt:gap.List"]; ok {
+		t.Error("extension-function receiver `List` was wrongly captured as a function name")
+	}
+
+	wantEdges := map[[2]graph.NodeID]bool{
+		{"kt:gap.caller", "kt:gap.shout"}:   false,
+		{"kt:gap.create", "kt:gap.Factory"}: false,
+	}
+	for _, e := range pr.Edges {
+		if e.Kind != graph.ECall {
+			t.Errorf("edge Kind = %v, want ECall", e.Kind)
+		}
+		key := [2]graph.NodeID{e.Src, e.Dst}
+		if _, ok := wantEdges[key]; ok {
+			wantEdges[key] = true
+		}
+	}
+	for k, seen := range wantEdges {
+		if !seen {
+			t.Errorf("missing call edge %s -> %s, got edges %+v", k[0], k[1], pr.Edges)
+		}
 	}
 }
 

@@ -23,3 +23,49 @@ GLOBL ·shuffleMask(SB), RODATA, $16
 		t.Errorf("GLOBL parsed wrong: %+v", syms[1])
 	}
 }
+
+func TestScanTextStaticSuffix(t *testing.T) {
+	src := []byte("TEXT shuffle<>(SB), NOSPLIT, $0-16\n\tRET\n")
+	syms := Scan(src)
+	if len(syms) != 1 {
+		t.Fatalf("got %d syms, want 1: %+v", len(syms), syms)
+	}
+	if syms[0].Name != "shuffle" || syms[0].Kind != "text" || syms[0].Frame != "$0-16" {
+		t.Errorf("TEXT <> static suffix parsed wrong: %+v", syms[0])
+	}
+}
+
+func TestScanTextABIInternal(t *testing.T) {
+	src := []byte("TEXT ·addAVX2<ABIInternal>(SB), NOSPLIT, $0-24\n\tRET\n")
+	syms := Scan(src)
+	if len(syms) != 1 {
+		t.Fatalf("got %d syms, want 1: %+v", len(syms), syms)
+	}
+	if syms[0].Name != "addAVX2" || syms[0].Kind != "text" || syms[0].Frame != "$0-24" {
+		t.Errorf("TEXT <ABIInternal> tag parsed wrong: %+v", syms[0])
+	}
+}
+
+func TestScanTextQuotedMethod(t *testing.T) {
+	src := []byte(`TEXT "".Vector.Add(SB), NOSPLIT, $0-40
+	RET
+`)
+	syms := Scan(src)
+	if len(syms) != 1 {
+		t.Fatalf("got %d syms, want 1: %+v", len(syms), syms)
+	}
+	if syms[0].Name != "Vector.Add" || syms[0].Kind != "text" || syms[0].Frame != "$0-40" {
+		t.Errorf("TEXT quoted method-shaped symbol parsed wrong: %+v", syms[0])
+	}
+}
+
+func TestScanGloblStaticSuffix(t *testing.T) {
+	src := []byte("GLOBL mask<>(SB), RODATA, $32\n")
+	syms := Scan(src)
+	if len(syms) != 1 {
+		t.Fatalf("got %d syms, want 1: %+v", len(syms), syms)
+	}
+	if syms[0].Name != "mask" || syms[0].Kind != "globl" {
+		t.Errorf("GLOBL <> static suffix parsed wrong: %+v", syms[0])
+	}
+}

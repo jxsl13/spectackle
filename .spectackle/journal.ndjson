@@ -244,3 +244,8 @@
 {"t":"2026-07-25T11:22:15Z","eid":"eb80f8bbc9db9e96","ag":"orchestrator","ev":"move","id":"P-0086","fr":"draft","to":"active"}
 {"t":"2026-07-25T11:22:15Z","eid":"a907e758338b83bb","ag":"orchestrator","ev":"move","id":"T-0118","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:22:44Z","eid":"7f6018137f0c447c","ag":"impl-t0118","ev":"start","id":"T-0118","note":"branch spectackle/T-0118 base 3dd17807c246"}
+{"t":"2026-07-25T11:23:01Z","eid":"f7b7d0d491171ace","ag":"impl-t0118","ev":"move","id":"T-0118","fr":"approved","to":"active"}
+{"t":"2026-07-25T11:28:20Z","eid":"49d547ae206288cc","ag":"impl-t0118","ev":"submit","id":"T-0118","note":"branch spectackle/T-0118: 3 events, 0 rules, 1 items replayed"}
+{"t":"2026-07-25T11:28:26Z","eid":"0295b39e72d3d4be","ag":"impl-t0118","ev":"move","id":"T-0118","fr":"active","to":"done"}
+{"t":"2026-07-25T11:28:55Z","eid":"f54b026315a96e20","ag":"orchestrator","ev":"create","id":"B-0007","k":"bug","ti":"parse-blob cache keyed by content hash only: parser upgrades silently serve stale nodes/edges until the cache is hand-cleared"}
+{"t":"2026-07-25T11:29:30Z","eid":"49b5aea3ae953cbc","ag":"orchestrator","ev":"move","id":"B-0007","fr":"draft","to":"active"}

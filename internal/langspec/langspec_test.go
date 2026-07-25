@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -197,6 +198,136 @@ func TestSpecParserCallEdgesWithCallRe(t *testing.T) {
 	}
 	if e.File != "x.c" || e.Line != 2 {
 		t.Errorf("edge File/Line = %q/%d, want x.c/2", e.File, e.Line)
+	}
+}
+
+// --- T-0118: Spec.EndSpan keyword-counted body spans --------------------
+
+// endTestSpec is a synthetic end-terminated language (deliberately not
+// registered — the five real end-language Specs are T-0119's job) that
+// exercises Spec.EndSpan end to end: a def's body is closed by "end"
+// (Lua/Ruby-style) rather than '}', so cspan.Span would never find it —
+// only cspan.KeywordSpan, driven by EndSpan.Open/Close, can bound the body
+// for CallRe's edge scan.
+var endTestSpec = Spec{
+	Lang: graph.Lang("endtest"),
+	Exts: []string{".endtest"},
+	Qual: QualFileStem,
+	Defs: []Def{
+		{
+			Kind: graph.KFunc,
+			Re:   regexp.MustCompile(`^function\s+([A-Za-z_]\w*)\s*\(`),
+			Name: 1,
+		},
+	},
+	CallRe: regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`),
+	Stop:   []string{"if", "for", "while"},
+	EndSpan: &EndSpanSpec{
+		Open:  regexp.MustCompile(`\b(function|if|for)\b`),
+		Close: regexp.MustCompile(`\bend\b`),
+	},
+}
+
+// TestSpecParserEndSpanKeywordCounting is EndSpan's positive case: a Spec
+// that sets EndSpan gets a multi-line, keyword-counted EndLine (impossible
+// under brace-only cspan.Span, since this source has no braces at all) and
+// ECall edges from that keyword-spanned body — LSP-001's edge behavior,
+// just fed by cspan.KeywordSpan instead of cspan.Span.
+func TestSpecParserEndSpanKeywordCounting(t *testing.T) {
+	p := SpecParser{S: endTestSpec}
+	src := []byte("function run(x)\n" + // line 1: def line, opens (function)
+		"  if x then\n" + // line 2: nested open (if)
+		"    helper(x)\n" + // line 3: call, inside both opens
+		"  end\n" + // line 4: closes the if
+		"  other(x)\n" + // line 5: call, back inside only the function
+		"end\n") // line 6: closes the function
+	pr, err := p.Parse("pkg/app.endtest", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	byID := nodesByID(pr)
+	n, ok := byID["endtest:app.run"]
+	if !ok {
+		t.Fatalf("node endtest:app.run missing, got %+v", pr.Nodes)
+	}
+	if n.Line != 1 || n.EndLine != 6 {
+		t.Errorf("run Line/EndLine = %d/%d, want 1/6 (keyword-counted, not Line==EndLine)", n.Line, n.EndLine)
+	}
+
+	if len(pr.Edges) != 2 {
+		t.Fatalf("want exactly 2 ECall edges, got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	wantEdges := map[graph.NodeID]int{ // dst -> expected Line
+		"endtest:app.helper": 3,
+		"endtest:app.other":  5,
+	}
+	for _, e := range pr.Edges {
+		if e.Src != "endtest:app.run" || e.Kind != graph.ECall {
+			t.Errorf("edge = %+v, want Src=endtest:app.run Kind=ECall", e)
+		}
+		wantLine, ok := wantEdges[e.Dst]
+		if !ok {
+			t.Errorf("unexpected edge dst %s: %+v", e.Dst, e)
+			continue
+		}
+		if e.Line != wantLine {
+			t.Errorf("edge %s Line = %d, want %d", e.Dst, e.Line, wantLine)
+		}
+	}
+}
+
+// TestSpecParserEndSpanNilUsesLegacySpan is EndSpan's nil-change guard,
+// mirroring TestSpecParserNoEdgesWithoutCallRe's CallRe-nil guarantee: a
+// Spec that sets CallRe but leaves EndSpan nil (every brace-language Spec
+// this framework ships, e.g. cSpec) must still bound bodies with the
+// original cspan.Span brace counting, byte-identical to before EndSpan
+// existed — proven here against a fresh local brace Spec (rather than
+// reusing cSpec) so the assertion is pinned to EndSpan's own contract, not
+// incidentally to c.go's regexes.
+func TestSpecParserEndSpanNilUsesLegacySpan(t *testing.T) {
+	braceTestSpec := Spec{
+		Lang: graph.Lang("bracetest"),
+		Exts: []string{".bracetest"},
+		Qual: QualFlat,
+		Defs: []Def{
+			{
+				Kind: graph.KFunc,
+				Re:   regexp.MustCompile(`^(?:[A-Za-z_][\w\s\*]*?[\s\*])(\w+)\s*\([^;{}]*\)\s*[;{]\s*$`),
+				Name: 1,
+			},
+		},
+		CallRe: regexp.MustCompile(`\b([A-Za-z_]\w*)\s*\(`),
+		Stop:   cFamilyCallStop,
+		// EndSpan intentionally left nil.
+	}
+	if braceTestSpec.EndSpan != nil {
+		t.Fatal("test setup bug: braceTestSpec.EndSpan must be nil")
+	}
+
+	p := SpecParser{S: braceTestSpec}
+	pr, err := p.Parse("x.bracetest", []byte("static void helper(void) {\n    other();\n}\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Edges) != 1 {
+		t.Fatalf("want exactly 1 ECall edge, got %d: %+v", len(pr.Edges), pr.Edges)
+	}
+	e := pr.Edges[0]
+	if e.Src != "bracetest:helper" || e.Dst != "bracetest:other" || e.Kind != graph.ECall {
+		t.Errorf("edge = %+v, want bracetest:helper -ECall-> bracetest:other", e)
+	}
+	if e.File != "x.bracetest" || e.Line != 2 {
+		t.Errorf("edge File/Line = %q/%d, want x.bracetest/2", e.File, e.Line)
+	}
+
+	byID := nodesByID(pr)
+	n, ok := byID["bracetest:helper"]
+	if !ok {
+		t.Fatalf("node bracetest:helper missing, got %+v", pr.Nodes)
+	}
+	if n.Line != 1 || n.EndLine != 3 {
+		t.Errorf("helper Line/EndLine = %d/%d, want 1/3 (brace-counted via cspan.Span)", n.Line, n.EndLine)
 	}
 }
 

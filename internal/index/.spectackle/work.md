@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0125 go parser: call edges from closure-var bodies and explicit generic instantiations
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0086
 refs: R-0005, ADR-0012
@@ -22,7 +22,7 @@ ROLLBACK: two visitor/switch extensions, revertible. REPORT: real test output, t
 
 ## T-0126 asm + cuda parsers: linker-suffix symbol forms and kernel modifier orders
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0086
 refs: R-0005, ADR-0012

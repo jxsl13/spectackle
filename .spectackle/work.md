@@ -50,7 +50,7 @@ Per ADR-0012 resolving R-0005. Three empirically confirmed hand-parser gaps. Go 
 
 ## T-0118 langspec engine: Spec.EndSpan keyword-counting body spans (cspan.KeywordSpan)
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0084
 refs: R-0005, ADR-0012
@@ -70,3 +70,25 @@ Do NOT touch any per-language data file (a sibling task owns the five end-langua
 
 VERIFY: go build ./... ; go test ./internal/cspan/... ./internal/langspec/... -race ; go test ./... ; go vet ./internal/cspan/... ./internal/langspec/... ; /home/user/spectackle/bin/spectackle lint.
 ROLLBACK: additive function + optional field; revert restores brace-only. REPORT: the exact EndSpanSpec shape, test list with real output, anything deliberately not done.
+
+## B-0007 parse-blob cache keyed by content hash only: parser upgrades silently serve stale nodes/edges until the cache is hand-cleared
+kind: bug
+state: active
+created: 2026-07-25
+refs: T-0125
+targets: internal/store, internal/index
+
+DEFECT
+The persistent parse cache keys blobs by source-file content hash alone. When parser code changes (T-0125 live probe: goparser gained closure-var and generic-instantiation call edges), an unchanged file replays its pre-upgrade parse result — reindex printed the old edge set until .spectackle/cache/*.db was deleted by hand. Every parser fix in the ADR-0012 remediation waves has this property: repos indexed before the fix keep the stale graph indefinitely.
+
+CAUSE
+The cache key omits a parser-identity component; content immutability is assumed to imply result immutability, which only holds while the parser is frozen.
+
+FIX (decision to make at implementation)
+Fold a parser-version discriminator into the key or the cache generation stamp — e.g. a per-parser version string, or a build-binary identity component — so a parser change invalidates exactly its own language entries (or, cheapest, all entries). Needs a look at internal/store and the indexer gen-stamp rebuild logic before choosing.
+
+VERIFY
+Regression test: index a fixture, swap in a parser stub with different output, re-index, assert the new output wins without manual cache deletion.
+
+ROLLBACK
+Key/stamp change only; worst case is a one-time full re-parse per workspace.
