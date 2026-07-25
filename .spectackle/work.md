@@ -795,7 +795,7 @@ REPORT BACK: the interface, how credentials resolved and how you tested each pat
 
 ## T-01KYDBVC9QEZS97VBSMJ5QJPW4 config block and git primitives the automation drives
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYDBRWFZFXSBRF4PNRD6R4D9
 refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4
