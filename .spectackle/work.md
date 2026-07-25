@@ -80,9 +80,10 @@ KNOWN-FAILING TEST: TestConcurrentDraftsPersistEveryItem in internal/mcpserver/s
 
 ## T-01KYD5JB7GF34BFNVRAAX8B6GE serialize server-side whole-file rewrites through the coord.db lock table
 kind: task
-state: done
+state: active
 created: 2026-07-25
 parent: B-01KYD57FN3ERHBM5EQ3534YJXP
+rounds: 1
 targets: internal/coord/coord.go, internal/item/item.go, internal/spec/author.go, internal/drift/drift.go
 
 IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
