@@ -410,7 +410,7 @@ func TestCSpecT0122CallEdgesFromFixedDefs(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	want := map[[2]graph.NodeID]bool{
-		{"c:format_point", "c:add"}:    false,
+		{"c:format_point", "c:add"}:     false,
 		{"c:compute_total", "c:add"}:    false,
 		{"c:compute_total", "c:square"}: false,
 	}

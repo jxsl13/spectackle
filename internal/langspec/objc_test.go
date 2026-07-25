@@ -340,7 +340,7 @@ func TestObjcSpecT0122DotSyntaxAndNestedSendEdges(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	want := map[[2]string]bool{
-		{"objc:Sample.viewDidLoad", "objc:Sample.reloadData"}:  false, // dot-syntax receiver
+		{"objc:Sample.viewDidLoad", "objc:Sample.reloadData"}: false, // dot-syntax receiver
 		{"objc:Sample.viewDidLoad", "objc:Sample.addSubview"}: false, // outer of a nested send
 	}
 	for _, e := range pr.Edges {

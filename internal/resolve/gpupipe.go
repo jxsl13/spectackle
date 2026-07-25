@@ -92,8 +92,8 @@ func resolveObjCFile(path string, src []byte, seen map[launchKeyGpu]bool) []grap
 		lines = append(lines, sc.Text())
 	}
 
-	host := ""         // name of the currently open host function, "" if none
-	depth := 0         // brace depth since the host's opening line
+	host := "" // name of the currently open host function, "" if none
+	depth := 0 // brace depth since the host's opening line
 	inHost := false
 	bodyNotYetOpened := false // special flag for ObjC methods with brace on next line
 
