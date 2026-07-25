@@ -28,7 +28,14 @@ type GitHub struct {
 	// GraphQLURL is the GraphQL endpoint; empty means GitHub's own. Ready is
 	// the only caller (see there), and tests point it at an httptest server.
 	GraphQLURL string
-	Client     *http.Client // empty means http.DefaultClient
+
+	// workflow-existence cache, filled by hasWorkflows on first use: whether
+	// this repository has any active workflow decides how an empty check-run
+	// list reads (see Checks), and it does not change within a process's
+	// lifetime often enough to be worth re-asking per merge.
+	workflowsKnown bool
+	workflowsExist bool
+	Client         *http.Client // empty means http.DefaultClient
 }
 
 // NewGitHub builds a GitHub forge from a git remote URL (as returned by
@@ -231,6 +238,37 @@ func (g *GitHub) Ready(pr PR) (PR, error) {
 	return pr, nil
 }
 
+// hasWorkflows reports whether the repository has any active workflow, cached
+// after the first answer (see Checks for why and for the staleness argument).
+func (g *GitHub) hasWorkflows() (bool, error) {
+	if g.workflowsKnown {
+		return g.workflowsExist, nil
+	}
+	status, raw, err := g.request(http.MethodGet, fmt.Sprintf("/repos/%s/%s/actions/workflows", g.Owner, g.Repo), nil)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, fmt.Errorf("forge: list workflows: %s: %s", http.StatusText(status), strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		Workflows []struct {
+			State string `json:"state"`
+		} `json:"workflows"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return false, fmt.Errorf("forge: decode workflows: %w", err)
+	}
+	g.workflowsKnown = true
+	for _, w := range out.Workflows {
+		if w.State == "active" {
+			g.workflowsExist = true
+			break
+		}
+	}
+	return g.workflowsExist, nil
+}
+
 // pull fetches one pull request, for the fields a caller did not already have
 // (Ready needs NodeID when it was handed a PR that came from somewhere else).
 func (g *GitHub) pull(number int) (ghPull, error) {
@@ -311,6 +349,23 @@ func (g *GitHub) Checks(pr PR) (CheckState, error) {
 		return "", fmt.Errorf("forge: decode check runs: %w", err)
 	}
 	if len(out.CheckRuns) == 0 {
+		// Zero runs is ambiguous, and the two readings demand opposite
+		// behavior: no CI configured (proceed) versus CI not started yet
+		// (wait). Observed live: the merge gate polled seconds after the
+		// records push, Actions had not yet spun up a run for the new head,
+		// and the gate merged before CI ever started. Disambiguate by asking
+		// whether the repository HAS active workflows — if it does, zero runs
+		// on a fresh head means not-started, which is Pending; only a
+		// repository with no workflows at all answers None. The workflow
+		// lookup is cached per client: it changes on the timescale of
+		// repository administration, not of a merge.
+		hasCI, err := g.hasWorkflows()
+		if err != nil {
+			return "", err
+		}
+		if hasCI {
+			return ChecksPending, nil
+		}
 		return ChecksNone, nil
 	}
 	pending := false

@@ -223,3 +223,59 @@ func TestGitHubFindNoneOpen(t *testing.T) {
 		t.Fatal("Find reported a PR when none is open")
 	}
 }
+
+// TestGitHubChecksZeroRunsDisambiguates: an empty check-run list means
+// "not started yet" in a repository that has workflows, and "no CI" only in
+// one that has none. Observed live: the merge gate polled seconds after a
+// push, got zero runs, read it as no-CI and merged before Actions started.
+func TestGitHubChecksZeroRunsDisambiguates(t *testing.T) {
+	for _, tc := range []struct {
+		workflows string
+		want      CheckState
+	}{
+		{`{"workflows":[{"state":"active"}]}`, ChecksPending},
+		{`{"workflows":[{"state":"disabled_manually"}]}`, ChecksNone},
+		{`{"workflows":[]}`, ChecksNone},
+	} {
+		wfCalls := 0
+		g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			if strings.Contains(r.URL.Path, "/actions/workflows") {
+				wfCalls++
+				w.Write([]byte(tc.workflows))
+				return
+			}
+			w.Write([]byte(`{"check_runs":[]}`))
+		})
+		got, err := g.Checks(PR{Number: 1, Branch: "b"})
+		if err != nil {
+			t.Fatalf("Checks: %v", err)
+		}
+		if got != tc.want {
+			t.Fatalf("workflows %s: Checks = %s, want %s", tc.workflows, got, tc.want)
+		}
+		// cached: a second ask must not re-query the workflows endpoint
+		if _, err := g.Checks(PR{Number: 1, Branch: "b"}); err != nil {
+			t.Fatal(err)
+		}
+		if wfCalls != 1 {
+			t.Fatalf("workflows endpoint queried %d times, want 1 (cached)", wfCalls)
+		}
+	}
+}
+
+// TestGitHubChecksRealRunsUnaffected: actual runs still reduce as before —
+// the disambiguation only ever fires on an empty list.
+func TestGitHubChecksRealRunsUnaffected(t *testing.T) {
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/actions/workflows") {
+			t.Fatal("workflows endpoint consulted although runs exist")
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"}]}`))
+	})
+	got, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err != nil || got != ChecksPassing {
+		t.Fatalf("Checks = %s, %v; want passing", got, err)
+	}
+}
