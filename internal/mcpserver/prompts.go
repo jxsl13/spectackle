@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -111,14 +110,14 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 		if a.WT != "" {
 			wtLabel = a.WT
 		}
-		fmt.Fprintf(&b, "ag %s %s %ds %s\n", a.Name, orDash(a.Item), int(time.Since(a.HB).Seconds()), wtLabel)
+		fmt.Fprintf(&b, "ag %s %s %s %s\n", a.Name, orDash(a.Item), hbAge(a.HB), wtLabel)
 	}
 	leases, err := s.cd.Leases(s.agentTTL())
 	if err != nil {
 		return nil, err
 	}
 	for _, l := range leases {
-		fmt.Fprintf(&b, "l %s %s %s %ds\n", l.Path, l.Agent, orDash(l.Item), int(time.Until(l.Exp).Seconds()))
+		fmt.Fprintf(&b, "l %s %s %s %s\n", l.Path, l.Agent, orDash(l.Item), leaseLeft(l.Exp))
 	}
 
 	b.WriteString("ACTIVE ITEMS\n")
