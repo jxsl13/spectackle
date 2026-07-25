@@ -230,3 +230,6 @@
 {"t":"2026-07-25T18:49:22Z","eid":"203c5981dae6088f","ag":"ag-0a91","ev":"create","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","k":"task","ti":"redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing"}
 {"t":"2026-07-25T18:49:31Z","eid":"22ebc507f0be641c","ag":"ag-3d82","ev":"grill","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","gr":"2026-07-25"}
 {"t":"2026-07-25T18:49:31Z","eid":"84cd3e058d027689","ag":"ag-d9d0","ev":"move","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","fr":"draft","to":"submitted"}
+{"t":"2026-07-25T18:54:05Z","eid":"bfa01a6e3d21a8e4","ag":"ag-d2f4","ev":"create","id":"T-01KYDA17KBFV3SBCEV79KXW7Z3","k":"task","ti":"one task, one branch, one pull request: every finished task opens its own PR immediately, never batched"}
+{"t":"2026-07-25T18:54:06Z","eid":"e72e5447e0ac4489","ag":"ag-e02a","ev":"grill","id":"T-01KYDA17KBFV3SBCEV79KXW7Z3","gr":"2026-07-25"}
+{"t":"2026-07-25T18:54:06Z","eid":"2c554cdc17694d9e","ag":"ag-24cc","ev":"move","id":"T-01KYDA17KBFV3SBCEV79KXW7Z3","fr":"draft","to":"submitted"}

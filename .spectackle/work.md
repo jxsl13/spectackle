@@ -680,3 +680,41 @@ CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a di
 SCOPE: internal/evidence extension, the #dup section wiring in validate.go, the two guidance sentences, tests. Do NOT de-duplicate any existing production code in this task (the gate/rule twin included - that is its own change with its own review), do not touch grill.go, tools.go, the graph, or the index beyond reading.
 ROLLBACK: remove the #dup section call; the fingerprint code is dead until deleted; cached fingerprints are garbage-collected by the existing cache versioning. No stored state elsewhere.
 REPORT BACK: threshold and shingle consts as landed with rationales, calibration pair score, cold/warm timings, the fixture #dup section verbatim, each test's result including the red-run, anything deliberately not done.
+
+## T-01KYDA17KBFV3SBCEV79KXW7Z3 one task, one branch, one pull request: every finished task opens its own PR immediately, never batched
+kind: task
+state: submitted
+created: 2026-07-25
+parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
+refs: R-0007
+grilled: 2026-07-25
+targets: CONTRIBUTING.md, docs/agent-workflow.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Documentation-and-policy task, no Go code.
+
+NEEDS: the merge-policy task (title: merge policy: never squash) must be MERGED first - both rewrite the same CONTRIBUTING section and this task extends the policy that one establishes. Do not run concurrently.
+
+WHY. The decision-trail principle has three granularities and the third was convention, not policy: edge commits make every state transition visible inside a task; never-squash merges keep those commits readable on main; and PR-per-task makes the task itself the unit of review and merge. Batching several finished tasks into one pull request re-creates at the PR level exactly what squashing creates at the commit level - N decisions flattened into one reviewable blob, reviewers approving work they cannot attribute, and a revert that cannot take one task back without taking its neighbors. This session's own history is the proving case: multiple finished work items accumulated on one branch and shipped in combined PRs, so no single task can be reverted, bisected, or re-reviewed in isolation.
+
+THE POLICY, exact: when a task reaches done, its branch is pushed and a pull request is opened IMMEDIATELY - before the next task starts, not at end of session. One task per PR; the PR title carries the full task ID; auto-merge (merge commit method, per the sibling policy) is armed at open. Work that never was a task (a typo fix in passing) rides with the task that touched it or becomes a task if it stands alone - nothing merges outside a PR either way, which CONTRIBUTING already mandates. The swarm's worktree branches (spectackle/<item-id>) already give every task its own branch; this policy makes the PR boundary follow the branch boundary instead of collapsing branches into a shared integration branch first.
+
+WHAT TO BUILD
+1. CONTRIBUTING.md: the pull-request section gains the one-task-one-PR rule with the granularity rationale above compressed to a short paragraph, including the explicit anti-pattern (a session-accumulation branch carrying several finished tasks) and the exception handling (follow-up commits to an OPEN unmerged PR for the same task are fine; a merged PR is finished and follow-ups are a new task, which the section already states for branches).
+2. docs/agent-workflow.md: the orchestrator's git duties gain: push and open the PR at the moment a task is checked and done, arm auto-merge, then start the next task; never hold finished work hostage to unfinished siblings. One sentence on the payoff: revert, bisect and review all regain task granularity.
+3. Consistency sweep: no remaining sentence in either file implies batching finished work or opening PRs at session end (grep-based check as in the sibling task, state the method).
+
+NON-NEGOTIABLE PROPERTIES
+- The CONTRIBUTING section, read cold, answers: when is the PR opened (at done, immediately), what does it contain (one task), what is in the title (the full task ID), what merge method (merge commit, armed at open). A verifier answering from the text alone is the test, mirror the sibling task's approach.
+- No contradiction with the never-squash section or the auto-merge prerequisites it documents - the sections must read as one coherent policy.
+- go build ./... and the full suite still pass (docs must not break anything embedded).
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  grep -n batch CONTRIBUTING.md docs/agent-workflow.md - paste; hits must be the anti-pattern text itself.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier reads both sections cold and answers the four policy questions from the text alone; verdict recorded in the archive note.
+
+SCOPE: the two named markdown files. No Go code, no templates (the backward-path task owns them - if its workflow step 8 wording conflicts once both land, the LATER merger reconciles and says so in its report).
+ROLLBACK: revert the commit.
+REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
