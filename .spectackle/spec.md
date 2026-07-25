@@ -170,6 +170,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - ADR-01KYCZ13KRF84VD5DSVQ4017MV Which ID scheme closes the cross-clone collision hole?: compact
 - T-01KYD2XQG6E38APSR3EY4GY137 rule op=edit: recompose from the stored pattern instead of silently rewriting the old text, and stop eating the separator: compact
 - P-01KYDBRWFZFXSBRF4PNRD6R4D9 the git workflow becomes server automation: state transitions drive branch, push, draft pull request, ready and merge: state transitions now drive branch, commit, push, draft pull request, ready and merge from server code; two modes with online the default and offline doing the same lifecycle locally; opt-out by config; no gh dependency, credentials via env then git credential helper
+- T-01KYD5JB7GF34BFNVRAAX8B6GE serialize server-side whole-file rewrites through the coord.db lock table: cross-process whole-file rewrites serialize through the coord.db lock table: named locks with TTL and panic-safe release, every writer wrapping its full read-modify-write, reads never locking, proven with multiple real DB connections and unskipped concurrent-draft acceptance at count 20
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

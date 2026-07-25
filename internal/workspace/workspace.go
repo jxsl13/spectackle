@@ -124,11 +124,36 @@ func defaultConfig() Config {
 	}
 }
 
+// Locker serializes a read-modify-write against one named, cross-process
+// scope. coord.DB satisfies it (WithLock, generalized from what used to be a
+// single hardcoded 'integrate' lock); this interface exists so item/spec/
+// drift can call through Root.Lock without importing internal/coord — those
+// packages persist bundle files, not swarm coordination, and coord.db is
+// swarm coordination's package to own.
+type Locker interface {
+	// WithLock runs fn while holding name, releasing on every exit path
+	// (including panic). Callers pass the ENTIRE read-modify-write as fn,
+	// never just the final write: locking only the write leaves two readers
+	// racing to read the same stale state, which is the defect this exists
+	// to close (B-01KYD57FN3ERHBM5EQ3534YJXP).
+	WithLock(name string, fn func() error) error
+}
+
 // Root is a detected workspace.
 type Root struct {
 	Dir   string // absolute path
 	Agent string // agent identity writing through this workspace ("" outside swarm contexts)
 	Cfg   Config
+
+	// Lock is nil outside a swarm-aware caller (tests, migrate, a one-shot
+	// CLI invocation with no coord.db open) — those already have at most one
+	// writer touching any given bundle file, so item/spec/drift run unlocked
+	// exactly as they always have. mcpserver.New sets it to the same *coord.DB
+	// it opens for lease/counter/event coordination (see coord.go), so a
+	// server process wires this up once at construction and every write
+	// through the resulting Root is automatically serialized against
+	// siblings — no call site elsewhere has to remember to ask for it.
+	Lock Locker
 }
 
 // Detect finds the workspace root starting at start (usually the cwd).

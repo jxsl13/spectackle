@@ -313,40 +313,78 @@ func Get(root workspace.Root, id string) (Item, bool, error) {
 
 // Upsert writes an item block into its context's work.md (replacing an
 // existing block with the same ID) and injects the schema frontmatter.
+//
+// The whole read-modify-write (LoadWork through writeWork) runs under
+// withWorkLock, not just the final write: two concurrent writers that both
+// read work.md before either one wrote would still both compute their splice
+// against the same stale slice and the later write would erase the earlier
+// one's record, lock or no lock on writeWork alone (measured: B-01KYD5, 16
+// acknowledged drafts, as few as 10 surviving to disk).
 func Upsert(root workspace.Root, it Item) error {
 	if it.Created == "" {
 		it.Created = time.Now().UTC().Format("2006-01-02")
 	}
-	items, err := LoadWork(root.WorkPath(it.Dir), it.Dir)
-	if err != nil {
-		return err
-	}
-	replaced := false
-	for i := range items {
-		if items[i].ID == it.ID {
-			items[i] = it
-			replaced = true
+	return withWorkLock(root, it.Dir, func() error {
+		items, err := LoadWork(root.WorkPath(it.Dir), it.Dir)
+		if err != nil {
+			return err
 		}
-	}
-	if !replaced {
-		items = append(items, it)
-	}
-	return writeWork(root, it.Dir, items)
+		replaced := false
+		for i := range items {
+			if items[i].ID == it.ID {
+				items[i] = it
+				replaced = true
+			}
+		}
+		if !replaced {
+			items = append(items, it)
+		}
+		return writeWork(root, it.Dir, items)
+	})
 }
 
-// Remove deletes an item block from its context's work.md.
+// Remove deletes an item block from its context's work.md. Same
+// whole-cycle locking as Upsert, and for the same reason.
 func Remove(root workspace.Root, it Item) error {
-	items, err := LoadWork(root.WorkPath(it.Dir), it.Dir)
-	if err != nil {
-		return err
-	}
-	var out []Item
-	for _, x := range items {
-		if x.ID != it.ID {
-			out = append(out, x)
+	return withWorkLock(root, it.Dir, func() error {
+		items, err := LoadWork(root.WorkPath(it.Dir), it.Dir)
+		if err != nil {
+			return err
 		}
+		var out []Item
+		for _, x := range items {
+			if x.ID != it.ID {
+				out = append(out, x)
+			}
+		}
+		return writeWork(root, it.Dir, out)
+	})
+}
+
+// withWorkLock serializes one context dir's work.md read-modify-write across
+// processes via root.Lock (coord.db's named lock table, see coord.DB.Lock/
+// WithLock). root.Lock is nil outside a swarm-aware caller — tests, migrate,
+// a one-shot CLI run — where there is at most one writer already, so running
+// unlocked is correct there, not merely tolerated.
+//
+// Keyed per context dir, not globally: two different bundles must stay
+// writable in parallel, or a global lock would serialize the whole swarm
+// behind one file that most agents never even touch.
+func withWorkLock(root workspace.Root, ctx string, fn func() error) error {
+	if root.Lock == nil {
+		return fn()
 	}
-	return writeWork(root, it.Dir, out)
+	return root.Lock.WithLock("work:"+dirOrDot(ctx), fn)
+}
+
+// dirOrDot renders a context dir for a lock name the same way Record renders
+// one for display: "" (root) reads as "." so a lock name is never an empty
+// path segment.
+func dirOrDot(ctx string) string {
+	if ctx == "" {
+		return "."
+	}
+	return ctx
 }
 
 func writeWork(root workspace.Root, ctx string, items []Item) error {

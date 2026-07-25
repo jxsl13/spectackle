@@ -116,17 +116,59 @@ func Load(ws workspace.Root) ([]Anchor, error) {
 	return out, sc.Err()
 }
 
-// Save rewrites anchors.tsv.
+// Save rewrites anchors.tsv under WithAnchorsLock, so two concurrent Save
+// calls can never interleave into a torn file.
+//
+// Save alone does not close the lost-update race for a caller that Loads,
+// mutates, and then Saves as three separate steps (mcpserver's check and
+// stampAnchors do exactly that): the Load already happened before this
+// call's lock is even requested, so a sibling's Save landing in between
+// is invisible to the mutation this Save is about to write over it. A
+// caller in that shape must wrap its OWN Load-mutate-Save sequence in
+// WithAnchorsLock (calling the unexported save below inside it, not this
+// function, to avoid acquiring the same name twice) — see the doc on
+// WithAnchorsLock.
 func Save(ws workspace.Root, anchors []Anchor) error {
 	if err := ws.EnsureScaffold(""); err != nil {
 		return err
 	}
+	return WithAnchorsLock(ws, func() error { return save(ws, anchors) })
+}
+
+func save(ws workspace.Root, anchors []Anchor) error {
 	var b strings.Builder
 	b.WriteString(header)
 	for _, a := range anchors {
 		fmt.Fprintf(&b, "%s\t%s\t%s\t%d-%d\t%s\t%s\n", a.Rule, a.Node, a.File, a.Start, a.End, a.CHash, a.RHash)
 	}
 	return os.WriteFile(ws.AnchorsPath(), []byte(b.String()), 0o644)
+}
+
+// WithAnchorsLock runs fn while holding coord.db's "anchors" lock (see
+// coord.DB.WithLock and workspace.Locker), releasing on every exit path
+// including panic. ws.Lock is nil outside a swarm-aware caller (tests,
+// migrate, a one-shot CLI run), where there is at most one writer already,
+// so running unlocked is correct there, not merely tolerated.
+//
+// anchors.tsv is root-only — one file for the whole workspace, unlike
+// work.md/spec.md which are per context dir — so there is exactly one scope
+// to serialize and the lock name carries no context.
+//
+// A caller that Loads, mutates in memory, and Saves as separate steps MUST
+// run all three inside one WithAnchorsLock call, not rely on Save's own
+// locking: locking the write alone still lets two readers load the same
+// stale rows first and race to overwrite each other, which is the same
+// defect item.Upsert had before it locked its whole read-modify-write
+// instead of just writeWork. Today's in-repo callers of this shape
+// (mcpserver's check and stampAnchors) are unlocked and out of this task's
+// scope (internal/mcpserver) — this export is what closes that gap for
+// them, or for TestConcurrentAnchorsRewriteNoLostUpdate's shape, without
+// this package needing to know what mcpserver does with it.
+func WithAnchorsLock(ws workspace.Root, fn func() error) error {
+	if ws.Lock == nil {
+		return fn()
+	}
+	return ws.Lock.WithLock("anchors", fn)
 }
 
 // Upsert replaces the anchor for (rule, node) or appends it.

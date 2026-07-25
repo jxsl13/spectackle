@@ -78,58 +78,6 @@ FIX DIRECTION (needs a decision, do not implement blind): the write must be seri
 
 KNOWN-FAILING TEST: TestConcurrentDraftsPersistEveryItem in internal/mcpserver/swarm_test.go, skipped with a pointer to this item. Unskipping it is the acceptance test.
 
-## T-01KYD5JB7GF34BFNVRAAX8B6GE serialize server-side whole-file rewrites through the coord.db lock table
-kind: task
-state: active
-created: 2026-07-25
-parent: B-01KYD57FN3ERHBM5EQ3534YJXP
-targets: internal/coord/coord.go, internal/item/item.go, internal/spec/author.go, internal/drift/drift.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-DECIDED, do not re-open: the serialization point is coord.db, not an advisory file lock. Rationale: coord.db already is the cross-process serialization point and already holds leases, so this keeps one lock hierarchy instead of introducing a second one that some later change takes in the wrong order.
-
-VERIFIED GROUND (the orchestrator read this; do not re-derive)
-coord.DB already has exactly the mechanism needed and uses it for one purpose. LockIntegrate/UnlockIntegrate at internal/coord/coord.go:562-597 take a row in a `locks` table whose schema is already generic - it keys on a `name` column and stores agent plus an expiry, and an expired lock counts as free so a crashed holder cannot wedge the workspace. Today the only name ever used is 'integrate'. Generalizing it is a rename plus a parameter, not a new subsystem.
-
-THE DEFECT (measured, see the parent item)
-item.Upsert reads all of work.md via LoadWork, splices one item into the slice, and rewrites the whole file via writeWork at internal/item/item.go:406. Two concurrent writers both read N and both write N+1, so the later write erases the earlier one's record. Server.mu is per process and the shipped topology is N stdio processes, so it provides no mutual exclusion. Measured: 16 acknowledged drafts, 15 on disk repeatedly, 10 on disk once.
-
-SAME SHAPE, ALSO IN SCOPE - each is a whole-file rewrite with no lock
-  internal/item/item.go:406        writeWork, reached by Upsert AND Remove
-  internal/spec/author.go:136,182,205,261,274   rule add, edit and delete
-  internal/drift/drift.go:129      anchors.tsv rewrite
-
-EXPLICITLY NOT IN SCOPE, and here is why, so you do not add a lock it does not need: journal.Append at internal/journal/journal.go:90 opens with O_APPEND|O_CREATE|O_WRONLY and writes one marshalled event. A single O_APPEND write under PIPE_BUF is atomic on POSIX, so concurrent appends interleave by record and never by byte. Leave it alone. If you believe otherwise, say so in the report with the evidence rather than changing it.
-
-WHAT TO BUILD
-1. Generalize the integrate lock into a named lock on coord.DB. Keep LockIntegrate working, as a thin caller of the general form, so the submit path is untouched.
-2. Give it a scoped-execution wrapper that acquires, runs a closure, and releases on every exit path including panic. A bare Lock/Unlock pair invites the missing-defer that reintroduces this class.
-3. Take the lock around the ENTIRE read-modify-write, not around the write alone. Locking only writeWork leaves the race exactly where it is: both readers still read the stale N.
-4. Lock granularity is per context dir, not global. Writes to different bundles must stay parallel; a global lock would serialize the whole swarm behind one file. The lock name must therefore include the context.
-5. Decide and state where the lock is acquired. The item and spec packages do not currently know about coord. Either they take a small interface the server supplies, or the server wraps the calls. Pick one, apply it consistently to all four writers, and justify it in the report - do not do it one way in one package and another way elsewhere.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-  No lost update: N concurrent writers, N records on disk, exactly.
-  Crash safe: a holder that dies leaves a lock that expires, so the next writer proceeds. This already holds for 'integrate'; prove it still holds for the general form.
-  No deadlock against leases: a code path that holds this lock must never block on a lease, and vice versa. State the ordering you established.
-  Parallel across contexts: two writers on different context dirs must not serialize. Show it.
-  No lock in the read path: get, find and state must not acquire it.
-
-TESTS
-  The acceptance test already exists: TestConcurrentDraftsPersistEveryItem in internal/mcpserver/swarm_test.go, currently skipped with a pointer to the parent item. DELETE THE SKIP - do not rewrite the test to match your implementation. It must pass unchanged, and it must be run enough times to mean something: -count=20 at minimum, since the pre-fix failure rate was roughly 2 in 20 and a single green run proves nothing.
-  Add the same shape for item.Remove, for concurrent rule writes through spec authoring, and for concurrent anchors rewrites.
-  Add a test that two different context dirs write concurrently without serializing.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go test ./internal/mcpserver/ -run TestConcurrentDraftsPersistEveryItem -count=20 ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root>   POSITIONAL path; the -root flag form is a known trap
-  spectackle call -root <worktree-root> check '{}'   must end with a line that is exactly ok
-
-SCOPE: the coord lock generalization plus the four writers named above. Do not change the ID scheme, the tool boundary, or the migration - those are separate lines of work.
-ROLLBACK: the wrapper is one function; removing its calls returns to today's unlocked behavior. Say in the report whether any caller became structurally dependent on the lock beyond mutual exclusion.
-REPORT BACK: where the lock is acquired and why there, the lock naming scheme and its granularity, the ordering you established against leases, the -count=20 result verbatim, each test's real result, and anything deliberately not done.
-
 ## P-01KYD87FJREJ5SD0G2RDCMZ32Y turn review from assertion into evidence: run the gate that exists, then make grill and validation compute what they cannot fake
 kind: proposal
 state: submitted

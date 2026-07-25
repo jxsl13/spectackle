@@ -102,20 +102,18 @@ func TestTwoServersMintUniqueIDs(t *testing.T) {
 }
 
 // TestConcurrentDraftsPersistEveryItem is the acceptance test for
-// B-01KYD57FN3ERHBM5EQ3534YJXP and is expected to fail until that item is
-// fixed. Every draft above is acknowledged with a distinct ID, but fewer than
-// 2n items reach disk: item.Upsert read-modify-writes the whole of work.md
-// with no cross-process lock, so two concurrent writers both read N and both
-// write N+1, and the later write erases the earlier one's record. Server.mu
-// does not help — it is per process, and the shipped topology is N stdio
-// processes.
+// B-01KYD57FN3ERHBM5EQ3534YJXP, fixed by item.Upsert taking coord.db's named
+// "work:<ctx>" lock around its whole read-modify-write (internal/item/
+// item.go's withWorkLock) instead of just the final write. Server.mu does
+// not help on its own — it is per process, and the shipped topology is N
+// stdio processes — but it does mean each server (alice, bob) only ever
+// issues one coord.db call at a time, so the cross-process case this proves
+// is exactly the one withWorkLock exists for.
 //
 // Unique IDs do not close this. P-0088 removed the chance of two records
 // sharing an ID; it did nothing about a record being overwritten by a
-// neighbor whose ID was never in doubt. Delete the Skip to run it.
+// neighbor whose ID was never in doubt.
 func TestConcurrentDraftsPersistEveryItem(t *testing.T) {
-	t.Skip("known defect B-01KYD57FN3ERHBM5EQ3534YJXP: concurrent Upsert loses records")
-
 	root := t.TempDir()
 	alice, bob := twoAgents(t, root)
 	const n = 8
