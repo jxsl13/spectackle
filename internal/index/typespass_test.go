@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -441,6 +442,79 @@ func Callee() {}
 	_, err := ResolveTypedCalls(ctx, g2, root, s)
 	if !errors.Is(err, reached) {
 		t.Fatalf("an upgraded pass version must miss the module cache and recompute; got err = %v", err)
+	}
+}
+
+// TestResolveTypedCallsNoGoModSkipsCleanly (issue 28): a root with no go.mod
+// (a CUDA/asm-only tree, or any non-Go fixture) must report success with
+// zero edges, not a synthetic "directory prefix . does not contain main
+// module" error. Before this guard, packages.Load ran anyway and produced
+// exactly that pseudo-package error, indistinguishable from a genuine
+// toolchain-mismatch degradation to a caller that only sees "the pass
+// errored" — which would have made every non-Go fixture (most of
+// internal/mcpserver's tests) look "degraded" once state/check started
+// surfacing TypedPassError.
+func TestResolveTypedCallsNoGoModSkipsCleanly(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "demo.go", "package demo\n\nfunc F() {}\n")
+
+	g := graph.NewMem()
+	if _, err := newTestIndexer(g).IndexAll(context.Background(), root); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+	added, err := ResolveTypedCalls(context.Background(), g, root, nil)
+	if err != nil {
+		t.Fatalf("ResolveTypedCalls with no go.mod: %v, want nil (nothing to type-check)", err)
+	}
+	if added != 0 {
+		t.Fatalf("ResolveTypedCalls with no go.mod added %d edges, want 0", added)
+	}
+}
+
+// TestResolveTypedCallsPackageErrorsCarryCount forces the per-package-errors
+// branch (the shape a Go-version toolchain mismatch takes in the field —
+// packages.Load itself succeeds, but each affected package's own Errors is
+// populated, e.g. "go.mod requires go >= X (running go Y)" naming both
+// versions) via the same loadPackages stub seam the cache tests use, since
+// reproducing a real toolchain mismatch would need a second Go SDK on the
+// test machine. It pins the two things issue 28's fix needs from this path:
+// the returned error is a *TypedPassError, and Packages counts DISTINCT
+// packages with errors, not the raw error count (one package below reports
+// two errors, so a naive count would read 2, not 1).
+func TestResolveTypedCallsPackageErrorsCarryCount(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/m\n\ngo 1.25\n")
+
+	badPkgs := []*packages.Package{
+		{Name: "good"},
+		{Name: "bad1", Errors: []packages.Error{
+			{Msg: "go.mod requires go >= 1.99.0 (running go 1.25.0)"},
+		}},
+		{Name: "bad2", Errors: []packages.Error{
+			{Msg: "go.mod requires go >= 1.99.0 (running go 1.25.0)"},
+			{Msg: "undefined: someSymbol"},
+		}},
+	}
+	prev := loadPackages
+	loadPackages = func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return badPkgs, nil
+	}
+	defer func() { loadPackages = prev }()
+
+	g := graph.NewMem()
+	_, err := ResolveTypedCalls(context.Background(), g, root, nil)
+	if err == nil {
+		t.Fatalf("ResolveTypedCalls: want an error when packages report load errors, got nil")
+	}
+	var tpErr *TypedPassError
+	if !errors.As(err, &tpErr) {
+		t.Fatalf("ResolveTypedCalls error = %v (%T), want a *TypedPassError", err, err)
+	}
+	if tpErr.Packages != 2 {
+		t.Errorf("TypedPassError.Packages = %d, want 2 (bad1 and bad2 — good must not count, and bad2's two errors must not double-count its one package)", tpErr.Packages)
+	}
+	if !strings.Contains(tpErr.Error(), "go.mod requires go >=") {
+		t.Errorf("TypedPassError.Error() = %q, missing the example cause text (both Go versions, per issue 28's field report)", tpErr.Error())
 	}
 }
 

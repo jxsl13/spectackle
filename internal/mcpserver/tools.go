@@ -1199,7 +1199,7 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 	if dir == "" {
 		dir = "."
 	}
-	fmt.Fprintf(&b, "ok %s %s\nr %s %s %s %s\n", res.ID, res.Path, res.ID, p, dir, sentence)
+	fmt.Fprintf(&b, "ok %s %s%s\nr %s %s %s %s\n", res.ID, res.Path, s.rootSuffix(), res.ID, p, dir, sentence)
 	s.journalRule("add", res.ID, sentence, in.Applies, in.Item, dirOf(in.Dir))
 	b.WriteString(s.stampAnchors(res.ID, sentence, in.Applies))
 	return text(b.String())
@@ -1253,6 +1253,23 @@ func (s *Server) editPattern(in ruleIn, c *spec.Cascade) (ears.Pattern, bool, *m
 	return old.Pattern, true, nil
 }
 
+// rootSuffix names the root a written path is relative to, and ONLY when that
+// is not the main repository — which is the whole ambiguity GitHub issue 27
+// reported: a path printed relative to the resolved root read as if the write
+// had landed locally, while it had actually gone to the enclosing checkout.
+//
+// Emitted conditionally rather than always, because the common case is
+// root == main and a constant absolute path on every rule write would be a
+// permanent token cost on the surface's most frequent write, to disambiguate
+// something that is not ambiguous. That is the same omit-if-empty discipline
+// the context packs already follow (SPX-MCP-004).
+func (s *Server) rootSuffix() string {
+	if s.main.Dir == "" || s.ws.Dir == s.main.Dir {
+		return ""
+	}
+	return " root=" + s.ws.Dir
+}
+
 func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
 	if in.ID == "" {
 		return text("! ARG E - edit requires id")
@@ -1302,7 +1319,7 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 	if sentence == "" {
 		sentence = final.Text
 	}
-	fmt.Fprintf(&b, "ok %s %s\n", in.ID, res.Path)
+	fmt.Fprintf(&b, "ok %s %s%s\n", in.ID, res.Path, s.rootSuffix())
 	s.journalRule("edit", in.ID, sentence, in.Applies, in.Item, ruleCtx(res.Path))
 	if in.Applies != nil {
 		b.WriteString(s.stampAnchors(in.ID, sentence, in.Applies))
@@ -1570,6 +1587,16 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// spec lint
 	for _, f := range c.Findings() {
 		lines = append(lines, f.String())
+	}
+
+	// typed-call pass degradation (issue 28): a toolchain mismatch or a
+	// broken module silently drops every typed ECall edge the go/types
+	// upgrade pass would have added, and check would otherwise say nothing
+	// at all about it — same finding and same omit-if-healthy gate as
+	// state's #graph section (see typedPassFinding, state.go), so the two
+	// tools never disagree on when this is worth reporting.
+	if f := s.typedPassFinding(); f != "" {
+		lines = append(lines, f)
 	}
 
 	// coverage: source dirs with zero applicable rules

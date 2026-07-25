@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,7 +51,10 @@ func TestDetect(t *testing.T) {
 		t.Fatalf("git fallback = %s, want %s", ws2.Dir, root2)
 	}
 
-	// flag fallback: bare dir
+	// flag fallback: bare dir. No git anywhere above (t.TempDir() is not
+	// nested in a repo) — the workspace must anchor at the given directory
+	// rather than walking all the way up to the filesystem root (issue 27's
+	// second probe).
 	root3 := t.TempDir()
 	ws3, err := Detect(root3, root3)
 	if err != nil {
@@ -58,6 +62,97 @@ func TestDetect(t *testing.T) {
 	}
 	if ws3.Dir != root3 {
 		t.Fatalf("flag fallback = %s, want %s", ws3.Dir, root3)
+	}
+}
+
+// runGit runs git in dir with a fixed identity, matching internal/wt's own
+// test fixtures, so these tests never depend on the host's git config. It
+// skips the calling test (not fails it) when git itself is unavailable,
+// matching internal/wt.InitTestRepo's convention.
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", dir,
+		"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}, args...)
+	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+		if _, lookErr := exec.LookPath("git"); lookErr != nil {
+			t.Skipf("git unavailable: %v", lookErr)
+		}
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// TestDetectNestedGitWorktreeIsOwnRoot is GitHub issue 27: a linked git
+// worktree's .git is a FILE (a "gitdir: ..." pointer), not a directory.
+// Detect's git-boundary walk used to test only dirExists(.git), so from
+// inside such a worktree it skipped straight past that file and kept
+// climbing until it hit the main checkout's real .git directory — an
+// explicit -root naming the worktree therefore silently resolved to the
+// enclosing checkout instead, and every bundle write landed there.
+func TestDetectNestedGitWorktreeIsOwnRoot(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	wtDir := filepath.Join(main, "wt", "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	ws, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != wtDir {
+		t.Fatalf("Detect(nested worktree) = %s, want %s (a .git FILE must terminate the walk exactly like a .git dir)", ws.Dir, wtDir)
+	}
+
+	// the write lands in the worktree's OWN bundle...
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(filepath.Join(wtDir, Dot, "config.yaml")) {
+		t.Fatal("worktree did not get its own .spectackle bundle")
+	}
+	// ...and the enclosing main checkout's bundle is untouched.
+	if _, err := os.Stat(filepath.Join(main, Dot)); err == nil {
+		t.Fatal("the enclosing main checkout's .spectackle must not have been written to")
+	}
+}
+
+// TestDetectWorktreeOutsideMainCheckoutStillWorks is the field report's third
+// probe: a worktree placed OUTSIDE the main checkout already got its own
+// bundle before this fix (there is no enclosing .git directory to find), and
+// must keep doing so — this guards against a fix to the nested case that
+// accidentally widens the walk and starts skipping non-nested worktrees too.
+func TestDetectWorktreeOutsideMainCheckoutStillWorks(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	wtDir := filepath.Join(t.TempDir(), "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	ws, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != wtDir {
+		t.Fatalf("Detect(worktree outside main checkout) = %s, want %s", ws.Dir, wtDir)
+	}
+}
+
+// TestDetectRootFlagTargetsNamedRepo is the field report's first probe: an
+// explicit root naming a different repository must target that repository,
+// not the one detection would otherwise land in — the flag was never
+// ignored, and this fix must not change that.
+func TestDetectRootFlagTargetsNamedRepo(t *testing.T) {
+	repoA := t.TempDir()
+	repoB := t.TempDir()
+	runGit(t, repoA, "init", "-q", "-b", "main")
+	runGit(t, repoB, "init", "-q", "-b", "main")
+
+	ws, err := Detect(repoA, repoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != repoA {
+		t.Fatalf("Detect(-root repoA) = %s, want %s (must target the named repo, never repoB)", ws.Dir, repoA)
 	}
 }
 
@@ -194,6 +289,152 @@ func TestSkipDirConfigIgnore(t *testing.T) {
 	}
 	if len(ctxs) != 1 || ctxs[0] != "" {
 		t.Fatalf("ContextDirs = %v, want only the root bundle (glob/regex ignores must prune generated/ and vendor-acme/)", ctxs)
+	}
+}
+
+// initGitRepo creates a real git repo at root or skips the test — the
+// git-ignore layer of SkipDir (internal/ignore) only has anything to prove
+// against an actual git checkout.
+func initGitRepo(t *testing.T, root string) {
+	t.Helper()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v: %s", err, out)
+	}
+}
+
+// walkFiles mirrors ContextDirs' own walk (WalkDir + SkipDir at every
+// directory) but collects plain files instead of .spectackle bundles, so it
+// can stand in for "what would the indexer see" without reaching into
+// internal/index, which is out of scope for this change.
+func walkFiles(t *testing.T, ws Root) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(ws.Dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(ws.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if d.IsDir() {
+			if rel != "" && ws.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		out = append(out, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestSkipDirGitIgnoreDuplicateSymbol reproduces the issue 26 field report at
+// the level this change owns: a gitignored directory holding a same-named
+// copy of a file disappears from the walk entirely, leaving only the real,
+// non-ignored copy reachable. (Which copy of a duplicate symbol keeps the
+// unsuffixed node ID is decided downstream in internal/index's disambiguate,
+// out of scope here — but it can only ever see the one copy this walk hands
+// it.)
+func TestSkipDirGitIgnoreDuplicateSymbol(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root)
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(".gitignore", ".venv/\n")
+	// same basename, same content, one copy inside a gitignored virtualenv —
+	// the exact shape of the collision the field report measured.
+	mk(".venv/pkg/mod.go", "package pkg\nfunc Foo() {}\n")
+	mk("pkg/mod.go", "package pkg\nfunc Foo() {}\n")
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := walkFiles(t, ws)
+
+	if !slices.Contains(files, "pkg/mod.go") {
+		t.Errorf("walk = %v, want it to contain pkg/mod.go (the real, non-ignored copy)", files)
+	}
+	if slices.Contains(files, ".venv/pkg/mod.go") {
+		t.Errorf("walk = %v, must NOT contain .venv/pkg/mod.go (gitignored)", files)
+	}
+}
+
+// TestSkipDirGitIgnoreNoGitRepo proves the required degradation: a
+// workspace with no git repository at all must walk exactly as it did
+// before internal/ignore existed — every path visited, nothing pruned by
+// the new check.
+func TestSkipDirGitIgnoreNoGitRepo(t *testing.T) {
+	root := t.TempDir() // deliberately never git-init'd
+	p := filepath.Join(root, "anydir", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.SkipDir("anydir", "anydir") {
+		t.Fatal("SkipDir pruned a directory in a non-git workspace")
+	}
+	if files := walkFiles(t, ws); !slices.Contains(files, "anydir/keep.txt") {
+		t.Errorf("walk = %v, want anydir/keep.txt reachable", files)
+	}
+}
+
+// TestSkipDirGitIgnoreConfigPrecedence proves the config.yaml ignore knobs
+// still work, and still run ahead of the git-backed check, once both are in
+// play side by side: a glob-ignored dir that git knows nothing about is
+// still pruned, and a git-ignored dir that config knows nothing about is
+// also pruned — neither mechanism shadows the other.
+func TestSkipDirGitIgnoreConfigPrecedence(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root)
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(".gitignore", ".venv/\n") // git-only ignore, config knows nothing of it
+	mk(".venv/x.go", "package x\n")
+	mk("generated/x.go", "package x\n") // config-only ignore, git knows nothing of it
+	mk("kept/x.go", "package x\n")
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Cfg.Ignore = append(ws.Cfg.Ignore, "generated/**")
+
+	files := walkFiles(t, ws)
+	if slices.Contains(files, ".venv/x.go") {
+		t.Errorf("walk = %v, must NOT contain .venv/x.go (git-ignored)", files)
+	}
+	if slices.Contains(files, "generated/x.go") {
+		t.Errorf("walk = %v, must NOT contain generated/x.go (config-ignored)", files)
+	}
+	if !slices.Contains(files, "kept/x.go") {
+		t.Errorf("walk = %v, want kept/x.go reachable", files)
 	}
 }
 
@@ -418,4 +659,61 @@ func TestSchemaStampMatchesMigrationTarget(t *testing.T) {
 	if migrate.From == migrate.To {
 		t.Fatalf("migrate.From == migrate.To == %q: the migration is a no-op", migrate.To)
 	}
+}
+
+// TestDetectNestedWorktreeWinsOverAncestorBundle is the half of GitHub issue 27
+// that a .git-file predicate alone does not reach, and the case the original
+// report actually described: "not even with an absolute -root naming it".
+//
+// Detection tries the .spectackle/config.yaml marker BEFORE the .git marker, so
+// when the ENCLOSING checkout already carries a bundle the walk used to sail
+// past the worktree straight to the parent's config.yaml — and every write
+// landed in the parent. Accepting .git files fixed only the case where no
+// ancestor bundle existed yet, which is why a reproduction built on a bare
+// parent passed while the reported scenario stayed broken.
+func TestDetectNestedWorktreeWinsOverAncestorBundle(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	// the enclosing checkout owns a bundle, as any real repository would —
+	// this is the ingredient the sibling reproduction lacked.
+	if err := (Root{Dir: main}).EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(filepath.Join(main, Dot, "config.yaml")) {
+		t.Fatal("fixture: the parent bundle was not scaffolded")
+	}
+	wtDir := filepath.Join(main, "wt", "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	got, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePathTest(got.Dir, wtDir) {
+		t.Fatalf("Detect(nested worktree) = %s, want %s — it resolved past the worktree to the ancestor bundle", got.Dir, wtDir)
+	}
+
+	// and the ordinary case must not regress: from a plain subdirectory of a
+	// normal repo, the root bundle above is still what gets found.
+	sub := filepath.Join(main, "deep", "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Detect(sub, sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePathTest(got.Dir, main) {
+		t.Fatalf("Detect(subdir of a normal repo) = %s, want the repo root %s", got.Dir, main)
+	}
+}
+
+func samePathTest(a, b string) bool {
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	if err1 != nil || err2 != nil {
+		return a == b
+	}
+	return ra == rb
 }

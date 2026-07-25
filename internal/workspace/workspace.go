@@ -4,7 +4,9 @@
 //
 // Root detection order: walk up from the start dir for .spectackle/config.yaml
 // (the root marker — nested context dirs also have .spectackle/ folders, so the
-// folder alone is ambiguous), then for .git, then fall back to the -root flag.
+// folder alone is ambiguous), then for .git (directory or file — a linked git
+// worktree's .git is a file, and it terminates the walk exactly like a real
+// checkout's .git directory does), then fall back to the -root flag.
 package workspace
 
 import (
@@ -15,9 +17,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/jxsl13/spectackle/internal/ignore"
 	"github.com/jxsl13/spectackle/internal/migrate"
 )
 
@@ -98,14 +102,20 @@ func Detect(start, flagRoot string) (Root, error) {
 	if err != nil {
 		return Root{}, err
 	}
-	if d, ok := walkUp(abs, func(dir string) bool {
+	if d, ok := walkUpToGitBoundary(abs, func(dir string) bool {
 		return fileExists(filepath.Join(dir, Dot, "config.yaml"))
 	}); ok {
 		return load(d)
 	}
-	if d, ok := walkUp(abs, func(dir string) bool {
-		return dirExists(filepath.Join(dir, ".git"))
-	}); ok {
+	// IsNestedGitBoundary stats .git regardless of file-vs-directory: a linked
+	// git worktree has a .git FILE (a "gitdir: ..." pointer), not a directory.
+	// Walking past it used to land Detect on the enclosing main checkout
+	// instead — harmless for main-repo resolution below (git rev-parse finds
+	// the real common dir independently), but fatal for an explicit -root
+	// naming the worktree itself: the active root would silently move to a
+	// different directory than the one named, and every bundle write would
+	// land in the shared main checkout instead (issue 27).
+	if d, ok := walkUp(abs, IsNestedGitBoundary); ok {
 		return load(d)
 	}
 	if flagRoot != "" {
@@ -116,6 +126,43 @@ func Detect(start, flagRoot string) (Root, error) {
 		return load(fr)
 	}
 	return Root{}, fmt.Errorf("workspace: no %s/config.yaml or .git found above %s (pass -root)", Dot, abs)
+}
+
+// walkUpToGitBoundary is walkUp that refuses to ascend OUT of a git
+// repository or worktree: the current directory is always tested, but once it
+// turns out to be a git boundary the walk stops there rather than continuing
+// into the enclosing checkout.
+//
+// This is the other half of GitHub issue 27, and the half a .git-file
+// predicate alone does not reach. Root detection tries the
+// .spectackle/config.yaml marker BEFORE the .git marker, so a worktree nested
+// inside a repository that already carries a bundle used to resolve straight
+// past itself to the parent's config.yaml — writing the enclosing checkout's
+// bundle even when an absolute -root named the worktree, which is exactly what
+// the reporter observed. A nested worktree, submodule or clone is foreign
+// territory; the codebase already treats it that way in every content walk
+// (see IsNestedGitBoundary and its use in SkipDir and the indexer), and
+// detection has to agree with them or the two disagree about what the
+// workspace is.
+//
+// The common case is untouched: from repo/sub/dir the walk tests dir, sub and
+// then repo — repo is the boundary, but it is TESTED before the walk stops, so
+// a bundle at the repository root is still found from any depth inside it.
+func walkUpToGitBoundary(start string, ok func(string) bool) (string, bool) {
+	d := start
+	for {
+		if ok(d) {
+			return d, true
+		}
+		if IsNestedGitBoundary(d) {
+			return "", false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", false
+		}
+		d = parent
+	}
 }
 
 func walkUp(start string, ok func(string) bool) (string, bool) {
@@ -297,6 +344,29 @@ func matchIgnoreGlob(g, p string) bool {
 	return ok
 }
 
+// gitIgnoreCache memoizes one ignore.Matcher per workspace root for the
+// life of the process. SkipDir runs once per directory entry in every
+// workspace walk (ContextDirs, spec.Load's cascade, the swarm freshness
+// walk, ...), so a git subprocess per call is unacceptable — see
+// internal/ignore.New, which is the one place the subprocess actually runs.
+// Root carries no matcher of its own (it's a plain value copied through
+// every walk), so the cache is keyed by Dir instead of hung off the struct.
+//
+// The tradeoff this buys: a .gitignore edited after a root's first walk in
+// this process won't be seen again until the process restarts. That is the
+// same staleness window every other in-process cache here already accepts,
+// and it is strictly better than the pre-issue-26 behavior it replaces.
+var gitIgnoreCache sync.Map // root dir (string) -> *ignore.Matcher
+
+func gitIgnoreFor(root string) *ignore.Matcher {
+	if v, ok := gitIgnoreCache.Load(root); ok {
+		return v.(*ignore.Matcher)
+	}
+	m := ignore.New(root)
+	actual, _ := gitIgnoreCache.LoadOrStore(root, m)
+	return actual.(*ignore.Matcher)
+}
+
 // SkipDir is the single entry point every workspace walk (ContextDirs,
 // spec.Load, the coverage-gap walk, and — via DefaultSkipName /
 // IsNestedGitBoundary — the indexer) shares to decide whether to prune a
@@ -307,7 +377,11 @@ func matchIgnoreGlob(g, p string) bool {
 //     the root itself;
 //   - name is one of the built-in defaults (DefaultSkipName);
 //   - rel matches a configured Config.Ignore glob;
-//   - rel matches a configured Config.IgnoreRegex pattern.
+//   - rel matches a configured Config.IgnoreRegex pattern;
+//   - rel is excluded by git itself (internal/ignore) — checked last, after
+//     every user-configurable and built-in rule, so config always wins and
+//     the cheap checks above run before the (memoized, but still map-lookup
+//     plus climb) git-backed one.
 func (r Root) SkipDir(rel, name string) bool {
 	if rel != "" && IsNestedGitBoundary(filepath.Join(r.Dir, filepath.FromSlash(rel))) {
 		return true
@@ -328,6 +402,9 @@ func (r Root) SkipDir(rel, name string) bool {
 		if re.MatchString(rel) {
 			return true
 		}
+	}
+	if gitIgnoreFor(r.Dir).Ignored(rel) {
+		return true
 	}
 	return false
 }
@@ -509,9 +586,4 @@ func ensureLines(path string, lines ...string) error {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
-}
-
-func dirExists(p string) bool {
-	st, err := os.Stat(p)
-	return err == nil && st.IsDir()
 }

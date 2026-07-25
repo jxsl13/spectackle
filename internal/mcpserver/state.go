@@ -20,6 +20,65 @@ import (
 // human can orient without walking find/get/check/swarm separately. It
 // writes nothing — no drift.Save, no backprop drafts, no journal entries.
 
+// TypedPassState is the go/types call-edge upgrade pass's outcome on the
+// last successful reindex — whether it ran, and if not, why and how many
+// packages were affected (issue 28). BuildGraph (server.go) returns this
+// instead of a bare edge count precisely so the failure survives past the
+// log line reindex's stderr always got: a resident server driven over
+// stdio/HTTP, or the `call` subcommand, never sees stderr, so `state`
+// answering "ok graph nodes=N edges=M" with no mention of the degradation
+// left an agent trusting a `get depth` impact radius that had silently lost
+// every cross-package typed call edge. Both stateGraphSection (state.go) and
+// check() (tools.go) read it via typedPassFinding below, so the record's
+// wording and gate live in exactly one place.
+type TypedPassState struct {
+	Added int // edges added; meaningful only when Cause == ""
+
+	// Cause is "" when the pass is healthy: it either completed over real
+	// packages, or found no Go module at root to check at all
+	// (index.ResolveTypedCalls treats that as nothing to do, not a
+	// failure) — either way there is nothing to warn about. Cause is
+	// non-empty exactly when the pass failed, and Cause == "" is
+	// deliberately the ONLY signal typedPassFinding trusts (not a separate
+	// "did it run" bool): the zero-value TypedPassState — before the very
+	// first reindex completes, or after a reindex whose IndexAll itself
+	// failed and left the previous state untouched — must read as healthy,
+	// not as a phantom degradation with an empty cause.
+	Cause string
+
+	// Packages is the number of packages that individually failed to
+	// load/type-check; 0 when Cause == "", or when the whole-module load
+	// failed before any per-package breakdown existed.
+	Packages int
+}
+
+// typedPassFinding renders s.typedPass as a `!` finding when the pass did
+// not complete, or "" when it did. A healthy index must add NOTHING here —
+// the output-diet contract (SPX-ARC-002, omit-if-empty) — so both `state`
+// (stateGraphSection below) and `check` (tools.go) call this one function
+// rather than composing their own wording, keeping the gate and the message
+// identical on both surfaces.
+//
+// Shape: reuses the existing `!` finding grammar (docs/tools.md) rather than
+// inventing a new record letter — TYPED joins LEASE/WT/GATE/LOCK/GRILL/NEEDS
+// as a non-lint code under the same `! <code> <sev> <ref> <msg>` line. `h`
+// (the harness-detection / stale-binary hint shape) was the other
+// candidate, but `!` fits better: this is a structured, severity-carrying
+// finding an agent should branch on (skip/avoid extra logging, temporary
+// distrust of impact-radius answers), not a passive nudge, and it is a
+// WARNING (W) — the graph still answers, just from syntactic edges only —
+// not an error, since nothing here blocks the call.
+func (s *Server) typedPassFinding() string {
+	tp := s.typedPass
+	if tp.Cause == "" {
+		return ""
+	}
+	return fmt.Sprintf(
+		"! TYPED W - typed-call pass disabled packages=%d: %s (graph has syntactic call edges only — get depth/impact answers under-report cross-package blast radius until this is fixed)",
+		tp.Packages, tp.Cause,
+	)
+}
+
 type stateIn struct {
 	Path   string `json:"path,omitempty" jsonschema:"subtree, default all"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
@@ -174,13 +233,20 @@ func stateRulesSection(c *spec.Cascade, path string) string {
 
 // stateGraphSection: whole-graph size, not path-filtered (the graph has no
 // per-node "within path" notion cheaper than a full scan; nodes=0 omits the
-// section entirely rather than printing a vacuous zero record).
+// section entirely rather than printing a vacuous zero record), plus a
+// typed-call-pass degradation finding (see typedPassFinding) when the last
+// reindex's go/types upgrade pass did not complete — omitted on a healthy
+// pass, same as the rest of this section on an empty graph.
 func (s *Server) stateGraphSection() string {
 	nodes, edges := s.g.Stats()
 	if nodes == 0 {
 		return ""
 	}
-	return fmt.Sprintf("ok graph nodes=%d edges=%d\n", nodes, edges)
+	line := fmt.Sprintf("ok graph nodes=%d edges=%d\n", nodes, edges)
+	if f := s.typedPassFinding(); f != "" {
+		line += f + "\n"
+	}
+	return line
 }
 
 // stateSwarmSection mirrors the swarm tool's ag/l/wt lines (no sw learnings
