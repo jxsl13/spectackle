@@ -244,3 +244,4 @@
 {"t":"2026-07-25T18:28:23Z","eid":"f802556d99e5d5b2","ag":"ag-a11a","ev":"move","id":"T-01KYD8HC02EDSVB104TRJS23Y1","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T18:38:15Z","eid":"b2a60c454837558b","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD8HC02EDSVB104TRJS23Y1","dir":"internal/mcpserver","fr":"active","to":"done"}
 {"t":"2026-07-25T18:52:02Z","eid":"e62e4d7450b080b4","ag":"ag-b257","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"ed9fe7d1ad04fad8","nh":"6857e2d4d546f0ac"}
+{"t":"2026-07-25T19:00:17Z","eid":"2b54c217bf97e686","ag":"dogfeed-orchestrator","ev":"archive","id":"T-01KYD8HC02EDSVB104TRJS23Y1","k":"task","ti":"the stale-binary hint fires only for a development build serving its own tree","dir":"internal/mcpserver","sum":"archived with parent P-01KYD8DK52EG5A1AKC1KSRR4Z2"}
