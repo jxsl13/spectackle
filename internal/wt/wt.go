@@ -112,13 +112,13 @@ func CommitCode(wtRoot, msg string) (bool, error) {
 	if _, err := git(wtRoot, append([]string{"add", "-A", "--"}, codeOnly...)...); err != nil {
 		return false, err
 	}
-	out, _ := git(wtRoot, "status", "--porcelain")
+	// stagedness comes from an exit-code probe, never from parsing porcelain
+	// output: the shared git() helper trims the combined output, which eats
+	// the significant leading space off the first status line and misread an
+	// unstaged-only .spectackle change as staged (B-0005).
 	staged := false
-	for _, l := range strings.Split(out, "\n") {
-		if len(l) > 0 && l[0] != ' ' && l[0] != '?' {
-			staged = true
-			break
-		}
+	if _, err := git(wtRoot, "diff", "--cached", "--quiet"); err != nil {
+		staged = true
 	}
 	if !staged && !MergeInProgress(wtRoot) {
 		return false, nil
@@ -129,10 +129,39 @@ func CommitCode(wtRoot, msg string) (bool, error) {
 	return true, nil
 }
 
-// MergeMain merges main INTO the worktree branch. On conflict the merge is
-// left in progress (resumable) and the conflicted files are returned.
+// MergeMain merges the primary checkout's current branch INTO the worktree
+// branch. On conflict the merge is left in progress (resumable) and the
+// conflicted files are returned. The target is resolved, never assumed: a
+// hardcoded "main" silently merged a stale ref in repos developing on a
+// differently named branch, and the submit then died at the fast-forward
+// with a diverging-branches error (B-0004).
 func MergeMain(wtRoot string) (conflicts []string, err error) {
-	if _, err := git(wtRoot, "merge", "--no-edit", "main"); err != nil {
+	target := "main"
+	if mainRoot, isWT, crErr := CommonRoot(wtRoot); crErr == nil && isWT {
+		if b, brErr := git(mainRoot, "symbolic-ref", "--short", "HEAD"); brErr == nil && b != "" {
+			target = b
+		} else if sha, shErr := git(mainRoot, "rev-parse", "HEAD"); shErr == nil && sha != "" {
+			target = sha // detached primary checkout: merge the commit itself
+		}
+	}
+	// The worktree's .spectackle files are live replay input, deliberately
+	// uncommitted (copyBundles seeds them, CommitCode excludes them) — yet
+	// they sit in git's working tree, so a merge whose tip touches the same
+	// paths refuses to proceed (B-0006). Preserve their exact bytes, clear
+	// them for the merge, and put them back: replay stays the sole owner of
+	// record-state reconciliation, git never sees the dirt.
+	if !MergeInProgress(wtRoot) {
+		restore, perr := preserveSpectackle(wtRoot)
+		if perr != nil {
+			return nil, perr
+		}
+		defer func() {
+			if rerr := restore(); rerr != nil && err == nil {
+				conflicts, err = nil, rerr
+			}
+		}()
+	}
+	if _, err := git(wtRoot, "merge", "--no-edit", target); err != nil {
 		out, lsErr := git(wtRoot, "diff", "--name-only", "--diff-filter=U")
 		if lsErr == nil && out != "" {
 			return strings.Split(out, "\n"), nil
@@ -140,6 +169,62 @@ func MergeMain(wtRoot string) (conflicts []string, err error) {
 		return nil, err
 	}
 	return nil, nil
+}
+
+// preserveSpectackle saves the byte content of every working-tree-modified
+// (tracked) and untracked path under a .spectackle dir, clears them so a
+// merge can run against a clean tree, and returns a restore that writes the
+// exact bytes back. See MergeMain (B-0006).
+func preserveSpectackle(wtRoot string) (restore func() error, err error) {
+	inBundle := func(p string) bool {
+		return p != "" && strings.Contains("/"+filepath.ToSlash(p), "/.spectackle/")
+	}
+	saved := map[string][]byte{}
+	var tracked []string
+	if out, dErr := git(wtRoot, "diff", "--name-only"); dErr == nil {
+		for _, p := range strings.Split(out, "\n") {
+			if inBundle(p) {
+				tracked = append(tracked, p)
+			}
+		}
+	}
+	var untracked []string
+	if out, uErr := git(wtRoot, "ls-files", "--others", "--exclude-standard"); uErr == nil {
+		for _, p := range strings.Split(out, "\n") {
+			if inBundle(p) {
+				untracked = append(untracked, p)
+			}
+		}
+	}
+	for _, p := range append(append([]string{}, tracked...), untracked...) {
+		b, rErr := os.ReadFile(filepath.Join(wtRoot, p))
+		if rErr != nil {
+			return nil, rErr
+		}
+		saved[p] = b
+	}
+	if len(tracked) > 0 {
+		if _, cErr := git(wtRoot, append([]string{"checkout", "--"}, tracked...)...); cErr != nil {
+			return nil, cErr
+		}
+	}
+	for _, p := range untracked {
+		if rmErr := os.Remove(filepath.Join(wtRoot, p)); rmErr != nil {
+			return nil, rmErr
+		}
+	}
+	return func() error {
+		for p, b := range saved {
+			abs := filepath.Join(wtRoot, p)
+			if mkErr := os.MkdirAll(filepath.Dir(abs), 0o755); mkErr != nil {
+				return mkErr
+			}
+			if wErr := os.WriteFile(abs, b, 0o644); wErr != nil {
+				return wErr
+			}
+		}
+		return nil
+	}, nil
 }
 
 // MergeInProgress reports whether a conflicted merge awaits resolution.

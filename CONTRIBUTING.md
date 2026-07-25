@@ -46,6 +46,20 @@ before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml
 re-runs the same steps plus `make fuzz` and the self-hosting `check` gate, and does not
 merge red.
 
+## The resident server must be rebuilt and restarted after every merge
+
+spectackle develops itself with itself: the resident MCP server *is* the
+product under change, not a bystander to it. Every merged feature or fix
+must be followed by `make dev` — it rebuilds the binary and restarts the
+resident server, proving readiness with a real `state` call before
+returning. Skipping this leaves a stale binary answering `find`/`get`/`draft`
+calls from code that no longer exists, which looks and feels exactly like a
+new defect in whatever you just shipped, not like an operator error. `make
+dev` is idempotent (safe to run again if unsure) and is the natural next
+step after `make all` goes green. See the [README resident-service
+section](README.md#resident-service-recommended-for-more-than-one-call) for
+`dev-stop`/`dev-status` and the manual invocation it wraps.
+
 ## `.spectackle/` is server-written only
 
 Never hand-edit files under `.spectackle/` — they are the server's
