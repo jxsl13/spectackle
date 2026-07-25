@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
@@ -47,8 +48,19 @@ func gitRoot(t *testing.T) string {
 	return root
 }
 
+// TestTwoServersMintUniqueIDs asserts uniqueness over the IDs ON DISK, never
+// over the IDs the two servers PRINTED. Those are different things, and the
+// distinction is the whole point: a rendered ID is the shortest prefix that
+// was unambiguous against the printing server's own known set at that
+// instant. Alice and Bob shorten independently, so two genuinely distinct
+// full IDs minted in the same millisecond — UUIDv7 leads with a 48-bit
+// millisecond timestamp, so near-simultaneous mints share a long run — can
+// and do render to the same short token. Comparing the printed tokens made
+// this test fail on a timing coincidence while the invariant it names held
+// perfectly.
 func TestTwoServersMintUniqueIDs(t *testing.T) {
-	alice, bob := twoAgents(t, t.TempDir())
+	root := t.TempDir()
+	alice, bob := twoAgents(t, root)
 	const n = 8
 	results := make(chan string, 2*n)
 	for i := 0; i < n; i++ {
@@ -61,20 +73,79 @@ func TestTwoServersMintUniqueIDs(t *testing.T) {
 				"kind": "task", "title": fmt.Sprintf("bob %d", i)}))[1]
 		}(i)
 	}
-	seen := map[string]bool{}
 	for i := 0; i < 2*n; i++ {
-		id := <-results
-		if !strings.HasPrefix(id, "T-") { // sw piggyback line may shift fields
+		if id := <-results; !strings.HasPrefix(id, "T-") { // sw piggyback line may shift fields
 			t.Fatalf("unexpected ID token %q", id)
 		}
-		if seen[id] {
-			t.Fatalf("duplicate ID %s minted across two servers", id)
+	}
+
+	// Every draft acknowledged; now read what was actually stored. Stored
+	// values are always full IDs, so this is the durable comparison.
+	items, err := item.LoadAll(workspace.Root{Dir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, it := range items {
+		if !strings.HasPrefix(it.ID, "T-") {
+			continue
 		}
-		seen[id] = true
+		if seen[it.ID] {
+			t.Fatalf("duplicate full ID %s stored across two servers", it.ID)
+		}
+		seen[it.ID] = true
 	}
 	out := callText(t, alice, "check", map[string]any{})
 	if strings.Contains(out, "E101") {
 		t.Fatalf("duplicate item IDs on disk:\n%s", out)
+	}
+}
+
+// TestConcurrentDraftsPersistEveryItem is the acceptance test for
+// B-01KYD57FN3ERHBM5EQ3534YJXP and is expected to fail until that item is
+// fixed. Every draft above is acknowledged with a distinct ID, but fewer than
+// 2n items reach disk: item.Upsert read-modify-writes the whole of work.md
+// with no cross-process lock, so two concurrent writers both read N and both
+// write N+1, and the later write erases the earlier one's record. Server.mu
+// does not help — it is per process, and the shipped topology is N stdio
+// processes.
+//
+// Unique IDs do not close this. P-0088 removed the chance of two records
+// sharing an ID; it did nothing about a record being overwritten by a
+// neighbor whose ID was never in doubt. Delete the Skip to run it.
+func TestConcurrentDraftsPersistEveryItem(t *testing.T) {
+	t.Skip("known defect B-01KYD57FN3ERHBM5EQ3534YJXP: concurrent Upsert loses records")
+
+	root := t.TempDir()
+	alice, bob := twoAgents(t, root)
+	const n = 8
+	done := make(chan struct{}, 2*n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			callText(t, alice, "draft", map[string]any{"kind": "task", "title": fmt.Sprintf("alice %d", i)})
+			done <- struct{}{}
+		}(i)
+		go func(i int) {
+			callText(t, bob, "draft", map[string]any{"kind": "task", "title": fmt.Sprintf("bob %d", i)})
+			done <- struct{}{}
+		}(i)
+	}
+	for i := 0; i < 2*n; i++ {
+		<-done
+	}
+
+	items, err := item.LoadAll(workspace.Root{Dir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := 0
+	for _, it := range items {
+		if strings.HasPrefix(it.ID, "T-") {
+			stored++
+		}
+	}
+	if stored != 2*n {
+		t.Fatalf("%d of %d acknowledged drafts reached disk — the rest were clobbered", stored, 2*n)
 	}
 }
 
