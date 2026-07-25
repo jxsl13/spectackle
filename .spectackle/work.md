@@ -80,7 +80,7 @@ KNOWN-FAILING TEST: TestConcurrentDraftsPersistEveryItem in internal/mcpserver/s
 
 ## T-01KYD5JB7GF34BFNVRAAX8B6GE serialize server-side whole-file rewrites through the coord.db lock table
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: B-01KYD57FN3ERHBM5EQ3534YJXP
 rounds: 1
