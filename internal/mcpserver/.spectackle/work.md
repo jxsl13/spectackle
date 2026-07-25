@@ -148,7 +148,7 @@ Found by the benchmark harness on its first run and fixed inside T-01KYDP's pull
 
 ## T-01KYDQWEQ5ETHBVYFRCWY536H3 state's rules inventory collapses to its summary: per-dir lines appear only where findings exist, proven by A/B
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYDPRXQSF8XAP1HCHY7390T8
 

@@ -304,3 +304,4 @@
 {"t":"2026-07-25T22:55:03Z","eid":"b42c916ebe6d5eac","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDQTEJWET2TGATS5207AJCJ","k":"bug","ti":"expand-built refusals bypassed the IsError sweep and exited zero","dir":"internal/mcpserver"}
 {"t":"2026-07-25T22:56:08Z","eid":"63b8de7e9f4fefd1","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDQWEQ5ETHBVYFRCWY536H3","k":"task","ti":"state's rules inventory collapses to its summary: per-dir lines appear only where findings exist, proven by A/B","dir":"internal/mcpserver"}
 {"t":"2026-07-25T22:56:44Z","eid":"3360a55ff9c58693","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDQWEQ5ETHBVYFRCWY536H3","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-25T23:01:13Z","eid":"998311efc7f0f53f","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDQWEQ5ETHBVYFRCWY536H3","dir":"internal/mcpserver","fr":"active","to":"done"}
