@@ -1,6 +1,9 @@
 package mcpserver
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,5 +106,94 @@ func TestExternalRefAcceptedByValidation(t *testing.T) {
 	}
 	if bad := item.UnknownRefs("T-01X", []string{"T-nope"}, known); len(bad) != 1 {
 		t.Fatalf("an unknown item ID must still be rejected: %v", bad)
+	}
+}
+
+// TestFullLoopLeavesNothingUncommitted pins the invariant directly: after a
+// complete lifecycle driven through the server, no file — record or code — sits
+// uncommitted in the checkout. This was field-reported as exactly that
+// question: "why are uncommitted files lying in the repo after a full loop?"
+// The answer was that CommitCode excludes .spectackle by design (B-0006) and
+// nothing mechanical owned the other half. gitCommitRecords now does.
+func TestFullLoopLeavesNothingUncommitted(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "leave nothing behind"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	// work happens: a code change AND more record writes (a second draft)
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	draftID(t, sess, map[string]any{"kind": "bug", "title": "left behind between transitions"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "loop closed"})
+
+	out, err := exec.Command("git", "-C", root, "status", "--porcelain", "-uall").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.Contains(line, ".spectackle/") {
+			t.Fatalf("record file uncommitted after a full loop:\n%s", out)
+		}
+	}
+}
+
+// TestRecordsCommitContainsOnlyRecords: the records commit is by explicit
+// path list, so nothing outside .spectackle may appear in it — not even code
+// the caller had staged. (The CODE commit sweeping staged code is by design:
+// committing the task's work is CommitCode's entire job. The invariant under
+// test is the records/code SEPARATION, not staging etiquette.)
+func TestRecordsCommitContainsOnlyRecords(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	if err := os.WriteFile(filepath.Join(root, "bystander.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "separation"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+
+	// every commit whose subject marks it as a records commit carries only
+	// .spectackle paths
+	logOut, err := exec.Command("git", "-C", root, "log", "--format=%H %s").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(logOut)), "\n") {
+		sha, subject, ok := strings.Cut(line, " ")
+		if !ok || !strings.Contains(subject, "records") {
+			continue
+		}
+		checked++
+		names, err := exec.Command("git", "-C", root, "show", "--name-only", "--format=", sha).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range strings.Split(strings.TrimSpace(string(names)), "\n") {
+			if f != "" && !strings.Contains(f, ".spectackle/") {
+				t.Fatalf("records commit %s carries a non-record path %q", sha, f)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no records commit found to check")
+	}
+}
+
+// writeOfflineGitConfig points the workspace at the offline forge so the
+// lifecycle runs with no network and no remote.
+func writeOfflineGitConfig(t *testing.T, root string) {
+	t.Helper()
+	p := filepath.Join(root, ".spectackle", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("schema: v1\ngit:\n  mode: offline\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

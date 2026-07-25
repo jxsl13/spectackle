@@ -223,6 +223,64 @@ func DeleteBranch(mainRoot, branch string) error {
 	return err
 }
 
+// CommitRecords stages and commits ONLY .spectackle record state, the exact
+// complement of CommitCode's pathspec split. committed=false means no record
+// file was dirty.
+//
+// It exists because the split left a hole: CommitCode runs mechanically on
+// every transition and excludes .spectackle (B-0006), so after a full
+// lifecycle the record delta sat uncommitted in the checkout with nobody
+// mechanical responsible for it — the one thing the always-pushed policy
+// forbids. This is the other half of that responsibility.
+//
+// The files are enumerated first and then added AND committed by explicit
+// path list. That is not a style choice: commit-by-explicit-pathspec is what
+// guarantees a user's concurrently staged unrelated work is never swept into
+// a records commit, and enumerating first avoids the pathspec-did-not-match
+// failure that a blind glob add hits in a workspace with no nested context
+// dirs. ls-files --others lists every untracked file individually, so a
+// brand-new context dir cannot be collapsed into one directory entry the
+// filter never sees.
+func CommitRecords(wtRoot, msg string) (bool, error) {
+	// Enumerated via diff --name-only (tracked modifications) plus ls-files
+	// --others (untracked), NOT via status --porcelain. Porcelain's leading
+	// XY column is positional, and the git() helper trims the whole output —
+	// which eats the leading space of the FIRST line only, so a tracked
+	// modification that happened to sort first parsed as a path missing its
+	// leading dot and silently failed the .spectackle filter. Found live: a
+	// dirty config.yaml survived every records commit of a full loop while
+	// the untracked files beside it were committed. Name-only outputs carry
+	// no columns, so there is nothing for the trim to corrupt.
+	tracked, err := git(wtRoot, "diff", "--name-only")
+	if err != nil {
+		return false, err
+	}
+	untracked, err := git(wtRoot, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return false, err
+	}
+	var files []string
+	for _, p := range strings.Split(tracked+"\n"+untracked, "\n") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if p == ".spectackle" || strings.HasPrefix(p, ".spectackle/") || strings.Contains(p, "/.spectackle/") {
+			files = append(files, p)
+		}
+	}
+	if len(files) == 0 {
+		return false, nil
+	}
+	if _, err := git(wtRoot, append([]string{"add", "--"}, files...)...); err != nil {
+		return false, err
+	}
+	if _, err := git(wtRoot, append([]string{"commit", "-m", msg, "--"}, files...)...); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // codeOnly is the pathspec that keeps every .spectackle dir out of branch
 // commits (git >= 2.13 pathspec magic).
 var codeOnly = []string{":(exclude).spectackle", ":(exclude)*/.spectackle", ":(exclude)**/.spectackle/**"}
