@@ -53,34 +53,6 @@ option: discriminator: sequential ID plus a per-clone suffix, unique but not glo
 blocks: P-0088
 choice: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
 
-## T-0135 item and lifecycle: accept the new ID shape while legacy sequential IDs stay resolvable
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-0088
-refs: ADR-0013
-targets: internal/item/item.go, internal/item/item_test.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-BLOCKED-ON: the internal/ids task under P-0088 must be merged first. Check with find scope=code for the new mint/encode/shorten functions before starting; if they are absent, stop and report.
-
-WHAT TO BUILD
-1. item.IDRe currently pins the sequential shape. It must accept BOTH: the legacy `(?:ADR|[PTBRD])-\d{4}` and the new kind-prefixed base32 form. Legacy IDs must keep matching forever, not for a deprecation window: archived records live on only as journal tombstones, and lifecycle.Tombstone resolves them by ID, so a legacy ID that stops parsing makes archived history unreachable.
-2. Minting moves to the new scheme: lifecycle.Draft (and any sibling minting path) produces a kind-prefixed globally unique ID via internal/ids instead of a coord counter. Leave coord.NextID in place and untouched — rules still mint through it and that is a different task's concern; only item minting changes here.
-3. Anything that parses a kind out of an ID, sorts by ID, or assumes four digits must be found and fixed. Search for the uses rather than guessing: the ID shape leaks into helpers more than one expects.
-
-TESTS
-  a legacy ID and a new ID both satisfy IDRe; a malformed one does not.
-  Draft mints the new shape, and two Drafts in a tight loop never collide.
-  a work.md carrying a legacy ID still loads, renders and round-trips byte-identically.
-  any kind-derivation helper returns the right kind for both shapes.
-
-VERIFY: go build ./... ; go test ./internal/item/... ./internal/lifecycle/... -race ; go test ./... ; go vet on both packages ; gofmt -l (empty) ; spectackle lint . (POSITIONAL path, see B-0010).
-SCOPE: the four named files only. Siblings hold internal/ids (merged before you), internal/mcpserver and the migration.
-ROLLBACK: one regex, one minting call site and their tests; reverting restores sequential minting, and any records already minted in the new shape stay readable because IDRe keeps accepting both.
-REPORT BACK: every place the old ID shape turned out to be assumed, each test's real result, anything deliberately not done.
-
 ## T-0136 tool boundary: accept a short ID prefix everywhere an ID is taken, and name ambiguities
 kind: task
 state: approved
