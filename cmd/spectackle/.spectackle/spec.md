@@ -9,6 +9,7 @@ schema: v1
 - T-01KYAXZ2KRFW499XSC125R5NDF call subcommand over internal/mcpclient, README headless recipe rewritten: call subcommand live over both transports, byte-identical, refusal exits non-zero with text on stdout. README no longer documents a wrapper.
 - P-01KYAXX628FR88WYGZTHBH90D6 wire the call subcommand: headless tool calls with no external wrapper: delivered by T-01KYAXZ2KRFW499XSC125R5NDF.
 - P-01KYAX6X5REA3SY0EDXM5JEC7Y self-contained Go MCP client: retire the external wrapper scripts for headless tool calls: delivered by T-01KYAX81A0EBMTFJQ4J49F66ZE (internal/mcpclient) and T-01KYAXZ2KRFW499XSC125R5NDF (call subcommand). The external wrapper is retired.
+- B-01KYD4HBHQE9ZV9CJP3S6KQF0Z the call subcommand exits 0 on every tool refusal, so a scripted gate cannot detect one: every pure refusal now carries IsError through one refuse constructor beside text, so the call subcommand exit code finally matches the README headless contract; stdout stays byte-identical. Proven at CLI level per refusal family and live without a pipe
 
 ## CLI-001 {applies: go:main.main}
 WHEN `serve` runs on stdio, the spectacle CLI SHALL emit only JSON-RPC frames on stdout and route every log line to stderr, so a single misplaced print can never corrupt the MCP transport.

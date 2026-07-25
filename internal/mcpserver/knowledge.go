@@ -47,7 +47,7 @@ func (s *Server) knowledge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
 	case "apply":
 		return s.knowledgeApply(in)
 	}
-	return text("! ARG E - op must be export|merge|apply")
+	return refuse("! ARG E - op must be export|merge|apply")
 }
 
 // modulePathLabel is the repository label knowledge.Extract/NewEntry record
@@ -89,7 +89,7 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 		for i, e := range in.Entries {
 			entry, err := knowledgeEntryFromIn(e, source)
 			if err != nil {
-				return text(fmt.Sprintf("! ARG E - entries[%d]: %s\n", i, err.Error()))
+				return refuse(fmt.Sprintf("! ARG E - entries[%d]: %s\n", i, err.Error()))
 			}
 			entries = append(entries, entry)
 		}
@@ -102,7 +102,7 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 	}
 	if in.Path != "" {
 		if err := os.WriteFile(in.Path, out, 0o644); err != nil {
-			return text("! IO E - " + err.Error())
+			return refuse("! IO E - " + err.Error())
 		}
 	}
 
@@ -153,10 +153,10 @@ func knowledgeCounts(entries []knowledge.Entry) map[knowledge.EntryKind]int {
 func (s *Server) knowledgeMerge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
 	artifacts, err := knowledgeGatherArtifacts(in.Paths, in.Body)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	if len(artifacts) == 0 {
-		return text("! ARG E - merge requires paths and/or body (at least one artifact)")
+		return refuse("! ARG E - merge requires paths and/or body (at least one artifact)")
 	}
 
 	merged, conflicts, err := knowledge.Merge(artifacts...)
@@ -280,17 +280,17 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	case in.Path != "":
 		b, err := os.ReadFile(in.Path)
 		if err != nil {
-			return text("! ARG E - " + err.Error())
+			return refuse("! ARG E - " + err.Error())
 		}
 		raw = b
 	case strings.TrimSpace(in.Body) != "":
 		raw = []byte(in.Body)
 	default:
-		return text("! ARG E - apply requires path or body")
+		return refuse("! ARG E - apply requires path or body")
 	}
 	incoming, err := knowledge.Parse(raw)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 
 	c, err := spec.Load(s.ws.Dir)

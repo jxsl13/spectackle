@@ -111,7 +111,7 @@ func (s *Server) commands(ctx context.Context, req *mcp.CallToolRequest, in comm
 	case "gen":
 		return s.commandsGen(ctx, req, in)
 	}
-	return text("! ARG E - op must be detect|gen")
+	return refuse("! ARG E - op must be detect|gen")
 }
 
 // ---- detect ----
@@ -176,7 +176,7 @@ const commandsQuestion = "which harnesses should `commands` generate for? (claud
 func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
 	harnesses, err := normalizeHarnesses(in.Harness)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	if len(harnesses) == 0 {
 		harnesses = dedupHarnessHits(detectHarnesses(s.ws.Dir))
@@ -187,7 +187,7 @@ func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in c
 			return s.commandsMintDecision()
 		}
 		if len(selected) == 0 {
-			return text("! ARG E - no harness selected")
+			return refuse("! ARG E - no harness selected")
 		}
 		harnesses = selected
 	}
@@ -295,7 +295,7 @@ func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 	body := "kind: text\noptions: free text — comma-separated subset of claude,copilot,codex,kimi"
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", commandsQuestion, body, "", "", nil)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	if _, err := lifecycle.Move(s.ws, d.ID, item.StateSubmitted, ""); err != nil {
 		return nil, nil, err

@@ -148,6 +148,20 @@ func text(s string) (*mcp.CallToolResult, any, error) {
 	return textResult(s), nil, nil
 }
 
+// refuse is text for a REFUSAL: same rendered prose, byte-identical on
+// stdout, but the result carries IsError — which is what the call
+// subcommand's exit code is derived from (mcpclient maps IsError to a
+// non-zero exit; the README's headless contract says to script against the
+// exit code, not the prose). Every site returning a pure "! <CODE> E ..."
+// record goes through here; text() had served both successes and refusals,
+// so refusals were indistinguishable from successes to every script — found
+// when a batched draft refusal vanished without failing anything (B-01KYD4H).
+func refuse(s string) (*mcp.CallToolResult, any, error) {
+	res := textResult(s)
+	res.IsError = true
+	return res, nil, nil
+}
+
 // textResult is text without the (any, error) tail, for the helpers that
 // build a refusal to be returned by somebody else's return statement.
 func textResult(s string) *mcp.CallToolResult {
@@ -329,7 +343,7 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	}
 	kinds, ok := scopeKinds[in.Scope]
 	if !ok {
-		return text("! ARG E - unknown scope " + in.Scope)
+		return refuse("! ARG E - unknown scope " + in.Scope)
 	}
 	docs, err := s.cache.Search(in.Q, kinds, in.K)
 	if err != nil {
@@ -655,12 +669,12 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		// selfID is "" — the item being drafted has no ID yet, so
 		// self-reference cannot occur here; UnknownRefs still guards it.
 		if bad := item.UnknownRefs("", in.Refs, known); len(bad) > 0 {
-			return text("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+			return refuse("! ARG E - unknown refs: " + strings.Join(bad, ", "))
 		}
 	}
 	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets, in.Refs...)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	s.markDirty()
 	// Re-derive the scope AFTER the write instead of reusing the one the
@@ -1149,7 +1163,7 @@ func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) 
 	case "retire":
 		return s.ruleRetire(in, c)
 	}
-	return text("! ARG E - op must be add|edit|retire")
+	return refuse("! ARG E - op must be add|edit|retire")
 }
 
 func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
@@ -1168,12 +1182,12 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 		return text(b.String())
 	}
 	if missing := missingSlots(in); len(missing) > 0 {
-		return text("! ARG E - still missing: " + strings.Join(missing, ", "))
+		return refuse("! ARG E - still missing: " + strings.Join(missing, ", "))
 	}
 	p := ears.PatternFromString(in.Pattern)
 	sentence, err := ears.Compose(p, slotsOf(in))
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	if s.wtItem == "" {
 		if res, out, err := s.blockedByLease([]string{dirOf(in.Dir)}); res != nil || err != nil {
@@ -1185,7 +1199,7 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 		Sentence: sentence, Rationale: in.Rationale, Applies: in.Applies,
 	})
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	var b strings.Builder
 	for _, f := range res.Findings {
@@ -1193,7 +1207,7 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 	}
 	if !res.Written {
 		b.WriteString("! REJECTED E - fix the slots and retry; nothing was written\n")
-		return text(b.String())
+		return refuse(b.String())
 	}
 	dir := strings.Trim(in.Dir, "/")
 	if dir == "" {
@@ -1272,7 +1286,7 @@ func (s *Server) rootSuffix() string {
 
 func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
 	if in.ID == "" {
-		return text("! ARG E - edit requires id")
+		return refuse("! ARG E - edit requires id")
 	}
 	// Composing the new sentence, and the one case that used to fail silently.
 	//
@@ -1300,12 +1314,12 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 			// Compose names the slots it is missing. That refusal is the point:
 			// a partial slot set now says so instead of degrading to a no-op
 			// edit reported as success.
-			return text("! ARG E - " + err.Error())
+			return refuse("! ARG E - " + err.Error())
 		}
 	}
 	res, err := spec.EditRule(s.ws, c, in.ID, sentence, in.Rationale, in.Applies)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	var b strings.Builder
 	for _, f := range res.Findings {
@@ -1313,7 +1327,7 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 	}
 	if !res.Written {
 		b.WriteString("! REJECTED E - nothing was written\n")
-		return text(b.String())
+		return refuse(b.String())
 	}
 	final, _ := c.Rule(in.ID)
 	if sentence == "" {
@@ -1329,12 +1343,12 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 
 func (s *Server) ruleRetire(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
 	if in.ID == "" {
-		return text("! ARG E - retire requires id")
+		return refuse("! ARG E - retire requires id")
 	}
 	old, _ := c.Rule(in.ID)
 	file, err := spec.RetireRule(s.ws, c, in.ID)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	s.journalRule("retire", in.ID, old.Text, old.Applies, in.Item, ruleCtx(file))
 	// a retired rule keeps no anchors at all: reconcile against an empty
@@ -1418,7 +1432,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			short := sc.short(in.ID)
 			if pre.Kind == "proposal" && pre.Grilled == "" {
 				if s.ws.Cfg.Feedback.Grill == "require" {
-					return text("! GRILL E " + short + " ungrilled — grill first (feedback.grill=require)")
+					return refuse("! GRILL E " + short + " ungrilled — grill first (feedback.grill=require)")
 				}
 				warns += "! GRILL W " + short + " ungrilled — grill first or proceed deliberately\n"
 			}
@@ -1456,9 +1470,9 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			// its display form: lifecycle composes the refusal and knows
 			// nothing about prefixes, but what reaches the caller has to be
 			// the same ID vocabulary as every other record on the surface.
-			return text(strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)) + "\n")
+			return refuse(strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)) + "\n")
 		}
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	if in.To == item.StateRejected {
 		// dual-write: the rejection reaches siblings before any merge
@@ -1977,7 +1991,7 @@ func sameApplies(a, b []string) bool {
 
 func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
-		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
+		return refuse("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
 	}
 	defer s.markDirty()
 	var b strings.Builder

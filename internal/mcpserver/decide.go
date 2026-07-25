@@ -42,7 +42,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 	case "ls":
 		return s.decideLs()
 	}
-	return text("! ARG E - op must be ask|answer|ls")
+	return refuse("! ARG E - op must be ask|answer|ls")
 }
 
 // decideAsk mints an `adr` item (state=draft, kind=adr) recording
@@ -58,7 +58,7 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 // decision gets answered later, from anywhere, via `answer`.
 func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Question) == "" {
-		return text("! ARG E - ask requires question")
+		return refuse("! ARG E - ask requires question")
 	}
 	kind := in.Kind
 	if kind == "" {
@@ -68,7 +68,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	switch kind {
 	case "radio":
 		if len(in.Options) < 2 {
-			return text("! ARG E - radio requires 2-5 options")
+			return refuse("! ARG E - radio requires 2-5 options")
 		}
 		opts = in.Options
 	case "confirm":
@@ -76,7 +76,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	case "text":
 		// free text: no fixed option set
 	default:
-		return text("! ARG E - kind must be radio|confirm|text")
+		return refuse("! ARG E - kind must be radio|confirm|text")
 	}
 
 	dir := ""
@@ -107,7 +107,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 			// into — hasBlocks stays false.
 			dir, blocksID = tomb.Dir, tomb.ID
 		} else {
-			return text("! ARG E - unknown item " + in.Item)
+			return refuse("! ARG E - unknown item " + in.Item)
 		}
 	}
 
@@ -122,7 +122,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
 	if err != nil {
-		return text("! ARG E - " + err.Error())
+		return refuse("! ARG E - " + err.Error())
 	}
 	// classic ADR fields: Context is whatever the caller supplied (may be
 	// empty); Status starts at "proposed" per the ADR convention and only
@@ -201,10 +201,10 @@ func decideChoiceString(kind string, v any) string {
 // text.
 func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.ID) == "" {
-		return text("! ARG E - answer requires id")
+		return refuse("! ARG E - answer requires id")
 	}
 	if strings.TrimSpace(in.Choose) == "" {
-		return text("! ARG E - answer requires choose")
+		return refuse("! ARG E - answer requires choose")
 	}
 	full, bad, err := s.expandID(in.ID)
 	if bad != nil || err != nil {
@@ -216,10 +216,10 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok || d.Kind != "adr" {
-		return text("! ARG E - unknown decision " + in.ID)
+		return refuse("! ARG E - unknown decision " + in.ID)
 	}
 	if d.State == item.StateDone {
-		return text("! ARG E - " + in.ID + " already decided")
+		return refuse("! ARG E - " + in.ID + " already decided")
 	}
 	choose := in.Choose
 	if opts := decideOptions(d.Body); len(opts) > 0 {
@@ -231,7 +231,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 			}
 		}
 		if matched == "" {
-			return text("! ARG E - choose must be one of: " + strings.Join(opts, ", "))
+			return refuse("! ARG E - choose must be one of: " + strings.Join(opts, ", "))
 		}
 		choose = matched
 	}
@@ -300,7 +300,7 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 		return nil, nil, err
 	}
 	if !ok {
-		return text("! ARG E - unknown decision " + id)
+		return refuse("! ARG E - unknown decision " + id)
 	}
 
 	d.State = item.StateDone
@@ -330,7 +330,7 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 	if hasBlocked {
 		if it.State == item.StateBlocked && (choice == "rescope" || choice == "reject" || choice == "override-once") {
 			if _, err := lifecycle.ResolveBlocked(s.ws, it.ID, choice, "decide "+id+": "+choice); err != nil {
-				return text("! ARG E - " + err.Error())
+				return refuse("! ARG E - " + err.Error())
 			}
 		} else {
 			it.Needs = removeID(it.Needs, id)

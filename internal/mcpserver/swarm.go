@@ -378,7 +378,7 @@ func (s *Server) blockedByLease(paths []string) (*mcp.CallToolResult, any, error
 	if l == nil {
 		return nil, nil, nil
 	}
-	return text(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds — pick different scope or coordinate",
+	return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds — pick different scope or coordinate",
 		l.Path, l.Agent, orDash(l.Item), int(time.Until(l.Exp).Seconds())))
 }
 
@@ -398,7 +398,7 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
 	case "claim":
 		if len(in.Paths) == 0 {
-			return text("! ARG E - claim requires paths")
+			return refuse("! ARG E - claim requires paths")
 		}
 		ttl := s.leaseTTL()
 		if in.TTL > 0 {
@@ -409,7 +409,7 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		if conflict != nil {
-			return text(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds",
+			return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds",
 				conflict.Path, conflict.Agent, orDash(conflict.Item), int(time.Until(conflict.Exp).Seconds())))
 		}
 		_ = s.cd.Emit("claim", in.Item, strings.Join(in.Paths, " "))
@@ -434,7 +434,7 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 		}
 		return text(b.String())
 	}
-	return text("! ARG E - op must be claim|release|ls")
+	return refuse("! ARG E - op must be claim|release|ls")
 }
 
 // ---- swarm tool ----
@@ -507,33 +507,33 @@ func (s *Server) work(in workIn) (*mcp.CallToolResult, any, error) {
 		}
 		return text(b.String())
 	}
-	return text("! ARG E - op must be start|submit|abort|status")
+	return refuse("! ARG E - op must be start|submit|abort|status")
 }
 
 func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
-		return text("! WT E already in worktree for " + s.wtItem + " — submit or abort first")
+		return refuse("! WT E already in worktree for " + s.wtItem + " — submit or abort first")
 	}
 	if id == "" {
-		return text("! ARG E - start requires item")
+		return refuse("! ARG E - start requires item")
 	}
 	if !wt.IsRepo(s.main.Dir) {
-		return text("! WT E workspace is not a git repository")
+		return refuse("! WT E workspace is not a git repository")
 	}
 	it, ok, err := item.Get(s.main, id)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !ok {
-		return text("! ARG E - unknown item " + id)
+		return refuse("! ARG E - unknown item " + id)
 	}
 	if it.State != item.StateApproved && it.State != item.StateActive {
-		return text("! ARG E - item is " + it.State + "; work needs approved|active")
+		return refuse("! ARG E - item is " + it.State + "; work needs approved|active")
 	}
 	// orphaned worktree from a crashed sibling?
 	if w, exists, _ := s.cd.GetWorktree(id); exists {
 		if holderAlive(s, w.Agent) && w.Agent != s.agent {
-			return text("! WT E worktree for " + id + " open by live agent " + w.Agent)
+			return refuse("! WT E worktree for " + id + " open by live agent " + w.Agent)
 		}
 		_ = wt.Remove(s.main.Dir, w.Root)
 		_ = wt.DeleteBranch(s.main.Dir, w.Branch)
@@ -546,7 +546,7 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if conflict != nil {
-		return text(fmt.Sprintf("! LEASE E %s held=%s item=%s", conflict.Path, conflict.Agent, orDash(conflict.Item)))
+		return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s", conflict.Path, conflict.Agent, orDash(conflict.Item)))
 	}
 
 	base, err := wt.Head(s.main.Dir)
@@ -557,7 +557,7 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	root := filepath.Join(s.main.WtDir(), id)
 	if err := wt.Add(s.main.Dir, root, branch, "HEAD"); err != nil {
 		_ = s.cd.ReleaseItem(id)
-		return text("! WT E " + err.Error())
+		return refuse("! WT E " + err.Error())
 	}
 	// carry main's LIVE .spectackle state into the worktree (main bundles may
 	// be ahead of HEAD — the server never commits them itself)
@@ -598,11 +598,11 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		id = s.wtItem
 	}
 	if id == "" || id != s.wtItem {
-		return text("! ARG E - no open worktree for " + orDash(id))
+		return refuse("! ARG E - no open worktree for " + orDash(id))
 	}
 	w, ok, err := s.cd.GetWorktree(id)
 	if err != nil || !ok {
-		return text("! WT E worktree record missing — work op=abort and restart")
+		return refuse("! WT E worktree record missing — work op=abort and restart")
 	}
 	it, _, err := item.Get(s.ws, id)
 	if err != nil {
@@ -627,7 +627,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 	_ = s.cd.PutWorktree(withState(w, "gating"))
 	if _, err := wt.CommitCode(s.ws.Dir, "spectackle "+id+": "+it.Title); err != nil {
-		return text("! WT E commit: " + err.Error())
+		return refuse("! WT E commit: " + err.Error())
 	}
 
 	// INTEGRATE under the global lock
@@ -636,18 +636,18 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
-		return text("! LOCK W integrate held by " + holder + " — retry submit shortly")
+		return refuse("! LOCK W integrate held by " + holder + " — retry submit shortly")
 	}
 	defer s.cd.UnlockIntegrate()
 	_ = s.cd.PutWorktree(withState(w, "integrating"))
 
 	conflicts, err := wt.MergeMain(s.ws.Dir)
 	if err != nil {
-		return text("! WT E merge: " + err.Error())
+		return refuse("! WT E merge: " + err.Error())
 	}
 	if len(conflicts) > 0 {
 		_ = s.cd.PutWorktree(withState(w, "conflict"))
-		return text("! WT E conflict " + strings.Join(conflicts, " ") + "\nok resolve these files in your worktree, then work op=submit again")
+		return refuse("! WT E conflict " + strings.Join(conflicts, " ") + "\nok resolve these files in your worktree, then work op=submit again")
 	}
 	// GATE 2: the tree that merges is the tree that was tested
 	if res := s.runGate(it.Goal); res != "" {
@@ -655,17 +655,17 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 	touched, _ := wt.TouchedFiles(s.main.Dir, w.Base, w.Branch)
 	if overlap := wt.DirtyOverlap(s.main.Dir, touched); len(overlap) > 0 {
-		return text("! WT E main-dirty " + strings.Join(overlap, " ") + " — commit/stash these in the main checkout, then submit again")
+		return refuse("! WT E main-dirty " + strings.Join(overlap, " ") + " — commit/stash these in the main checkout, then submit again")
 	}
 	if err := wt.FFMain(s.main.Dir, w.Branch); err != nil {
-		return text("! WT E ff-merge: " + err.Error())
+		return refuse("! WT E ff-merge: " + err.Error())
 	}
 
 	// REPLAY .spectackle state semantically
 	_ = s.cd.PutWorktree(withState(w, "replaying"))
 	rep, err := replay.Run(s.main, s.ws, id, w.Base, s.cd, s.g)
 	if err != nil {
-		return text("! WT E replay: " + err.Error() + "\nok fix and work op=submit again (replay resumes idempotently)")
+		return refuse("! WT E replay: " + err.Error() + "\nok fix and work op=submit again (replay resumes idempotently)")
 	}
 	if err := journal.Append(s.main, it.Dir, journal.Event{Ev: journal.EvSubmit, ID: id, Dir: it.Dir,
 		Note: fmt.Sprintf("branch %s: %d events, %d rules, %d items replayed", w.Branch, rep.Events, rep.Rules, len(rep.Items))}); err != nil {
@@ -696,17 +696,17 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 		id = s.wtItem
 	}
 	if id == "" {
-		return text("! ARG E - abort requires item")
+		return refuse("! ARG E - abort requires item")
 	}
 	w, ok, err := s.cd.GetWorktree(id)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !ok {
-		return text("! ARG E - no worktree for " + id)
+		return refuse("! ARG E - no worktree for " + id)
 	}
 	if w.Agent != s.agent && holderAlive(s, w.Agent) {
-		return text("! WT E worktree held by live agent " + w.Agent)
+		return refuse("! WT E worktree held by live agent " + w.Agent)
 	}
 	mine := s.wtItem == id
 	if mine {
