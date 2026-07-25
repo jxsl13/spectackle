@@ -168,6 +168,18 @@ func textResult(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }
 
+// refuseResult is textResult carrying IsError, for refusals built away from
+// their return site. The B-01KYD4H sweep converted every `return text("! ...`
+// literal but MISSED the refusals composed here and returned through helper
+// plumbing — the prefix-ambiguity refusal exited 0 for another day, and the
+// benchmark harness caught it on its first run: a driver keying its retry on
+// the exit code never saw the refusal at all.
+func refuseResult(s string) *mcp.CallToolResult {
+	res := textResult(s)
+	res.IsError = true
+	return res
+}
+
 // resultText unwraps a textResult back to its string, for the prompt handlers
 // (see prompts.go): they share the tool path's ID-expansion helpers, which
 // hand refusals back as tool results, but prompts have their own result type.
@@ -938,7 +950,7 @@ func (sc idScope) expand(id string) (string, *mcp.CallToolResult) {
 		for i, c := range amb.Candidates {
 			cands[i] = sc.short(c)
 		}
-		return "", textResult(fmt.Sprintf("! ARG E %s ambiguous prefix — %d records: %s",
+		return "", refuseResult(fmt.Sprintf("! ARG E %s ambiguous prefix — %d records: %s",
 			id, len(cands), strings.Join(cands, " ")))
 	}
 	return id, nil // ids.ErrNoMatch: the caller's own not-found path
@@ -1247,7 +1259,7 @@ func (s *Server) editPattern(in ruleIn, c *spec.Cascade) (ears.Pattern, bool, *m
 	if in.Pattern != "" {
 		p := ears.PatternFromString(in.Pattern)
 		if p == ears.PInvalid {
-			return p, false, textResult("! ARG E - " + in.ID + " pattern must be one of U|E|S|N|O|C")
+			return p, false, refuseResult("! ARG E - " + in.ID + " pattern must be one of U|E|S|N|O|C")
 		}
 		return p, true, nil
 	}
@@ -1261,7 +1273,7 @@ func (s *Server) editPattern(in ruleIn, c *spec.Cascade) (ears.Pattern, bool, *m
 		return ears.PInvalid, false, nil
 	}
 	if old.Pattern == ears.PInvalid {
-		return ears.PInvalid, false, textResult("! ARG E - " + in.ID +
+		return ears.PInvalid, false, refuseResult("! ARG E - " + in.ID +
 			" stored sentence matches no EARS pattern — pass pattern= explicitly")
 	}
 	return old.Pattern, true, nil

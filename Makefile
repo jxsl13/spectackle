@@ -124,6 +124,12 @@ fuzz:
 	$(GO) test ./internal/ears/ -fuzz=FuzzParseRules -fuzztime=$(FUZZTIME)
 	$(GO) test ./internal/ears/ -fuzz=FuzzStripFrontMatter -fuzztime=$(FUZZTIME)
 
+# bench meters the MCP text surface: a scripted all-state lifecycle over a
+# generated fixture, bytes and estimated tokens per tool, validity-gated.
+# BENCH_AGAINST=path/to/other/binary A/Bs two builds.
+bench: build
+	@if [ -n "$(BENCH_AGAINST)" ]; then ./$(BIN) bench -against "$(BENCH_AGAINST)"; else ./$(BIN) bench; fi
+
 cover:
 	@mkdir -p bin
 	$(GO) test -coverprofile=bin/cover.out ./...
