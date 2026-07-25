@@ -19,7 +19,7 @@ REMAINING RISK, unchanged by this fix: any forge operation whose stub is written
 
 ## B-01KYDJ0205FR7VS9Z4TZY7ZSTV zero check runs just after a push reads as no-CI, so the merge gate can fire before CI starts
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 Observed on the merge gate's first live run, pull request 45. The archive-time records commit was pushed seconds before the gate polled; GitHub Actions had not yet started a run for the new head, the check-runs API answered zero runs, Checks reduced that to ChecksNone, and the gate merged immediately — correct for a repository without CI, wrong for one whose CI simply had not begun. The merge happened to be safe (the same tree had passed the full suite and the branch's earlier heads were green), but the gate did not know that.

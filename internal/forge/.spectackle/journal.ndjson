@@ -3,3 +3,4 @@
 {"t":"2026-07-25T20:08:55Z","eid":"cb0ef0986e38be97","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDE7AX8ES6V6XGYDXA3TJSN","dir":"internal/forge","fr":"active","to":"done"}
 {"t":"2026-07-25T21:13:15Z","eid":"e42aeae1156d022b","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDJ0205FR7VS9Z4TZY7ZSTV","k":"bug","ti":"zero check runs just after a push reads as no-CI, so the merge gate can fire before CI starts","dir":"internal/forge"}
 {"t":"2026-07-25T21:14:48Z","eid":"088afdad761f88d5","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDJ0205FR7VS9Z4TZY7ZSTV","dir":"internal/forge","fr":"draft","to":"active"}
+{"t":"2026-07-25T21:18:56Z","eid":"400162b95716403b","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDJ0205FR7VS9Z4TZY7ZSTV","dir":"internal/forge","fr":"active","to":"done"}
