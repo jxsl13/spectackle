@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYD4HBHQE9ZV9CJP3S6KQF0Z the call subcommand exits 0 on every tool refusal, so a scripted gate cannot detect one
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 DEFECT
