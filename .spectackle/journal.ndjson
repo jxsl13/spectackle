@@ -249,3 +249,7 @@
 {"t":"2026-07-25T11:28:26Z","eid":"0295b39e72d3d4be","ag":"impl-t0118","ev":"move","id":"T-0118","fr":"active","to":"done"}
 {"t":"2026-07-25T11:28:55Z","eid":"f54b026315a96e20","ag":"orchestrator","ev":"create","id":"B-0007","k":"bug","ti":"parse-blob cache keyed by content hash only: parser upgrades silently serve stale nodes/edges until the cache is hand-cleared"}
 {"t":"2026-07-25T11:29:30Z","eid":"49b5aea3ae953cbc","ag":"orchestrator","ev":"move","id":"B-0007","fr":"draft","to":"active"}
+{"t":"2026-07-25T14:00:29Z","eid":"5fd914b7a58c20f6","ag":"orchestrator","ev":"create","id":"T-0127","k":"task","ti":"parse and typed-call caches: mix a parser-identity component into both keys so upgrades self-invalidate"}
+{"t":"2026-07-25T14:00:37Z","eid":"35294424b903a21a","ag":"orchestrator","ev":"grill","id":"T-0127","gr":"2026-07-25"}
+{"t":"2026-07-25T14:00:37Z","eid":"3f4393e2f6240c47","ag":"orchestrator","ev":"move","id":"T-0127","fr":"draft","to":"approved"}
+{"t":"2026-07-25T14:02:20Z","eid":"4205e670ffca05e6","ag":"orchestrator","ev":"start","id":"T-0127","note":"branch spectackle/T-0127 base 017987eafe22"}
