@@ -38,7 +38,11 @@ func TestNewRebindsExistingWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	if s2.wtItem != prop {
+	// wtItem holds the STORED ID; prop is the displayed one the tool emitted,
+	// which is by construction a prefix of it (ADR-0013). HasPrefix is the
+	// assertion that stays true whichever length the display form happened to
+	// need.
+	if !strings.HasPrefix(s2.wtItem, prop) {
 		t.Fatalf("same-agent server rooted at the worktree: wtItem = %q, want %s", s2.wtItem, prop)
 	}
 

@@ -120,7 +120,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// .spectackle files are TRACKED and can genuinely collide later.
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
-	prop := draftID(t, alice, map[string]any{
+	prop := storedIDAfterDraft(t, root, alice, map[string]any{
 		"kind": "proposal", "title": "off-branch submit", "targets": []string{"main.go"}})
 	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
 	base := commitPrimary(t, root, "records: "+prop+" approved")
@@ -147,7 +147,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// worktree carries dirty (B-0006's exact collision).
 	t.Setenv("SPECTACKLE_AGENT", "bob")
 	bob := connectRoot(t, root)
-	other := draftID(t, bob, map[string]any{
+	other := storedIDAfterDraft(t, root, bob, map[string]any{
 		"kind": "proposal", "title": "primary advances underneath", "targets": []string{"other.go"}})
 	advanced := commitPrimary(t, root, "primary advances .spectackle")
 	if advanced == base {
@@ -192,9 +192,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// 2. the item's record state landed on the PRIMARY side. Only the
 	// worktree ever saw approved->active; main had it at approved.
 	out = callText(t, fresh, "get", map[string]any{"id": prop})
-	if !hasRecordLine(out, "i", prop, "proposal", "active") {
-		t.Fatalf("item record state did not land on the primary side: %q", out)
-	}
+	wantItemRecord(t, out, prop, "proposal active")
 
 	// 3. neither side's record delta was lost: the worktree's live move
 	// event AND the primary's concurrently committed draft are both there.
@@ -227,7 +225,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// all. CommitCode must recognise that nothing is staged and skip the
 	// commit; misreading the unstaged .spectackle delta as staged makes git
 	// refuse an empty commit and the whole submit dies.
-	recOnly := draftID(t, fresh, map[string]any{
+	recOnly := storedIDAfterDraft(t, root, fresh, map[string]any{
 		"kind": "proposal", "title": "record only", "targets": []string{"main.go"}})
 	callText(t, fresh, "move", map[string]any{"id": recOnly, "to": "approved"})
 	out = callText(t, fresh, "work", map[string]any{"op": "start", "item": recOnly})
@@ -254,9 +252,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 		t.Fatalf("record-only submit created a code commit: develop %s -> %s", tipBefore, got)
 	}
 	out = callText(t, fresh, "get", map[string]any{"id": recOnly})
-	if !hasRecordLine(out, "i", recOnly, "proposal", "active") {
-		t.Fatalf("record-only submit did not replay item state onto main: %q", out)
-	}
+	wantItemRecord(t, out, recOnly, "proposal active")
 	if !hasEvent(mainJournal(t, root), journal.EvMove, recOnly, "active") {
 		t.Fatal("record-only submit lost the worktree's record delta")
 	}

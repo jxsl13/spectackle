@@ -353,7 +353,7 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 
 	fmt.Fprintf(&b, "ok applied added=%d gaps=%d\n", added, gaps)
 	if added > 0 {
-		s.scan.MarkDirty()
+		s.markDirty()
 	}
 	return text(b.String())
 }
@@ -433,7 +433,11 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 		return "", false, err
 	}
 	_ = s.cd.Emit("decide", d.ID, "apply "+e.Decision)
-	return item.Record(d) + "\n", true, nil
+	sc, err := s.idScope()
+	if err != nil {
+		return "", false, err
+	}
+	return sc.record(d) + "\n", true, nil
 }
 
 // applyIntentEntry adds one intent/prose entry through spec.AppendIntent —

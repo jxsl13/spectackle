@@ -133,8 +133,12 @@ func (s *Server) stateItemsSection(path string) (string, error) {
 	fmt.Fprintf(&b, "ok items total=%d active=%d approved=%d draft=%d submitted=%d done=%d\n",
 		len(scoped), counts[item.StateActive], counts[item.StateApproved],
 		counts[item.StateDraft], counts[item.StateSubmitted], counts[item.StateDone])
+	sc, err := s.idScope()
+	if err != nil {
+		return "", err
+	}
 	for _, it := range scoped {
-		b.WriteString(item.Record(it) + "\n")
+		b.WriteString(sc.record(it) + "\n")
 	}
 	return b.String(), nil
 }

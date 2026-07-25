@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -80,7 +81,7 @@ func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
 		{"no path", noPath},
 		{"no verify", noVerify},
 	} {
-		byTitle[c.title] = serverDraftID(t, s, draftIn{Kind: "task", Title: c.title, Body: c.body, Parent: parent})
+		byTitle[c.title] = fullID(t, s, serverDraftID(t, s, draftIn{Kind: "task", Title: c.title, Body: c.body, Parent: parent}))
 	}
 
 	res, _, err := s.grill(grillIn{ID: parent})
@@ -89,37 +90,56 @@ func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
 	if !strings.Contains(out, "#briefs") {
 		t.Fatalf("missing #briefs: %q", out)
 	}
-	// b-lines carry the SHORT rendering of the child's ID (ADR-0013), and
-	// how short is adaptive — these five siblings were minted in the same
-	// millisecond, so grill's rendering is longer than the one each ID was
-	// captured at. hasRecordLine compares by record identity, not bytes.
-	// the clean brief must fail nothing.
-	if hasRecordLine(out, "b", byTitle["clean brief"]) {
-		t.Fatalf("clean brief flagged: %q", out)
+	// Parse the b-lines into per-item flag sets instead of substring-matching
+	// them. The displayed IDs of four tasks minted in the same millisecond
+	// differ only in their last character or two, so one task's rendered ID is
+	// routinely a prefix of another's and strings.Contains would attribute a
+	// heuristic to the wrong task.
+	flags := briefFlags(t, s, out)
+	want := map[string][]string{
+		"clean brief": nil,
+		"short only":  {"short-body", "no-path", "no-verify"},
+		"no path":     {"no-path"},
+		"no verify":   {"no-verify"},
 	}
-	// "short only" fails all three heuristics.
-	short := byTitle["short only"]
-	for _, want := range []string{"short-body", "no-path", "no-verify"} {
-		if !hasRecordLine(out, "b", short, want) {
-			t.Fatalf("missing b %s %s: %q", short, want, out)
+	for title, heuristics := range want {
+		got := flags[byTitle[title]]
+		if len(got) != len(heuristics) {
+			t.Fatalf("%q flagged %v, want %v: %q", title, keysOf(got), heuristics, out)
+		}
+		for _, h := range heuristics {
+			if !got[h] {
+				t.Fatalf("%q missing %s (got %v): %q", title, h, keysOf(got), out)
+			}
 		}
 	}
-	// "no path" fails only no-path.
-	noPathID := byTitle["no path"]
-	if !hasRecordLine(out, "b", noPathID, "no-path") {
-		t.Fatalf("missing %s no-path: %q", noPathID, out)
+}
+
+// briefFlags parses grill's #briefs section into stored-ID -> heuristic set.
+func briefFlags(t *testing.T, s *Server, out string) map[string]map[string]bool {
+	t.Helper()
+	flags := map[string]map[string]bool{}
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) != 3 || f[0] != "b" {
+			continue
+		}
+		id := fullID(t, s, f[1])
+		if flags[id] == nil {
+			flags[id] = map[string]bool{}
+		}
+		flags[id][f[2]] = true
 	}
-	if hasRecordLine(out, "b", noPathID, "short-body") || hasRecordLine(out, "b", noPathID, "no-verify") {
-		t.Fatalf("%s over-flagged: %q", noPathID, out)
+	return flags
+}
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	// "no verify" fails only no-verify.
-	noVerifyID := byTitle["no verify"]
-	if !hasRecordLine(out, "b", noVerifyID, "no-verify") {
-		t.Fatalf("missing %s no-verify: %q", noVerifyID, out)
-	}
-	if hasRecordLine(out, "b", noVerifyID, "short-body") || hasRecordLine(out, "b", noVerifyID, "no-path") {
-		t.Fatalf("%s over-flagged: %q", noVerifyID, out)
-	}
+	sort.Strings(out)
+	return out
 }
 
 // TestGrillTestsGap: a target package under internal/ with no *_test.go file
@@ -266,7 +286,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 
 	prop := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "stamp me"})
 
-	before, ok, err := item.Get(s.ws, prop)
+	before, ok, err := item.Get(s.ws, fullID(t, s, prop))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,20 +300,11 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	res, _, err := s.grill(grillIn{ID: prop})
 	out := resText(t, res, err)
 	today := time.Now().UTC().Format("2006-01-02")
-	stamped := false
-	for _, l := range strings.Split(out, "\n") {
-		// "ok grilled <id> <date>" — the ID is rendered short (ADR-0013),
-		// so it is compared by record identity, not as a byte string.
-		if f := strings.Fields(l); len(f) == 4 &&
-			f[0] == "ok" && f[1] == "grilled" && sameItem(f[2], prop) && f[3] == today {
-			stamped = true
-		}
-	}
-	if !stamped {
+	if !strings.Contains(out, "ok grilled "+prop+" "+today) {
 		t.Fatalf("grill did not confirm the stamp: %q", out)
 	}
 
-	after, ok, err := item.Get(s.ws, prop)
+	after, ok, err := item.Get(s.ws, fullID(t, s, prop))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,8 +330,9 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := false
+	full := fullID(t, s, prop)
 	for _, e := range events {
-		if e.Ev == journal.EvGrill && e.ID == prop && e.Gr == today {
+		if e.Ev == journal.EvGrill && e.ID == full && e.Gr == today {
 			found = true
 		}
 	}
@@ -334,7 +346,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	}
 	foundSw := false
 	for _, e := range swEvents {
-		if e.Ev == "grill" && e.Ref == prop {
+		if e.Ev == "grill" && e.Ref == full {
 			foundSw = true
 		}
 	}

@@ -45,7 +45,6 @@ func connectRootWithPromptsServer(t *testing.T, root string) (*Server, *mcp.Clie
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	registerTestServer(t, sess, s)
 	return s, sess
 }
 
@@ -88,14 +87,14 @@ func TestPromptNextNoneApproved(t *testing.T) {
 
 func TestPromptNextApprovedTask(t *testing.T) {
 	root := t.TempDir()
-	sess := connectRootWithPrompts(t, root)
+	s, sess := connectRootWithPromptsServer(t, root)
 
-	task := draftID(t, sess, map[string]any{"kind": "task", "title": "wire prompts"})
+	task := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "wire prompts"})
 	callText(t, sess, "move", map[string]any{"id": task, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": task, "to": "approved"})
 
 	out := getPromptText(t, sess, "next", nil)
-	if !strings.Contains(out, task) {
+	if fullID(t, s, idOfRecord(t, out, "i")) != task {
 		t.Fatalf("next did not surface the approved task: %q", out)
 	}
 	if !strings.Contains(out, "lease") {
@@ -145,7 +144,7 @@ func TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen(t *testing.T) {
 	if _, err := lifecycle.Move(s.ws, archived.ID, item.StateArchived, "shipped"); err != nil {
 		t.Fatal(err)
 	}
-	needsArchived := draftID(t, sess, map[string]any{"kind": "task", "title": "needs an archived item"})
+	needsArchived := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "needs an archived item"})
 	callText(t, sess, "move", map[string]any{"id": needsArchived, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": needsArchived, "to": "approved"})
 	it1, ok, err := item.Get(s.ws, needsArchived)
@@ -158,13 +157,13 @@ func TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen(t *testing.T) {
 	}
 
 	out := getPromptText(t, sess, "next", nil)
-	if !strings.Contains(out, needsArchived) {
+	if fullID(t, s, idOfRecord(t, out, "i")) != needsArchived {
 		t.Fatalf("next should surface a candidate whose only need is archived: %q", out)
 	}
 
 	// needsBogus: approved, Needs an ID that resolves nowhere — stays open,
 	// so next must keep skipping it in favor of the plain task below.
-	needsBogus := draftID(t, sess, map[string]any{"kind": "task", "title": "needs a bogus id"})
+	needsBogus := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "needs a bogus id"})
 	callText(t, sess, "move", map[string]any{"id": needsBogus, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": needsBogus, "to": "approved"})
 	it3, ok, err := item.Get(s.ws, needsBogus)
@@ -175,7 +174,7 @@ func TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen(t *testing.T) {
 	if err := item.Upsert(s.ws, it3); err != nil {
 		t.Fatal(err)
 	}
-	plain := draftID(t, sess, map[string]any{"kind": "task", "title": "plain actionable work"})
+	plain := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "plain actionable work"})
 	callText(t, sess, "move", map[string]any{"id": plain, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": plain, "to": "approved"})
 
@@ -184,11 +183,15 @@ func TestPromptNextArchivedNeedNotOpenNonexistentNeedStillOpen(t *testing.T) {
 	// against needsBogus.
 	callText(t, sess, "move", map[string]any{"id": needsArchived, "to": "done"})
 
+	// Compare the PICKED record's resolved ID, not a substring of the output:
+	// displayed IDs are prefixes, and one record's display form is routinely a
+	// prefix of another's, so strings.Contains would match the wrong item.
 	out = getPromptText(t, sess, "next", nil)
-	if strings.Contains(out, needsBogus) {
+	picked := fullID(t, s, idOfRecord(t, out, "i"))
+	if picked == needsBogus {
 		t.Fatalf("next surfaced a candidate whose need resolves nowhere: %q", out)
 	}
-	if !strings.Contains(out, plain) {
+	if picked != plain {
 		t.Fatalf("next skipped past the actionable item: %q", out)
 	}
 }
@@ -203,7 +206,7 @@ func TestPromptNextSkipsBlockedAndOpenNeeds(t *testing.T) {
 
 	// needsDecision: approved, but still has an open need (decide op=ask on
 	// any item — not necessarily an escalated one — appends to Needs).
-	needsDecision := draftID(t, sess, map[string]any{"kind": "task", "title": "needs a decision first"})
+	needsDecision := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "needs a decision first"})
 	callText(t, sess, "move", map[string]any{"id": needsDecision, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": needsDecision, "to": "approved"})
 	d, err := lifecycle.Draft(s.ws, nil, "adr", "which approach", "", "", "", nil)
@@ -249,18 +252,20 @@ func TestPromptNextSkipsBlockedAndOpenNeeds(t *testing.T) {
 	}
 
 	// plain approved task with no needs — the one `next` should pick.
-	actionable := draftID(t, sess, map[string]any{"kind": "task", "title": "actionable work"})
+	actionable := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "actionable work"})
 	callText(t, sess, "move", map[string]any{"id": actionable, "to": "submitted"})
 	callText(t, sess, "move", map[string]any{"id": actionable, "to": "approved"})
 
+	// resolved-ID comparison, not substring: see the sibling test above.
 	out := getPromptText(t, sess, "next", nil)
-	if strings.Contains(out, needsDecision) {
+	picked := fullID(t, s, idOfRecord(t, out, "i"))
+	if picked == needsDecision {
 		t.Fatalf("next surfaced an item with an open need: %q", out)
 	}
-	if strings.Contains(out, it2.ID) {
+	if picked == it2.ID {
 		t.Fatalf("next surfaced a blocked item: %q", out)
 	}
-	if !strings.Contains(out, actionable) {
+	if picked != actionable {
 		t.Fatalf("next skipped past the actionable item: %q", out)
 	}
 }

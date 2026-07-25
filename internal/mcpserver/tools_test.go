@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/drift"
@@ -16,44 +14,31 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// draftID calls the draft tool and returns the STORED ID of the item it
-// minted — the full one, not the short prefix draft printed.
+// draftID calls the draft tool and returns the ID the server minted for the
+// new item, read off the `i <id> ...` record draft answers with.
 //
 // Every test that used to hardcode "P-0001" goes through here instead: since
 // ADR-0013 (T-0135) item IDs are UUIDv7-derived, so a minted ID is different
 // on every run and cannot appear in a test literal. Legacy IDs are still
 // perfectly valid to write by hand — tests that seed a pre-migration
 // workspace do exactly that.
-//
-// It returns the stored ID rather than the rendered one because a rendered ID
-// is the shortest prefix that was unambiguous AT THAT INSTANT (T-0136), and
-// minting another record in the same millisecond can make it ambiguous
-// afterwards. Only the stored ID is a durable handle. Feed it back into tools
-// freely — a full ID always resolves to itself — and compare it against
-// output with sameItem/hasItemID/hasRecordLine, which know that the two forms
-// are the same record.
 func draftID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
 	t.Helper()
-	rendered := idOfRecord(t, callText(t, sess, "draft", args), "i")
-	return storedID(t, serverOf(t, sess), rendered)
+	return idOfRecord(t, callText(t, sess, "draft", args), "i")
 }
 
-// idTokenRe matches an item ID in the form tools RENDER it, which since
-// T-0136 is the shortest unambiguous prefix rather than the stored ID: a kind
-// prefix and either a whole legacy four-digit counter or between
-// ids.MinRecordPrefixLen and ids.RecordIDLen characters of a record-ID tail.
+// idOfRecord picks the ID out of the first record line of out carrying the
+// given tag. Scanning lines rather than reading the head of the output is
+// deliberate: several tools prepend an `h ...` health hint, and the context
+// pack follows the item record, so the record is not reliably the whole text.
 //
-// Tests read IDs off output with this instead of item.IDRe, which is the
-// acceptance test for a COMPLETE storable ID and by design does not match a
-// prefix. Nothing else on a record line can match it: kinds, states and dirs
-// have no kind-letter-dash-base32 shape.
-var idTokenRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-(?:[0-9]{4}|[0-7][0-9A-HJKMNP-TV-Z]{5,25})$`)
-
-// idOfRecord picks the ID, as rendered, out of the first record line of out
-// carrying the given tag. Scanning lines rather than reading the head of the
-// output is deliberate: several tools prepend an `h ...` health hint, and the
-// context pack follows the item record, so the record is not reliably the
-// whole text.
+// It matches idPrefixRe, not item.IDRe: since T-0136 every emitted ID is in
+// the DISPLAY form (the shortest unambiguous prefix), which item.IDRe rejects
+// by design — it is the acceptance test for a complete, storable ID. What
+// this returns is therefore exactly what an agent reading the same output
+// would copy, and every tool must accept it back verbatim. That is the
+// ADR-0013 round-trip property, and letting the whole suite depend on it is
+// worth more than any single test asserting it.
 func idOfRecord(t *testing.T, out, tag string) string {
 	t.Helper()
 	for _, l := range strings.Split(out, "\n") {
@@ -62,7 +47,7 @@ func idOfRecord(t *testing.T, out, tag string) string {
 			continue
 		}
 		for _, tok := range f[1:] {
-			if idTokenRe.MatchString(tok) {
+			if idPrefixRe.MatchString(tok) && !reRuleID.MatchString(tok) {
 				return tok
 			}
 		}
@@ -71,111 +56,116 @@ func idOfRecord(t *testing.T, out, tag string) string {
 	return ""
 }
 
-// sameItem reports whether a rendered item ID and a stored one name the same
-// record: the rendering is always some prefix of the ID it renders.
+// fullID expands a displayed ID back to the stored one.
 //
-// AT LEAST ONE SIDE MUST BE A STORED (full) ID. Comparing two rendered IDs
-// this way is unsound — two records minted in the same millisecond share a
-// long leading run, so two independently-shortened prefixes of DIFFERENT
-// records can each be a prefix of the other. That is why draftID and askID
-// hand back stored IDs.
-func sameItem(a, b string) bool {
-	return a != "" && b != "" &&
-		(strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
-}
-
-// hasItemID reports whether out mentions the stored ID id somewhere, in
-// whatever rendering the tool chose.
-func hasItemID(out, id string) bool {
-	for _, tok := range strings.Fields(out) {
-		if idTokenRe.MatchString(tok) && sameItem(tok, id) {
-			return true
-		}
-	}
-	return false
-}
-
-// hasRecordLine reports whether out carries a line whose whitespace-separated
-// fields are tag, a rendering of the stored ID id, and then rest, in order.
-func hasRecordLine(out, tag, id string, rest ...string) bool {
-	for _, l := range strings.Split(out, "\n") {
-		f := strings.Fields(l)
-		if len(f) < 2+len(rest) || f[0] != tag || !sameItem(f[1], id) {
-			continue
-		}
-		ok := true
-		for i, want := range rest {
-			if f[2+i] != want {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			return true
-		}
-	}
-	return false
-}
-
-// storedID resolves a RENDERED item ID — since T-0136 the shortest
-// unambiguous prefix — to the full ID the store is keyed by, through the
-// server's own resolver.
-func storedID(t *testing.T, s *Server, id string) string {
+// Tool arguments never need this — accepting the display form is the whole
+// point of T-0136. It exists for assertions that bypass the tool boundary and
+// read the store directly (item.Get, journal events, work.md bytes), where the
+// key is the canonical ID and a prefix simply is not it. A test reaching for
+// this is asserting about persistence; a test asserting about the surface
+// should keep using the displayed form.
+func fullID(t *testing.T, s *Server, id string) string {
 	t.Helper()
 	sc, err := s.idScope()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("idScope: %v", err)
 	}
 	full, bad := sc.expand(id)
 	if bad != nil {
-		t.Fatalf("%s does not resolve to one stored ID", id)
+		t.Fatalf("expand %s: %s", id, resultText(bad))
 	}
 	return full
 }
 
-// testServers lets a helper that is handed only a client session reach the
-// Server behind it, which is what turns a rendered ID back into a stored one.
-// connectRoot registers every session it opens; a test that wires its own
-// session (connectDecide) registers it the same way.
-var (
-	testServersMu sync.Mutex
-	testServers   = map[*mcp.ClientSession]*Server{}
-)
-
-func registerTestServer(t *testing.T, sess *mcp.ClientSession, s *Server) {
+// draftFullID drafts and immediately resolves the answer to the stored ID.
+//
+// Long tests that mint many records need this. A displayed prefix is unique
+// only against the record set at the instant it was emitted, and a UUIDv7 puts
+// the millisecond clock first, so every record minted in the same ~17-minute
+// window shares the six-character floor — the prefix a test captured up front
+// turns ambiguous a few drafts later. Resolving at capture time, while the
+// display form is still unique, pins the identity for the rest of the test.
+// Full IDs are accepted by every tool, so this changes nothing about what is
+// being exercised except that it stops testing the clock.
+func draftFullID(t *testing.T, s *Server, sess *mcp.ClientSession, args map[string]any) string {
 	t.Helper()
-	testServersMu.Lock()
-	defer testServersMu.Unlock()
-	testServers[sess] = s
-	t.Cleanup(func() {
-		testServersMu.Lock()
-		defer testServersMu.Unlock()
-		delete(testServers, sess)
-	})
+	return fullID(t, s, draftID(t, sess, args))
 }
 
-func serverOf(t *testing.T, sess *mcp.ClientSession) *Server {
+// storedID resolves a displayed ID against a workspace read straight off disk.
+//
+// It exists for the tests that hold only a client session (two-agent and
+// worktree end-to-end setups) and so cannot reach a *Server to call fullID.
+// Live items are enough for those: they resolve records they just drafted.
+func storedID(t *testing.T, root, display string) string {
 	t.Helper()
-	testServersMu.Lock()
-	defer testServersMu.Unlock()
-	s, ok := testServers[sess]
-	if !ok {
-		t.Fatal("session was not registered with registerTestServer")
+	items, err := item.LoadAll(workspace.Root{Dir: root})
+	if err != nil {
+		t.Fatalf("LoadAll(%s): %v", root, err)
 	}
-	return s
+	var hits []string
+	for _, it := range items {
+		if strings.HasPrefix(it.ID, display) {
+			hits = append(hits, it.ID)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("storedID(%q): %d matches %v", display, len(hits), hits)
+	}
+	return hits[0]
 }
 
-// askID calls decide op=ask and returns the STORED ID of the adr item it
-// minted, read off the "need decision <id> ..." record. Same reasons as
-// draftID: the ID is minted, so it cannot be a literal, and the rendered
-// short form is not a durable handle.
+// storedIDAfterDraft drafts through sess and returns the stored ID, for the
+// session-only tests. storedID's counterpart to draftFullID.
+func storedIDAfterDraft(t *testing.T, root string, sess *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	return storedID(t, root, draftID(t, sess, args))
+}
+
+// wantItemRecord asserts out carries an `i` record naming the stored ID want,
+// followed by rest.
+//
+// It compares the record's ID field by prefix instead of matching the whole
+// line as a literal, because the displayed ID's LENGTH is not stable: it grows
+// as sibling records accumulate (see draftFullID). Prefix-matching the field
+// is precise anyway — a displayed ID is only ever a prefix of the record it
+// names.
+func wantItemRecord(t *testing.T, out, want, rest string) {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 || f[0] != "i" || !strings.HasPrefix(want, f[1]) {
+			continue
+		}
+		if strings.Contains(l, rest) {
+			return
+		}
+	}
+	t.Fatalf("no `i` record for %s with %q in %q", want, rest, out)
+}
+
+// shortID renders a stored ID the way the tools emit it, for assertions that
+// hold a canonical ID (out of a Go struct or a seeded fixture) and have to
+// match it against tool output. The inverse direction of fullID.
+func shortID(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	sc, err := s.idScope()
+	if err != nil {
+		t.Fatalf("idScope: %v", err)
+	}
+	return sc.short(id)
+}
+
+// askID calls decide op=ask and returns the ID of the adr item it minted,
+// read off the "need decision <id> ..." record. Same reason as draftID: the
+// ID is minted, so it cannot be a literal.
 func askID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
 	t.Helper()
 	out := callText(t, sess, "decide", args)
 	for _, l := range strings.Split(out, "\n") {
 		f := strings.Fields(l)
-		if len(f) >= 3 && f[0] == "need" && f[1] == "decision" && idTokenRe.MatchString(f[2]) {
-			return storedID(t, serverOf(t, sess), f[2])
+		if len(f) >= 3 && f[0] == "need" && f[1] == "decision" && idPrefixRe.MatchString(f[2]) {
+			return f[2]
 		}
 	}
 	t.Fatalf("decide ask did not answer with a need-decision record: %q", out)
@@ -185,6 +175,15 @@ func askID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
 // connectRoot spins up the server over an in-memory transport against a
 // workspace root and returns a live client session.
 func connectRoot(t *testing.T, root string) *mcp.ClientSession {
+	t.Helper()
+	_, sess := connectRootWithServer(t, root)
+	return sess
+}
+
+// connectRootWithServer is connectRoot for tests that also need the *Server —
+// to resolve a displayed ID against the store (fullID/shortID) or to read
+// internal state directly.
+func connectRootWithServer(t *testing.T, root string) (*Server, *mcp.ClientSession) {
 	t.Helper()
 	s, err := New(root)
 	if err != nil {
@@ -203,8 +202,7 @@ func connectRoot(t *testing.T, root string) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	registerTestServer(t, sess, s)
-	return sess
+	return s, sess
 }
 
 func callText(t *testing.T, sess *mcp.ClientSession, name string, args map[string]any) string {
@@ -262,11 +260,12 @@ func TestLifecycleE2E(t *testing.T) {
 		"targets": []string{"gpu/kernels/saxpy.cu", "gpu/saxpy.go"},
 	})
 	f := strings.Fields(out)
-	if len(f) < 2 || f[0] != "i" || !idTokenRe.MatchString(f[1]) {
+	if len(f) < 2 || f[0] != "i" || !idPrefixRe.MatchString(f[1]) {
 		t.Fatalf("draft: %q", out)
 	}
-	prop := storedID(t, serverOf(t, sess), f[1])
-	if !hasRecordLine(out, "i", prop, "proposal", "draft") {
+	prop := f[1]
+	propFull := storedID(t, root, prop)
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("draft: %q", out)
 	}
 	// output diet (T-0015): empty sections are omitted entirely, not filled
@@ -311,8 +310,9 @@ func TestLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// spec.md stores the full ID: it is a persisted record, not tool output.
-	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), prop+" strided saxpy access") {
+	// spec.md stores the canonical ID, not the displayed prefix: the intent
+	// line is persisted state, and persisted state is never abbreviated.
+	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), propFull+" strided saxpy access") {
 		t.Fatalf("archive did not merge into intent:\n%s", spec)
 	}
 	// gone from work.md, but never from the referenceable universe: get
@@ -356,7 +356,7 @@ func TestRejectionCorpusAndRevocation(t *testing.T) {
 
 	// revocable: back to draft, item restored with body
 	out = callText(t, sess, "move", map[string]any{"id": prop, "to": "draft"})
-	if !hasRecordLine(out, "i", prop, "proposal", "draft") {
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("revocation failed: %q", out)
 	}
 	out = callText(t, sess, "get", map[string]any{"id": prop})
@@ -714,8 +714,6 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 	// rule and the node, not silently succeed (the gate was dormant before
 	// T-0091 wired WithAuditGate at this call site).
 	out = callText(t, sess, "move", map[string]any{"id": task, "to": "done"})
-	// the refusal comes from internal/lifecycle's audit gate, which has no
-	// known-ID set to shorten against and so names the full ID.
 	want := "! GATE E " + task + " audit GATE-TST-001 go:demo.F tightened"
 	if !strings.Contains(out, want) {
 		t.Fatalf("expected the audit-gate refusal %q, got: %q", want, out)
@@ -723,7 +721,7 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 
 	// the item must still be active — the refusal did not let the move land
 	out = callText(t, sess, "get", map[string]any{"id": task})
-	if !hasRecordLine(out, "i", task, "task", "active") {
+	if !strings.Contains(out, "i "+task+" task active") {
 		t.Fatalf("item must still be active after the gate refused done: %q", out)
 	}
 
@@ -738,7 +736,7 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 
 	// the same move now succeeds
 	out = callText(t, sess, "move", map[string]any{"id": task, "to": "done"})
-	if !hasRecordLine(out, "i", task, "task", "done") {
+	if !strings.Contains(out, "i "+task+" task done") {
 		t.Fatalf("move to=done must succeed once the anchor is reconciled: %q", out)
 	}
 }
@@ -1276,7 +1274,7 @@ func TestDraftRefsLiveItem(t *testing.T) {
 		"refs": []string{res},
 	})
 	out := callText(t, sess, "get", map[string]any{"id": prop})
-	if !hasRecordLine(out, "refs", res) {
+	if !strings.Contains(out, "refs "+res+"\n") {
 		t.Fatalf("get %s missing refs line: %q", prop, out)
 	}
 }
@@ -1319,7 +1317,7 @@ func TestDraftRefsArchivedItem(t *testing.T) {
 		"refs": []string{prop},
 	})
 	got := callText(t, sess, "get", map[string]any{"id": task})
-	if !hasRecordLine(got, "refs", prop) {
+	if !strings.Contains(got, "refs "+prop+"\n") {
 		t.Fatalf("get %s missing refs line for archived citation: %q", task, got)
 	}
 }
@@ -1338,7 +1336,7 @@ func TestGetItemNonADRUnchanged(t *testing.T) {
 		"body": "Keep compiled kernels resident.",
 	})
 	out := callText(t, sess, "get", map[string]any{"id": prop})
-	if !hasRecordLine(out, "i", prop, "proposal", "draft") {
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("unexpected header: %q", out)
 	}
 	if !strings.Contains(out, "Keep compiled kernels resident.\n") {
@@ -1348,244 +1346,5 @@ func TestGetItemNonADRUnchanged(t *testing.T) {
 		if strings.Contains(out, field) {
 			t.Fatalf("non-ADR get output must not render empty ADR field %q: %q", field, out)
 		}
-	}
-}
-
-// ---- short ID prefixes at the tool boundary (T-0136, ADR-0013) ----
-
-// TestPrefixResolvesLikeFullID: the shortest unambiguous prefix names a
-// record exactly as its full ID does, through more than one tool, and the
-// prefix a tool RENDERS is one such prefix — so an ID copied out of any
-// output is accepted straight back in.
-func TestPrefixResolvesLikeFullID(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	full := draftID(t, sess, map[string]any{
-		"kind": "proposal", "title": "cache kernels in VRAM",
-		"body": "Keep compiled kernels resident.",
-	})
-
-	// what get printed is a strict prefix, not the stored ID: that is the
-	// output-diet half of ADR-0013.
-	byFull := callText(t, sess, "get", map[string]any{"id": full})
-	rendered := idOfRecord(t, byFull, "i")
-	if rendered == full {
-		t.Fatalf("get rendered the full 26-character ID, not a short prefix: %q", byFull)
-	}
-	if !strings.HasPrefix(full, rendered) || len(rendered) < len("P-")+6 {
-		t.Fatalf("rendered %q is not a >=6-character prefix of %q", rendered, full)
-	}
-
-	// feeding the rendered form straight back reaches the same record.
-	byShort := callText(t, sess, "get", map[string]any{"id": rendered})
-	if byShort != byFull {
-		t.Fatalf("get by prefix != get by full ID:\n%q\n%q", byShort, byFull)
-	}
-
-	// a second tool: grill takes the same argument and answers about the
-	// same item either way.
-	if g := callText(t, sess, "grill", map[string]any{"id": rendered}); !hasItemID(g, full) {
-		t.Fatalf("grill by prefix did not reach %s: %q", full, g)
-	}
-
-	// and a third that WRITES: move by prefix transitions the same record,
-	// which get by full ID then confirms.
-	callText(t, sess, "move", map[string]any{"id": rendered, "to": "submitted"})
-	if out := callText(t, sess, "get", map[string]any{"id": full}); !hasRecordLine(out, "i", full, "proposal", "submitted") {
-		t.Fatalf("move by prefix did not land on %s: %q", full, out)
-	}
-}
-
-// TestAmbiguousPrefixNamesEveryCandidate: ambiguity is refused, never
-// guessed, and the refusal names every candidate so one more call
-// disambiguates. Two records minted back to back share a long leading run
-// (UUIDv7 leads with the millisecond timestamp), so the shared prefix here is
-// real, not contrived.
-func TestAmbiguousPrefixNamesEveryCandidate(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	a := draftID(t, sess, map[string]any{"kind": "task", "title": "first"})
-	b := draftID(t, sess, map[string]any{"kind": "task", "title": "second"})
-
-	shared := a[:len("T-")+commonRunLen(a[2:], b[2:])]
-	if len(shared) <= len("T-") {
-		t.Fatalf("%s and %s share no tail run at all", a, b)
-	}
-
-	out := callText(t, sess, "get", map[string]any{"id": shared})
-	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "ambiguous prefix") {
-		t.Fatalf("ambiguous prefix must be refused, got: %q", out)
-	}
-	if !hasItemID(out, a) || !hasItemID(out, b) {
-		t.Fatalf("refusal must name every candidate (%s, %s): %q", a, b, out)
-	}
-	// the refusal is actionable in ONE more call: each candidate it names
-	// resolves on its own. Candidates follow the colon — the token before it
-	// is the ambiguous prefix the caller asked with.
-	_, list, found := strings.Cut(out, ": ")
-	if !found {
-		t.Fatalf("refusal has no candidate list: %q", out)
-	}
-	for _, cand := range strings.Fields(list) {
-		if !idTokenRe.MatchString(cand) {
-			t.Fatalf("candidate %q is not an item ID: %q", cand, out)
-		}
-		if got := callText(t, sess, "get", map[string]any{"id": cand}); strings.Contains(got, "! ARG E") {
-			t.Fatalf("candidate %q from the refusal does not resolve: %q", cand, got)
-		}
-	}
-}
-
-// commonRunLen returns the number of leading bytes a and b share.
-func commonRunLen(a, b string) int {
-	n := min(len(a), len(b))
-	for i := range n {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	return n
-}
-
-// TestUnknownPrefixIsNotFoundNotAmbiguity: a prefix matching nothing keeps
-// the existing nf correction. Confusing "no such record" with "say more" is
-// the one failure mode that would make the resolver worse than no resolver.
-func TestUnknownPrefixIsNotFoundNotAmbiguity(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-	draftID(t, sess, map[string]any{"kind": "task", "title": "the only item"})
-
-	// "7" is a legal Crockford leading character no minted ID starts with:
-	// the first character encodes the top 3 bits of a timestamp that will
-	// not reach 7 for another few thousand years.
-	out := callText(t, sess, "get", map[string]any{"id": "T-7ZZZZZ"})
-	if strings.Contains(out, "ambiguous") {
-		t.Fatalf("unknown prefix answered ambiguity: %q", out)
-	}
-	if !strings.Contains(out, "nf") {
-		t.Fatalf("unknown prefix should answer nf: %q", out)
-	}
-}
-
-// TestArchivedTombstoneResolvesByPrefix: an archived item leaves work.md and
-// survives only as a journal tombstone. If the known set were live items
-// only, the archived half of the history would stop being referenceable by
-// prefix — so tombstones are in the set, and this proves it end to end.
-func TestArchivedTombstoneResolvesByPrefix(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	full := draftID(t, sess, map[string]any{"kind": "proposal", "title": "shipped long ago"})
-	callText(t, sess, "move", map[string]any{"id": full, "to": "archived", "note": "shipped"})
-
-	byFull := callText(t, sess, "get", map[string]any{"id": full})
-	if !strings.Contains(byFull, "journal tombstone") {
-		t.Fatalf("setup: %s is not a tombstone: %q", full, byFull)
-	}
-	rendered := idOfRecord(t, byFull, "i")
-	if rendered == full {
-		t.Fatalf("tombstone rendered the full ID, not a prefix: %q", byFull)
-	}
-	if got := callText(t, sess, "get", map[string]any{"id": rendered}); got != byFull {
-		t.Fatalf("tombstone not resolvable by its own rendered prefix:\n%q\n%q", got, byFull)
-	}
-
-	// and a stored reference to it — draft refs= — accepts the prefix too,
-	// expanding to the full ID before anything persists.
-	citing := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "follow-up", "refs": []string{rendered},
-	})
-	s := serverOf(t, sess)
-	it, ok, err := item.Get(s.ws, citing)
-	if err != nil || !ok {
-		t.Fatalf("%s missing: %v %v", citing, ok, err)
-	}
-	if len(it.Refs) != 1 || it.Refs[0] != full {
-		t.Fatalf("refs stored %v, want the expanded full ID %s", it.Refs, full)
-	}
-}
-
-// TestRejectedTombstoneResolvesByPrefix: a rejected item leaves work.md the
-// same way an archived one does, but stays REVOCABLE — so its ID has to
-// resolve too, or revocation by prefix would answer "unknown item" while the
-// archived half of the history stayed reachable.
-func TestRejectedTombstoneResolvesByPrefix(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	full := draftID(t, sess, map[string]any{"kind": "proposal", "title": "bad idea"})
-	out := callText(t, sess, "move", map[string]any{
-		"id": full, "to": "rejected", "note": "breaks multi-tenant scheduling",
-	})
-	rendered := idOfRecord(t, out, "i")
-
-	out = callText(t, sess, "move", map[string]any{"id": rendered, "to": "draft"})
-	if !hasRecordLine(out, "i", full, "proposal", "draft") {
-		t.Fatalf("revocation by prefix failed: %q", out)
-	}
-}
-
-// TestPastedPrefixIsNormalized: the tool boundary is where a human or an LLM
-// pastes an ID back, so it folds a paste onto the canonical alphabet —
-// lowercase, and Crockford's four confusable characters — before resolving.
-// internal/ids stays strict; see normalizeItemID for why the two differ.
-func TestPastedPrefixIsNormalized(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	full := draftID(t, sess, map[string]any{"kind": "proposal", "title": "typed by hand"})
-	want := callText(t, sess, "get", map[string]any{"id": full})
-
-	// lowercase, as a chat client or a careless copy would leave it
-	if got := callText(t, sess, "get", map[string]any{"id": strings.ToLower(full)}); got != want {
-		t.Fatalf("lowercased ID did not resolve:\n%q\n%q", got, want)
-	}
-	// the confusables: 0/O and 1/I/L are the pairs a reader mixes up
-	confused := strings.NewReplacer("0", "O", "1", "I").Replace(full[2:])
-	if got := callText(t, sess, "get", map[string]any{"id": full[:2] + confused}); got != want {
-		t.Fatalf("confusable-folded ID did not resolve:\n%q\n%q", got, want)
-	}
-}
-
-// TestFullIDsStayAcceptable: the rollback property. Every ID-taking tool must
-// still take the full stored ID, so removing resolution leaves the surface
-// working exactly as before.
-func TestFullIDsStayAcceptable(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	parent := draftID(t, sess, map[string]any{"kind": "proposal", "title": "parent"})
-	child := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "child", "parent": parent, "refs": []string{parent},
-	})
-	if out := callText(t, sess, "get", map[string]any{"id": child}); !hasItemID(out, child) {
-		t.Fatalf("get by full ID: %q", out)
-	}
-	if out := callText(t, sess, "grill", map[string]any{"id": parent}); !hasItemID(out, parent) {
-		t.Fatalf("grill by full ID: %q", out)
-	}
-	if out := callText(t, sess, "move", map[string]any{"id": child, "to": "submitted"}); !hasItemID(out, child) {
-		t.Fatalf("move by full ID: %q", out)
-	}
-	if out := callText(t, sess, "lease", map[string]any{
-		"op": "claim", "paths": []string{child}, "item": child,
-	}); strings.Contains(out, "! ARG E") {
-		t.Fatalf("lease by full ID: %q", out)
-	}
-}
-
-// TestItemShapedPathIsNotRewritten: lease takes repo paths and item IDs in
-// the same slot, so an argument that merely LOOKS item-shaped must survive
-// unchanged when it names no record. A directory called "d-bus" folds onto
-// the Crockford alphabet as "D-BVS"; leasing it under that name would reserve
-// scope nobody else ever checks.
-func TestItemShapedPathIsNotRewritten(t *testing.T) {
-	sess := connectRoot(t, t.TempDir())
-
-	out := callText(t, sess, "lease", map[string]any{"op": "claim", "paths": []string{"d-bus"}})
-	if strings.Contains(out, "! ARG E") {
-		t.Fatalf("claiming an item-shaped path refused: %q", out)
-	}
-	ls := callText(t, sess, "lease", map[string]any{"op": "ls"})
-	if !strings.Contains(ls, "d-bus") {
-		t.Fatalf("lease claimed something other than the path asked for: %q", ls)
-	}
-	if strings.Contains(ls, "D-BVS") {
-		t.Fatalf("path was folded onto the record-ID alphabet: %q", ls)
 	}
 }

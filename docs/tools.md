@@ -9,31 +9,26 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 ## Design principles
 
 - **Stable short IDs are the currency**: nodes `go:saxpy.Saxpy`, rules
-  `CUDA-KRN-001`, items `P-01KYD3` (see below), sections `sec:gpu#intent`.
-  The LLM names concepts, never file paths or contents.
-- **Item IDs are git-style prefixes** (ADR-0013). An item's stored ID is its
-  kind letter plus a 26-character UUIDv7 in Crockford base32, e.g.
-  `P-01KYD31AXAEPMSRE22YHY5VTNA` — globally unique with no counter to
-  collide across clones. You never have to type all of it:
-  - **Every tool argument that takes an item ID accepts the shortest
-    unambiguous prefix as well as the full ID** — `get`, `move`, `grill`,
-    `draft` (`parent`, `refs`), `decide` (`id`, `item`), `rule` (`item`),
-    `work` (`item`), `lease` (`item`, `paths`). Full IDs never stop working.
-  - **Every output prints the short form**, computed against the same known
-    set, so an ID copied out of any result is accepted straight back.
-  - **An ambiguous prefix is refused, never guessed**: `! ARG E <prefix>
-    ambiguous prefix — <n> records: <id> <id> …` names every candidate, so
-    one more call disambiguates.
-  - A prefix matching nothing gets the usual `nf` correction, not an
-    ambiguity.
-  - The known set is every live item **plus every archived one still
-    reachable as a journal tombstone**, so archived history stays
-    referenceable by prefix. Pre-ADR-0013 sequential IDs (`P-0007`) remain
-    valid input and output forever.
-  - What gets *stored* is always the resolved full ID — a prefix is a
-    display convenience computed against a set that keeps growing, so
-    `draft parent=…`, `refs=…` and the `decide`/`rule` item backlinks are
-    expanded before anything is written.
+  `CUDA-KRN-001`, items `P-01KYD3ZQ8MF8`, sections `sec:gpu#intent`. The LLM
+  names concepts, never file paths or contents.
+- **Item IDs are prefixes, everywhere an item ID is taken** (ADR-0013). A
+  record ID is stored in full — the kind letter plus a 26-character
+  UUIDv7 in Crockford base32, which makes it globally unique without
+  coordination and sortable by mint time. Every tool argument that takes an
+  item ID (`get`, `move`, `grill`, `draft`'s `parent`/`refs`, `decide`'s
+  `item`/`id`, `work`, `lease`) accepts **either the full ID or any
+  unambiguous leading piece of it**, and every result **emits** the shortest
+  currently-unambiguous prefix, so an ID copied out of one result is accepted
+  back verbatim by the next call. Three outcomes, never a guess:
+  a prefix matching one record resolves; one matching several refuses with
+  `! ARG E <prefix> ambiguous prefix — N records: …`, naming every candidate
+  so you can disambiguate in one more call; one matching nothing keeps the
+  ordinary `nf` behavior with nearest matches. Two consequences worth
+  knowing: the emitted length is computed per call and **grows** as records
+  accumulate, so a prefix captured early can turn ambiguous later — re-read
+  it from a fresh result, or keep the full ID; and legacy `P-0007`-style
+  sequential IDs stay valid forever, because archived records live on only
+  as journal tombstones addressed by ID.
 - **Few tools, flat params, enums + defaults** (SPX-ARC-004): the common call
   is one or two fields; no nesting, no option floods.
 - **Dense line records, not JSON, in results** (SPX-MCP-002).

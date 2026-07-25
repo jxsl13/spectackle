@@ -27,7 +27,7 @@ import (
 // siblings and a later move op=approved can see the item was just reviewed.
 
 type grillIn struct {
-	ID     string `json:"id" jsonschema:"item ID, full or shortest unambiguous prefix"`
+	ID     string `json:"id" jsonschema:"item ID, e.g. P-0007"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
 	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
@@ -108,7 +108,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	_ = s.cd.Emit("grill", it.ID, "grilled "+it.Grilled)
-	s.scan.MarkDirty()
+	s.markDirty()
 
 	lines = append(lines, fmt.Sprintf("ok grilled %s %s", sc.short(it.ID), it.Grilled))
 

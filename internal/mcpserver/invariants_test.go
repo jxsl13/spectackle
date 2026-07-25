@@ -206,20 +206,16 @@ func TestInvariantNoBundleOutsideContextDir(t *testing.T) {
 	before := invDirs(t, root)
 
 	tr := &invTrace{t: t, sess: connectRoot(t, root)}
-	// idOfRecord yields the ID as RENDERED (a short prefix since T-0136);
-	// these are held across many later calls, so they are resolved to the
-	// stored IDs, which do not shift as more records are minted.
-	invID := func(out string) string { return storedID(t, serverOf(t, tr.sess), idOfRecord(t, out, "i")) }
 
 	// ---- draft: every kind the tool accepts, spread over context dirs ----
-	prop := invID(tr.call("draft", map[string]any{"kind": "proposal", "title": "pool buffers per stream",
-		"body": "Give each stream its own buffer pool.", "targets": []string{"core/pool.go"}}))
-	task := invID(tr.call("draft", map[string]any{"kind": "task", "title": "thread the pool through run",
-		"parent": prop, "targets": []string{"core/engine/run.go"}}))
-	research := invID(tr.call("draft", map[string]any{"kind": "research", "title": "survey pooling strategies",
-		"targets": []string{"docs/notes.md"}}))
-	bug := invID(tr.call("draft", map[string]any{"kind": "bug", "title": "pool leaks on reset",
-		"targets": []string{"core/pool.go"}}))
+	prop := idOfRecord(t, tr.call("draft", map[string]any{"kind": "proposal", "title": "pool buffers per stream",
+		"body": "Give each stream its own buffer pool.", "targets": []string{"core/pool.go"}}), "i")
+	task := idOfRecord(t, tr.call("draft", map[string]any{"kind": "task", "title": "thread the pool through run",
+		"parent": prop, "targets": []string{"core/engine/run.go"}}), "i")
+	research := idOfRecord(t, tr.call("draft", map[string]any{"kind": "research", "title": "survey pooling strategies",
+		"targets": []string{"docs/notes.md"}}), "i")
+	bug := idOfRecord(t, tr.call("draft", map[string]any{"kind": "bug", "title": "pool leaks on reset",
+		"targets": []string{"core/pool.go"}}), "i")
 
 	// ---- move: the forward states, plus rejected-with-note and archived ----
 	for _, to := range []string{"submitted", "approved", "active", "done"} {

@@ -158,7 +158,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 	}
 	// the live (uncommitted) item state traveled into the worktree
 	out = callText(t, alice, "get", map[string]any{"id": prop})
-	if !hasRecordLine(out, "i", prop, "proposal", "active") {
+	if !strings.Contains(out, prop+" proposal active") {
 		t.Fatalf("item not active in worktree: %q", out)
 	}
 
@@ -188,7 +188,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 		t.Fatalf("worktree not torn down")
 	}
 	out = callText(t, alice, "get", map[string]any{"id": prop})
-	if !hasRecordLine(out, "i", prop, "proposal", "done") {
+	if !strings.Contains(out, prop+" proposal done") {
 		t.Fatalf("item state not replayed: %q", out)
 	}
 	out = callText(t, alice, "work", map[string]any{"op": "status"})
@@ -208,10 +208,12 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
 	alice, bob := twoAgents(t, root)
 
+	// stored IDs, resolved at draft time: two proposals minted milliseconds
+	// apart share their displayed prefix once both exist (see draftFullID).
 	var ids []string
 	for i, sess := range []*mcp.ClientSession{alice, bob} {
-		ids = append(ids, draftID(t, sess, map[string]any{
-			"kind": "proposal", "title": fmt.Sprintf("work %d", i), "targets": []string{fmt.Sprintf("f%d.go", i)}}))
+		ids = append(ids, storedID(t, root, draftID(t, sess, map[string]any{
+			"kind": "proposal", "title": fmt.Sprintf("work %d", i), "targets": []string{fmt.Sprintf("f%d.go", i)}})))
 	}
 	for _, id := range ids {
 		callText(t, alice, "move", map[string]any{"id": id, "to": "submitted"})
@@ -278,14 +280,20 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	}
 }
 
+// wtRootOf pulls the worktree root out of a `wt <id> open <root>` line.
+//
+// item may be either the stored ID or the displayed one: the line carries the
+// display form, which is a prefix of the stored ID, so the ID field is matched
+// by prefix rather than compared as a literal.
 func wtRootOf(t *testing.T, out, item string) string {
 	t.Helper()
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "wt "+item+" open ") {
-			return strings.TrimPrefix(l, "wt "+item+" open ")
+		f := strings.Fields(l)
+		if len(f) == 4 && f[0] == "wt" && f[2] == "open" && strings.HasPrefix(item, f[1]) {
+			return f[3]
 		}
 	}
-	t.Fatalf("no wt line in %q", out)
+	t.Fatalf("no wt line for %s in %q", item, out)
 	return ""
 }
 
