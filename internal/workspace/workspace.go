@@ -15,9 +15,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/jxsl13/spectackle/internal/ignore"
 	"github.com/jxsl13/spectackle/internal/migrate"
 )
 
@@ -297,6 +299,29 @@ func matchIgnoreGlob(g, p string) bool {
 	return ok
 }
 
+// gitIgnoreCache memoizes one ignore.Matcher per workspace root for the
+// life of the process. SkipDir runs once per directory entry in every
+// workspace walk (ContextDirs, spec.Load's cascade, the swarm freshness
+// walk, ...), so a git subprocess per call is unacceptable — see
+// internal/ignore.New, which is the one place the subprocess actually runs.
+// Root carries no matcher of its own (it's a plain value copied through
+// every walk), so the cache is keyed by Dir instead of hung off the struct.
+//
+// The tradeoff this buys: a .gitignore edited after a root's first walk in
+// this process won't be seen again until the process restarts. That is the
+// same staleness window every other in-process cache here already accepts,
+// and it is strictly better than the pre-issue-26 behavior it replaces.
+var gitIgnoreCache sync.Map // root dir (string) -> *ignore.Matcher
+
+func gitIgnoreFor(root string) *ignore.Matcher {
+	if v, ok := gitIgnoreCache.Load(root); ok {
+		return v.(*ignore.Matcher)
+	}
+	m := ignore.New(root)
+	actual, _ := gitIgnoreCache.LoadOrStore(root, m)
+	return actual.(*ignore.Matcher)
+}
+
 // SkipDir is the single entry point every workspace walk (ContextDirs,
 // spec.Load, the coverage-gap walk, and — via DefaultSkipName /
 // IsNestedGitBoundary — the indexer) shares to decide whether to prune a
@@ -307,7 +332,11 @@ func matchIgnoreGlob(g, p string) bool {
 //     the root itself;
 //   - name is one of the built-in defaults (DefaultSkipName);
 //   - rel matches a configured Config.Ignore glob;
-//   - rel matches a configured Config.IgnoreRegex pattern.
+//   - rel matches a configured Config.IgnoreRegex pattern;
+//   - rel is excluded by git itself (internal/ignore) — checked last, after
+//     every user-configurable and built-in rule, so config always wins and
+//     the cheap checks above run before the (memoized, but still map-lookup
+//     plus climb) git-backed one.
 func (r Root) SkipDir(rel, name string) bool {
 	if rel != "" && IsNestedGitBoundary(filepath.Join(r.Dir, filepath.FromSlash(rel))) {
 		return true
@@ -328,6 +357,9 @@ func (r Root) SkipDir(rel, name string) bool {
 		if re.MatchString(rel) {
 			return true
 		}
+	}
+	if gitIgnoreFor(r.Dir).Ignored(rel) {
+		return true
 	}
 	return false
 }
