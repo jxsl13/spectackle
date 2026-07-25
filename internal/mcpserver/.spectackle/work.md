@@ -20,32 +20,47 @@ FIX DIRECTION: fire only where the advice is actionable — a development checko
 
 VERIFY: an installed binary in an unrelated repository emits no hint on any tool; a development checkout with sources newer than the binary still emits exactly one per crossing; the existing debounce and once-per-crossing tests keep passing.
 
-## P-01KYD47GZ7FAMAGM4NEF0BQS8T turn review from assertion into evidence: run the gate that exists, then make grill compute what it cannot fake
-kind: proposal
-state: draft
+## T-01KYD88M80EQEAJDW0AB243ZK2 research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed
+kind: task
+state: submitted
 created: 2026-07-25
-targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go
+parent: P-01KYD87FX0F6YRX49R3A8TB6E4
+refs: R-0007, T-01KYD72HNHEYAB0WF42BTR31CW
+grilled: 2026-07-25
+targets: internal/mcpserver/tools.go
 
-R-0007 completed: six lenses, 63 mechanisms, 52 naming a real failure. The second pass verified its predecessors against the live server and the code, and it overturns the first synthesis on its top-ranked detector.
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Supersedes the rejected draft in refs; its validation round found the cost-flatness claim was self-report-only and the co-dependency was named by paraphrase - both corrected; everything else re-recorded intact.
 
-FINDINGS VERIFIED INDEPENDENTLY BY THE ORCHESTRATOR, not taken on report:
-- The submit gate has executed ZERO commands in this repository's entire history. config.yaml carried no verify key and git log over all history shows no goal field ever added to any item, so runGate built its command list from two empty sources and returned success. All seven submit events passed a gate that ran nothing. Confirmed by reading config.yaml and by counting additions of goal across all branches.
-- The mechanism the first synthesis ranked second — a monoculture scan over the target package's test files — would NOT have caught B-0004. The literal main lives in internal/wt/wt.go line 298, inside InitTestRepo, which is production code in a different package; before T-0130's retrofit it appeared in none of internal/mcpserver's test files. Naive literal frequency is noise: op appears 102 times, id 84, while main is not in the top 50. Four lenses converged on a mechanism that does not work as specified, and the first synthesis promoted it on the strength of that agreement. Recorded as the finding it is: convergence across lenses is not verification.
-- grill is ceremony in practice, not only in principle. Twelve grill events exist; every one fired between zero and ninety-one seconds after its item's own create event, three within the same second, and no item body was ever revised in response to one. P-0088 was grilled three minutes and twenty-five seconds BEFORE its child briefs existed, so the stamp authorizing approval preceded the material it was supposed to critique. The briefs section is structurally near-dead: in at least seven of twelve grills no task item existed yet.
-- check cannot report a contract gap in this repository. The root bundle is unscoped and carries sixteen rules, so ForPath never returns empty and the coverage-gap branch is unreachable. Twelve of twenty-four packages under internal carry no bundle at all while SPX-REPO-002 mandates one, and check answers ok. Six of the ten dogfooded defects landed in exactly those uncovered packages.
+NEEDS: the grill-verdict task (title: grill computes its critique and stamps a verdict) must be MERGED first - it restructures the move path in tools.go this task adds one gate to. The package-coverage task (title: package-local contract coverage: silent by default with visibility in state, counted by check only under coverage_gate) also touches tools.go; whichever merges first, rebase on it - the regions are disjoint (move gate vs check path).
 
-FIRST ACTION TAKEN, because it needed no new machinery: verify commands are now configured, so the gate runs go build and go test on both sides of every submit. Proven to bite before enabling, in a scratch workspace with a deliberately failing command: the submit refused with a GATE error rather than merging. Measured cost of the real commands is about fifteen seconds per run. The field, its parser, its executor and its documentation all already existed and had simply never been switched on.
+WHY. Research that changes nothing is pure token cost, and nothing today notices. R-0007 is the near-miss proving the class: its findings survive ONLY because the orchestrator chose to write the follow-up proposal - had the session ended first, six lenses and 63 mechanisms would have archived into a tombstone nothing cites, and the next session would re-pay full price. This gate is the smallest mechanism making the return path mandatory: one conditional at one call site, no sweeps, no background work.
 
-RANKED REMAINDER, by verified failures per unit of cost:
-2. Server-computed environment differential at grill: print the live value of a fixed axis list beside what the item's tests construct. Four of ten defects in one section, roughly thirty lines of code. Its own limit is honest — the axis list is hindsight-fitted, and its real test is whether axis six gets added before defect eleven.
-3. grill stamps a verdict bound to what it read, and move gates on that verdict rather than on a non-empty date. This is P-0060's adjudicated principle applied to the reviewer: a refresh is not a verification.
-4. Package-local contract coverage: make the coverage gap fire per package instead of inheriting the root scope. Twelve violations are visible today. Weakest of the top five because an EARS sentence silences it; mitigate by requiring the silencing rule to bind a node via applies.
-5. Blast radius and irreversibility computed from targets. T-0135 declared four files and landed fifteen; T-0137 rewrote journal history and passed the rollback word-check with a well-formed paragraph.
-6. Declared-but-unconsumed sweep. B-0009's title is literally the finding.
-7. Caller-divergence sweep: print only minority argument shapes among a callee's call sites. B-0003 was one against twenty.
-8. Server-executed mutant-kill gate at submit. Strongest evidence generator after the first, ranked here only for its measured eighty-second tax on the package where most work happens.
-9. Independent-oracle recall for recognizers, as a ratchet rather than a threshold. Would have caught R-0005 wholesale; also the only mechanism with a maintenance tail, and the property that carries it — the corpus is not the implementer's — is the one thing no lint can enforce.
+VERIFIED GROUND (do not re-derive)
+- The move path in tools.go (post grill-verdict restructure) validates to= transitions; the grill gate pattern there is the shape to mirror.
+- Items carry Refs (draftIn.Refs, tools.go:60; item.Refs, item.go:69); rules carry rationale text; consumer lookup = live items' Refs (item.LoadAll, already loaded) + archived tombstones (lifecycle.Tombstone, lifecycle.go:507, confirmed exported) + rules whose rationale names the R-id (cascade in memory).
+- LCY-001 binds tombstone resolution; an archived consumer counts.
 
-TO DELETE RATHER THAN ADD: grill's word-presence questions and the brief substring heuristics. They cannot fail for a determined author, they train bodies to grow padding, and they occupy the slot where a computed check belongs.
+WHAT TO BUILD
+1. At move to=archived (and any shortcut implying it) for kind=research: require at least one consumer - a live or archived item whose Refs include the R-id, or a rule whose rationale names it - OR a note of at least 80 characters explicitly closing it. Refusal: "! BACKPROP E <id> unconsumed research - cite it from a rule/item or close with a no-action note".
+2. LAYERING, stated in a code comment: the 80-char floor is a TRIPWIRE against accidental emptiness, gameable by padding and known to be (this set's own validation said so); the floor's job is stopping the silent case, substance is the consumer path and human review. Do not present the floor as substance verification.
+3. The refusal is hard regardless of feedback config - an unconsumed-and-unexplained archive has no legitimate loose mode; comment states this asymmetry versus the grill/validate knobs.
+4. Reject stays untouched: a rejected R-item is a recorded dead end, which IS a return path.
+5. Cost flatness, COMPUTED not self-reported (corrected): a test loads the workspace, then makes the .spectackle tree unreadable (rename the directory out from under the loaded Root, or chmod 0o000 on POSIX - pick the portable one for CI, justify), then exercises the gate on the loaded state: it must answer correctly with zero filesystem reads, proven by the tree's absence. The diff-review sentence from the prior draft remains as belt, this test is the suspenders.
 
-Scope for the follow-up tasks is disjoint by file: grill.go for the env differential and the verdict stamp, tools.go and research.go for coverage, a new sweep for callers. Rollback for each is the removal of one section or one predicate.
+NON-NEGOTIABLE PROPERTIES, each with a test
+- Zero consumers, no note -> exact refusal; same item, 80+ char note -> archives; same item cited by one task's Refs -> archives without note.
+- An archived consumer counts (archive the consumer first, then the R-item).
+- A rule whose rationale cites the R-id counts (through rule op=add).
+- Non-research kinds untouched (existing tests unmodified).
+- The no-read test from point 5.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  Red-run: the refusal test written first, shown failing against current code; paste the failing output.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the five fixtures including the no-read test from the diff alone; verdict recorded in the archive note.
+
+SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifecycle.go's state machine, the item model, templates.
+ROLLBACK: revert the commit - one conditional, no stored state, no format change.
+REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
