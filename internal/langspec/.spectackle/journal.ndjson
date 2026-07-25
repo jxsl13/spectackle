@@ -99,3 +99,6 @@
 {"t":"2026-07-25T11:22:15Z","eid":"63cd303117546aa9","ag":"orchestrator","ev":"move","id":"T-0124","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:23:27Z","eid":"8eebee712c71e747","ag":"impl-t0122","ev":"start","id":"T-0122","dir":"internal/langspec","note":"branch spectackle/T-0122 base 4553a2972131"}
 {"t":"2026-07-25T11:27:36Z","eid":"b4d6ecb1a7bc5b97","ag":"ag-c95f","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
+{"t":"2026-07-25T11:29:39Z","eid":"959725db83cff80f","ag":"impl-t0119","ev":"start","id":"T-0119","dir":"internal/langspec","note":"branch spectackle/T-0119 base 343630d742ef"}
+{"t":"2026-07-25T11:29:46Z","eid":"8a419bb24a86c4f9","ag":"impl-t0121","ev":"start","id":"T-0121","dir":"internal/langspec","note":"branch spectackle/T-0121 base 343630d742ef"}
+{"t":"2026-07-25T13:25:47Z","eid":"8a874121058551aa","ag":"ag-e706","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
