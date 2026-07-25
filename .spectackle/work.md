@@ -59,3 +59,75 @@ PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it 
 
 ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
 REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
+
+## T-0128 registry invariants for parsers and Specs, plus the B-0008 kind-gate fix
+kind: task
+state: done
+created: 2026-07-25
+parent: P-0087
+refs: B-0007, B-0008
+targets: internal/langspec/langspec.go, internal/langspec/registry_test.go, internal/index/parsers_test.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+CLASS: a registry of 30 languages means every new entry can silently omit something the engine needs. Assert the properties over the registry itself, so a language added next month is covered without anyone writing a fixture for it.
+
+FIRST, THE FIX (B-0008, read it with get id=B-0008)
+internal/langspec/langspec.go's Parse computes a body span and scans call edges only when def.Kind is KFunc or KMethod. A KKernel def (metal, glsl entry points) therefore never mints edges even with CallRe and EndSpan configured; T-0122 confirmed it live on the gap-metal fixture. Widen the gate to the kinds that actually carry bodies. Decide from the code which kinds qualify and say why in the commit; KKernel is required, anything else is your call with a stated reason.
+
+THEN THE INVARIANTS (new files; do NOT add them to an existing per-language test file)
+internal/index/parsers_test.go
+  A. Every parser the server actually assembles — langspec.All() plus the hand-written GoParser, AsmParser, CudaParser — implements index.CacheVersioner. A parser without it silently reverts to content-only keying, which is exactly B-0007; this catches the next parser added without a version.
+  B. No two of those parsers report the same CacheVersion. Equal versions across languages would let one language's cached blob satisfy another's key.
+internal/langspec/registry_test.go, over every Spec in the registry:
+  C. If a Spec sets CallRe, every Kind appearing in its Defs must be span/edge eligible under the gate you widened. This is B-0008 as a property: a language declaring a kind the gate drops gets no edges from those defs and nobody notices.
+  D. Every Def's Name group index is >= 1 and <= its own regex's NumSubexp, and the same for Sig when non-zero. A capture index pointing past the regex's groups mints empty names or panics; the 27-language hardening rewrote most of these regexes by hand.
+  E. Every Spec declares at least one extension and at least one Def, and its Lang tag is non-empty.
+  F. Report, do not necessarily fail, on two Specs claiming the same extension: the first parser registered wins and the second is dead weight. If the current registry already has an intentional overlap, encode the intent (allow-list it with a comment) rather than bending the registry to the test.
+
+Use table-driven subtests named by language so a failure names the offender directly.
+
+VERIFY (run every one, real output, never predicted)
+  go build ./...
+  go test <your packages> -race
+  go test ./...
+  go vet <your packages>
+  /home/user/spectackle/bin/spectackle lint
+PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it encodes (revert the guard, restore the old gate, whatever is minimal), show the test failing, restore, show it passing. A green invariant that would also be green against the broken code is worthless; paste both transcripts.
+
+ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
+REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
+
+## P-0088 globally unique, chronologically sortable record IDs: close the cross-clone collision hole
+kind: proposal
+state: draft
+created: 2026-07-25
+grilled: 2026-07-25
+targets: internal/ids, internal/coord, internal/item, internal/replay
+
+Requirement: reference IDs can be minted twice when several agents work in parallel; move to chronologically sortable global IDs (UUIDv7 rendered in a base32 alphabet) and migrate this repository's existing records.
+
+PREMISE, VERIFIED AND CORRECTED
+The stated failure mode is real but its cause is not concurrency between agents. Measured facts:
+- coord.NextID runs inside an immediate-mode SQLite transaction with a retry loop, and coordination always resolves to the MAIN repository even when a server starts inside a linked worktree. Every agent on one machine therefore mints through one serialized counter. This is precisely the case that is already safe; a regression test for concurrent drafts exists.
+- coord.db lives under .spectackle/cache/, which is gitignored and never committed. The counter is per-clone, per-machine state that no merge ever reconciles.
+So the collision window is not agent-vs-agent, it is clone-vs-clone: two checkouts (two people, a fork, two CI runners) drafting concurrently both mint the same next number, and git merges the records without noticing.
+
+THE HOLE IS DEEPER THAN THE REQUIREMENT STATES
+replay.Run already anticipates ID collisions for RULES: applyRule detects an existing rule with different content, re-mints it and records the mapping in Report.Remap, then rewrites references. Items have no such path. Replay reconciles items by upserting them under their ID, so two genuinely different items that were minted the same ID in different clones silently collapse into one record, and the loser's body, state and history are overwritten. Rules were protected; proposals, tasks, bugs, research and ADRs were not.
+
+COST, MEASURED NOT ESTIMATED
+A UUIDv7 in a 32-character alphabet is 26 characters; with a kind prefix, 28. Current IDs are 6. On a live state call the output is 1718 bytes carrying 10 ID occurrences, so full-length IDs add about 11 percent to that surface alone, and find/get results carry proportionally more IDs. This repository's architecture contracts include an explicit output diet, so the trade-off is real and belongs in the decision rather than in a footnote.
+
+OPTIONS (the open decision, see the linked ADR)
+A. Kind-prefixed full ID everywhere. Maximum safety, chronologically sortable, roughly 11 percent more output on ID-dense surfaces, and every existing reference in prose, tests and docs changes.
+B. Full ID stored, short unique prefix displayed and accepted, expanded on ambiguity, as git does with commit shas. Keeps most of the token economy, costs a resolver and an ambiguity path.
+C. Keep sequential IDs and close the verified hole by extending replay's existing rule-remap to items. Cheapest by a wide margin, no data migration, no output growth; does not deliver chronological sortability, and depends on every cross-clone merge passing through replay.
+D. Sequential IDs plus a per-clone discriminator. Uniqueness without length explosion, but IDs stop being globally ordered and gain a second field to explain.
+
+Rejected outright: minting from a wall clock alone (collides within a millisecond across clones), and a central ID service (a network dependency for a tool whose whole point is local, git-native operation).
+
+MIGRATION CONSTRAINT
+Whatever wins, this repository's own records must migrate, and the earlier T-0094 rejection is binding precedent: a one-off data migration does not justify a permanent tool. The migration therefore ships as a throwaway path, not as a subcommand that lives forever. Archived items exist only as journal tombstones, so the migration must rewrite journal history rather than only work.md, which the architecture otherwise forbids the LLM from touching.
+
+Exit criterion for the whole line of work: no two records can share an ID across independently minting clones, this repository's records carry the new scheme with every internal reference resolving, drift anchors and the FTS cache rebuild clean, and check returns ok.
