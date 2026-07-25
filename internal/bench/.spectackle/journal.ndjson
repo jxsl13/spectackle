@@ -1,3 +1,4 @@
 {"t":"2026-07-25T22:37:15Z","eid":"ec1663124e3c5056","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDPSW87FKX8FWQBVNDN89TT","k":"task","ti":"the harness: generated all-state fixtures, a scripted lifecycle driver over the real tool surface, token and validity metering, A/B against two builds","dir":"internal/bench"}
 {"t":"2026-07-25T22:38:35Z","eid":"edde5762516770bf","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDPSW87FKX8FWQBVNDN89TT","dir":"internal/bench","fr":"draft","to":"active"}
 {"t":"2026-07-25T22:47:05Z","eid":"3489b75a3bd1a21b","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDPSW87FKX8FWQBVNDN89TT","dir":"internal/bench","fr":"active","to":"done"}
+{"t":"2026-07-25T22:50:25Z","eid":"473bbb995231683b","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDPSW87FKX8FWQBVNDN89TT","dir":"internal/bench","fr":"done","to":"active","rnd":1}
