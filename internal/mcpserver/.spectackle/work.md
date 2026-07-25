@@ -4,7 +4,7 @@ schema: v0
 
 ## T-0130 worktree submit end to end under the four conditions the old tests never had
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0087
 refs: B-0002, B-0004, B-0005, B-0006
