@@ -268,3 +268,5 @@
 {"t":"2026-07-25T14:18:17Z","eid":"4391f576d2c27fe9","ag":"orchestrator","ev":"move","id":"P-0087","fr":"draft","to":"active"}
 {"t":"2026-07-25T14:18:17Z","eid":"82222ab7ae0b2810","ag":"orchestrator","ev":"move","id":"T-0128","fr":"draft","to":"approved"}
 {"t":"2026-07-25T14:18:17Z","eid":"ec4288e5cd7fbd81","ag":"orchestrator","ev":"move","id":"T-0131","fr":"draft","to":"approved"}
+{"t":"2026-07-25T14:18:50Z","eid":"e02926498c757696","ag":"impl-t0128","ev":"start","id":"T-0128","note":"branch spectackle/T-0128 base 978bae54dbf1"}
+{"t":"2026-07-25T14:18:54Z","eid":"9ae1c94757774dff","ag":"impl-t0131","ev":"start","id":"T-0131","note":"branch spectackle/T-0131 base 978bae54dbf1"}
