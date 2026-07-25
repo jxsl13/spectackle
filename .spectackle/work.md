@@ -64,3 +64,24 @@ go test ./internal/wt/... -race with a new regression test (primary checkout on 
 
 ROLLBACK
 One function body; reverting restores prior behavior. No schema or record change.
+
+## B-0005 CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+wt.git() returns strings.TrimSpace over the whole combined output. For git status --porcelain that strips the leading space of the FIRST line only, so an unstaged entry like ' M .spectackle/anchors.tsv' arrives as 'M .spectackle/anchors.tsv' and CommitCode's l[0] != ' ' staged-detection reads it as staged. When the only remaining diff after the code-only add is .spectackle state (near-universal at submit time: the code commit already exists from a prior gate round), CommitCode issues a commit with nothing staged and git exits 1 — work op=submit fails with ! WT E commit. Reproduced live by T-0111 (byte-level transform confirmed); would also have hit T-0115's retry.
+
+CAUSE
+Positional-whitespace parsing of an output channel that a shared helper normalizes for unrelated callers (rev-parse et al. want the trailing newline gone).
+
+FIX (decision)
+Stop parsing porcelain for stagedness: git diff --cached --quiet exits non-zero exactly when the index differs from HEAD, immune to any output trimming. Rejected: un-trimming git() (every other caller depends on the normalization); a second raw-output helper (an exit-code probe is strictly simpler than a second output contract).
+
+VERIFY
+go test ./internal/wt/... -race with a new regression test (worktree whose only dirt is an unstaged .spectackle file: CommitCode must report committed=false with no error — fails before the fix, passes after); go test ./...; live: T-0111 and T-0115 submits complete.
+
+ROLLBACK
+One detection block in CommitCode; reverting restores prior behavior. No schema or record change.

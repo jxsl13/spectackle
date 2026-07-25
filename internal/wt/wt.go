@@ -112,13 +112,13 @@ func CommitCode(wtRoot, msg string) (bool, error) {
 	if _, err := git(wtRoot, append([]string{"add", "-A", "--"}, codeOnly...)...); err != nil {
 		return false, err
 	}
-	out, _ := git(wtRoot, "status", "--porcelain")
+	// stagedness comes from an exit-code probe, never from parsing porcelain
+	// output: the shared git() helper trims the combined output, which eats
+	// the significant leading space off the first status line and misread an
+	// unstaged-only .spectackle change as staged (B-0005).
 	staged := false
-	for _, l := range strings.Split(out, "\n") {
-		if len(l) > 0 && l[0] != ' ' && l[0] != '?' {
-			staged = true
-			break
-		}
+	if _, err := git(wtRoot, "diff", "--cached", "--quiet"); err != nil {
+		staged = true
 	}
 	if !staged && !MergeInProgress(wtRoot) {
 		return false, nil

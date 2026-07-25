@@ -203,3 +203,5 @@
 {"t":"2026-07-25T09:03:53Z","eid":"63b529edecc78498","ag":"orchestrator","ev":"abort","id":"T-0114","note":"worktree abandoned by orchestrator"}
 {"t":"2026-07-25T09:13:09Z","eid":"bdc6f2726eac6021","ag":"orchestrator","ev":"create","id":"B-0004","k":"bug","ti":"MergeMain hardcodes the branch name main, so submit silently merges a stale ref and dies at the fast-forward on repos developing on another branch"}
 {"t":"2026-07-25T09:13:09Z","eid":"93555c1ebaeade4d","ag":"orchestrator","ev":"move","id":"B-0004","fr":"draft","to":"active"}
+{"t":"2026-07-25T09:19:16Z","eid":"a62f235f2d57b0c8","ag":"orchestrator","ev":"create","id":"B-0005","k":"bug","ti":"CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line"}
+{"t":"2026-07-25T09:19:16Z","eid":"ab3241ff47651bdb","ag":"orchestrator","ev":"move","id":"B-0005","fr":"draft","to":"active"}

@@ -145,3 +145,33 @@ func TestMergeMainResolvesPrimaryBranch(t *testing.T) {
 		t.Fatalf("FFMain after resolved merge: %v", err)
 	}
 }
+
+// TestCommitCodeNoOpsOnUnstagedSpectackleOnly: when the only dirt is
+// .spectackle state (excluded from the code-only pathspec), CommitCode must
+// report committed=false with no error. The old porcelain parsing read the
+// first status line's trimmed-away leading space as a staged marker and
+// issued an empty commit that errored (B-0005) — the near-universal retry
+// case, where the code commit already exists from a prior gate round.
+func TestCommitCodeNoOpsOnUnstagedSpectackleOnly(t *testing.T) {
+	root := repo(t)
+	specDir := filepath.Join(root, ".spectackle")
+	os.MkdirAll(specDir, 0o755)
+	os.WriteFile(filepath.Join(specDir, "journal.ndjson"), []byte("{}\n"), 0o644)
+	if _, err := git(root, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(root, "commit", "-m", "track spectackle state"); err != nil {
+		t.Fatal(err)
+	}
+	// dirty ONLY the .spectackle file — first (and only) porcelain line is
+	// an unstaged " M" entry, the exact shape the trim corrupted
+	os.WriteFile(filepath.Join(specDir, "journal.ndjson"), []byte("{}\n{}\n"), 0o644)
+
+	committed, err := CommitCode(root, "should be a no-op")
+	if err != nil {
+		t.Fatalf("CommitCode must no-op cleanly, got error: %v", err)
+	}
+	if committed {
+		t.Fatal("CommitCode reported a commit with nothing code-side to commit")
+	}
+}
