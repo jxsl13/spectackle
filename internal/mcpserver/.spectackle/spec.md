@@ -32,6 +32,10 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - P-0074 manifest tells tool users where to report spectackle bugs: issue yes, fix PR no: delivered by T-0104 plus the RepoURL plumbing.
 - T-0113 generated commands for find, get, research, swarm, export and merge: Six read-only commands plus export and merge generated; 17 ok gen lines against 5 before. Implementer refactored the two hardcoded templates into a data-driven commandSpecs list, so adding a command is now one template file plus one entry. The two pre-existing commands came out byte-identical across that refactor, which is the evidence the refactor changed nothing it should not have. find scopes are asserted against scopeKinds itself, so the test breaks when a scope is added or removed. No apply command by design; both knowledge templates say why.
 - P-0082 generated slash commands for the read-only operations, plus export and merge triggers: delivered by T-0113.
+- T-0111 knowledge tool: export, merge, apply — one tool, additive writes, idempotent: knowledge tool live: op=export|merge|apply, FoldInto additive fold, idempotence and never-deletes proven by test and live transcript; merged via work op=submit
+- T-0115 server hints when its own binary is older than the sources it serves: stale-binary hint live: h record naming make dev, 30s debounced walk honoring SkipDir, once per crossing; merged via work op=submit
+- P-0080 one knowledge tool with export, merge and apply; additive writes through the existing paths: knowledge tool shipped (T-0111): one tool, three ops, additive idempotent apply through existing write paths per MCP-009
+- B-0002 server never rebinds an existing worktree: wtItem is set only by in-session work op=start, so per-call stdio clients and crashed servers cannot submit: fix live at 9321b70: New() rebinds a coord worktree record matching root+agent; verified by per-call stdio submits of T-0111 and T-0115
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.

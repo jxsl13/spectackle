@@ -119,6 +119,11 @@ LLM plans against structure and contracts instead of file contents.
 - ADR-0010 Given correctness-first evaluation, should spectackle stay on cgo tree-sitter, adopt wazero/wasm for C/C++ only, or secure WASI grammars for CUDA/ObjC first?: compact
 - ADR-0011 Scored against the four PoC exit criteria, should spectackle adopt malivvan/tree-sitter now, invest in a wasi-sdk pipeline, or stay on cgo past M6?: compact
 - T-0114 make dev: one idempotent command that rebuilds and restarts the resident server: code merged to main via ff at b75b4ad before the submit crash (make dev/dev-stop/dev-status, CONTRIBUTING/README invariant); worktree record delta was empty, so the abort discarded nothing — verified by implementer transcript: idempotent dev, stale-pidfile recovery, occupied-port failure, make all green
+- P-0083 the dev server always runs the current build: one command to rebuild and restart, and a hint when it drifts: both halves shipped: make dev/dev-stop/dev-status (T-0114) and the MCP-010 stale-binary hint (T-0115); the dev loop now rebuilds, restarts and self-reports staleness
+- B-0001 replay rejects worktree journals inheriting pre-eid baseline events; suggested compact cannot clear them: fix live at beafdc3: replay skips baseline pre-eid events by (t,ev,id) key; verified by T-0111/T-0115 submits replaying over the 7 legacy archive events
+- B-0004 MergeMain hardcodes the branch name main, so submit silently merges a stale ref and dies at the fast-forward on repos developing on another branch: fix live at 8c82a7f: MergeMain resolves the primary checkout branch; verified by both submits merging the real tip
+- B-0005 CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line: fix live at fe340ea: stagedness via git diff --cached --quiet exit code; verified by both submit retries no-opping cleanly on record-only dirt
+- B-0006 worktree .spectackle live state blocks MergeMain: seeded uncommitted by copyBundles, excluded by CommitCode, refused by git when main's tip touches the same files: fix live at 0169bef: MergeMain preserves live .spectackle bytes across the merge; verified by both submits merging over dirty bundle files
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

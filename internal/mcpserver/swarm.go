@@ -603,14 +603,21 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	_ = wt.DeleteBranch(s.main.Dir, w.Branch)
 	_ = s.cd.DelWorktree(id)
 	_ = s.cd.ReleaseItem(id)
-	// the item returns to approved on main (its worktree state is discarded)
-	if it, ok, _ := item.Get(s.main, id); ok && it.State == item.StateActive {
-		it.State = item.StateApproved
-		if err := item.Upsert(s.main, it); err != nil {
-			return nil, nil, err
+	// the item returns to approved on main (its worktree state is discarded);
+	// its context dir is also where the abort event belongs — passing the
+	// item ID here scaffolded a bogus <item-id>/.spectackle dir at the repo
+	// root (B-0003; coord.Worktree carries no Dir, so w.Item was reached for)
+	dir := ""
+	if it, ok, _ := item.Get(s.main, id); ok {
+		dir = it.Dir
+		if it.State == item.StateActive {
+			it.State = item.StateApproved
+			if err := item.Upsert(s.main, it); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
-	if err := journal.Append(s.main, w.Item, journal.Event{Ev: journal.EvAbort, ID: id,
+	if err := journal.Append(s.main, dir, journal.Event{Ev: journal.EvAbort, ID: id,
 		Note: "worktree abandoned by " + s.agent}); err != nil {
 		return nil, nil, err
 	}
