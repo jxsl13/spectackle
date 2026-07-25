@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -545,5 +546,54 @@ func TestServeNoPidfileFlag(t *testing.T) {
 
 	if code := shutdownServe(t, codeCh); code != 0 {
 		t.Fatalf("serve() = %d, want 0", code)
+	}
+}
+
+// TestCallExitCodesOnRefusal is B-01KYD4H: the README's headless contract says
+// a refusal prints its text on stdout but exits non-zero — "script against the
+// exit code, not the prose". Every refusal exited 0, so a scripted gate (or a
+// batch, which is how this bit: a batched draft refusal vanished without
+// failing anything) could not detect one. The server now marks refusals with
+// IsError, which the call client already mapped to the exit code.
+func TestCallExitCodesOnRefusal(t *testing.T) {
+	bin := requireCallBinary(t)
+	root := t.TempDir()
+
+	code := func(err error) int {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			return ee.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("unexpected run error: %v", err)
+		}
+		return 0
+	}
+
+	// refusal families: the record prints on stdout AND the exit is non-zero
+	for _, tc := range []struct{ name, args string }{
+		{"unknown kind", "{\"kind\":\"epic\",\"title\":\"x\"}"},
+		{"missing title", "{\"kind\":\"task\",\"title\":\"\"}"},
+	} {
+		stdout, _, err := runCall(t, bin, "-root", root, "draft", tc.args)
+		if !strings.Contains(stdout, "! ARG E") {
+			t.Fatalf("%s: refusal text missing from stdout: %q", tc.name, stdout)
+		}
+		if code(err) == 0 {
+			t.Fatalf("%s: refusal exited 0 (B-01KYD4H): %q", tc.name, stdout)
+		}
+	}
+
+	// success still exits 0 with the record on stdout
+	stdout, _, err := runCall(t, bin, "-root", root, "draft", "{\"kind\":\"task\",\"title\":\"ok\"}")
+	if code(err) != 0 || !strings.Contains(stdout, "i T-") {
+		t.Fatalf("success path broken: code=%d out=%q", code(err), stdout)
+	}
+
+	// a lifecycle refusal follows the same contract
+	id := strings.Fields(stdout)[1]
+	stdout, _, err = runCall(t, bin, "-root", root, "move", "{\"id\":\""+id+"\",\"to\":\"rejected\"}")
+	if code(err) == 0 || !strings.Contains(stdout, "note") {
+		t.Fatalf("noteless reject: code=%d out=%q", code(err), stdout)
 	}
 }
