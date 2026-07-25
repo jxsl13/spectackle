@@ -141,7 +141,7 @@ ROLLBACK: additive method and one call site.
 
 ## B-01KYDPC0KPFNETYQXGV8KWFT6T exploratory fuzzing sits inside the deterministic merge gate, and its wind-down flake red-blocked a mechanical merge
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 Observed live on the SHA-pinned gate's first refusal: pull request 52 went red with context deadline exceeded at exactly the ten-second fuzz budget, on a runner executing at a seventh of local speed — the known Go fuzz wind-down race, not a finding. Locally the same target ran 24.5 million executions clean. The gate did its job (a red head is never merged mechanically) but the red was noise, and a merge gate that can go red at random breaks the whole mechanical pipeline: the item archives, the pull request stays open, and only a human can recover — the post-archive retry gap compounding a flake.
