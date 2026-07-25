@@ -386,3 +386,9 @@
 {"t":"2026-07-25T18:24:14Z","eid":"fab0c00b7b757168","ag":"ag-7045","ev":"grill","id":"T-01KYD87ZN7EJ49CMSEQE9XGGWS","gr":"2026-07-25"}
 {"t":"2026-07-25T18:24:15Z","eid":"0499cb92e2d5f93e","ag":"ag-4096","ev":"grill","id":"T-01KYD88KEDEAQ97QKQ46DSGTM4","gr":"2026-07-25"}
 {"t":"2026-07-25T18:24:16Z","eid":"d1eb3e50270e86c4","ag":"ag-4df0","ev":"grill","id":"T-01KYD88KV5EX2SBYE81TKYHDH9","gr":"2026-07-25"}
+{"t":"2026-07-25T18:28:11Z","eid":"fec81a79183956c5","ag":"ag-ecdb","ev":"create","id":"P-01KYD8HSZ0ERTBFBBEVQD68M4R","k":"proposal","ti":"the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail"}
+{"t":"2026-07-25T18:29:32Z","eid":"482b4f7a6c1d13c5","ag":"ag-237b","ev":"create","id":"T-01KYD8M8RXEXPVTCWTMY962PQQ","k":"task","ti":"edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events"}
+{"t":"2026-07-25T18:29:32Z","eid":"b447a455c6c5bddf","ag":"ag-5e1b","ev":"create","id":"T-01KYD8M955E9NBPH27D21E4J9J","k":"task","ti":"merge policy: never squash - merge commits everywhere the workflow speaks, so the per-edge decision trail survives into main"}
+{"t":"2026-07-25T18:29:39Z","eid":"d159ca653c2c4771","ag":"ag-917e","ev":"grill","id":"P-01KYD8HSZ0ERTBFBBEVQD68M4R","gr":"2026-07-25"}
+{"t":"2026-07-25T18:29:41Z","eid":"225f5b7047784a76","ag":"ag-caaf","ev":"grill","id":"T-01KYD8M955E9NBPH27D21E4J9J","gr":"2026-07-25"}
+{"t":"2026-07-25T18:29:56Z","eid":"8e6c174a36d77593","ag":"ag-ae49","ev":"grill","id":"T-01KYD8M8RXEXPVTCWTMY962PQQ","gr":"2026-07-25"}

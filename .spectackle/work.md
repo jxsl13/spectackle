@@ -595,3 +595,132 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier regenerates 
 SCOPE: the four named files, generated command files, the one new EARS rule, tests. Do not touch tools.go, lifecycle.go, grill.go. No new tools, no config keys.
 ROLLBACK: revert the commit; run commands op=gen once to restore prior command files. The added rule retires via rule op=retire. No stored state.
 REPORT BACK: manifest base and final sizes, template base and final line counts, the regenerated steps verbatim, each test's result, anything deliberately not done.
+
+## P-01KYD8HSZ0ERTBFBBEVQD68M4R the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail
+kind: proposal
+state: draft
+created: 2026-07-25
+refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4
+grilled: 2026-07-25
+targets: internal/mcpserver/tools.go, internal/wt/wt.go, internal/workspace/workspace.go, CONTRIBUTING.md, docs/agent-workflow.md
+
+REQUIREMENT. Every phase and step taken through the MCP must be followable by a human in git alone: each state-machine edge produces its own commit whose structured message describes the decision (what moved, from where to where, by whom, and the reasoning note), and no merge policy may flatten that trail - pull requests are merged with merge commits, never squashed, because a squash collapses N decisions into one blob and destroys exactly what the per-edge commits create.
+
+WHY THIS EXTENDS RATHER THAN DUPLICATES THE JOURNAL. The journal is the machine's replay log; git is where humans and reviewers already look. Today the two are reconciled only when an orchestrator remembers to commit, in batches with hand-written messages - this session's own history shows multi-edge batch commits whose messages summarize rather than enumerate. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command and needs no git knowledge (prior user authorization, extended here from phase checkpoints to every edge).
+
+VERIFIED GROUND. One choke point covers the whole tool surface: gate[T] (tools.go:175-185) wraps every handler under s.mu with preCall/postCall; only the rule tool inlines the identical pattern (tools.go:200-210). Every state edge already appends a journal event with agent identity (journal.Append stamps ag). wt.CommitCode (wt.go:111) is the committing precedent. P-0009 (archived) established one move call per forward jump - the commit granularity inherits it: one call, one edge traversal, one commit, even when the jump skips states.
+
+DESIGN DECISIONS, alternatives rejected:
+1. Commit composed FROM the journal event(s) the call appended, in the same gate, after the handler succeeds. Rejected: a background committer (races the next call, decouples decision from commit); a git hook (cannot know the decision, only the diff).
+2. Full record IDs in commit subjects and trailers, never display-short forms - a short prefix is the shortest unambiguous prefix AT THAT INSTANT (T-0136) and a commit message is immutable, so a later mint could make an archived subject ambiguous. Machine-readable trailers (Spectackle-Ev, Spectackle-Item, Spectackle-From/To, Spectackle-Agent, Spectackle-Eid) make the log queryable with plain git log --grep and interpret-trailers.
+3. The server commits ONLY paths under .spectackle trees it wrote in that call, via explicit-pathspec commit semantics so a user's concurrently staged work is never swept in. Code commits remain the implementer's and the submit path's business.
+4. Never push. Remotes stay with the orchestrator and CI.
+5. Config git_commits: edges|off, DEFAULT edges - supersedes the phases|off knob drafted in the validation-phase task, whose git section this proposal's engine task subsumes.
+6. Merge policy is enforced where it lives: the GitHub repository setting (allow merge commits, disallow squash) is the hard control and is the user's one manual step, documented; CONTRIBUTING.md, the agent workflow docs and the machine-facing instructions all switch from squash to merge so no agent re-introduces flattening.
+
+CROSS-CLONE CAUTION, stated because it is the known sharp edge: two server processes on one checkout can race the git index. The commit step must take the same cross-process serialization the whole-file-rewrite task establishes through coord.db, and must retry on index.lock. The lost-update work (B-01KYD57F line) is the prerequisite ordering.
+
+EXIT CRITERION. Drive one full item lifecycle headlessly (draft, grill, verdict, approve, start, submit, validate, archive); git log --oneline then shows one commit per edge in order, each message carrying the full item ID and the decision note; git log --grep on the item ID returns the complete decision history and nothing else. A squash of that branch is impossible through the documented merge path.
+
+TOKEN COST. Zero marginal agent tokens (commits are side effects); the git overhead is one commit per tool call that wrote state - milliseconds, no network.
+
+ROLLBACK. git_commits: off disarms the engine without a rebuild; reverting the commits removes it. Edge commits already made are inert history. The merge-policy docs revert with the commit; the repo setting reverts by hand.
+
+CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch across CONTRIBUTING, docs and instructions. The validation-phase task sheds its narrower git section to the engine at its next redraft.
+
+## T-01KYD8M8RXEXPVTCWTMY962PQQ edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
+kind: task
+state: draft
+created: 2026-07-25
+parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/mcpserver/tools.go, internal/mcpserver/server.go, internal/wt/wt.go, internal/workspace/workspace.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+NEEDS: the coord.db serialization task (title: serialize server-side whole-file rewrites through the coord.db lock table) must be MERGED first - two server processes on one checkout race the git index exactly like they race work.md, and the commit step belongs inside the same cross-process serialization. Do not start while it is open.
+
+WHY. The requirement is followability: a human reading git log alone must see every decision - each state-machine edge as its own commit, message carrying what moved, from where to where, by whom, and the reasoning note. Today the journal knows this and git does not: reconciliation happens only when an orchestrator remembers to commit, in batches whose messages summarize. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command (user authorization: fully automatic, without the LLM doing anything).
+
+VERIFIED GROUND (do not re-derive)
+- gate[T] (tools.go:175-185) wraps every tool handler: s.mu.Lock, preCall, handler, postCall. The rule tool inlines the identical pattern at tools.go:200-210. These two sites are the complete write surface - no .spectackle write happens outside a tool call.
+- Every state edge appends a journal event with agent identity (journal.Append stamps ag, eid, timestamp). Event kinds: journal.go:31-46.
+- wt.CommitCode (wt.go:111) commits in a worktree today - the plumbing precedent; reuse or extract, do not duplicate git exec logic.
+- P-0009 (archived): one move call per forward jump. Commit granularity inherits it: ONE call = ONE edge traversal = ONE commit, even when the jump skips states (draft->active is one decision, one commit).
+- workspace config: FeedbackCfg pattern at workspace.go:53 for adding the knob.
+
+WHAT TO BUILD
+1. CAPTURE: during a tool call, record which journal events the call appended and which .spectackle paths it wrote (choose the mechanism from reading the code - an events buffer on the Server filled by the append path, or a pre/post diff of journal lengths plus a written-paths set; justify the choice in the report; it must be exact, not a glob of everything dirty).
+2. COMMIT STEP in gate (and the rule tool's inline twin), after the handler returns success, before postCall renders: if the call wrote .spectackle state and git_commits=edges, commit EXACTLY the .spectackle paths this call wrote, via explicit-pathspec commit semantics (git commit restricted to named paths so a user's concurrently staged work is NEVER swept in - state which git invocation form guarantees this and prove it with the staged-bystander test below). One commit per call. A call that wrote nothing commits nothing. A failed handler commits nothing.
+3. MESSAGE FORMAT, structured and immutable-safe:
+   subject: spectackle(<ev>): <full-item-or-rule-id> <from>-><to | one-clause decision>
+   body: the decision note verbatim (move notes, verdict findings, rejection reasons; empty note renders the item title).
+   trailers: Spectackle-Ev, Spectackle-Item (FULL ID - a display-short prefix is unambiguous only at that instant, T-0136, and commits are immutable), Spectackle-From, Spectackle-To (when applicable), Spectackle-Agent, Spectackle-Eid.
+   Multi-event calls (a move that cascades child updates) still produce one commit: primary event in the subject, sibling events as additional Spectackle-Eid trailers.
+4. CONFIG: git_commits: edges|off in workspace config, DEFAULT edges. off produces byte-identical tool behavior and zero commits (test). This knob supersedes the phases|off draft in the validation-phase task; that task sheds its git section at its next redraft - do not implement anything from it here beyond what this body states.
+5. SAFETY RAILS, each tested: no git repo or .spectackle gitignored -> skip silently, tool call succeeds (a checkpoint is a bonus, never a failure mode); index.lock contention -> bounded retry with backoff, then skip with one journal-only warning event, never a tool error; never push, never amend, never commit paths outside .spectackle trees; detached HEAD or mid-rebase -> skip silently.
+6. SUBMIT-PATH COEXISTENCE: work op=start/submit/abort already create branches, merge and commit code (internal/wt). The edge engine must not double-commit what the submit path commits: during a work call the engine commits only the journal/state writes the call made OUTSIDE the code merge (read the submit flow first; state in the report exactly which commits a submit now produces and why each exists).
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- One edge, one commit: draft then move to=approved then move to=rejected produces exactly three commits, subjects matching the format, trailers parseable by git interpret-trailers.
+- Forward-skip is one commit: move draft->active yields one commit whose Spectackle-From/To are draft/active.
+- Decision visibility: git log --grep=<full-item-id> returns that item's complete edge history and nothing else, on a fixture driving the full lifecycle.
+- Staged-bystander: stage an unrelated source file, run a draft call; the edge commit contains only .spectackle paths, the bystander stays staged and uncommitted.
+- off knob: byte-identical journal and tool output, zero commits.
+- No-git workspace: calls succeed, zero errors.
+- Concurrency: the twoAgents topology (two servers, one root) driving concurrent drafts produces one commit per call with no index.lock failure surfacing to either caller (this is the test that requires the NEEDS ordering).
+- Failed handler: a refused move (e.g. unknown ID) commits nothing.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  In the worktree: run one draft + one move headlessly, paste git log --format=full -3 output showing the structured messages.
+  Red-run: the one-edge-one-commit test written first, shown failing against current code; paste the failing output.
+CROSS-VERIFICATION (orchestrator, after done): an independent verifier re-runs the staged-bystander, off-knob and concurrency tests from the diff alone, then drives one real lifecycle and reads the log; verdict recorded in the archive note.
+
+SCOPE: gate and the rule inline twin in tools.go, the capture mechanism, git plumbing shared with internal/wt, the config knob, tests. Do not touch lifecycle.go's state machine, grill.go, templates, prompts, or the merge-policy docs (sibling task).
+ROLLBACK: git_commits: off disarms without rebuild; reverting the commit removes the engine; existing edge commits are inert history.
+REPORT BACK: the capture mechanism chosen and why, the exact git invocation form for pathspec-only commits, the submit-path commit inventory, each test's real result including the red-run, measured wall-time overhead per call (report the delta on 10 sequential draft calls), anything deliberately not done.
+
+## T-01KYD8M955E9NBPH27D21E4J9J merge policy: never squash - merge commits everywhere the workflow speaks, so the per-edge decision trail survives into main
+kind: task
+state: draft
+created: 2026-07-25
+parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
+refs: R-0007
+grilled: 2026-07-25
+targets: CONTRIBUTING.md, docs/agent-workflow.md, docs/release.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This is a documentation-and-policy task; it changes no Go code.
+
+WHY. The edge-commit engine (sibling task) makes every state-machine edge a commit whose message is the decision. A squash merge collapses N such commits into one, destroying on main exactly the trail the engine creates on the branch - the two policies cannot coexist. The requirement is explicit: pull requests are never squashed; every decision stays visible in the commit log of main.
+
+VERIFIED GROUND (do not re-derive)
+- CONTRIBUTING.md's section 'Every change lands through a pull request that auto-merges on green CI' currently prescribes auto-merge (squash) verbatim and documents the two repository settings auto-merge depends on. This is the primary edit site.
+- docs/agent-workflow.md describes the orchestrator's git duties; docs/release.md documents the changelog derived from commit messages (commits prefixed docs:/spec:/chore: are excluded) - the edge-commit subject format spectackle(<ev>): ... interacts with that filter and the interaction must be stated, not discovered at release time.
+- The workflow template (workflow.md.tmpl) step 8 says Commit/PR per this repo's normal git conventions - it inherits whatever CONTRIBUTING says, and the backward-path task (title: the backward path in every machine-facing surface) owns editing that template. Do NOT edit the template here; the convention text it points to is what you change.
+
+WHAT TO BUILD
+1. CONTRIBUTING.md: the auto-merge section switches from squash to MERGE COMMITS, with the one-paragraph rationale (per-edge decisions must survive into main; a squash is a lossy compression of the decision log). Document the THREE repository settings now required, each with why: Allow auto-merge (unchanged), a required status check on main (unchanged), and Allow merge commits ON / Allow squash merging OFF - the last is the hard enforcement and is a one-time manual step for the repository owner; name it as such, the repo cannot enforce it from inside.
+2. Same section: state the branch hygiene consequence - merge commits preserve every branch commit, so branches must carry clean per-edge and per-change commits rather than fixup noise; wip commits are amended or rebased BEFORE the PR opens, never squashed at merge time.
+3. docs/agent-workflow.md: the orchestrator role's git duties gain two sentences: merge method is merge commit, never squash; the edge commits are server-made and the orchestrator neither replicates nor batches them.
+4. docs/release.md: one paragraph on changelog interaction - state whether spectackle(<ev>) subjects appear in release notes and the chosen filter (recommend: exclude spectackle(*) subjects from the changelog exactly like docs:/spec:/chore:, since they narrate process, not shipped change; implement by documenting the goreleaser filter addition needed and flag that .goreleaser.yaml itself is OUT of this task's file scope - name the follow-up explicitly in the report if you cannot make the filter change without touching it).
+5. Every edited sentence must remain true if the edge-commit engine is disabled (git_commits: off) - the merge policy stands on its own; do not couple the two beyond the rationale sentence.
+
+NON-NEGOTIABLE PROPERTIES
+- No remaining instruction to squash anywhere in the repository's markdown: a grep for squash across *.md shows only the new policy text explaining why squash is forbidden (test with a script or a Go doc test - state which).
+- The three settings are documented with their failure modes (what silently breaks when each is missing), mirroring the existing section's style, which already does this for the first two.
+- CONTRIBUTING.md still renders as coherent prose - the section reads as one policy, not a patch seam.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race (docs tasks still run the suite - nothing may break) ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  grep -rn squash --include='*.md' . - paste the output; every hit must be policy text forbidding it.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the grep and reads the CONTRIBUTING section cold, then answers from the text alone: what merge method, which three settings, who flips the third - if the text does not answer all three, the task is not done. Verdict recorded in the archive note.
+
+SCOPE: the three named markdown files. No Go code, no templates (backward-path task owns them), no .goreleaser.yaml, no workflow yml.
+ROLLBACK: revert the commit; the repository settings revert by hand.
+REPORT BACK: the final CONTRIBUTING section verbatim, the grep output, the release-notes filter decision and any named follow-up, anything deliberately not done.
