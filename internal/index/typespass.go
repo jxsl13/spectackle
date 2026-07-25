@@ -33,6 +33,16 @@ var loadPackages = packages.Load
 // file paths).
 const typedCallsCacheKey = "__typedcalls__"
 
+// typedPassCacheVersion discriminates cached typed-call edge lists the same
+// way a parser's CacheVersion discriminates parse blobs. BUMP IT whenever
+// this pass resolves a callee it used to miss (or stops emitting one):
+// without it, a module whose sources did not change replays the pre-upgrade
+// edge list forever (B-0007). T-0125 (closure-var bodies and explicit
+// generic instantiation) is exactly such a change.
+// (a var, not a const, for the same reason loadPackages is: a test has to be
+// able to stand in a different build's value to prove invalidation.)
+var typedPassCacheVersion = "typed-2"
+
 // ResolveTypedCalls is the go/types-based call-edge upgrade pass (M3 slice
 // 1, docs/design-go-types-calls.md). It loads and type-checks the Go module
 // rooted at root with golang.org/x/tools/go/packages, resolves every
@@ -261,6 +271,10 @@ func moduleHashKey(root string) ([32]byte, error) {
 	sort.Strings(files)
 
 	h := sha256.New()
+	// pass identity first: an upgraded pass must miss the entries an older
+	// build wrote for the very same sources (B-0007).
+	h.Write([]byte(typedPassCacheVersion))
+	h.Write([]byte{0})
 	h.Write(modBytes)
 	for _, rel := range files {
 		src, rdErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))

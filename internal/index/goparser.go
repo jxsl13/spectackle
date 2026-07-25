@@ -28,6 +28,17 @@ func (GoParser) Lang() graph.Lang { return graph.LangGo }
 // Extensions are the file suffixes this parser claims.
 func (GoParser) Extensions() []string { return []string{".go"} }
 
+// goParserCacheVersion discriminates cached parse blobs produced by this
+// parser. BUMP IT whenever Parse's output changes for input it already
+// accepted — new node kinds, changed spans, added or dropped call edges.
+// Without a bump, every workspace indexed by an older build keeps serving
+// its stale blobs for unchanged files (B-0007). T-0125 (closure-var and
+// generic-instantiation call edges) is exactly such a change.
+const goParserCacheVersion = "go-2"
+
+// CacheVersion implements CacheVersioner.
+func (GoParser) CacheVersion() string { return goParserCacheVersion }
+
 // Parse turns one Go file into symbol nodes and candidate call edges. Call
 // edges carry the intended callee ID by convention (go:<pkg>.<fn> for an
 // unqualified call, go:<x>.<sel> for a qualified X.Sel call); the indexer

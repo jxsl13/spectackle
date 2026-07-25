@@ -44,6 +44,36 @@ type LanguageParser interface {
 	Parse(path string, src []byte) (ParseResult, error)
 }
 
+// CacheVersioner is the optional half of LanguageParser that keeps the parse
+// cache honest across parser upgrades. Determinism only says identical bytes
+// yield identical results *for one parser build*; the cached blob outlives
+// the parser that produced it, so a parser whose output changed must also
+// change this string or the cache serves the old graph forever (B-0007).
+// A parser that does not implement it keys exactly as before.
+type CacheVersioner interface {
+	CacheVersion() string
+}
+
+// parseCacheKey is the parse-blob store key: the source bytes, plus the
+// parser's own identity when it declares one. The separator keeps the two
+// inputs from ever running together, so no source file can spoof a version.
+// A parser without a CacheVersion hashes to sha256.Sum256(src) byte for
+// byte, which is what every pre-B-0007 cache entry and every third-party
+// parser already relies on.
+func parseCacheKey(p LanguageParser, src []byte) [32]byte {
+	cv, ok := p.(CacheVersioner)
+	if !ok {
+		return sha256.Sum256(src)
+	}
+	h := sha256.New()
+	h.Write(src)
+	h.Write([]byte("\x00spectackle-parser-version\x00"))
+	h.Write([]byte(cv.CacheVersion()))
+	var key [32]byte
+	copy(key[:], h.Sum(nil))
+	return key
+}
+
 // Stats summarizes one indexing run.
 type Stats struct {
 	Files, Nodes, Edges, Skipped int
@@ -219,13 +249,15 @@ func (ix *indexer) IndexPaths(ctx context.Context, paths []string) (Stats, error
 	return Stats{}, nil
 }
 
-// parseCached returns the parse result for a file, using the content-hash
-// store to skip re-parsing unchanged files across runs. The hash is computed
-// here (before the Get) so a nil store or a cold cache both fall through to
-// an ordinary parse; a successful Put is best-effort — cache-write failures
-// must never fail the index.
+// parseCached returns the parse result for a file, using the store to skip
+// re-parsing unchanged files across runs. The key covers the content AND the
+// parser's identity (parseCacheKey), so upgrading a parser invalidates just
+// its own entries instead of silently replaying pre-upgrade results. The key
+// is computed here (before the Get) so a nil store or a cold cache both fall
+// through to an ordinary parse; a successful Put is best-effort — cache-write
+// failures must never fail the index.
 func parseCached(s store.Store, p LanguageParser, rel string, src []byte) (ParseResult, error) {
-	hash := sha256.Sum256(src)
+	hash := parseCacheKey(p, src)
 	if s != nil {
 		if e, ok := s.Get(rel, hash); ok {
 			var pr ParseResult
