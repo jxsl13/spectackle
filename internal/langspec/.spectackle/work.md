@@ -2,29 +2,6 @@
 schema: v0
 ---
 
-## T-0123 langspec hardening scripting: python (+NEW test), perl, php, shell, r
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-0085
-refs: R-0005, ADR-0012
-targets: internal/langspec/python.go, internal/langspec/perl.go, internal/langspec/php.go, internal/langspec/shell.go, internal/langspec/r.go, internal/langspec/python_test.go, internal/langspec/perl_test.go, internal/langspec/php_test.go, internal/langspec/shell_test.go, internal/langspec/r_test.go
-
-FAMILY NOTES: python has NO existing _test.go — create it. Top misses: python async def; perl/php/shell/r leave CallRe nil despite brace bodies — set CallRe + Stop and verify edges appear (r: nested/anonymous function assignment forms per findings).
-
-Languages owned (lease exactly their .go + _test.go files): python, perl, php, shell, r. Do NOT set EndSpan (a P-0084 task owns that mechanism and different files) — brace-style fixes only here.
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first; do not explore beyond the files named here plus the read-only inputs below.
-
-READ-ONLY INPUTS (ground truth from R-0005, outside the repo — read, never modify):
-  findings per language: /tmp/claude-0/-home-user-spectackle/0a4152cf-4ac0-54d5-b7bf-fee7e0bff69c/scratchpad/findings/<lang>.md  (the empirically confirmed misses: construct, severity, example, edges verdict)
-  scratch fixtures:      /tmp/claude-0/-home-user-spectackle/0a4152cf-4ac0-54d5-b7bf-fee7e0bff69c/scratchpad/gap-<lang>/         (the exact sample workspaces whose symbols were the ground truth; reuse their code as regression-test input, copied into your Go tests as string literals or testdata — do not reference /tmp paths from committed tests)
-
-METHOD per language: read the findings file; for every [high] and [medium] miss, extend or add the pattern so the construct mints the right node/edge; encode each fixed construct as a test case in the language's _test.go (copy the relevant fixture lines in); do not chase [low] items unless free. Preserve existing behavior: every pre-existing test stays green unmodified unless a finding proves the expectation itself wrong (justify in the report if so).
-
-VERIFY (run all, real output): go build ./... ; go test ./internal/langspec/... -race ; go test ./... ; go vet ./internal/langspec/... ; /home/user/spectackle/bin/spectackle lint. Then re-run the empirical probe for each of your languages: /home/user/spectackle/bin/spectackle reindex -root /tmp/claude-0/-home-user-spectackle/0a4152cf-4ac0-54d5-b7bf-fee7e0bff69c/scratchpad/gap-<lang> and confirm via find scope=code (call -root that dir) that previously-missed symbols now appear; paste the before/after node counts.
-
-ROLLBACK: per-file regex/data changes, individually revertible. REPORT BACK: per language, the constructs fixed, node count before/after over the fixture, and anything you deliberately did NOT do.
-
 ## B-0008 langspec Parse gates body spans and call edges on KFunc/KMethod only, so kernel-originating calls (KKernel) never mint edges
 kind: bug
 state: draft

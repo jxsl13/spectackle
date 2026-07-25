@@ -132,6 +132,7 @@ LLM plans against structure and contracts instead of file contents.
 - T-0118 langspec engine: Spec.EndSpan keyword-counting body spans (cspan.KeywordSpan): Spec.EndSpan and cspan.KeywordSpan shipped; nil EndSpan proven byte-identical to brace-only behavior
 - T-0132 homebrew tap: formula instead of cask, so brew install works on Linux as well as macOS: formula replaces the cask: brew install now serves macOS and Linux from one artifact, the quarantine hook is gone with the cask, and the goreleaser version is pinned so the deprecated brews block cannot break a release unannounced. Snapshot verified: dist/homebrew/Formula/spectackle.rb carries both darwin and linux URLs.
 - T-0133 convention: every change lands through a pull request with auto-merge on green CI: convention documented in CONTRIBUTING.md: PR plus auto-merge squash, with both repository prerequisites named (allow auto-merge, and a required CI check without which auto-merge degrades to merge-now) and the no-reuse rule for merged PRs
+- P-0085 langspec Def/Call hardening: close the R-0005 regex misses across all brace-style languages: all five family batches shipped (T-0120 to T-0124): every brace-style langspec language had its Def regexes hardened against the R-0005 findings, and the languages that lacked CallRe gained call edges. Residual low-severity items are documented in the per-language files.
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
