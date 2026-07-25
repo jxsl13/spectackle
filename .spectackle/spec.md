@@ -118,6 +118,7 @@ LLM plans against structure and contracts instead of file contents.
 - ADR-0009 Should spectackle build node-removal machinery for incremental IndexPaths, or keep the full-IndexAll rebuild?: compact
 - ADR-0010 Given correctness-first evaluation, should spectackle stay on cgo tree-sitter, adopt wazero/wasm for C/C++ only, or secure WASI grammars for CUDA/ObjC first?: compact
 - ADR-0011 Scored against the four PoC exit criteria, should spectackle adopt malivvan/tree-sitter now, invest in a wasi-sdk pipeline, or stay on cgo past M6?: compact
+- T-0114 make dev: one idempotent command that rebuilds and restarts the resident server: code merged to main via ff at b75b4ad before the submit crash (make dev/dev-stop/dev-status, CONTRIBUTING/README invariant); worktree record delta was empty, so the abort discarded nothing — verified by implementer transcript: idempotent dev, stale-pidfile recovery, occupied-port failure, make all green
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

@@ -149,3 +149,24 @@ One hint function, its cached verdict, and one append site next to an existing o
 
 REPORT BACK
 The hint's exact text, the debounce constants and their reasoning, each test's real output, the live transcript, and anything you deliberately did NOT do.
+
+## B-0002 server never rebinds an existing worktree: wtItem is set only by in-session work op=start, so per-call stdio clients and crashed servers cannot submit
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/mcpserver/server.go
+
+DEFECT
+wtItem (the session's open-worktree binding) is assigned only inside reroot(), reached only from work op=start. A fresh server process started with -root <worktree-root> resolves main for coordination but leaves wtItem empty, so work op=submit answers ! ARG E no open worktree even though the coord DB has the worktree record, the lease identity matches, and the tree is ready. Consequences observed on this repo: (1) the documented headless mode (one server spawn per call subcommand) cannot drive start->implement->submit at all, because the submit lands in a different process than the start; (2) a resident server that dies with an open worktree (crash, restart) orphans it permanently — T-0114 got stuck in state=replaying with no recovery path except abort, which discards the worktree's record delta.
+
+CAUSE
+Worktree membership is discoverable at startup (coord worktree records carry Root and Agent; workspace detection already resolves main from a linked worktree) but New() never consults it.
+
+FIX (decision)
+In New(), after the coord DB opens: when ws is not main, look up the coord worktree records and, if one's Root equals ws.Dir and its Agent equals this session's agent, adopt it — set wtItem so state renders wt:<item> and submit/abort address the right worktree. Identity must match: recovering a DEAD sibling's worktree stays an explicit work op=abort decision, never an implicit adoption. Rejected: rebinding on every preCall (worktree records change rarely; startup is the only ambiguous moment). Rejected: allowing adoption with mismatched agent when the holder is dead — silent takeover would race a concurrent abort and hide identity bugs.
+
+VERIFY
+go test ./internal/mcpserver/... -race with a new test: server A starts a worktree for an item; a second Server constructed with root=worktree path and the same agent binds wtItem (and a mismatched-agent server does not); go test ./...; live: T-0111/T-0115 submitted from fresh stdio processes.
+
+ROLLBACK
+One startup lookup in New(); removing it restores prior behavior. No schema, record or coord format change.

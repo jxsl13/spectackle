@@ -152,3 +152,5 @@
 {"t":"2026-07-24T21:56:47Z","eid":"7a77c615f0aa737f","ag":"orchestrator","ev":"move","id":"T-0115","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T08:06:26Z","eid":"1a440e208e4c14b4","ag":"impl-t0111","ev":"start","id":"T-0111","dir":"internal/mcpserver","note":"branch spectackle/T-0111 base c56849d3ef02"}
 {"t":"2026-07-25T08:06:46Z","eid":"09f87b2d47966207","ag":"impl-t0115","ev":"start","id":"T-0115","dir":"internal/mcpserver","note":"branch spectackle/T-0115 base c56849d3ef02"}
+{"t":"2026-07-25T09:04:41Z","eid":"28009897aa544a84","ag":"orchestrator","ev":"create","id":"B-0002","k":"bug","ti":"server never rebinds an existing worktree: wtItem is set only by in-session work op=start, so per-call stdio clients and crashed servers cannot submit","dir":"internal/mcpserver"}
+{"t":"2026-07-25T09:04:41Z","eid":"4a0a1ea0d249e7c4","ag":"orchestrator","ev":"move","id":"B-0002","dir":"internal/mcpserver","fr":"draft","to":"active"}
