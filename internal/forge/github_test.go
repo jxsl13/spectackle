@@ -6,12 +6,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestGitHub wires a GitHub forge at an httptest server standing in for
 // the real REST API, so these tests never touch the network.
 func newTestGitHub(t *testing.T, handler http.HandlerFunc) *GitHub {
 	t.Helper()
+	// Every test runs with millisecond retry budgets: a test that answers 5xx
+	// on purpose would otherwise sit in the PRODUCTION five-minute transport
+	// retry — found when one such test quietly stretched the package run to
+	// four minutes.
+	shrinkRetryBudgets(t)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	return &GitHub{Owner: "jxsl13", Repo: "spectackle", Token: "test-token", BaseURL: srv.URL}
@@ -277,5 +283,91 @@ func TestGitHubChecksRealRunsUnaffected(t *testing.T) {
 	got, err := g.Checks(PR{Number: 1, Branch: "b"})
 	if err != nil || got != ChecksPassing {
 		t.Fatalf("Checks = %s, %v; want passing", got, err)
+	}
+}
+
+// shrinkRetryBudgets makes the transport retry run at test speed and restores
+// production values afterwards.
+func shrinkRetryBudgets(t *testing.T) {
+	t.Helper()
+	budget, start, cap0 := transportRetryBudget, transportBackoffStart, transportBackoffCap
+	transportRetryBudget, transportBackoffStart, transportBackoffCap = 50*time.Millisecond, time.Millisecond, 4*time.Millisecond
+	t.Cleanup(func() {
+		transportRetryBudget, transportBackoffStart, transportBackoffCap = budget, start, cap0
+	})
+}
+
+// TestTransportRetryRecoversFrom5xx: two 503s then success — the operation
+// succeeds and the caller never sees the flakes (the user's requirement:
+// retry with backoff before passing any error through).
+func TestTransportRetryRecoversFrom5xx(t *testing.T) {
+	shrinkRetryBudgets(t)
+	calls := 0
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls <= 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"}]}`))
+	})
+	state, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err != nil || state != ChecksPassing {
+		t.Fatalf("flaky 503s not absorbed: %s, %v", state, err)
+	}
+	if calls != 3 {
+		t.Fatalf("expected 3 attempts, got %d", calls)
+	}
+}
+
+// TestTransportRetryBudgetSpentNamesAttempts: an always-503 endpoint survives
+// the budget and the surfaced error names attempts and budget — retried, not
+// dropped on first contact.
+func TestTransportRetryBudgetSpentNamesAttempts(t *testing.T) {
+	shrinkRetryBudgets(t)
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	_, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err == nil {
+		t.Fatal("permanent 503 did not surface")
+	}
+	if !strings.Contains(err.Error(), "attempts within") {
+		t.Fatalf("error does not name attempts and budget: %v", err)
+	}
+}
+
+// TestTransportRetryNever4xx: a 422 is a semantic answer, not a flake —
+// exactly one attempt, asserted by call count.
+func TestTransportRetryNever4xx(t *testing.T) {
+	shrinkRetryBudgets(t)
+	calls := 0
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		w.Write([]byte(`{"message":"nope"}`))
+	})
+	if _, err := g.Open("b", "main", "t", ""); err == nil {
+		t.Fatal("422 must surface as an error")
+	}
+	if calls != 1 {
+		t.Fatalf("4xx was retried: %d attempts", calls)
+	}
+}
+
+// TestTransportRetryNetworkError: a genuinely dead endpoint (closed listener)
+// is retried and then surfaced with the retry accounting.
+func TestTransportRetryNetworkError(t *testing.T) {
+	shrinkRetryBudgets(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close() // now every dial fails at the transport
+	g := &GitHub{Owner: "o", Repo: "r", Token: "t", BaseURL: srv.URL}
+	_, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err == nil {
+		t.Fatal("dead endpoint did not surface")
+	}
+	if !strings.Contains(err.Error(), "attempts within") {
+		t.Fatalf("transport failure lacks retry accounting: %v", err)
 	}
 }

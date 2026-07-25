@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // defaultAPIBase is GitHub's REST API root. Tests override GitHub.BaseURL
@@ -86,6 +87,12 @@ type ghPull struct {
 // the method and the body shape all differ, and only Ready needs it — GitHub
 // exposes no REST way to take a pull request out of draft (see Ready).
 func (g *GitHub) graphql(payload any) (status int, body []byte, err error) {
+	return withTransportRetry("graphql", func() (int, []byte, error) {
+		return g.graphqlOnce(payload)
+	})
+}
+
+func (g *GitHub) graphqlOnce(payload any) (status int, body []byte, err error) {
 	b, merr := json.Marshal(payload)
 	if merr != nil {
 		return 0, nil, fmt.Errorf("forge: marshal graphql: %w", merr)
@@ -113,7 +120,60 @@ func (g *GitHub) graphql(payload any) (status int, body []byte, err error) {
 // codes are deliberately NOT turned into Go errors here: Merge needs to
 // tell a 403 (no permission — degrade) apart from every other non-2xx
 // (fail), so that judgment call is left to each method.
+// Transport-retry budgets. The user's requirement, stated twice: retry with
+// backoff for up to five minutes when network problems occur, and only then
+// pass the error through. Package variables so tests shrink them to
+// milliseconds; production never mutates them.
+var (
+	transportRetryBudget  = 5 * time.Minute
+	transportBackoffStart = time.Second
+	transportBackoffCap   = time.Minute
+)
+
+// withTransportRetry runs one HTTP exchange, retrying transport failures
+// (refused connections, resets, DNS) and 5xx answers with doubling backoff
+// inside the budget. It sits at the transport seam so every forge operation
+// inherits it without per-call-site duplication.
+//
+// 4xx is deliberately NOT retried: those are semantic answers the callers
+// classify (403 permission, 405/409 transient merge states, 422 validation),
+// and retrying a validation refusal five minutes long would turn a caller bug
+// into a hang. A failure that survives the budget surfaces as ONE error
+// naming the attempt count and the budget, so the operator sees it was
+// retried rather than dropped on first contact — the never-silent boundary
+// (ADR-01KYDG): a success after retries is a succeeded action and carries no
+// extra record, agreed and recorded rather than overlooked.
+func withTransportRetry(what string, do func() (int, []byte, error)) (int, []byte, error) {
+	deadline := time.Now().Add(transportRetryBudget)
+	backoff := transportBackoffStart
+	attempt := 0
+	for {
+		attempt++
+		status, body, err := do()
+		if err == nil && status < 500 {
+			return status, body, nil
+		}
+		if time.Now().Add(backoff).After(deadline) {
+			if err == nil {
+				err = fmt.Errorf("status %d", status)
+			}
+			return status, body, fmt.Errorf("forge: %s failed after %d attempts within %s: %w",
+				what, attempt, transportRetryBudget, err)
+		}
+		time.Sleep(backoff)
+		if backoff *= 2; backoff > transportBackoffCap {
+			backoff = transportBackoffCap
+		}
+	}
+}
+
 func (g *GitHub) request(method, path string, payload any) (status int, body []byte, err error) {
+	return withTransportRetry(method+" "+path, func() (int, []byte, error) {
+		return g.requestOnce(method, path, payload)
+	})
+}
+
+func (g *GitHub) requestOnce(method, path string, payload any) (status int, body []byte, err error) {
 	var reader io.Reader
 	if payload != nil {
 		b, merr := json.Marshal(payload)
