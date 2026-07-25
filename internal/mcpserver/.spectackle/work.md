@@ -89,7 +89,7 @@ VERIFY: against a real remote, a task entering active with no changes yet emits 
 
 ## T-01KYDEJ4QHEZR9BKYQ16SJSGBA a task's referenced GitHub issues close when its work merges
 kind: task
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4
 targets: internal/mcpserver/gitflow.go

@@ -233,3 +233,8 @@ Rationale: the swarm view must show who is actually there; short-lived driver se
 WHEN an item exhausts `feedback.max_rounds` reopen or gate-fail rounds, the server SHALL set the item to the `blocked` side state and mint a linked `adr` item whose only exits are rescope, reject and override-once.
 ## SPX-ARC-006
 WHEN a tool receives a cur argument, the server SHALL resume output at the record offset decoded by budget.Resume so consecutive pages concatenate without overlap or gap.
+
+## SPX-SWM-008
+WHEN an agent begins work on an item while another agent is active, the server SHALL root that agent at a git worktree carrying its own .git/worktrees/<name>/index, so no two agents share one index.
+
+Rationale: A linked worktree has its own git dir and therefore its own index (.git/worktrees/<name>/index), while sharing the object store and refs. That is what makes parallel agents safe to let commit at all: they cannot corrupt each other's staging area, and git's own ref locks serialize the only state they do share. Agents sharing one checkout would race the index exactly as they race work.md, which is why the edge-commit engine's cross-process serialization is scoped to same-checkout concurrency rather than to the multi-agent case this rule eliminates.

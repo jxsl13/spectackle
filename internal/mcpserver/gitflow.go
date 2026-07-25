@@ -64,22 +64,46 @@ func (r *gitFlowResult) String() string {
 	return strings.Join(r.lines, "\n") + "\n"
 }
 
-// gitEnabled reports whether the automation should run at all for this
-// workspace. Two separate reasons to stay out of the way:
+// gitGate decides whether the automation runs for this transition, and when
+// it does not, names the reason — because NOTHING in this flow is allowed to
+// be silent. That is a reversal, by explicit user decision, of the first
+// design here, which stayed quiet when the feature was disabled or not
+// applicable: a quiet non-action reads identically to a broken one from the
+// caller's side, and this session found two real defects (a PR silently
+// still-draft, a config file silently never committed) hiding in exactly that
+// ambiguity. One dense record per suppressed action is the price of never
+// mistaking "off" for "failed" again.
 //
-//   - Explicitly disabled in config. This restores today's behavior exactly,
-//     which is the assertion protecting every existing user on upgrade.
-//   - The workspace is not a git repository. Then the automation is not
-//     failing, it is simply not applicable, and it must be SILENT rather than
-//     warn. Warning here would put a "! GIT W ... not a git repository" line
-//     on every single move in every non-git workspace — which is both the
-//     "degrade quietly" requirement of the config task and the output diet
-//     (SPX-ARC-002), and is exactly what the first wiring of this did.
+// The reasons, in check order:
+//
+//   - disabled in config: the opt-out, honored and said.
+//   - swarm worktree: work op=start / submit own that lifecycle (branch,
+//     gate, ff-merge, semantic replay). If this flow committed records onto a
+//     swarm worktree's branch, TouchedFiles would carry .spectackle paths and
+//     submit's DirtyOverlap guard would refuse with main-dirty — B-0006 from
+//     a new direction: in the swarm flow, records reach main via replay,
+//     never via the branch.
+//   - not a git repository: nothing to automate against.
 //
 // Note s.ws, not s.main: during `work` the active root is the task worktree,
 // and that is the tree these primitives operate on.
+func (s *Server) gitGate() (ok bool, reason string) {
+	switch {
+	case !s.main.Cfg.Git.IsEnabled():
+		return false, "off: disabled in config"
+	case s.wtItem != "":
+		return false, "deferred: swarm worktree flow owns " + s.wtItem
+	case !wt.IsRepo(s.ws.Dir):
+		return false, "n/a: not a git repository"
+	}
+	return true, ""
+}
+
+// gitEnabled is gitGate for the call sites that only branch on the verdict;
+// the reason is emitted once per transition by gitFlowFor.
 func (s *Server) gitEnabled() bool {
-	return s.main.Cfg.Git.IsEnabled() && wt.IsRepo(s.ws.Dir)
+	ok, _ := s.gitGate()
+	return ok
 }
 
 // taskBranch is the branch a task's work lives on. It mirrors the name the
@@ -110,9 +134,10 @@ func (s *Server) forgeFor() (forge.Forge, error) {
 	}
 	remote, err := wt.RemoteURL(s.main.Dir, cfg.Remote)
 	if err != nil {
-		// No such remote: a git repository that was never given one. Same
-		// judgment as gitEnabled — not applicable rather than broken, so the
-		// caller stays silent instead of warning on every transition.
+		// No such remote: a git repository that was never given one. Not
+		// applicable rather than broken — callers say so with a one-line
+		// "g git n/a" record instead of a warning, distinguishable from a
+		// real forge failure (nothing here is allowed to be silent).
 		return nil, errNoRemote
 	}
 	return forge.NewGitHub(remote, nil)
@@ -141,6 +166,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	if _, err := wt.CommitCode(dir, "spectackle "+it.ID+": "+it.Title); err != nil {
 		res.addf("! GIT W %s commit: %s", it.ID, err)
 	}
+	s.gitCommitRecords(res, it, item.StateActive)
 	if err := s.gitPush(dir, branch); err != nil {
 		res.addf("! GIT W %s push: %s", it.ID, err)
 		return res
@@ -153,7 +179,9 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 
 	f, err := s.forgeFor()
 	if err != nil {
-		if !errors.Is(err, errNoRemote) {
+		if errors.Is(err, errNoRemote) {
+			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+		} else {
 			res.addf("! GIT W %s forge: %s", it.ID, err)
 		}
 		return res
@@ -190,7 +218,11 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 		return res
 	}
 	if ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase()); err != nil || !ahead {
-		return res // nothing to review yet; a later step opens it
+		// A forge refuses a pull request with no commits between head and
+		// base, so it opens at the first commit instead — and says so, since a
+		// silently deferred PR is indistinguishable from a broken one.
+		res.addf("g pr deferred: %s not ahead of %s yet", branch, s.gitBase())
+		return res
 	}
 	pr, err := f.Open(branch, s.gitBase(), it.ID+" "+it.Title, gitPRBody(it))
 	if err != nil {
@@ -221,9 +253,11 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 		res.addf("! GIT W %s commit: %s", it.ID, err)
 		return res
 	}
+	s.gitCommitRecords(res, it, item.StateDone)
 	unpushed, err := wt.HasUnpushedCommits(dir, s.main.Cfg.Git.Remote, branch)
 	if err != nil || !unpushed {
-		return res // nothing to send, or no upstream yet: start handles that
+		res.addf("g %s up to date", branch)
+		return res
 	}
 	if err := s.gitPush(dir, branch); err != nil {
 		res.addf("! GIT W %s push: %s", it.ID, err)
@@ -253,7 +287,9 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	}
 	f, err := s.forgeFor()
 	if err != nil {
-		if !errors.Is(err, errNoRemote) {
+		if errors.Is(err, errNoRemote) {
+			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+		} else {
 			res.addf("! GIT W %s forge: %s", it.ID, err)
 		}
 		return res
@@ -284,6 +320,35 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	return res
 }
 
+// gitCommitRecords commits whatever .spectackle record state is dirty in the
+// active checkout, as its own commit, separate from the code commit.
+//
+// This is the mechanical answer to "why are uncommitted files lying in the
+// repo after a full loop": CommitCode excludes .spectackle by design (B-0006),
+// so the record delta every transition writes used to sit uncommitted with
+// nobody mechanical responsible for it — the exact state the always-pushed
+// policy forbids. Committing ALL dirty record files rather than only this
+// transition's makes each transition self-healing: whatever a draft, grill or
+// rule call left behind between transitions is swept up by the next one.
+//
+// Kept separate from the code commit so the history stays readable as
+// decision-vs-work, which is the property the never-squash policy preserves
+// on merge. The full per-edge engine (one commit per journal event, structured
+// messages) is specified separately; this is the invariant it will refine, not
+// replace.
+func (s *Server) gitCommitRecords(res *gitFlowResult, it item.Item, to string) {
+	committed, err := wt.CommitRecords(s.ws.Dir, "spectackle("+to+"): "+it.ID+" records")
+	if err != nil {
+		res.addf("! GIT W %s records: %s", it.ID, err)
+		return
+	}
+	if committed {
+		res.addf("g records committed")
+	} else {
+		res.addf("g records clean")
+	}
+}
+
 // gitFlowMerge merges the task's PR after verification (ADR-01KYDB): a merge
 // commit, never squash.
 //
@@ -296,9 +361,19 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		return res
 	}
 	branch := taskBranch(it.ID)
+	// The archive journal event was written by Move before this runs, so it is
+	// on disk and must ride the branch INTO the merge — committed and pushed
+	// first, or the record of the archival would be stranded on a branch whose
+	// pull request has already closed.
+	s.gitCommitRecords(res, it, item.StateArchived)
+	if err := s.gitPush(s.ws.Dir, branch); err != nil {
+		res.addf("! GIT W %s push: %s", it.ID, err)
+	}
 	f, err := s.forgeFor()
 	if err != nil {
-		if !errors.Is(err, errNoRemote) {
+		if errors.Is(err, errNoRemote) {
+			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+		} else {
 			res.addf("! GIT W %s forge: %s", it.ID, err)
 		}
 		return res
@@ -309,7 +384,8 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		return res
 	}
 	if !ok {
-		return res // nothing open: already merged, or never opened
+		res.addf("g merge skipped: no open pr for %s (already merged, or never opened)", branch)
+		return res
 	}
 	mr, err := f.Merge(pr)
 	if err != nil {
@@ -398,6 +474,17 @@ var issueURLRe = regexp.MustCompile(`^https?://[^/\s]+/[^/\s]+/[^/\s]+/issues/\d
 // transition implies, so the mapping is readable as a whole rather than
 // scattered across the move handler.
 func (s *Server) gitFlowFor(it item.Item, to string) *gitFlowResult {
+	// One gate, one stated reason. Emitted only on the transitions the flow
+	// would otherwise act on — draft->submitted and friends imply no git work,
+	// so there is nothing being suppressed there to report.
+	if ok, reason := s.gitGate(); !ok {
+		res := &gitFlowResult{}
+		switch to {
+		case item.StateActive, item.StateDone, item.StateArchived:
+			res.addf("g git %s", reason)
+		}
+		return res
+	}
 	switch to {
 	case item.StateActive:
 		return s.gitFlowStart(it)
