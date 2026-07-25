@@ -31,3 +31,8 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pushing the formula to jxsl13/homebrew-tap needs a token scoped
+          # to THAT repository; GITHUB_TOKEN only covers this one. Falls back
+          # to an empty string so a release still succeeds (minus the tap
+          # update) in a fork or before the secret exists.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

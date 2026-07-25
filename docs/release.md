@@ -28,6 +28,31 @@ For each tag, goreleaser produces:
 - `checksums.txt` covering all archives.
 - A GitHub Release with an auto-generated changelog (commits prefixed
   `docs:`, `spec:`, or `chore:` are excluded).
+- A Homebrew cask pushed to `jxsl13/homebrew-tap`, installable with
+  `brew install --cask jxsl13/tap/spectackle`.
+
+## The Homebrew tap
+
+Two things must exist before a tag can update the tap, and neither is a
+code-signing certificate:
+
+1. The repository `jxsl13/homebrew-tap` (that exact name — `brew` maps the
+   short form `jxsl13/tap` onto it).
+2. A repository secret `HOMEBREW_TAP_GITHUB_TOKEN` on *this* repository,
+   holding a token that may push to the tap repository. The workflow's
+   built-in `GITHUB_TOKEN` is scoped to this repository alone and cannot.
+
+If the secret is missing the release still succeeds — only the tap update is
+skipped — so a fork can cut releases without owning a tap.
+
+The published binaries are unsigned. macOS quarantines a cask download, so
+the cask carries a `postflight` hook that removes the quarantine attribute
+(`xattr -dr com.apple.quarantine`), which is the supported alternative to an
+Apple Developer ID plus notarization. Prerelease tags (`-rc`, `-beta`, …)
+are detected by `skip_upload: auto` and never become the version
+`brew install` resolves to.
+
+Homebrew casks are macOS-only; Linux users install from the release tarball.
 
 The version string baked into the binary (`spectackle version`) is stamped at
 build time via ldflags into
