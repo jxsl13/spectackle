@@ -38,3 +38,7 @@
 {"t":"2026-07-24T12:14:45Z","eid":"98424ef482c4dd2b","ag":"orchestrator","ev":"rule","dir":"internal/index","op":"edit","rule":"IDX-001","txt":"The indexer SHALL treat `extLang` as the single source of truth for extension-to-language routing and flush the parse-blob store exactly once per `IndexAll` run.","ap":["go:index.LangOf","go:index.indexer.IndexAll"]}
 {"t":"2026-07-24T19:15:24Z","eid":"cb1f8eb4276cad4e","ag":"ag-5c0c","ev":"drift","dir":"internal/index","rule":"IDX-001","node":"go:index.indexer.IndexAll","cls":"healed","oh":"bd6cf079484c85ef","nh":"bffbee37b070114e"}
 {"t":"2026-07-24T19:19:47Z","eid":"8186c4d3e93b34a8","ag":"ag-cf42","ev":"drift","dir":"internal/index","rule":"IDX-001","node":"go:index.indexer.IndexAll","cls":"healed","oh":"bd6cf079484c85ef","nh":"bffbee37b070114e"}
+{"t":"2026-07-25T11:21:45Z","eid":"bd67f8625d451c2d","ag":"orchestrator","ev":"create","id":"T-0125","k":"task","ti":"go parser: call edges from closure-var bodies and explicit generic instantiations","dir":"internal/index"}
+{"t":"2026-07-25T11:21:45Z","eid":"f101ffda591f0a75","ag":"orchestrator","ev":"create","id":"T-0126","k":"task","ti":"asm + cuda parsers: linker-suffix symbol forms and kernel modifier orders","dir":"internal/index"}
+{"t":"2026-07-25T11:22:15Z","eid":"baa5a02b1789294c","ag":"orchestrator","ev":"move","id":"T-0125","dir":"internal/index","fr":"draft","to":"approved"}
+{"t":"2026-07-25T11:22:15Z","eid":"cf9ee89116854a69","ag":"orchestrator","ev":"move","id":"T-0126","dir":"internal/index","fr":"draft","to":"approved"}
