@@ -120,14 +120,14 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// .spectackle files are TRACKED and can genuinely collide later.
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
-	callText(t, alice, "draft", map[string]any{
+	prop := draftID(t, alice, map[string]any{
 		"kind": "proposal", "title": "off-branch submit", "targets": []string{"main.go"}})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "approved"})
-	base := commitPrimary(t, root, "records: P-0001 approved")
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
+	base := commitPrimary(t, root, "records: "+prop+" approved")
 
 	// ---- open the worktree and make a real code change in it.
-	out := callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
-	wtRoot := wtRootOf(t, out, "P-0001")
+	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
+	wtRoot := wtRootOf(t, out, prop)
 	if err := os.WriteFile(filepath.Join(wtRoot, "pool.go"), []byte("package main // pooled\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// worktree carries dirty (B-0006's exact collision).
 	t.Setenv("SPECTACKLE_AGENT", "bob")
 	bob := connectRoot(t, root)
-	callText(t, bob, "draft", map[string]any{
+	other := draftID(t, bob, map[string]any{
 		"kind": "proposal", "title": "primary advances underneath", "targets": []string{"other.go"}})
 	advanced := commitPrimary(t, root, "primary advances .spectackle")
 	if advanced == base {
@@ -163,7 +163,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// work op=start (B-0002's cross-process rebinding).
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	fresh := connectRoot(t, wtRoot)
-	out = callText(t, fresh, "work", map[string]any{"op": "submit", "item": "P-0001"})
+	out = callText(t, fresh, "work", map[string]any{"op": "submit", "item": prop})
 	if !strings.Contains(out, "merged to main") {
 		t.Fatalf("cross-process submit off a non-main primary branch failed: %q", out)
 	}
@@ -191,32 +191,32 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 
 	// 2. the item's record state landed on the PRIMARY side. Only the
 	// worktree ever saw approved->active; main had it at approved.
-	out = callText(t, fresh, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "P-0001 proposal active") {
+	out = callText(t, fresh, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, prop+" proposal active") {
 		t.Fatalf("item record state did not land on the primary side: %q", out)
 	}
 
 	// 3. neither side's record delta was lost: the worktree's live move
 	// event AND the primary's concurrently committed draft are both there.
 	events := mainJournal(t, root)
-	if !hasEvent(events, journal.EvMove, "P-0001", "active") {
-		t.Fatal("the worktree's live record delta (P-0001 -> active) was lost")
+	if !hasEvent(events, journal.EvMove, prop, "active") {
+		t.Fatalf("the worktree's live record delta (%s -> active) was lost", prop)
 	}
-	if !hasEvent(events, journal.EvCreate, "P-0002", "") {
-		t.Fatal("the primary's concurrent record delta (P-0002 create) was lost")
+	if !hasEvent(events, journal.EvCreate, other, "") {
+		t.Fatalf("the primary's concurrent record delta (%s create) was lost", other)
 	}
-	if !hasEvent(events, journal.EvSubmit, "P-0001", "") {
+	if !hasEvent(events, journal.EvSubmit, prop, "") {
 		t.Fatal("submit event missing from the primary journal")
 	}
 	// exactly once — replay is a semantic merge, not a re-append.
 	moves := 0
 	for _, e := range events {
-		if e.Ev == journal.EvMove && e.ID == "P-0001" && e.To == "active" {
+		if e.Ev == journal.EvMove && e.ID == prop && e.To == "active" {
 			moves++
 		}
 	}
 	if moves != 1 {
-		t.Fatalf("P-0001 -> active replayed %d times, want exactly 1", moves)
+		t.Fatalf("%s -> active replayed %d times, want exactly 1", prop, moves)
 	}
 	if _, err := os.Stat(wtRoot); !os.IsNotExist(err) {
 		t.Fatal("worktree not torn down after submit")
@@ -227,11 +227,11 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// all. CommitCode must recognise that nothing is staged and skip the
 	// commit; misreading the unstaged .spectackle delta as staged makes git
 	// refuse an empty commit and the whole submit dies.
-	callText(t, fresh, "draft", map[string]any{
+	recOnly := draftID(t, fresh, map[string]any{
 		"kind": "proposal", "title": "record only", "targets": []string{"main.go"}})
-	callText(t, fresh, "move", map[string]any{"id": "P-0003", "to": "approved"})
-	out = callText(t, fresh, "work", map[string]any{"op": "start", "item": "P-0003"})
-	wt2 := wtRootOf(t, out, "P-0003")
+	callText(t, fresh, "move", map[string]any{"id": recOnly, "to": "approved"})
+	out = callText(t, fresh, "work", map[string]any{"op": "start", "item": recOnly})
+	wt2 := wtRootOf(t, out, recOnly)
 	// no code edit whatsoever — prove it: the only dirt is .spectackle.
 	for _, l := range strings.Split(gitAt(t, wt2, "status", "--porcelain"), "\n") {
 		if l == "" {
@@ -243,7 +243,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	}
 	tipBefore := gitAt(t, root, "rev-parse", "develop")
 
-	out = callText(t, fresh, "work", map[string]any{"op": "submit", "item": "P-0003"})
+	out = callText(t, fresh, "work", map[string]any{"op": "submit", "item": recOnly})
 	if strings.Contains(out, "! WT E commit") {
 		t.Fatalf("record-only submit tried to make an empty commit: %q", out)
 	}
@@ -253,11 +253,11 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	if got := gitAt(t, root, "rev-parse", "develop"); got != tipBefore {
 		t.Fatalf("record-only submit created a code commit: develop %s -> %s", tipBefore, got)
 	}
-	out = callText(t, fresh, "get", map[string]any{"id": "P-0003"})
-	if !strings.Contains(out, "P-0003 proposal active") {
+	out = callText(t, fresh, "get", map[string]any{"id": recOnly})
+	if !strings.Contains(out, recOnly+" proposal active") {
 		t.Fatalf("record-only submit did not replay item state onto main: %q", out)
 	}
-	if !hasEvent(mainJournal(t, root), journal.EvMove, "P-0003", "active") {
+	if !hasEvent(mainJournal(t, root), journal.EvMove, recOnly, "active") {
 		t.Fatal("record-only submit lost the worktree's record delta")
 	}
 }

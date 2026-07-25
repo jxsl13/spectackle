@@ -44,6 +44,16 @@ func resText(t *testing.T, res *mcp.CallToolResult, err error) string {
 	return tc.Text
 }
 
+// serverDraftID drafts through the handler method (the direct-call pattern
+// newTestServer exists for) and returns the ID the server minted. Since
+// ADR-0013 (T-0135) item IDs are UUIDv7-derived, so no test can spell one
+// out; it has to be read back off the `i <id> ...` record draft answers with.
+func serverDraftID(t *testing.T, s *Server, in draftIn) string {
+	t.Helper()
+	res, _, err := s.draft(in)
+	return idOfRecord(t, resText(t, res, err), "i")
+}
+
 // TestResearchEmptyFallback: no q, no targets — nothing to search, and the
 // tool must still return a non-empty, informative result rather than "".
 func TestResearchEmptyFallback(t *testing.T) {
@@ -169,10 +179,8 @@ func TestResearchRejectionsAndHistory(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{Kind: "proposal", Title: "widget batching plan"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.move(moveIn{ID: "P-0001", To: "rejected", Note: "too risky for now"}); err != nil {
+	prop := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "widget batching plan"})
+	if _, _, err := s.move(moveIn{ID: prop, To: "rejected", Note: "too risky for now"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.scan.Refresh(); err != nil {
@@ -184,8 +192,8 @@ func TestResearchRejectionsAndHistory(t *testing.T) {
 	if !strings.Contains(out, "#rejections") {
 		t.Fatalf("missing #rejections: %q", out)
 	}
-	if !strings.Contains(out, "P-0001") {
-		t.Fatalf("rejections missing P-0001: %q", out)
+	if !strings.Contains(out, prop) {
+		t.Fatalf("rejections missing %s: %q", prop, out)
 	}
 	if !strings.Contains(out, "#history") {
 		t.Fatalf("missing #history: %q", out)

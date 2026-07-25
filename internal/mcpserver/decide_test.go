@@ -71,23 +71,20 @@ func TestDecideAskHeadlessNeedPath(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
 
-	out := callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 	})
-	if !strings.Contains(out, "need decision ADR-0001 which backend? | grpc, rest") {
-		t.Fatalf("headless ask should return the need record, got: %q", out)
-	}
 
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if d.State != item.StateSubmitted {
 		t.Fatalf("undelivered decision state = %s, want submitted", d.State)
 	}
 
-	out = callText(t, sess, "decide", map[string]any{"op": "ls"})
-	if !strings.Contains(out, "ADR-0001") {
+	out := callText(t, sess, "decide", map[string]any{"op": "ls"})
+	if !strings.Contains(out, adr) {
 		t.Fatalf("ls should list the still-open decision: %q", out)
 	}
 }
@@ -104,12 +101,14 @@ func TestDecideAskAcceptResolvesImmediately(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 	})
-	if !strings.Contains(out, "ok ADR-0001 rest") {
+	f := strings.Fields(out)
+	if len(f) < 3 || f[0] != "ok" || !item.IDRe.MatchString(f[1]) || f[2] != "rest" {
 		t.Fatalf("accepted ask should resolve immediately: %q", out)
 	}
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	adr := f[1]
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok || d.State != item.StateDone {
-		t.Fatalf("ADR-0001 not done: %+v %v %v", d, ok, err)
+		t.Fatalf("%s not done: %+v %v %v", adr, d, ok, err)
 	}
 }
 
@@ -121,37 +120,37 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
 
-	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "ship the new backend"})
-	callText(t, sess, "decide", map[string]any{
+	task := draftID(t, sess, map[string]any{"kind": "task", "title": "ship the new backend"})
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "which backend?", "kind": "radio",
-		"options": []string{"grpc", "rest"}, "item": "T-0001",
+		"options": []string{"grpc", "rest"}, "item": task,
 	})
 
-	blocked, ok, err := item.Get(s.ws, "T-0001")
-	if err != nil || !ok || len(blocked.Needs) != 1 || blocked.Needs[0] != "ADR-0001" {
-		t.Fatalf("T-0001 Needs not linked to ADR-0001: %+v %v", blocked, err)
+	blocked, ok, err := item.Get(s.ws, task)
+	if err != nil || !ok || len(blocked.Needs) != 1 || blocked.Needs[0] != adr {
+		t.Fatalf("%s Needs not linked to %s: %+v %v", task, adr, blocked, err)
 	}
 
-	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": "ADR-0001", "choose": "grpc"})
-	if !strings.Contains(out, "ok ADR-0001 grpc") {
+	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "grpc"})
+	if !strings.Contains(out, "ok "+adr+" grpc") {
 		t.Fatalf("answer should resolve: %q", out)
 	}
 
 	// a second, confirm-kind decision on the same item: its stored options
 	// (forced to yes/no regardless of what ask was called with) must
 	// actually constrain answer=
-	callText(t, sess, "decide", map[string]any{"op": "ask", "question": "yes or no?", "kind": "confirm", "item": "T-0001"})
-	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": "ADR-0002", "choose": "maybe"})
+	adr2 := askID(t, sess, map[string]any{"op": "ask", "question": "yes or no?", "kind": "confirm", "item": task})
+	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr2, "choose": "maybe"})
 	if !strings.Contains(out, "! ARG E") {
 		t.Fatalf("confirm answer outside yes|no must be rejected: %q", out)
 	}
 
-	resolved, ok, err := item.Get(s.ws, "T-0001")
+	resolved, ok, err := item.Get(s.ws, task)
 	if err != nil || !ok {
-		t.Fatalf("T-0001 gone: %v", err)
+		t.Fatalf("%s gone: %v", task, err)
 	}
-	if len(resolved.Needs) != 1 || resolved.Needs[0] != "ADR-0002" {
-		t.Fatalf("ADR-0001 should be cleared from Needs, ADR-0002 still open: %+v", resolved.Needs)
+	if len(resolved.Needs) != 1 || resolved.Needs[0] != adr2 {
+		t.Fatalf("%s should be cleared from Needs, %s still open: %+v", adr, adr2, resolved.Needs)
 	}
 
 	events, err := journal.ReadAll(s.ws)
@@ -160,12 +159,12 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	}
 	found := false
 	for _, e := range events {
-		if e.Ev == journal.EvDecide && e.ID == "ADR-0001" && e.Note == "grpc" {
+		if e.Ev == journal.EvDecide && e.ID == adr && e.Note == "grpc" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatal("no ev=decide journal event for ADR-0001's resolution")
+		t.Fatalf("no ev=decide journal event for %s's resolution", adr)
 	}
 }
 
@@ -185,19 +184,16 @@ func TestDecideAskArchivedItemProvenanceOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "still relevant?", "kind": "confirm", "item": it.ID,
 	})
-	if !strings.Contains(out, "need decision ADR-0001") {
-		t.Fatalf("ask on archived item should still succeed: %q", out)
-	}
 
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if !strings.Contains(d.Body, "blocks: "+it.ID) {
-		t.Fatalf("ADR-0001 body missing blocks provenance: %q", d.Body)
+		t.Fatalf("%s body missing blocks provenance: %q", adr, d.Body)
 	}
 
 	// the archived item itself is gone from work.md and Tombstone must still
@@ -221,25 +217,25 @@ func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
 
-	callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "pick one", "kind": "radio",
 		"options": []string{"defer, revisit later", "go now"},
 	})
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if !strings.Contains(d.Body, "option: defer, revisit later\n") || !strings.Contains(d.Body, "option: go now") {
-		t.Fatalf("ADR-0001 body missing per-line option: %q", d.Body)
+		t.Fatalf("%s body missing per-line option: %q", adr, d.Body)
 	}
 	if strings.Contains(d.Body, "options: ") {
-		t.Fatalf("ADR-0001 body still uses the legacy comma-joined line: %q", d.Body)
+		t.Fatalf("%s body still uses the legacy comma-joined line: %q", adr, d.Body)
 	}
 
 	out := callText(t, sess, "decide", map[string]any{
-		"op": "answer", "id": "ADR-0001", "choose": "defer, revisit later",
+		"op": "answer", "id": adr, "choose": "defer, revisit later",
 	})
-	if !strings.Contains(out, "ok ADR-0001 defer, revisit later") {
+	if !strings.Contains(out, "ok "+adr+" defer, revisit later") {
 		t.Fatalf("byte-identical comma-containing option should resolve: %q", out)
 	}
 
@@ -266,14 +262,14 @@ func TestDecideAskStoresContextAndProposedStatus(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
 
-	callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 		"context": "Latency-sensitive service; current REST gateway is the bottleneck.",
 	})
 
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if d.Context != "Latency-sensitive service; current REST gateway is the bottleneck." {
 		t.Fatalf("Context not stored: %+v", d)
@@ -297,21 +293,21 @@ func TestDecideAnswerRecordsDecisionStatusAndConsequences(t *testing.T) {
 	root := t.TempDir()
 	s, sess := connectDecide(t, root, nil)
 
-	callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 		"context": "Latency-sensitive service.",
 	})
 	out := callText(t, sess, "decide", map[string]any{
-		"op": "answer", "id": "ADR-0001", "choose": "grpc",
+		"op": "answer", "id": adr, "choose": "grpc",
 		"consequences": "Clients must add a gRPC dependency; REST gateway is deprecated over two releases.",
 	})
-	if !strings.Contains(out, "ok ADR-0001 grpc") {
+	if !strings.Contains(out, "ok "+adr+" grpc") {
 		t.Fatalf("answer should resolve: %q", out)
 	}
 
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if d.Decision != "grpc" {
 		t.Fatalf("Decision = %q, want grpc", d.Decision)

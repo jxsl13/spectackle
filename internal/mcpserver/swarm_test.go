@@ -116,9 +116,9 @@ func TestLeaseContention(t *testing.T) {
 func TestSwarmRealtimeRejection(t *testing.T) {
 	alice, bob := twoAgents(t, t.TempDir())
 
-	callText(t, alice, "draft", map[string]any{"kind": "proposal", "title": "pin kernels in VRAM"})
-	// find the ID from alice's own view (bob's piggyback may shift tokens)
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "rejected",
+	// read the ID off alice's own draft record (bob's piggyback may shift tokens)
+	prop := draftID(t, alice, map[string]any{"kind": "proposal", "title": "pin kernels in VRAM"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "rejected",
 		"note": "VRAM pinning starves sibling tenants"})
 
 	// bob's very next tool result carries the learning as an sw record
@@ -128,7 +128,7 @@ func TestSwarmRealtimeRejection(t *testing.T) {
 	}
 	// and find scope=rejection unions the live coord event (pre-merge)
 	out = callText(t, bob, "find", map[string]any{"q": "starves tenants", "scope": "rejection"})
-	if !strings.Contains(out, "P-0001") {
+	if !strings.Contains(out, prop) {
 		t.Fatalf("find union missing sibling rejection: %q", out)
 	}
 }
@@ -138,27 +138,27 @@ func TestWorkLifecycleE2E(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 
-	callText(t, alice, "draft", map[string]any{
+	prop := draftID(t, alice, map[string]any{
 		"kind": "proposal", "title": "optimize memory pool", "targets": []string{"main.go"}})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "submitted"})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "approved"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "submitted"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
 
-	out := callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
-	if !strings.Contains(out, "wt P-0001 open ") {
+	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
+	if !strings.Contains(out, "wt "+prop+" open ") {
 		t.Fatalf("work start: %q", out)
 	}
 	wtRoot := ""
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "wt P-0001 open ") {
-			wtRoot = strings.TrimPrefix(l, "wt P-0001 open ")
+		if strings.HasPrefix(l, "wt "+prop+" open ") {
+			wtRoot = strings.TrimPrefix(l, "wt "+prop+" open ")
 		}
 	}
 	if _, err := os.Stat(filepath.Join(wtRoot, "main.go")); err != nil {
 		t.Fatalf("worktree checkout missing: %v", err)
 	}
 	// the live (uncommitted) item state traveled into the worktree
-	out = callText(t, alice, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "P-0001 proposal active") {
+	out = callText(t, alice, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, prop+" proposal active") {
 		t.Fatalf("item not active in worktree: %q", out)
 	}
 
@@ -174,7 +174,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wtRoot, "ok.txt"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "done"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "done"})
 	out = callText(t, alice, "work", map[string]any{"op": "submit"})
 	if !strings.Contains(out, "merged to main") {
 		t.Fatalf("submit: %q", out)
@@ -187,8 +187,8 @@ func TestWorkLifecycleE2E(t *testing.T) {
 	if _, err := os.Stat(wtRoot); !os.IsNotExist(err) {
 		t.Fatalf("worktree not torn down")
 	}
-	out = callText(t, alice, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "P-0001 proposal done") {
+	out = callText(t, alice, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, prop+" proposal done") {
 		t.Fatalf("item state not replayed: %q", out)
 	}
 	out = callText(t, alice, "work", map[string]any{"op": "status"})
@@ -196,7 +196,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 		t.Fatalf("status: %q", out)
 	}
 	// a second submit of the same item is impossible (worktree gone)
-	out = callText(t, alice, "work", map[string]any{"op": "submit", "item": "P-0001"})
+	out = callText(t, alice, "work", map[string]any{"op": "submit", "item": prop})
 	if !strings.Contains(out, "! ARG E") {
 		t.Fatalf("stale submit: %q", out)
 	}
@@ -208,21 +208,22 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
 	alice, bob := twoAgents(t, root)
 
+	var ids []string
 	for i, sess := range []*mcp.ClientSession{alice, bob} {
-		callText(t, sess, "draft", map[string]any{
-			"kind": "proposal", "title": fmt.Sprintf("work %d", i), "targets": []string{fmt.Sprintf("f%d.go", i)}})
+		ids = append(ids, draftID(t, sess, map[string]any{
+			"kind": "proposal", "title": fmt.Sprintf("work %d", i), "targets": []string{fmt.Sprintf("f%d.go", i)}}))
 	}
-	for _, id := range []string{"P-0001", "P-0002"} {
+	for _, id := range ids {
 		callText(t, alice, "move", map[string]any{"id": id, "to": "submitted"})
 		callText(t, alice, "move", map[string]any{"id": id, "to": "approved"})
 	}
 
-	outA := callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
-	outB := callText(t, bob, "work", map[string]any{"op": "start", "item": "P-0002"})
-	rootA, rootB := wtRootOf(t, outA, "P-0001"), wtRootOf(t, outB, "P-0002")
+	outA := callText(t, alice, "work", map[string]any{"op": "start", "item": ids[0]})
+	outB := callText(t, bob, "work", map[string]any{"op": "start", "item": ids[1]})
+	rootA, rootB := wtRootOf(t, outA, ids[0]), wtRootOf(t, outB, ids[1])
 
 	// bob cannot start alice's item (lease)
-	out := callText(t, bob, "work", map[string]any{"op": "abort", "item": "P-0001"})
+	out := callText(t, bob, "work", map[string]any{"op": "abort", "item": ids[0]})
 	if !strings.Contains(out, "! WT E") {
 		t.Fatalf("bob aborted alice's live worktree: %q", out)
 	}
@@ -270,7 +271,7 @@ func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"P-0001", "P-0002"} {
+	for _, id := range ids {
 		if c := strings.Count(string(raw), `"ev":"create","id":"`+id+`"`); c != 1 {
 			t.Fatalf("item %s has %d create events on main (want exactly 1):\n%s", id, c, raw)
 		}
@@ -293,10 +294,10 @@ func TestCompactBlockedInWorktree(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
-	callText(t, alice, "draft", map[string]any{"kind": "proposal", "title": "x"})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "submitted"})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "approved"})
-	callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
+	prop := draftID(t, alice, map[string]any{"kind": "proposal", "title": "x"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "submitted"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
+	callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
 	out := callText(t, alice, "compact", map[string]any{})
 	if !strings.Contains(out, "! WT E compact") {
 		t.Fatalf("compact not blocked in worktree: %q", out)
@@ -306,7 +307,7 @@ func TestCompactBlockedInWorktree(t *testing.T) {
 		t.Fatalf("abort: %q", out)
 	}
 	// item back to approved on main
-	out = callText(t, alice, "get", map[string]any{"id": "P-0001"})
+	out = callText(t, alice, "get", map[string]any{"id": prop})
 	if !strings.Contains(out, "proposal approved") {
 		t.Fatalf("abort did not restore approved: %q", out)
 	}
