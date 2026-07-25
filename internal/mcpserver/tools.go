@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -2183,4 +2184,25 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// hbAge renders an agent heartbeat age floored to whole minutes ("0m",
+// "3m"). Seconds granularity made state output non-deterministic — two
+// back-to-back calls straddling a second boundary rendered different bytes,
+// which is exactly how TestDialHTTPMatchesStdio flaked (B-01KYDQTEM) — and
+// no liveness decision keys on sub-minute precision: sweeps bound the range
+// to [0, agentTTL) anyway.
+func hbAge(hb time.Time) string {
+	return fmt.Sprintf("%dm", int(time.Since(hb).Minutes()))
+}
+
+// leaseLeft renders a lease's remaining lifetime floored to whole minutes,
+// same determinism rationale as hbAge. Flooring is the safe direction for a
+// waiting sibling: a lease at 59s renders "0m" — about to expire.
+func leaseLeft(exp time.Time) string {
+	m := int(time.Until(exp).Minutes())
+	if m < 0 {
+		m = 0
+	}
+	return fmt.Sprintf("%dm", m)
 }

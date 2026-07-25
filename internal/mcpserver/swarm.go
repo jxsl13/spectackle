@@ -378,8 +378,8 @@ func (s *Server) blockedByLease(paths []string) (*mcp.CallToolResult, any, error
 	if l == nil {
 		return nil, nil, nil
 	}
-	return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds — pick different scope or coordinate",
-		l.Path, l.Agent, orDash(l.Item), int(time.Until(l.Exp).Seconds())))
+	return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%s — pick different scope or coordinate",
+		l.Path, l.Agent, orDash(l.Item), leaseLeft(l.Exp)))
 }
 
 // minter routes ID minting through the swarm counters (collision-free
@@ -409,8 +409,8 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		if conflict != nil {
-			return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%ds",
-				conflict.Path, conflict.Agent, orDash(conflict.Item), int(time.Until(conflict.Exp).Seconds())))
+			return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s exp=%s",
+				conflict.Path, conflict.Agent, orDash(conflict.Item), leaseLeft(conflict.Exp)))
 		}
 		_ = s.cd.Emit("claim", in.Item, strings.Join(in.Paths, " "))
 		return text("ok claimed " + strings.Join(in.Paths, " "))
@@ -430,7 +430,7 @@ func (s *Server) lease(in leaseIn) (*mcp.CallToolResult, any, error) {
 		}
 		var b strings.Builder
 		for _, l := range leases {
-			fmt.Fprintf(&b, "l %s %s %s %ds\n", l.Path, l.Agent, orDash(l.Item), int(time.Until(l.Exp).Seconds()))
+			fmt.Fprintf(&b, "l %s %s %s %s\n", l.Path, l.Agent, orDash(l.Item), leaseLeft(l.Exp))
 		}
 		return text(b.String())
 	}
@@ -454,14 +454,14 @@ func (s *Server) swarm(swarmIn) (*mcp.CallToolResult, any, error) {
 		if a.Name == s.agent {
 			me = " (you)"
 		}
-		fmt.Fprintf(&b, "ag %s %s %ds %s%s\n", a.Name, orDash(a.Item), int(time.Since(a.HB).Seconds()), wtLabel, me)
+		fmt.Fprintf(&b, "ag %s %s %s %s%s\n", a.Name, orDash(a.Item), hbAge(a.HB), wtLabel, me)
 	}
 	leases, err := s.cd.Leases(s.agentTTL())
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, l := range leases {
-		fmt.Fprintf(&b, "l %s %s %s %ds\n", l.Path, l.Agent, orDash(l.Item), int(time.Until(l.Exp).Seconds()))
+		fmt.Fprintf(&b, "l %s %s %s %s\n", l.Path, l.Agent, orDash(l.Item), leaseLeft(l.Exp))
 	}
 	wts, err := s.cd.Worktrees()
 	if err != nil {

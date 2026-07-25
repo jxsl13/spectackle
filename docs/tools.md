@@ -56,8 +56,8 @@ g <kind> <ref> <msg>                             gap (uncovered|orphan)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED)
-ag <name> <item|-> <hb-age>s <wt|main>           agent
-l <path> <agent> <item|-> <exp>s                 scope lease
+ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)
+l <path> <agent> <item|-> <exp>m                 scope lease (time left, floored to minutes)
 h <harness> <marker>                             detected harness (commands op=detect; claude|copilot|codex|kimi)
 sw <seq> <agent> <ev> <ref|-> <msg>              swarm event (sibling learning, may prefix ANY result)
 wt <item> <state> <root>                         worktree (open|gating|integrating|conflict|replaying)
