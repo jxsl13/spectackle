@@ -412,3 +412,28 @@ func TestGitHubChecksRealGreenAmongSkippedPasses(t *testing.T) {
 		t.Fatalf("real green among skipped: %s, %v; want passing", got, err)
 	}
 }
+
+// TestGitHubChecksPollsPinnedSHA (B-01KYDN): with HeadSHA set, the verdict is
+// asked for that exact commit — a branch ref polled seconds after a push can
+// still resolve to the previous head, whose concluded green would merge work
+// that was never tested. Without a pin, the branch fallback stays.
+func TestGitHubChecksPollsPinnedSHA(t *testing.T) {
+	var gotPath string
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"}]}`))
+	})
+	if _, err := g.Checks(PR{Number: 1, Branch: "b", HeadSHA: "deadbeef42"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotPath, "/commits/deadbeef42/check-runs") {
+		t.Fatalf("pinned SHA not polled: %s", gotPath)
+	}
+	if _, err := g.Checks(PR{Number: 1, Branch: "feature/x"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotPath, "/commits/feature/x/check-runs") {
+		t.Fatalf("branch fallback lost: %s", gotPath)
+	}
+}

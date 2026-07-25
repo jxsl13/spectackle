@@ -95,6 +95,13 @@ func DefaultBranch(dir string) (string, error) {
 	return git(dir, "symbolic-ref", "--short", "HEAD")
 }
 
+// HeadSHA resolves a local branch to its commit. The gitflow reads it right
+// after pushing, so the CI await polls the exact commit that was pushed
+// rather than a branch ref the forge may briefly resolve to the predecessor.
+func HeadSHA(dir, branch string) (string, error) {
+	return git(dir, "rev-parse", "--verify", branch)
+}
+
 // RemoteURL returns the configured URL of a named remote.
 //
 // It exists so the forge client can derive owner and repository from the same
