@@ -12,16 +12,6 @@ targets: internal/cspan/cspan.go, internal/langspec/langspec.go
 
 Per ADR-0012 (engine-endspan) resolving R-0005. The langspec engine bounds bodies exclusively by brace counting (cspan.Span), so end-terminated languages (lua, ruby, elixir, julia, fortran) ship EndLine==Line for every symbol and can never set CallRe — impact BFS is blind there. Add a keyword-counting span: Spec gains an optional EndSpan config (open/close regexes); Parse uses it in place of cspan.Span when set, feeding the existing callEdges loop unchanged. cspan gains KeywordSpan alongside Span, same leaf-package discipline. Default nil = byte-identical current behavior (same guarantee CallRe made when introduced). Then per-language data updates switch the five end-terminated languages onto it. Rejected: indentation-based spans for python/haskell in this pass (different mechanism, separate proposal if the hardened regexes prove insufficient); tree-sitter adoption (ADR-0012 kept the pure-Go chain, wazero stays gated per ADR-0010). Scope disjoint: engine task owns internal/cspan + langspec.go; data task owns the five language files and runs only after the engine task merges. Exit: engine tests green including a no-behavior-change guard for nil EndSpan; the five languages report multi-line spans and call edges over the R-0005 scratch fixtures. Rollback: the field and KeywordSpan are additive; reverting restores brace-only behavior.
 
-## P-0085 langspec Def/Call hardening: close the R-0005 regex misses across all brace-style languages
-kind: proposal
-state: active
-created: 2026-07-25
-refs: ADR-0012, R-0005
-grilled: 2026-07-25
-targets: internal/langspec
-
-Per ADR-0012 (engine-endspan) resolving R-0005. Every brace-style langspec file has concrete, empirically confirmed Def misses (constructs minting no node: JS/TS class methods, Java constructors, Python async def, C# Allman-style block bodies — note cspan already handles Allman braces since T-0053, so those are def-line regex fixes, not engine work — Rust const fn, Swift override init, Groovy default visibility, ObjC @protocol, Zig error sets, OCaml and-chains, GLSL structs, Metal multi-line signatures, and more per the R-0005 findings), and perl/php/r/shell additionally leave CallRe nil despite having braces. Fix per language: extend or add Def regexes, set CallRe+Stop where missing, keep QualMode untouched. Ground truth: each language's R-0005 scratch fixture and findings file. Batched into five disjoint tasks by family (web, jvm/dotnet, c-family/shader, scripting, systems/functional) so leases never overlap; python and javascript also gain their missing _test.go siblings. Exit per language: previously-missed constructs mint nodes with correct spans over the R-0005 fixture, package tests green. Rollback: regex-level data changes per file, individually revertible.
-
 ## P-0086 hand-written parser fixes: go call-edge coverage, asm linker-suffix symbols, cuda kernel modifiers
 kind: proposal
 state: active
