@@ -271,3 +271,156 @@ VERIFY (real output, never predicted)
 SCOPE: the coord lock generalization plus the four writers named above. Do not change the ID scheme, the tool boundary, or the migration - those are separate lines of work.
 ROLLBACK: the wrapper is one function; removing its calls returns to today's unlocked behavior. Say in the report whether any caller became structurally dependent on the lock beyond mutual exclusion.
 REPORT BACK: where the lock is acquired and why there, the lock naming scheme and its granularity, the ordering you established against leases, the -count=20 result verbatim, each test's real result, and anything deliberately not done.
+
+## P-01KYD6VP6VE2Z8A517AT3RP39T backpropagation: every loop result flows back into the workspace, and the server names the next step so no step can be silently skipped
+kind: proposal
+state: draft
+created: 2026-07-25
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/mcpserver/server.go, internal/mcpserver/prompts.go, internal/mcpserver/templates/commands/workflow.md.tmpl, internal/mcpserver/tools.go, docs/agent-workflow.md
+
+PROBLEM. The loop's forward path is well defined: research, draft, grill, approve, implement, check, archive. The backward path - how results change the workspace so the next iteration is smarter - exists only as convention in the orchestrator's head. Three symptoms, each verified in this repository: (1) the server's own backprop concept covers exactly one flow, code-to-spec drift (check fix=true drafts one proposal per drifted rule, tools.go:1733) - research results, implementation reports and rejections have no defined return path; (2) the workflow template's final step says archive and commit, but not what must be captured (the archive note is the training signal - it becomes the journal tombstone and the FTS body future sessions search - yet nothing says so and an empty note passes); (3) the template omits the post-merge restart entirely: CONTRIBUTING.md mandates make dev after every merge because the resident server IS the product under change, and the machine-facing instructions never mention it, which produced real stale-binary confusion this session.
+
+WHY IT MATTERS FOR TOKEN COST. Knowledge that does not land in one of the three durable stores (spec.md rules, journal tombstones with substantive notes, knowledge artifacts) is re-derived by a later session at full exploration price. Every re-derivation this repository has already paid - the T-0094-vs-T-0138 migration re-litigation was avoided only because the rejection note happened to be thorough - is the cost of an undefined backward path. The backward path is the token-saving mechanism, not an overhead on it.
+
+DELTA. Two child tasks:
+1. Define the loop's backward edges in every machine-facing surface (server instructions, workflow template, next-step prompt) so each state names its one next action and each completed item states where its learning landed. Bounded: hints are one line, computed from actual state, no new prose sections.
+2. Enforce the research return path at the one gate that can see it: archiving an R-item requires either a consumer (a live item or rule citing it) or an explicit no-action note. One conditional at one call site; no sweeps, no background scans.
+
+EXPLICITLY REJECTED, to bound scope: a generic workflow engine that re-orders steps; any always-on background process; LLM-written self-assessments as evidence (they are the written half R-0007 showed is fakeable - every new signal here is either server-computed or a hard gate).
+
+EXIT CRITERION. A fresh orchestrator session driven only by the server's own prompts (workflow, next, state) performs research capture, archive notes, and post-merge restart without any of them being in its own system prompt - measured by driving the loop once headlessly and checking the three stores gained the expected records.
+
+ROLLBACK. Each surface change is a template/instruction edit; the R-item gate is one conditional. Reverting the commit restores the prior loop; no data format changes.
+
+SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs; task 2 touches the move path in tools.go. T-01KYD5R (grill verdict) also touches tools.go's move path - task 2 declares NEEDS on it and runs after it merges.
+
+## T-01KYD72GQ6E2ZV0HX8S443NPY6 package-local contract coverage: the gap branch becomes reachable, reported bounded, and gated only by explicit config
+kind: task
+state: draft
+created: 2026-07-25
+parent: P-01KYD47GZ7FAMAGM4NEF0BQS8T
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/mcpserver/tools.go, internal/workspace/workspace.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+WHY. check cannot report a contract gap in this repository: the root bundle is unscoped and carries 16 rules, so spec.Cascade.ForPath never returns empty and the coverage branch (tools.go:1695-1716, fires on len(ForPath(rel))==0) is structurally unreachable. Twelve of twenty-four packages under internal/ carry no bundle while SPX-REPO-002 mandates one, and check answers ok. Six of the ten dogfooded defects landed in exactly those uncovered packages. R-0007 ranks this as a verified failure class; the known weakness is that any EARS sentence silences it, so the mitigation below is part of the definition, not an option.
+
+VERIFIED GROUND (do not re-derive)
+- coverageGaps at tools.go:1695: walks source dirs, emits for len(c.ForPath(rel))==0. ForPath returns the full cascade for a path, root rules included - that inclusion is what makes the branch dead.
+- check's final ok is decided by the findings tally; g orphan records (MCP-004) count toward it. The CI self-hosting gate requires check's output to end exactly ok - ANY new record class that counts immediately turns this repository's own CI red with 12 findings. That is the central design constraint of this task.
+- Workspace config (internal/workspace/workspace.go, Config struct ~line 42) already parses feedback and compact blocks; adding a key is mechanical.
+
+WHAT TO BUILD
+1. COVERED(pkg) definition: a source dir under internal/ or cmd/ is covered iff (a) a non-root bundle exists at it or at an ancestor below the root, or (b) at least one root-bundle rule binds a node inside it via applies (the anchors table resolves applies targets to paths - use it; a rule whose applies is empty never covers anything outside its own dir). This is the mitigation: a lazily written root-level EARS sentence with no applies binding silences nothing.
+2. REPORTING: one line per uncovered dir, "g nocontract <dir>", sorted, capped at 20 lines with a "+<n> more" tail. Emitted by check in the same section as today's coverage gaps.
+3. GATING: by default the nocontract class is reported but EXCLUDED from the findings tally, so existing repositories (this one included) stay ok and CI stays green. A new workspace config key coverage_gate: package flips it into the tally. Default absent = today's behavior plus visibility. This repository does NOT set the key in this task - backfilling 12 packages' contracts is follow-up work the report lists, not work this task does.
+4. The 12 currently uncovered dirs are the acceptance fixture: the report pastes check's real output on this repository showing exactly which dirs it names.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- A repo whose root bundle holds N rules with no applies bindings reports every internal/ package as uncovered; adding one rule with an applies binding into pkg X removes exactly X from the list.
+- With coverage_gate absent, a workspace with uncovered dirs still ends check with ok; with coverage_gate: package it does not, and the findings count includes them.
+- Output is bounded: a synthetic workspace with 40 uncovered dirs emits 20 lines + the tail line, never 40.
+- No behavior change to the existing orphan/drift/duplicate classes (their tests keep passing untouched).
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' - must still end ok on this repository AND list the nocontract records; paste the full section in the report.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs check on the worktree and on a synthetic gated workspace from the diff alone; verdict recorded in the archive note.
+
+SCOPE: coverageGaps and its call site in tools.go, the config key in workspace.go, tests. Do not touch grill.go (T-01KYD5R... owns it), the spec package, or the anchors format. tools.go ordering: run after the grill-verdict task merges; the lease enforces non-concurrency.
+ROLLBACK: revert the commit. The config key is additive; a workspace that set coverage_gate keeps working (unknown keys are ignored by the YAML parser - verify and state this in the report).
+REPORT BACK: the covered() definition as implemented, the real check output on this repo, each test's result, the follow-up list of the 12 dirs, anything deliberately not done.
+
+## T-01KYD72H15EPV8KCW6ASSMEFZX evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, as a package grill renders
+kind: task
+state: draft
+created: 2026-07-25
+parent: P-01KYD47GZ7FAMAGM4NEF0BQS8T
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/evidence, internal/mcpserver/grill.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+NEEDS: the grill-verdict task (grill computes its critique and stamps a verdict) must be MERGED first - this task adds sections to the pack that task restructures, and both touch grill.go. Do not start while it is open.
+
+WHY. Two defect classes from this repository's history are visible statically at review time, scoped to an item's targets, and neither is anything an author can write around:
+- B-0009: a schema column was declared and never written or read - the declared-but-unconsumed shape. The title of that bug is literally the finding.
+- B-0003: workAbort passed an item ID where twenty sibling call sites passed a directory - one caller diverging from the shape every other caller agrees on. One against twenty is a signal no word-check can see.
+Both sweeps run only over an item's declared targets, which is what keeps them cheap and their output bounded - a global sweep is explicitly out of scope and was considered and rejected for unbounded output.
+
+VERIFIED GROUND (do not re-derive)
+- The graph (internal/graph) stores nodes and edges; EdgeKind covers EDef/ECall/EUse and friends, but edges carry NO argument metadata - graph.go's Edge has no arg fields. The caller-divergence sweep therefore CANNOT come from stored edges alone: it re-parses the call sites' files (go/ast for Go) for the callee's name, bounded to the files the graph's inbound ECall edges name. The graph gives you the file list; the AST gives you the shapes. For non-Go targets, skip - state so in output as "e skipped <node> non-go".
+- The unconsumed sweep CAN come from the stored graph: exported symbols (nodes) under a target path with zero inbound ECall/EUse edges from outside their own file. Vendored/test-only consumers count as consumers; init-time registration counts (EUse). The known false positive class is reflection/plugin lookup - cap the sweep's claim accordingly: the record reads "e unconsumed <node> no inbound edges", a lead for the reviewer, never an error.
+- grill's pack sections and budget truncation: grill.go (post-restructure by the needed task). New sections render before #rejections, after the computed classes.
+
+WHAT TO BUILD
+1. Package internal/evidence with two pure functions taking the graph + target paths (+ file source access for the AST pass): Unconsumed(g, targets) []Record and DivergentCallers(g, targets, load func(path) []byte) []Record. Deterministic order, each Record renders to one line, both capped at 10 records with a "+<n> more" tail.
+2. Divergence definition, precise: for each callee node under targets with >= 5 inbound call edges, group call sites by (argument count, per-argument shape class) where shape class is one of literal-kind (string/int/composite), identifier, call-result, selector - computed from the AST. Report groups whose share is <= 20% as "e divergent <callee> <k>/<n> sites differ: <file:line>..." (first 3 sites). Thresholds are consts in evidence with a one-line rationale each; B-0003's 1-of-21 must trip, and a 50/50 split must not.
+3. Wire both into grill as an #evidence section, subject to the pack budget, counted into the verdict's open-gap tally ONLY for the unconsumed class when the item's kind is task or bug (a proposal legitimately names targets it will not consume yet); divergent records are always informational (they may be the point of the change).
+4. Cost ceiling, enforced not aspirational: the AST pass parses only files the graph names as call sites of target callees, never the whole tree; a guard refuses more than 50 files and reports "e truncated ast >50 files" instead. SPX-MCP-001 (1 MiB reads, 2s warm response) applies - add the evidence pass to whatever timing test asserts it, and report the measured wall time on this repository with targets internal/mcpserver (the largest package).
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- A fixture reproducing B-0009's shape (exported symbol, zero inbound) is reported; adding one consumer removes it.
+- A fixture reproducing B-0003's shape (21 call sites, 1 divergent) reports exactly the divergent site; a 10/10 split reports nothing.
+- Caps hold: fixtures with 30 unconsumed symbols / 30 divergent callees emit 10+tail each.
+- Determinism: two runs on the same fixture emit byte-identical sections.
+- Non-Go targets skip cleanly with the skipped record, no error.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  Run grill on a real item in the worktree with targets internal/mcpserver and paste the #evidence section plus its wall time in the report.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the two fixture tests and the real-item grill from the diff alone; verdict recorded in the archive note.
+
+SCOPE: the new internal/evidence package, the grill wiring, tests. Do not modify internal/graph (no schema change for arg metadata - that was considered and rejected: it grows every edge for one consumer), the index, or the item model.
+ROLLBACK: remove the #evidence section call; the evidence package is dead code until deleted. No stored state.
+REPORT BACK: measured wall time and output bytes on the internal/mcpserver run, both fixtures' real outputs, threshold values as landed, each test's result, anything deliberately not done.
+
+## T-01KYD72HB0FHX9G80DQGS9YBB1 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
+kind: task
+state: draft
+created: 2026-07-25
+parent: P-01KYD6VP6VE2Z8A517AT3RP39T
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/mcpserver/server.go, internal/mcpserver/prompts.go, internal/mcpserver/templates/commands/workflow.md.tmpl, docs/agent-workflow.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task edits instructions, templates and one prompt function - no lifecycle semantics change.
+
+WHY. The loop's backward path - results changing the workspace so the next iteration is smarter - is convention, not definition. An LLM driving the loop from the server's own surfaces is never told: that the archive note becomes the journal tombstone and the FTS body every later session searches (the note IS the training signal); that research results must land as rules, ADRs, tasks or an explicit no-action note; that after every merge the resident server must be rebuilt (CONTRIBUTING.md mandates make dev; the machine-facing surfaces never mention it - real stale-binary confusion resulted this session); or what the single next action is for the state an item is actually in. Each omission costs a later session full re-derivation price, which is the opposite of this project's token-economy goal.
+
+VERIFIED GROUND (do not re-derive)
+- server.go instruction manifest: ORCHESTRATION and TOKEN ECONOMY paragraphs exist (~line 44); SPX-MCP-006 pins the TOKEN ECONOMY paragraph's presence. There is no BACKPROP paragraph.
+- templates/commands/workflow.md.tmpl: 8 steps; step 7 check, step 8 archive+commit. No make dev, no note guidance, no research-capture step. templates/commands/ holds 8 tmpl files; the commands tool regenerates .claude command files from them - regeneration is part of this task's verification.
+- prompts.go: promptNext (line 158) picks an actionable item and renders its brief; promptWorkflow (line 89) renders lifecycle steps; lifecycleLines (line 68). promptNext already skips blocked items and open needs.
+- check fix=true already drafts one backprop proposal per drifted rule (tools.go:1733) - the code-to-spec direction exists; do NOT duplicate it in prose, reference it.
+
+WHAT TO BUILD
+1. server.go: one BACKPROP paragraph in the instruction manifest, <= 700 bytes, stating the three durable stores (rules in spec.md, tombstone notes in the journal, knowledge artifacts), that every completed or rejected item must leave its learning in one of them, that the archive/reject note is searched by future sessions (write substance, not ceremony), and that after every merge the resident binary is rebuilt (make dev) because the server is the product under change. Add a matching EARS rule via the normal rule path binding it, mirroring how SPX-MCP-006 pins TOKEN ECONOMY.
+2. workflow.md.tmpl: extend to the closed loop. Step 7 gains: the declared verify commands run through the gate, and an INDEPENDENT verifier (fresh context) re-runs the VERIFY block from the diff alone before archive - the implementer's own transcript is never the evidence. Step 8 gains: the archive note requirement (what changed, what was measured, what was deliberately not done) and where the learning landed (rule/ADR/rejection/note). New step 9: make dev after merge, with one sentence why. New step 10: research capture - every R-item ends as consumed (cited by rules/items) or explicitly closed no-action; cite that the server enforces this at the archive gate (the sibling task). Keep the template's total growth <= 40 lines - this is a checklist, not an essay.
+3. promptNext: for each item state, the rendered output's first line is the one next action, computed: draft->grill (if ungrilled) or close gaps/submit; approved->work op=start; active->work op=submit when the worktree is clean, else implement; done->check then move to=archived with note; blocked->decide op=answer on the linked ADR. One line each, no new sections. States it already handles keep their behavior; add only what is missing.
+4. docs/agent-workflow.md: a short BACKWARD PATH section (human-facing mirror of 1-3), and the independent-verification sentence in the orchestrator role description.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- Instruction manifest growth is bounded: a test asserts the BACKPROP paragraph exists and the whole manifest stays under its current size + 800 bytes (measure current size first, hardcode the ceiling with a comment naming the measured base).
+- commands op=gen regenerates the command files and the generated /spectackle command contains steps 9 and 10 - test on a temp workspace.
+- promptNext on a fixture item in each state (draft ungrilled, approved, active, done, blocked) opens with the exact expected action line - table test.
+- No lifecycle behavior changes: the full existing test suite passes untouched.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  spectackle call -root <worktree-root> commands '{"op":"gen"}' (or the harness-detection path) succeeds; paste the regenerated workflow command's new steps in the report.
+CROSS-VERIFICATION (orchestrator, after done): independent verifier regenerates the commands file and diffs it against the report's claim; verdict in the archive note.
+
+SCOPE: the four named files plus generated command files and tests. Do not touch tools.go (two sibling tasks own its regions), lifecycle.go, or grill.go. No new tools, no config keys.
+ROLLBACK: revert the commit; regenerate commands once (op=gen) to restore the previous command files. No stored state.
+REPORT BACK: manifest base and final byte sizes, the regenerated steps verbatim, each test's result, anything deliberately not done.

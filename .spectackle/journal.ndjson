@@ -354,3 +354,11 @@
 {"t":"2026-07-25T17:25:57Z","eid":"78ff80385710295c","ag":"ag-2e8c","ev":"abort","id":"T-0138","note":"worktree abandoned by ag-2e8c"}
 {"t":"2026-07-25T17:30:07Z","eid":"156b20a32fffeec7","ag":"ag-c439","ev":"create","id":"B-01KYD57FN3ERHBM5EQ3534YJXP","k":"bug","ti":"concurrent draft from two agents silently loses items: work.md is read-modify-written with no cross-process lock"}
 {"t":"2026-07-25T17:36:03Z","eid":"600a929b4f2bdfe3","ag":"ag-1535","ev":"create","id":"T-01KYD5JB7GF34BFNVRAAX8B6GE","k":"task","ti":"serialize server-side whole-file rewrites through the coord.db lock table"}
+{"t":"2026-07-25T17:58:38Z","eid":"ccb249f4c8faa324","ag":"ag-9202","ev":"create","id":"P-01KYD6VP6VE2Z8A517AT3RP39T","k":"proposal","ti":"backpropagation: every loop result flows back into the workspace, and the server names the next step so no step can be silently skipped"}
+{"t":"2026-07-25T18:02:21Z","eid":"73a794e9d69d22a8","ag":"ag-d04f","ev":"create","id":"T-01KYD72GQ6E2ZV0HX8S443NPY6","k":"task","ti":"package-local contract coverage: the gap branch becomes reachable, reported bounded, and gated only by explicit config"}
+{"t":"2026-07-25T18:02:22Z","eid":"5725c54fa0c4c33d","ag":"ag-40e9","ev":"create","id":"T-01KYD72H15EPV8KCW6ASSMEFZX","k":"task","ti":"evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, as a package grill renders"}
+{"t":"2026-07-25T18:02:22Z","eid":"38f53fbae64dc33d","ag":"ag-565f","ev":"create","id":"T-01KYD72HB0FHX9G80DQGS9YBB1","k":"task","ti":"the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop"}
+{"t":"2026-07-25T18:02:31Z","eid":"34d2e289a0deeb66","ag":"ag-c11a","ev":"grill","id":"P-01KYD6VP6VE2Z8A517AT3RP39T","gr":"2026-07-25"}
+{"t":"2026-07-25T18:02:32Z","eid":"6be8358200136705","ag":"ag-e3fc","ev":"grill","id":"T-01KYD72GQ6E2ZV0HX8S443NPY6","gr":"2026-07-25"}
+{"t":"2026-07-25T18:02:33Z","eid":"3072d7876fdc4269","ag":"ag-daf5","ev":"grill","id":"T-01KYD72HB0FHX9G80DQGS9YBB1","gr":"2026-07-25"}
+{"t":"2026-07-25T18:02:58Z","eid":"e8db2b2b5cbdbf1f","ag":"ag-4184","ev":"grill","id":"T-01KYD72H15EPV8KCW6ASSMEFZX","gr":"2026-07-25"}

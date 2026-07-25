@@ -223,3 +223,8 @@
 {"t":"2026-07-25T16:59:16Z","eid":"5008793b666d9002","ag":"ag-b3ee","ev":"drift","dir":"internal/mcpserver","rule":"MCP-001","node":"go:mcpserver.Server.decideAsk","cls":"healed","oh":"e20de3121c010ed1","nh":"0c95be8903b6545e"}
 {"t":"2026-07-25T16:59:16Z","eid":"df558ab929b9acdf","ag":"ag-b3ee","ev":"drift","dir":"internal/mcpserver","rule":"MCP-005","node":"go:mcpserver.Server.compact","cls":"healed","oh":"fb5a80239b90a3c1","nh":"867fc18fe5c534a7"}
 {"t":"2026-07-25T17:00:36Z","eid":"a70ac6d923800c58","ag":"ag-9640","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"4c8a0966d5242454","nh":"1a75f39d94fb3cac"}
+{"t":"2026-07-25T18:02:21Z","eid":"2f39f158b00f272e","ag":"ag-4157","ev":"create","id":"T-01KYD72GCXF998EDDG3BPKZT9W","k":"task","ti":"grill computes its critique and stamps a verdict; move refuses approval while computed gaps are open; the fakeable word-checks are deleted","dir":"internal/mcpserver"}
+{"t":"2026-07-25T18:02:22Z","eid":"8a1af6c94ec3647b","ag":"ag-829f","ev":"create","id":"T-01KYD72HNHEYAB0WF42BTR31CW","k":"task","ti":"research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed","dir":"internal/mcpserver"}
+{"t":"2026-07-25T18:02:30Z","eid":"b079b49d5937c8ab","ag":"ag-d6bf","ev":"grill","id":"P-01KYD47GZ7FAMAGM4NEF0BQS8T","dir":"internal/mcpserver","gr":"2026-07-25"}
+{"t":"2026-07-25T18:02:34Z","eid":"4d2774877038d06c","ag":"ag-d2d2","ev":"grill","id":"T-01KYD72HNHEYAB0WF42BTR31CW","dir":"internal/mcpserver","gr":"2026-07-25"}
+{"t":"2026-07-25T18:02:57Z","eid":"2ecb260702634ba9","ag":"ag-b4d6","ev":"grill","id":"T-01KYD72GCXF998EDDG3BPKZT9W","dir":"internal/mcpserver","gr":"2026-07-25"}
