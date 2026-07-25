@@ -53,47 +53,6 @@ option: discriminator: sequential ID plus a per-clone suffix, unique but not glo
 blocks: P-0088
 choice: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
 
-## T-0134 ids: mint, encode, parse and adaptively shorten globally unique time-ordered record IDs
-kind: task
-state: done
-created: 2026-07-25
-parent: P-0088
-refs: ADR-0013
-targets: internal/ids/ids.go, internal/ids/ids_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Pure package work: this task adds an API and changes NO caller. Nothing outside internal/ids may be touched.
-
-CONTEXT (verified by the orchestrator; do not re-derive)
-coord.NextID mints sequential per-kind counters inside a serialized SQLite transaction, and coord.db lives under .spectackle/cache/ which is gitignored. Minting is therefore safe within one machine and unsafe across clones: two checkouts drafting concurrently mint the same number, and replay reconciles items by upserting under their ID, so two different items silently collapse into one. ADR-0013 chose: store a globally unique, time-ordered ID; display and accept the shortest unambiguous prefix.
-
-WHAT TO BUILD (ADR-0013)
-1. Mint: a UUIDv7 (48-bit big-endian unix-millisecond timestamp, version and variant nibbles per the spec, remaining bits from crypto/rand). Do NOT add a dependency for this — it is a few lines over crypto/rand, and the module deliberately carries almost none.
-2. Encode: Crockford base32 (alphabet 0123456789ABCDEFGHJKMNPQRSTVWXYZ, excluding I L O U), no padding, uppercase. 128 bits yields 26 characters. Encoding must preserve order: byte-wise big-endian encoding of a time-ordered value must sort lexicographically in the same order as the underlying timestamp. Assert that with a property test over many minted IDs, not with one example.
-3. Parse and validate: accept the canonical 26-character form; reject wrong length, characters outside the alphabet, and (deliberately) the ambiguous characters I, L, O, U rather than silently mapping them — an ID is machine-produced, so a typo is a caller bug worth surfacing. Decoding must round-trip the exact bytes.
-4. Shorten: given one ID and the set of all known IDs, return the shortest prefix that is unique among them, never shorter than a stated floor constant. Reason the floor out loud in a comment.
-5. Resolve: given a prefix and the set of known IDs, return the single match, or a distinguishable no-match versus ambiguous-match outcome carrying the candidates. Callers must be able to render an ambiguity error naming what to disambiguate.
-
-THE TRAP THAT DRIVES THE DESIGN, and the reason a fixed short length is wrong: UUIDv7 puts the millisecond timestamp first, which is about ten base32 characters. Records minted in the same second share nearly that entire leading run, and the swarm mints several items within seconds. A fixed 7-character prefix in the style of git would therefore be ambiguous almost immediately in exactly the workload this repository runs. Shorten must be adaptive, and a test must prove it by minting a batch inside one millisecond and asserting every returned prefix is still unique.
-
-TESTS
-  round-trip: mint, encode, parse, decode yields identical bytes; over many iterations.
-  ordering: IDs minted in ascending time sort ascending as strings; include IDs minted in the same millisecond to show ties break without breaking the ordering of distinct milliseconds.
-  uniqueness: a large batch minted in a tight loop yields no duplicates.
-  validation: wrong length, an out-of-alphabet character, each of I, L, O and U, and the empty string are all rejected with a useful error.
-  shorten and resolve: unique prefix returned honors the floor; a batch minted within one millisecond still shortens to unique prefixes; resolve distinguishes hit, miss and ambiguity, and the ambiguity result carries every candidate.
-
-VERIFY (run every one, real output, never predicted)
-  go build ./...
-  go test ./internal/ids/... -race
-  go test ./...
-  go vet ./internal/ids/...
-  gofmt -l internal/ids   (must print nothing)
-  /home/user/spectackle/bin/spectackle lint .   (POSITIONAL path; with -root it prints an error and still exits 0, see B-0010)
-
-SCOPE AND DISJOINTNESS: internal/ids only. Sibling tasks under this proposal touch internal/item, internal/mcpserver and the migration; none of them may be edited here, and this task changes no existing call site, so it can land independently.
-ROLLBACK: additive API in one package with no callers yet; deleting the new functions and their tests restores the prior state exactly.
-REPORT BACK: the exported API you settled on, the prefix floor and its reasoning, each test's real result, and anything deliberately not done.
-
 ## T-0135 item and lifecycle: accept the new ID shape while legacy sequential IDs stay resolvable
 kind: task
 state: approved
