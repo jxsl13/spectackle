@@ -131,6 +131,7 @@ LLM plans against structure and contracts instead of file contents.
 - ADR-0012 R-0005 found major parser gaps in 30 of 32 languages. Which remediation path should spectackle take?: engine-endspan chosen and executed: EndSpan engine plus regex hardening across all brace-style languages and the three hand-written parsers; wazero stays gated per ADR-0010
 - T-0118 langspec engine: Spec.EndSpan keyword-counting body spans (cspan.KeywordSpan): Spec.EndSpan and cspan.KeywordSpan shipped; nil EndSpan proven byte-identical to brace-only behavior
 - T-0132 homebrew tap: formula instead of cask, so brew install works on Linux as well as macOS: formula replaces the cask: brew install now serves macOS and Linux from one artifact, the quarantine hook is gone with the cask, and the goreleaser version is pinned so the deprecated brews block cannot break a release unannounced. Snapshot verified: dist/homebrew/Formula/spectackle.rb carries both darwin and linux URLs.
+- T-0133 convention: every change lands through a pull request with auto-merge on green CI: convention documented in CONTRIBUTING.md: PR plus auto-merge squash, with both repository prerequisites named (allow auto-merge, and a required CI check without which auto-merge degrades to merge-now) and the no-reuse rule for merged PRs
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
