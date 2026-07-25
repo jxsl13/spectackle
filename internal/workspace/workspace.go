@@ -23,6 +23,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/ignore"
 	"github.com/jxsl13/spectackle/internal/migrate"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Dot is the folder name every server write is confined to.
@@ -56,6 +57,7 @@ type Config struct {
 	Swarm         SwarmCfg    `yaml:"swarm"`
 	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectackle/wt (abs or root-relative)
 	Feedback      FeedbackCfg `yaml:"feedback"`
+	Git           GitCfg      `yaml:"git"`
 }
 
 // SwarmCfg tunes multi-agent coordination.
@@ -70,6 +72,38 @@ type FeedbackCfg struct {
 	MaxRounds int    `yaml:"max_rounds"` // reopen attempts before an item escalates to blocked
 	Grill     string `yaml:"grill"`      // optional shell command that produces grill feedback on reopen
 }
+
+// GitCfg tunes the git integration between task worktrees and the shared
+// remote (the primitives it configures live in internal/wt). This is an
+// OPT-OUT feature on a released tool: every config.yaml written before this
+// field existed must go on behaving as if git integration were fully on, so
+// the zero value has to mean enabled-and-online, not disabled. See IsEnabled
+// for the one field (Enabled) where a plain bool can't express that — Mode
+// and Remote get their defaults the same zero-block way every other Cfg
+// struct in this file does, since "" is never a value a user would mean.
+type GitCfg struct {
+	Enabled *bool  `yaml:"enabled"` // nil (key omitted) means true; see IsEnabled — a plain bool can't tell "omitted" from "explicitly false"
+	Mode    string `yaml:"mode"`    // "online" (default: push branches to Remote) or "offline" (commit/branch locally only); an unknown value is rejected at load, see load()
+	Remote  string `yaml:"remote"`  // remote name pushed to in online mode; default "origin"
+	Base    string `yaml:"base"`    // branch task branches are pushed against; default is the repository's OWN default branch, read at load (see wt.DefaultBranch) — never hardcoded "main"
+}
+
+// IsEnabled reports whether git integration is active. nil means the key was
+// never in config.yaml at all — which includes every workspace scaffolded
+// before this field existed — and that must resolve to true, not false,
+// or an opt-out feature would ship silently opted out everywhere already
+// running. An explicit `enabled: false` is always honored.
+func (g GitCfg) IsEnabled() bool {
+	return g.Enabled == nil || *g.Enabled
+}
+
+// GitMergeMethod is how a task branch is folded back into Config.Git.Base:
+// always a merge commit. Fixed, not user-configurable — squash and rebase
+// rewrite the branch's commits, and this codebase already treats a task
+// branch's commit history as the record of what CommitCode actually did
+// (TouchedFiles, the unpushed-commits check) rather than something a merge is
+// free to rewrite.
+const GitMergeMethod = "merge"
 
 // CompactCfg holds the compact-due thresholds surfaced by `check`.
 type CompactCfg struct {
@@ -86,6 +120,7 @@ func defaultConfig() Config {
 		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
 		Feedback:      FeedbackCfg{MaxRounds: 3},
+		Git:           GitCfg{Mode: "online", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
 	}
 }
 
@@ -200,21 +235,34 @@ func load(dir string) (Root, error) {
 	}
 	r := Root{Dir: dir, Cfg: defaultConfig()}
 	raw, err := os.ReadFile(filepath.Join(dir, Dot, "config.yaml"))
-	if os.IsNotExist(err) {
-		return r, nil
-	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return Root{}, err
 	}
-	if err := yaml.Unmarshal(raw, &r.Cfg); err != nil {
-		return Root{}, fmt.Errorf("workspace: config.yaml: %w", err)
-	}
-	if r.Cfg.Schema != "" && r.Cfg.Schema != SchemaStamp {
-		return Root{}, fmt.Errorf("workspace: config schema %q != %q — regenerate the file, there is no migration", r.Cfg.Schema, SchemaStamp)
-	}
-	for _, pat := range r.Cfg.IgnoreRegex {
-		if _, err := regexp.Compile(pat); err != nil {
-			return Root{}, fmt.Errorf("workspace: config.yaml: ignore_regex %q: %w", pat, err)
+	// A missing config.yaml is not an error — defaultConfig() above already
+	// stands as the whole Config in that case — but the zero-block defaulting
+	// and the Git.Base repo read below must still run either way: Base in
+	// particular can never be baked into defaultConfig() itself (it needs
+	// dir, to read the actual repo), so skipping straight to a return here
+	// the way this used to would leave Base empty even in a workspace whose
+	// repo has a perfectly readable default branch.
+	if err == nil {
+		if err := yaml.Unmarshal(raw, &r.Cfg); err != nil {
+			return Root{}, fmt.Errorf("workspace: config.yaml: %w", err)
+		}
+		if r.Cfg.Schema != "" && r.Cfg.Schema != SchemaStamp {
+			return Root{}, fmt.Errorf("workspace: config schema %q != %q — regenerate the file, there is no migration", r.Cfg.Schema, SchemaStamp)
+		}
+		for _, pat := range r.Cfg.IgnoreRegex {
+			if _, err := regexp.Compile(pat); err != nil {
+				return Root{}, fmt.Errorf("workspace: config.yaml: ignore_regex %q: %w", pat, err)
+			}
+		}
+		// An unknown mode is a config error HERE, at load, matching
+		// ignore_regex above — not a failure deferred to whatever internal/wt
+		// call happens to run first, which would make the same typo produce a
+		// different error depending on which command the user ran.
+		if m := r.Cfg.Git.Mode; m != "" && m != "online" && m != "offline" {
+			return Root{}, fmt.Errorf("workspace: config.yaml: git.mode %q: must be \"online\" or \"offline\"", m)
 		}
 	}
 	if r.Cfg.BudgetDefault == 0 {
@@ -234,6 +282,23 @@ func load(dir string) (Root, error) {
 	}
 	if r.Cfg.Feedback.MaxRounds == 0 {
 		r.Cfg.Feedback.MaxRounds = 3
+	}
+	if r.Cfg.Git.Mode == "" {
+		r.Cfg.Git.Mode = "online"
+	}
+	if r.Cfg.Git.Remote == "" {
+		r.Cfg.Git.Remote = "origin"
+	}
+	if r.Cfg.Git.Base == "" {
+		// Best-effort and silent: a workspace with no git repository at all
+		// (or one with an unborn HEAD, or simply no remote configured) has no
+		// default branch to read, and that must degrade quietly rather than
+		// failing every config load over a field nothing downstream needs
+		// yet — internal/wt's primitives are the ones that actually require
+		// a repo, and they fail there, at the point of use, not here.
+		if b, err := wt.DefaultBranch(dir); err == nil && b != "" {
+			r.Cfg.Git.Base = b
+		}
 	}
 	return r, nil
 }
