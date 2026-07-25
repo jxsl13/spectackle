@@ -2,153 +2,177 @@
 schema: v0
 ---
 
-## P-0084 langspec engine: end-keyword body spans, so end-terminated languages get real spans and call edges
+## P-0088 globally unique, chronologically sortable record IDs: close the cross-clone collision hole
 kind: proposal
 state: active
 created: 2026-07-25
-refs: ADR-0012, R-0005
 grilled: 2026-07-25
-targets: internal/cspan/cspan.go, internal/langspec/langspec.go
+targets: internal/ids, internal/coord, internal/item, internal/replay
 
-Per ADR-0012 (engine-endspan) resolving R-0005. The langspec engine bounds bodies exclusively by brace counting (cspan.Span), so end-terminated languages (lua, ruby, elixir, julia, fortran) ship EndLine==Line for every symbol and can never set CallRe — impact BFS is blind there. Add a keyword-counting span: Spec gains an optional EndSpan config (open/close regexes); Parse uses it in place of cspan.Span when set, feeding the existing callEdges loop unchanged. cspan gains KeywordSpan alongside Span, same leaf-package discipline. Default nil = byte-identical current behavior (same guarantee CallRe made when introduced). Then per-language data updates switch the five end-terminated languages onto it. Rejected: indentation-based spans for python/haskell in this pass (different mechanism, separate proposal if the hardened regexes prove insufficient); tree-sitter adoption (ADR-0012 kept the pure-Go chain, wazero stays gated per ADR-0010). Scope disjoint: engine task owns internal/cspan + langspec.go; data task owns the five language files and runs only after the engine task merges. Exit: engine tests green including a no-behavior-change guard for nil EndSpan; the five languages report multi-line spans and call edges over the R-0005 scratch fixtures. Rollback: the field and KeywordSpan are additive; reverting restores brace-only behavior.
+Requirement: reference IDs can be minted twice when several agents work in parallel; move to chronologically sortable global IDs (UUIDv7 rendered in a base32 alphabet) and migrate this repository's existing records.
 
-## P-0085 langspec Def/Call hardening: close the R-0005 regex misses across all brace-style languages
-kind: proposal
-state: active
+PREMISE, VERIFIED AND CORRECTED
+The stated failure mode is real but its cause is not concurrency between agents. Measured facts:
+- coord.NextID runs inside an immediate-mode SQLite transaction with a retry loop, and coordination always resolves to the MAIN repository even when a server starts inside a linked worktree. Every agent on one machine therefore mints through one serialized counter. This is precisely the case that is already safe; a regression test for concurrent drafts exists.
+- coord.db lives under .spectackle/cache/, which is gitignored and never committed. The counter is per-clone, per-machine state that no merge ever reconciles.
+So the collision window is not agent-vs-agent, it is clone-vs-clone: two checkouts (two people, a fork, two CI runners) drafting concurrently both mint the same next number, and git merges the records without noticing.
+
+THE HOLE IS DEEPER THAN THE REQUIREMENT STATES
+replay.Run already anticipates ID collisions for RULES: applyRule detects an existing rule with different content, re-mints it and records the mapping in Report.Remap, then rewrites references. Items have no such path. Replay reconciles items by upserting them under their ID, so two genuinely different items that were minted the same ID in different clones silently collapse into one record, and the loser's body, state and history are overwritten. Rules were protected; proposals, tasks, bugs, research and ADRs were not.
+
+COST, MEASURED NOT ESTIMATED
+A UUIDv7 in a 32-character alphabet is 26 characters; with a kind prefix, 28. Current IDs are 6. On a live state call the output is 1718 bytes carrying 10 ID occurrences, so full-length IDs add about 11 percent to that surface alone, and find/get results carry proportionally more IDs. This repository's architecture contracts include an explicit output diet, so the trade-off is real and belongs in the decision rather than in a footnote.
+
+OPTIONS (the open decision, see the linked ADR)
+A. Kind-prefixed full ID everywhere. Maximum safety, chronologically sortable, roughly 11 percent more output on ID-dense surfaces, and every existing reference in prose, tests and docs changes.
+B. Full ID stored, short unique prefix displayed and accepted, expanded on ambiguity, as git does with commit shas. Keeps most of the token economy, costs a resolver and an ambiguity path.
+C. Keep sequential IDs and close the verified hole by extending replay's existing rule-remap to items. Cheapest by a wide margin, no data migration, no output growth; does not deliver chronological sortability, and depends on every cross-clone merge passing through replay.
+D. Sequential IDs plus a per-clone discriminator. Uniqueness without length explosion, but IDs stop being globally ordered and gain a second field to explain.
+
+Rejected outright: minting from a wall clock alone (collides within a millisecond across clones), and a central ID service (a network dependency for a tool whose whole point is local, git-native operation).
+
+MIGRATION CONSTRAINT
+Whatever wins, this repository's own records must migrate, and the earlier T-0094 rejection is binding precedent: a one-off data migration does not justify a permanent tool. The migration therefore ships as a throwaway path, not as a subcommand that lives forever. Archived items exist only as journal tombstones, so the migration must rewrite journal history rather than only work.md, which the architecture otherwise forbids the LLM from touching.
+
+Exit criterion for the whole line of work: no two records can share an ID across independently minting clones, this repository's records carry the new scheme with every internal reference resolving, drift anchors and the FTS cache rebuild clean, and check returns ok.
+
+## ADR-0013 Which ID scheme closes the cross-clone collision hole?
+kind: adr
+state: done
 created: 2026-07-25
-refs: ADR-0012, R-0005
-grilled: 2026-07-25
-targets: internal/langspec
+context: Verified: coord.NextID is serialized per machine, but coord.db is gitignored, so the counter is per-clone state. Two clones drafting concurrently mint the same ID, and replay reconciles items by upserting under their ID — rules have a collision remap path, items do not, so two different items silently collapse into one. Measured cost of full 26-char IDs: about 11 percent more output on a state call (1718 bytes, 10 ID occurrences), against an explicit output-diet contract.
+decision: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
+consequences: Records carry a globally unique, time-ordered ID, so the cross-clone collision hole closes by construction and replay needs no item remap. Displayed and accepted form is the shortest unambiguous prefix, keeping ID-dense output close to today. Costs a resolver plus an ambiguity path at every tool boundary that takes an ID. One caveat drives the prefix length: UUIDv7 puts a 48-bit millisecond timestamp first, which is about ten base32 characters, so records minted seconds apart share a long leading run and the prefix must be chosen adaptively rather than at a fixed short length. Legacy sequential IDs stay resolvable, since archived records live on as journal tombstones.
+status: accepted
 
-Per ADR-0012 (engine-endspan) resolving R-0005. Every brace-style langspec file has concrete, empirically confirmed Def misses (constructs minting no node: JS/TS class methods, Java constructors, Python async def, C# Allman-style block bodies — note cspan already handles Allman braces since T-0053, so those are def-line regex fixes, not engine work — Rust const fn, Swift override init, Groovy default visibility, ObjC @protocol, Zig error sets, OCaml and-chains, GLSL structs, Metal multi-line signatures, and more per the R-0005 findings), and perl/php/r/shell additionally leave CallRe nil despite having braces. Fix per language: extend or add Def regexes, set CallRe+Stop where missing, keep QualMode untouched. Ground truth: each language's R-0005 scratch fixture and findings file. Batched into five disjoint tasks by family (web, jvm/dotnet, c-family/shader, scripting, systems/functional) so leases never overlap; python and javascript also gain their missing _test.go siblings. Exit per language: previously-missed constructs mint nodes with correct spans over the R-0005 fixture, package tests green. Rollback: regex-level data changes per file, individually revertible.
+kind: radio
+option: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
+option: full-id: kind-prefixed full 26-char ID everywhere, simplest to implement and read
+option: remap-only: keep sequential IDs, extend replay rule-remap to items, no migration and no output growth
+option: discriminator: sequential ID plus a per-clone suffix, unique but not globally ordered
+blocks: P-0088
+choice: short-prefix: store the full UUIDv7 base32 ID, display and accept a short unique prefix like git shas
 
-## P-0086 hand-written parser fixes: go call-edge coverage, asm linker-suffix symbols, cuda kernel modifiers
-kind: proposal
-state: active
+## T-0135 item and lifecycle: accept the new ID shape while legacy sequential IDs stay resolvable
+kind: task
+state: approved
 created: 2026-07-25
-refs: ADR-0012, R-0005
-grilled: 2026-07-25
-targets: internal/index
+parent: P-0088
+refs: ADR-0013
+targets: internal/item/item.go, internal/item/item_test.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
-Per ADR-0012 resolving R-0005. Three empirically confirmed hand-parser gaps. Go (nodes perfect, two edge-coverage holes): callEdges/typedCallEdges walk only *ast.FuncDecl bodies, skipping package-level var F = func(){} initializer bodies, and the callee switch handles only *ast.Ident/*ast.SelectorExpr, dropping explicit generic instantiation Foo[T]() (*ast.IndexExpr/*ast.IndexListExpr). Asm: TEXT/GLOBL patterns miss file-local <> suffixed symbols, <ABIInternal>-tagged symbols (pervasive since Go 1.17), and quoted method-shaped linker symbols. CUDA: static-qualified __global__ kernels (and sibling modifier-order forms) mint no node. Fix in the hand parsers with the R-0005 scratch fixtures as regression inputs. Two disjoint tasks: go edge coverage; asm+cuda symbol patterns. Exit: previously-missed forms produce nodes/edges over the fixtures, package tests green under -race. Rollback: bounded pattern/switch-case additions, revertible per file.
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
 
-## B-0009 search cache staleness: bundle freshness is decided by mtime and size alone, while the files table's sha column is never written or read
-kind: bug
+BLOCKED-ON: the internal/ids task under P-0088 must be merged first. Check with find scope=code for the new mint/encode/shorten functions before starting; if they are absent, stop and report.
+
+WHAT TO BUILD
+1. item.IDRe currently pins the sequential shape. It must accept BOTH: the legacy `(?:ADR|[PTBRD])-\d{4}` and the new kind-prefixed base32 form. Legacy IDs must keep matching forever, not for a deprecation window: archived records live on only as journal tombstones, and lifecycle.Tombstone resolves them by ID, so a legacy ID that stops parsing makes archived history unreachable.
+2. Minting moves to the new scheme: lifecycle.Draft (and any sibling minting path) produces a kind-prefixed globally unique ID via internal/ids instead of a coord counter. Leave coord.NextID in place and untouched — rules still mint through it and that is a different task's concern; only item minting changes here.
+3. Anything that parses a kind out of an ID, sorts by ID, or assumes four digits must be found and fixed. Search for the uses rather than guessing: the ID shape leaks into helpers more than one expects.
+
+TESTS
+  a legacy ID and a new ID both satisfy IDRe; a malformed one does not.
+  Draft mints the new shape, and two Drafts in a tight loop never collide.
+  a work.md carrying a legacy ID still loads, renders and round-trips byte-identically.
+  any kind-derivation helper returns the right kind for both shapes.
+
+VERIFY: go build ./... ; go test ./internal/item/... ./internal/lifecycle/... -race ; go test ./... ; go vet on both packages ; gofmt -l (empty) ; spectackle lint . (POSITIONAL path, see B-0010).
+SCOPE: the four named files only. Siblings hold internal/ids (merged before you), internal/mcpserver and the migration.
+ROLLBACK: one regex, one minting call site and their tests; reverting restores sequential minting, and any records already minted in the new shape stay readable because IDRe keeps accepting both.
+REPORT BACK: every place the old ID shape turned out to be assumed, each test's real result, anything deliberately not done.
+
+## T-0136 tool boundary: accept a short ID prefix everywhere an ID is taken, and name ambiguities
+kind: task
+state: approved
+created: 2026-07-25
+parent: P-0088
+refs: ADR-0013
+targets: internal/mcpserver/tools.go, internal/mcpserver/tools_test.go, internal/mcpserver/decide.go, internal/mcpserver/grill.go, docs/tools.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+BLOCKED-ON: the internal/ids and internal/item tasks under P-0088 must both be merged first; verify before starting and stop if either is missing.
+
+WHAT TO BUILD (ADR-0013's display half)
+Every tool argument that takes an item ID must accept the shortest unambiguous prefix as well as the full ID: get, move, draft parent and refs, decide item and id, grill, work, lease, knowledge where applicable. Resolve through internal/ids against the set of known IDs, which includes live items AND archived ones reachable as journal tombstones — an ID that only exists as a tombstone must still resolve, or archived history becomes unreferenceable.
+Rendering: outputs emit the shortened form, computed against the same known set, so a copied ID from any output is accepted back verbatim. Full IDs must always remain acceptable.
+Ambiguity is an error, never a guess: refuse with the existing dense error style, naming every candidate so the caller can disambiguate in one more call. A prefix matching nothing keeps the existing not-found behavior with nearest matches.
+docs/tools.md must state the prefix rule once, plainly, since the schema comments are the contract agents read.
+
+TESTS
+  full ID and short prefix both resolve to the same record, through more than one tool.
+  an ambiguous prefix refuses and names every candidate.
+  an unknown prefix answers not-found, not ambiguity.
+  a tombstoned archived ID resolves by prefix.
+  rendered output uses the short form and feeding it straight back resolves.
+
+VERIFY: go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL, B-0010). Then drive it live over a scratch workspace with the call subcommand: draft, then get by a short prefix, then force an ambiguity and show the error.
+SCOPE: the five named files. Do not touch internal/ids or internal/item (merged siblings), and do not start the migration.
+ROLLBACK: resolution is additive at the boundary; removing it leaves full IDs working exactly as before.
+REPORT BACK: the resolution helper's shape, where you hooked it in, the live transcript, each test's real result, anything deliberately not done.
+
+## T-0138 automatic schema-stamped migration: a workspace on the old ID scheme upgrades itself instead of being refused
+kind: task
+state: approved
+created: 2026-07-25
+parent: P-0088
+refs: ADR-0013
+targets: internal/workspace, internal/migrate, internal/spec
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+BLOCKED-ON: the internal/ids, internal/item and internal/mcpserver tasks under P-0088 must all be merged first.
+
+WHY THIS IS NOT A THROWAWAY (and why T-0094's rejection does not bind)
+T-0094 was rejected because a one-off rewrite of one repository's records does not justify a permanent tool. This is a different animal: an ID scheme change reaches every workspace every user of a released tool already carries. The schema stamp today answers a mismatch with a hard error stating there is no migration (see spec.Load and workspace detection). Shipping the new scheme without a migration path would therefore turn every existing workspace into an unreadable one, and the honest instruction to users would be to regenerate and lose their history.
+
+VERIFIED GROUND (orchestrator read this; do not re-derive)
+workspace.SchemaStamp is a single global stamp written into the frontmatter of every server-written bundle: item.Upsert writes it into work.md, spec authoring writes it into spec.md, and both spec.Load and workspace detection refuse a mismatched stamp with an explicit no-migration error. Rules keep their own ID scheme and are NOT re-identified, but they share the stamp, so their files are part of the migration surface even though their content barely changes.
+
+WHAT TO BUILD
+1. Bump SchemaStamp to the next version.
+2. On load, a bundle carrying the previous stamp must be migrated in place instead of refused. Where exactly that hook belongs is your call from reading the code, but it must run before any reader can observe a half-migrated workspace, and it must cover every bundle in the cascade, not just the root.
+3. The migration rewrites: item IDs in work.md, every ID reference inside bodies, parents, needs, refs and decide option records, journal history (archived records exist only as tombstones, so an unmigrated tombstone becomes unreachable), and the stamp in every file it touches.
+4. Mint each migrated ID from that record's own creation timestamp in the journal, not from wall-clock-now: the new IDs are time-ordered, and minting from now would flatten the archive's chronology into the migration moment.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+Idempotent: a second run changes nothing and reports nothing.
+Atomic per workspace: a crash mid-migration must leave either the old state or the new one, never a mix. Say in your report how you achieved that.
+Recoverable: keep the pre-migration bundles retrievable, and document how a user gets back.
+Deterministic: the same input workspace migrates to the same IDs on any machine, since the timestamps come from the journal rather than the clock.
+Never hand-edited: the migration writes through the same server-side paths and its output must satisfy the same parsers.
+
+TESTS
+  a v0 fixture workspace migrates: every item resolves, every parent, need and ref resolves, archived tombstones resolve, check returns ok.
+  running the migration twice reports zero changes the second time.
+  a workspace already on the new stamp is untouched.
+  a nested cascade with several context dirs migrates all of them, not only the root.
+  determinism: migrating two copies of one fixture yields identical IDs.
+  an aborted migration (inject a failure partway) leaves a workspace that still loads.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL path, see B-0010)
+Then migrate a COPY of THIS repository's .spectackle tree and report before/after record counts, that check returns ok, and that a second run is a no-op. Do not migrate the live tree; the orchestrator does that once the path is proven.
+
+SCOPE: the migration package plus the stamp constant and the load hooks it needs. Do not change the ids package, the item model or the tool boundary — those landed in the sibling tasks.
+ROLLBACK: restoring the previous stamp constant and removing the hook returns to refuse-on-mismatch; already-migrated workspaces then need the retained pre-migration copy, which is why keeping it is a required property above.
+REPORT BACK: where you hooked the migration and why there, how atomicity and recovery are achieved, the before/after counts on the repository copy, each test's real result, anything deliberately not done.
+
+## R-0006 cross-clone ID collision reproduced end to end, and the data loss it causes
+kind: research
 state: draft
 created: 2026-07-25
-refs: B-0007
-targets: internal/sync/sync.go, internal/cache/cache.go
+refs: P-0088, ADR-0013
+targets: internal/coord, internal/replay
 
-DEFECT
-sync.Scanner decides whether a .spectackle bundle needs re-feeding by comparing os.Stat mtime (UnixNano) and size against cache.FileStat. A content change that preserves both is therefore invisible, and every FTS-backed surface keeps answering from the pre-change docs: find scope=rule|spec|proposal|task|history|rejection, the research pack, and grill's rejection lookup. The cache DDL already declares files(path, mtime, size, sha) but nothing ever writes or reads sha, which is evidence the content-hash check was designed and then not wired.
+Empirical reproduction of the defect P-0088 exists to fix, driven through the real MCP server rather than argued from code.
 
-REPRODUCTION (scratch workspace, observed)
-Mint a rule containing a marker word, search it (hit). Replace the marker with a same-length word directly in spec.md and restore the file's original mtime. Search again: the old marker is still returned, and the word actually on disk returns no matches. Note the reproduction restores mtime by hand to isolate the mechanism; in the field the same window opens by itself wherever mtime granularity is coarser than a nanosecond (HFS+, several network and container filesystems) or wherever tooling preserves timestamps across a write (rsync with times, tar with permissions, cp -p, image layers, CI cache restore).
+SETUP: two independent clones of this repository. coord.db is confirmed absent from both, since .spectackle/cache is gitignored, so each clone derives its own counter from the committed records.
 
-CAUSE
-Freshness is inferred from metadata that a same-size, timestamp-preserving write leaves unchanged, rather than from the content the cache actually indexes. Same defect class as B-0007, one layer up: there the cached artifact outlived the producer, here it outlives the input.
+OBSERVED: each clone drafted one task, concurrently and without knowledge of the other. Both minted the identical ID T-0139 for entirely different work. This is not a race inside one machine, which the serialized coord transaction already prevents; it is two counters that no merge reconciles.
 
-FIX (decision at implementation)
-Write and compare the sha column the schema already carries. Keep mtime and size as the cheap first gate so the common path stays a stat, and hash only when that gate says unchanged, or hash unconditionally if measurement shows the read is affordable for bundle-sized files. Bump the cache gen stamp so existing caches rebuild once with the column populated.
+CONSEQUENCE: reconciling the two records by ID, which is exactly what replay does for items via Upsert, leaves get T-0139 returning only the second clone's task. The first clone's task is unreachable from the live records; the sole remaining trace is its create event in the journal, so history knows the work existed while the ID now resolves to something else. Rules are protected from this by replay's remap path; items never were.
 
-VERIFY
-Regression test: feed a bundle, rewrite it with equal length and a restored mtime, re-scan, and assert the new content is searchable and the old is not. Plus the existing sync tests unchanged, and a check that an untouched bundle still short-circuits without re-feeding.
+WHY IT MATTERS FOR THE MIGRATION: the same two-clone setup is the honest verification for the new scheme. After T-0134 through T-0138 land, repeating this must produce two different IDs and both tasks must remain reachable.
 
-ROLLBACK
-One column write, one comparison and a gen bump; reverting restores metadata-only comparison and costs one cache rebuild.
-
-## P-0087 class-level regression invariants: catch the next instance of each defect family, not just the nine already fixed
-kind: proposal
-state: active
-created: 2026-07-25
-refs: B-0003, B-0007, B-0008, B-0009
-grilled: 2026-07-25
-targets: internal/langspec, internal/mcpserver, internal/sync
-
-Nine defects were found by dogfooding this repository with its own server (B-0001 through B-0009). Each fix carried a regression test pinned to its own call site, which proves that one line stays fixed and nothing more. The defects were not independent, though: they fall into a few classes, and the class-level invariant is what catches the NEXT instance, including in code nobody has written yet.
-
-FOUR CLASSES WORTH GENERALIZING
-
-1. Producer identity in cache keys and registry hygiene (B-0007, B-0008). A cached artifact outlives its producer, so every cache key must carry the producer's identity; and a registry of 30 languages means a new entry can silently omit that identity, declare a Def kind the engine's gate excludes, or point a capture group at a group its own regex does not have. These are registry-wide properties, checkable without writing a fixture per language, and they cover every language added later for free.
-
-2. Context dirs versus item IDs on the journal boundary (B-0003). One call site passed an item ID where a context dir was expected and scaffolded a bogus directory at the repo root that then read as a context dir. The invariant is not about that call site: after exercising the whole mutating tool surface, no bundle directory may exist whose parent is not a legitimate context dir.
-
-3. Worktree submit under conditions that are ordinary in the field but absent from the test bed (B-0002, B-0004, B-0005, B-0006). Four separate defects hid behind the same gap: the tests only ever exercised a repository whose primary branch was literally named main, whose main never advanced during a worktree's life, whose worktrees carried no live record state, and whose submit happened in the process that opened the worktree. Every one of those assumptions is false in real use, and one end-to-end test that violates all four at once would have caught all four defects before release.
-
-4. Freshness must follow content, not metadata (B-0009). A cache that decides staleness from mtime and size cannot see a same-size timestamp-preserving write. The property is per bundle kind, not per file, so it generalizes across every doc kind the scanner feeds.
-
-NOT GENERALIZED, DELIBERATELY
-B-0001 (journal events predating the eid field) is a one-time historical shape, not a recurring class: its targeted tests are the right size, and an invariant asserting the absence of a format that can no longer be produced would only be ceremony.
-
-TWO OPEN FIXES ARE IN SCOPE, BECAUSE THEY MUST BE
-Classes 1 and 4 assert properties the code currently violates (B-0008's kind gate, B-0009's metadata-only freshness). A test that encodes a known defect as acceptable is worse than no test, and a test committed red is not acceptable either, so those two fixes ship with their invariants. Both fix directions were already decided in their own bug records.
-
-Rejected: one generic table-driven test per bug, mechanically derived. It would restate the specific tests already committed at each site and add maintenance weight without adding a single new detection. Also rejected: fuzzing the tool surface for class 2. Property assertions over a deterministic tool surface are cheaper to read and cannot flake, and the failure mode here is structural, not input-dependent.
-
-Scope is disjoint by package and file: registry invariants in internal/langspec and internal/index, tool-surface invariants and the worktree end-to-end in two separate new files under internal/mcpserver, freshness in internal/sync and internal/cache. Exit criterion: each invariant fails against the pre-fix behavior it encodes and passes after, the full suite is green under -race, and vet and lint stay clean. Rollback: new test files plus two bounded fixes, each revertible on its own.
-
-## T-0128 registry invariants for parsers and Specs, plus the B-0008 kind-gate fix
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-0087
-refs: B-0007, B-0008
-targets: internal/langspec/langspec.go, internal/langspec/registry_test.go, internal/index/parsers_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-CLASS: a registry of 30 languages means every new entry can silently omit something the engine needs. Assert the properties over the registry itself, so a language added next month is covered without anyone writing a fixture for it.
-
-FIRST, THE FIX (B-0008, read it with get id=B-0008)
-internal/langspec/langspec.go's Parse computes a body span and scans call edges only when def.Kind is KFunc or KMethod. A KKernel def (metal, glsl entry points) therefore never mints edges even with CallRe and EndSpan configured; T-0122 confirmed it live on the gap-metal fixture. Widen the gate to the kinds that actually carry bodies. Decide from the code which kinds qualify and say why in the commit; KKernel is required, anything else is your call with a stated reason.
-
-THEN THE INVARIANTS (new files; do NOT add them to an existing per-language test file)
-internal/index/parsers_test.go
-  A. Every parser the server actually assembles — langspec.All() plus the hand-written GoParser, AsmParser, CudaParser — implements index.CacheVersioner. A parser without it silently reverts to content-only keying, which is exactly B-0007; this catches the next parser added without a version.
-  B. No two of those parsers report the same CacheVersion. Equal versions across languages would let one language's cached blob satisfy another's key.
-internal/langspec/registry_test.go, over every Spec in the registry:
-  C. If a Spec sets CallRe, every Kind appearing in its Defs must be span/edge eligible under the gate you widened. This is B-0008 as a property: a language declaring a kind the gate drops gets no edges from those defs and nobody notices.
-  D. Every Def's Name group index is >= 1 and <= its own regex's NumSubexp, and the same for Sig when non-zero. A capture index pointing past the regex's groups mints empty names or panics; the 27-language hardening rewrote most of these regexes by hand.
-  E. Every Spec declares at least one extension and at least one Def, and its Lang tag is non-empty.
-  F. Report, do not necessarily fail, on two Specs claiming the same extension: the first parser registered wins and the second is dead weight. If the current registry already has an intentional overlap, encode the intent (allow-list it with a comment) rather than bending the registry to the test.
-
-Use table-driven subtests named by language so a failure names the offender directly.
-
-VERIFY (run every one, real output, never predicted)
-  go build ./...
-  go test <your packages> -race
-  go test ./...
-  go vet <your packages>
-  /home/user/spectackle/bin/spectackle lint
-PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it encodes (revert the guard, restore the old gate, whatever is minimal), show the test failing, restore, show it passing. A green invariant that would also be green against the broken code is worthless; paste both transcripts.
-
-ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
-REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
-
-## T-0131 freshness follows content: fix B-0009 and assert it per bundle kind
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-0087
-refs: B-0009
-targets: internal/sync/sync.go, internal/sync/sync_test.go, internal/cache/cache.go, internal/cache/cache_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-FIRST THE FIX (B-0009, read it with get id=B-0009 — it carries the reproduction and the decided direction)
-sync.Scanner decides whether a bundle needs re-feeding from os.Stat mtime and size alone, so a same-size timestamp-preserving write is invisible and every FTS-backed surface keeps answering from stale docs. The cache DDL already declares files(path, mtime, size, sha) and nothing writes or reads sha. Wire it: keep mtime and size as the cheap first gate so the common path stays a stat, and consult the content hash when that gate says unchanged. Bump the cache gen stamp so existing caches rebuild once with the column populated, and update the gen constant's own comment if its stated bump rule no longer covers the reason.
-
-THEN THE INVARIANT (the class: freshness must follow content, not metadata)
-For EVERY bundle kind the scanner feeds — spec, work, journal — assert the same property rather than testing one file: feed it, rewrite it with identical byte length while restoring the original mtime exactly, re-scan, and assert the new content is searchable and the old content is not. Drive it through the real Scanner and Cache, not a stub, because the defect lived in the interaction between them.
-Assert the other direction too, in the same table: an untouched bundle must still short-circuit without re-feeding, so the fix cannot quietly turn every scan into a full rebuild. Measure that by observing that the feed function is not invoked, not by timing.
-
-VERIFY (run every one, real output, never predicted)
-  go build ./...
-  go test <your packages> -race
-  go test ./...
-  go vet <your packages>
-  /home/user/spectackle/bin/spectackle lint
-PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it encodes (revert the guard, restore the old gate, whatever is minimal), show the test failing, restore, show it passing. A green invariant that would also be green against the broken code is worthless; paste both transcripts.
-
-ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
-REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
+HARNESS: a dogfood workspace built from this repository's real records (18 context dirs, 927 journal events, 235 archived tombstones) is the migration fixture of record. It is far richer than any synthetic one, and notably its check reports pending anchors because only records were copied without sources, so it exercises record migration rather than drift.

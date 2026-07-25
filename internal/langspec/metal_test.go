@@ -64,9 +64,9 @@ func TestMetalSpecNodes(t *testing.T) {
 		Kind graph.NodeKind
 		Line int
 	}{
-		"msl:add_arrays":      {graph.KKernel, 4},
-		"msl:vertexShader":    {graph.KKernel, 10},
-		"msl:fragmentShader":  {graph.KKernel, 14},
+		"msl:add_arrays":       {graph.KKernel, 4},
+		"msl:vertexShader":     {graph.KKernel, 10},
+		"msl:fragmentShader":   {graph.KKernel, 14},
 		"msl:normalize_vector": {graph.KFunc, 18},
 	}
 	if len(pr.Nodes) != len(want) {
@@ -226,16 +226,15 @@ func TestMetalSpecT0122SingleLineTemplate(t *testing.T) {
 // T-0122, so SpecParser never brace-counted a body or scanned it for calls
 // for any Metal def, of any Kind).
 //
-// NOT FULLY FIXED for calls whose *source* is a kernel/vertex/fragment
-// entry point (graph.KKernel), e.g. shade_pixels calling computeNormal and
-// normalize_vector in this same fixture: internal/langspec/langspec.go's
-// Parse only invokes cspan.Span + callEdges when `def.Kind == graph.KFunc
-// || def.Kind == graph.KMethod` — KKernel is structurally excluded from
-// that gate. Widening that gate is a langspec.go framework change outside
-// metal.go's lease (and outside this task's "brace-style Def fixes only"
-// scope), so a kernel's own body is still never scanned for calls; only
-// calls between plain KFunc helpers are fixed here. See T-0122's final
-// report.
+// The kernel-sourced half of that finding was T-0122's documented gap and
+// is now fixed: calls whose *source* is a kernel/vertex/fragment entry
+// point (graph.KKernel), e.g. shade_pixels calling computeNormal and
+// normalize_vector in this same fixture, used to mint nothing because
+// langspec.go's Parse gated cspan.Span + callEdges on `def.Kind ==
+// graph.KFunc || def.Kind == graph.KMethod` — KKernel was structurally
+// excluded (B-0008). T-0128 replaced that hardcoded pair with
+// spanEligibleKinds, which admits KKernel, so this test now asserts the
+// kernel's outgoing edges positively instead of pinning their absence.
 func TestMetalSpecT0122CallEdges(t *testing.T) {
 	p := SpecParser{S: metalSpec}
 	pr, err := p.Parse("shader.metal", metalT0122Src)
@@ -246,6 +245,11 @@ func TestMetalSpecT0122CallEdges(t *testing.T) {
 		{"msl:computeNormal", "msl:normalize"}:  false,
 		{"msl:computeNormal", "msl:cross"}:      false,
 		{"msl:computeTangent", "msl:normalize"}: false,
+		// B-0008: shade_pixels is a KKernel. Both of these minted nothing
+		// before T-0128 widened the span/edge kind gate; they are the
+		// live reproduction T-0122 recorded on the gap-metal fixture.
+		{"msl:shade_pixels", "msl:computeNormal"}:    false,
+		{"msl:shade_pixels", "msl:normalize_vector"}: false,
 	}
 	for _, e := range pr.Edges {
 		key := [2]string{string(e.Src), string(e.Dst)}
@@ -258,14 +262,17 @@ func TestMetalSpecT0122CallEdges(t *testing.T) {
 			t.Errorf("missing expected edge %s -> %s, got edges %+v", k[0], k[1], pr.Edges)
 		}
 	}
-	// shade_pixels is a KKernel: per the doc comment above, its body is not
-	// scanned, so it must have zero outgoing edges (documenting the known
-	// gap rather than silently letting a future accidental fix go
-	// unnoticed either way).
-	for _, e := range pr.Edges {
-		if e.Src == "msl:shade_pixels" {
-			t.Errorf("unexpected edge from msl:shade_pixels (KKernel bodies are not scanned by the current framework): %+v", e)
-		}
+	// B-0008 regression, span half: the kernel's node must now cover its
+	// whole brace body, not collapse onto its own declaration line.
+	kn, ok := nodesByID(pr)["msl:shade_pixels"]
+	if !ok {
+		t.Fatalf("node msl:shade_pixels missing, got %+v", pr.Nodes)
+	}
+	if kn.Kind != graph.KKernel {
+		t.Fatalf("msl:shade_pixels Kind = %v, want KKernel (this test only means anything for a kernel)", kn.Kind)
+	}
+	if kn.EndLine <= kn.Line {
+		t.Errorf("msl:shade_pixels Line/EndLine = %d/%d, want EndLine past the def line (KKernel body never spanned — B-0008)", kn.Line, kn.EndLine)
 	}
 }
 
@@ -312,9 +319,9 @@ func TestMetalSpecIndexAllE2E(t *testing.T) {
 	}
 
 	for id, kind := range map[graph.NodeID]graph.NodeKind{
-		"msl:add_arrays":      graph.KKernel,
-		"msl:vertexShader":    graph.KKernel,
-		"msl:fragmentShader":  graph.KKernel,
+		"msl:add_arrays":       graph.KKernel,
+		"msl:vertexShader":     graph.KKernel,
+		"msl:fragmentShader":   graph.KKernel,
 		"msl:normalize_vector": graph.KFunc,
 	} {
 		n, ok := g.Node(id)

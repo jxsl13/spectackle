@@ -52,13 +52,16 @@ func TestRSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// EndLine now bounds the real body: rSpec sets CallRe (T-0123), so
+	// SpecParser brace-counts a def's body instead of collapsing EndLine
+	// onto the def line — R's function bodies are brace-delimited.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"r:app.run":     {graph.KFunc, 1},
-		"r:app.my.func": {graph.KFunc, 5},
-		"r:app.helper":  {graph.KFunc, 9},
+		"r:app.run":     {graph.KFunc, 1, 3},
+		"r:app.my.func": {graph.KFunc, 5, 7},
+		"r:app.helper":  {graph.KFunc, 9, 11},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -71,8 +74,8 @@ func TestRSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangR {
 			t.Errorf("%s Lang = %v, want r", id, n.Lang)

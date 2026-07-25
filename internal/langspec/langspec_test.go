@@ -125,16 +125,22 @@ func TestJavascriptSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// EndLine differs from Line wherever a brace-delimited body spans lines:
+	// javascriptSpec sets CallRe (T-0120), which is what makes SpecParser
+	// compute a real body span instead of collapsing it onto the def line.
+	// js:app.greet is the class method that minted no node at all before
+	// T-0120 — the [high] finding this test now guards.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"js:app.run":       {graph.KFunc, 1},
-		"js:app.Foo":       {graph.KType, 5},
-		"js:app.add":       {graph.KFunc, 9},
-		"js:app.fetchData": {graph.KFunc, 11},
-		"js:app.mul":       {graph.KFunc, 15},
-		"js:app.square":    {graph.KFunc, 17},
+		"js:app.run":       {graph.KFunc, 1, 3},
+		"js:app.Foo":       {graph.KType, 5, 5},
+		"js:app.greet":     {graph.KFunc, 6, 6},
+		"js:app.add":       {graph.KFunc, 9, 9},
+		"js:app.fetchData": {graph.KFunc, 11, 13},
+		"js:app.mul":       {graph.KFunc, 15, 15},
+		"js:app.square":    {graph.KFunc, 17, 17},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -147,8 +153,8 @@ func TestJavascriptSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangJS {
 			t.Errorf("%s Lang = %v, want js", id, n.Lang)

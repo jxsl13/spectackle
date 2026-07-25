@@ -57,17 +57,20 @@ func TestDartSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// EndLine now bounds the real body: dartSpec sets CallRe (T-0120), so
+	// SpecParser brace-counts a def's body instead of collapsing EndLine
+	// onto the def line. Types are not span-gated, so they stay single-line.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"dart:app.main":         {graph.KFunc, 1},
-		"dart:app.load":         {graph.KFunc, 5},
-		"dart:app.Animal":       {graph.KType, 9},
-		"dart:app.speak":        {graph.KFunc, 12},
-		"dart:app.reset":        {graph.KFunc, 16},
-		"dart:app.StringCasing": {graph.KType, 21},
-		"dart:app.shout":        {graph.KFunc, 22},
+		"dart:app.main":         {graph.KFunc, 1, 3},
+		"dart:app.load":         {graph.KFunc, 5, 7},
+		"dart:app.Animal":       {graph.KType, 9, 9},
+		"dart:app.speak":        {graph.KFunc, 12, 14},
+		"dart:app.reset":        {graph.KFunc, 16, 18},
+		"dart:app.StringCasing": {graph.KType, 21, 21},
+		"dart:app.shout":        {graph.KFunc, 22, 24},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -80,8 +83,8 @@ func TestDartSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangDart {
 			t.Errorf("%s Lang = %v, want dart", id, n.Lang)

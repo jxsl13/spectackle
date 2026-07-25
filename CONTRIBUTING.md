@@ -46,6 +46,29 @@ before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml
 re-runs the same steps plus `make fuzz` and the self-hosting `check` gate, and does not
 merge red.
 
+## Every change lands through a pull request that auto-merges on green CI
+
+Nothing is pushed straight to `main`. Work goes onto a branch, opens a pull
+request, and gets **auto-merge (squash)** enabled immediately — so it merges
+by itself the moment CI is green, with no one waiting on a button. A red CI
+simply means it never merges.
+
+Two repository settings make that real, and without them the intent is
+silently a no-op:
+
+1. **Settings → General → Pull Requests → Allow auto-merge.** Without it,
+   arming auto-merge is refused outright.
+2. **A branch protection rule (or ruleset) on `main` requiring the CI check.**
+   This is the part that is easy to miss: with no required check, GitHub
+   considers a fresh pull request immediately mergeable and there is nothing
+   for auto-merge to wait on — "merge when CI passes" then degrades to
+   "merge now, CI or not".
+
+A merged pull request is finished and is never reused. Follow-up work
+restarts the branch from the current `main` and opens a new pull request;
+stacking commits onto already-merged history is what produces the "why is
+this diff enormous" pull requests nobody can review.
+
 ## The resident server must be rebuilt and restarted after every merge
 
 spectackle develops itself with itself: the resident MCP server *is* the

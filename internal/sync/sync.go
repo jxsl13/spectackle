@@ -1,11 +1,16 @@
 // Package sync keeps the non-versioned cache consistent with the versioned
 // .spectackle files (which are the source of truth). A debounced Refresh runs
-// before every tool call: mtime+size fast path per bundle file; on change the
-// file is re-parsed and its doc kinds replaced in the FTS index.
+// before every tool call: per bundle file, an mtime+size gate decides cheaply
+// that a file changed, and a sha256 of the content decides whether a file the
+// gate calls unchanged really is; on change the file is re-parsed and its doc
+// kinds replaced in the FTS index.
 package sync
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -62,10 +67,33 @@ func (s *Scanner) Refresh() error {
 			if err != nil {
 				return err
 			}
-			mt, sz, ok := s.Cache.FileStat(b.path)
-			if ok && mt == st.ModTime().UnixNano() && sz == st.Size() {
-				continue
+			mtime, size := st.ModTime().UnixNano(), st.Size()
+			mt, sz, sha, ok := s.Cache.FileStat(b.path)
+
+			// Two-stage freshness. Differing mtime/size is proof of change,
+			// so re-feed straight away and never pay for a hash the feed's
+			// own read would duplicate. Matching mtime/size proves nothing:
+			// a same-size, timestamp-preserving write (coarse mtime
+			// granularity on HFS+ and several network/container
+			// filesystems, or rsync --times, cp -p, tar -p, restored CI
+			// caches) leaves both untouched. So when the cheap gate says
+			// "unchanged", the recorded content hash gets the last word —
+			// freshness follows content, not metadata.
+			var sum string
+			if ok && mt == mtime && sz == size && sha != "" {
+				if sum, err = fileSHA(b.path); err != nil {
+					return err
+				}
+				if sum == sha {
+					continue
+				}
 			}
+			if sum == "" {
+				if sum, err = fileSHA(b.path); err != nil {
+					return err
+				}
+			}
+
 			docs, err := b.feed(ctx, b.path)
 			if err != nil {
 				return fmt.Errorf("sync: %s: %w", b.path, err)
@@ -73,12 +101,29 @@ func (s *Scanner) Refresh() error {
 			if err := s.Cache.ReplaceDocs(ctx, b.kinds, docs); err != nil {
 				return err
 			}
-			if err := s.Cache.PutFileStat(b.path, st.ModTime().UnixNano(), st.Size()); err != nil {
+			if err := s.Cache.PutFileStat(b.path, mtime, size, sum); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// fileSHA is the content fingerprint freshness is decided on. Streamed
+// rather than slurped: spec.md and work.md are small, but journal.ndjson is
+// append-only and unbounded, and the freshness check must not scale its
+// memory with the history.
+func fileSHA(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (s *Scanner) feedSpec(ctx, path string) ([]cache.Doc, error) {

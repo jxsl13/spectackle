@@ -17,9 +17,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// gen stamps the cache format; any change to the DDL or the doc feeding
-// logic must bump it. Mismatch => full rebuild.
-const gen = "v0-5"
+// gen stamps the cache format; any change to the DDL, to the doc feeding
+// logic, or to what the files table records for freshness — the columns the
+// sync engine compares to decide a bundle is unchanged — must bump it.
+// Mismatch => full rebuild.
+//
+// v0-6 wired files.sha: the column was declared but never written, so caches
+// stamped v0-5 carry rows with a NULL hash that would read as "content
+// unknown" forever. Dropping them repopulates the column in one rebuild.
+const gen = "v0-6"
 
 const ddl = `
 CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT);
@@ -79,16 +85,24 @@ func (c *Cache) init() error {
 // Close closes the handle.
 func (c *Cache) Close() error { return c.db.Close() }
 
-// FileStat returns the recorded stat of a path.
-func (c *Cache) FileStat(path string) (mtime, size int64, ok bool) {
-	err := c.db.QueryRow(`SELECT mtime,size FROM files WHERE path=?`, path).Scan(&mtime, &size)
-	return mtime, size, err == nil
+// FileStat returns what the cache recorded for a path the last time it was
+// indexed: the cheap metadata gate (mtime, size) plus the hash of the content
+// those docs were actually built from. An empty sha means the content is
+// unknown and the metadata alone must not be trusted.
+func (c *Cache) FileStat(path string) (mtime, size int64, sha string, ok bool) {
+	err := c.db.QueryRow(`SELECT mtime,size,COALESCE(sha,'') FROM files WHERE path=?`,
+		path).Scan(&mtime, &size, &sha)
+	return mtime, size, sha, err == nil
 }
 
-// PutFileStat records a path's stat.
-func (c *Cache) PutFileStat(path string, mtime, size int64) error {
-	_, err := c.db.Exec(`INSERT INTO files(path,mtime,size) VALUES(?,?,?)
-		ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime, size=excluded.size`, path, mtime, size)
+// PutFileStat records a path's stat together with the content hash that was
+// indexed from it. Pass the hash the docs were derived from, never a hash of
+// some later read: the pair is what makes freshness follow content instead of
+// metadata a same-size, timestamp-preserving write leaves untouched.
+func (c *Cache) PutFileStat(path string, mtime, size int64, sha string) error {
+	_, err := c.db.Exec(`INSERT INTO files(path,mtime,size,sha) VALUES(?,?,?,?)
+		ON CONFLICT(path) DO UPDATE SET
+			mtime=excluded.mtime, size=excluded.size, sha=excluded.sha`, path, mtime, size, sha)
 	return err
 }
 
