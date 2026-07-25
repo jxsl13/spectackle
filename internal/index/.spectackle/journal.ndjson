@@ -43,3 +43,6 @@
 {"t":"2026-07-25T11:22:15Z","eid":"baa5a02b1789294c","ag":"orchestrator","ev":"move","id":"T-0125","dir":"internal/index","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:22:15Z","eid":"cf9ee89116854a69","ag":"orchestrator","ev":"move","id":"T-0126","dir":"internal/index","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:23:06Z","eid":"cf2b2b481a15cd5c","ag":"impl-t0125","ev":"start","id":"T-0125","dir":"internal/index","note":"branch spectackle/T-0125 base 3dd17807c246"}
+{"t":"2026-07-25T11:23:09Z","eid":"0494c09bc1eda6a3","ag":"impl-t0125","ev":"move","id":"T-0125","dir":"internal/index","fr":"approved","to":"active"}
+{"t":"2026-07-25T11:27:58Z","eid":"0e570599925ce553","ag":"impl-t0125","ev":"submit","id":"T-0125","dir":"internal/index","note":"branch spectackle/T-0125: 2 events, 0 rules, 1 items replayed"}
+{"t":"2026-07-25T11:28:05Z","eid":"1660996eb9ecf517","ag":"impl-t0125","ev":"move","id":"T-0125","dir":"internal/index","fr":"active","to":"done"}

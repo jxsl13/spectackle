@@ -97,3 +97,5 @@
 {"t":"2026-07-25T11:22:15Z","eid":"d1cc03e48ab50300","ag":"orchestrator","ev":"move","id":"T-0122","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:22:15Z","eid":"35d58876ced7cff4","ag":"orchestrator","ev":"move","id":"T-0123","dir":"internal/langspec","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:22:15Z","eid":"63cd303117546aa9","ag":"orchestrator","ev":"move","id":"T-0124","dir":"internal/langspec","fr":"draft","to":"approved"}
+{"t":"2026-07-25T11:23:27Z","eid":"8eebee712c71e747","ag":"impl-t0122","ev":"start","id":"T-0122","dir":"internal/langspec","note":"branch spectackle/T-0122 base 4553a2972131"}
+{"t":"2026-07-25T11:27:36Z","eid":"b4d6ecb1a7bc5b97","ag":"ag-c95f","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
