@@ -155,3 +155,5 @@
 {"t":"2026-07-25T09:04:41Z","eid":"28009897aa544a84","ag":"orchestrator","ev":"create","id":"B-0002","k":"bug","ti":"server never rebinds an existing worktree: wtItem is set only by in-session work op=start, so per-call stdio clients and crashed servers cannot submit","dir":"internal/mcpserver"}
 {"t":"2026-07-25T09:04:41Z","eid":"4a0a1ea0d249e7c4","ag":"orchestrator","ev":"move","id":"B-0002","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T09:08:07Z","eid":"4a0c05413027d5db","ag":"orchestrator","ev":"create","id":"B-0003","k":"bug","ti":"workAbort journals into a context dir named after the item: journal.Append gets w.Item where every other call site passes it.Dir","dir":"internal/mcpserver"}
+{"t":"2026-07-25T09:24:57Z","eid":"ec030e34de262fb9","ag":"impl-t0115","ev":"submit","id":"T-0115","dir":"internal/mcpserver","note":"branch spectackle/T-0115: 2 events, 0 rules, 0 items replayed"}
+{"t":"2026-07-25T09:25:03Z","eid":"dfdc0c409d9d5965","ag":"impl-t0115","ev":"move","id":"T-0115","dir":"internal/mcpserver","fr":"active","to":"done"}
