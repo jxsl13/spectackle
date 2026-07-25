@@ -52,7 +52,7 @@ Scope for the follow-up tasks is disjoint by file: grill.go for the env differen
 
 ## T-01KYD8HC02EDSVB104TRJS23Y1 the stale-binary hint fires only for a development build serving its own tree
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYD8DK52EG5A1AKC1KSRR4Z2
 refs: B-01KYD1G9RAEHWTK3SW3ZH3YFWS
