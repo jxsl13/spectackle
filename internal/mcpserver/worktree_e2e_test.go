@@ -192,7 +192,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	// 2. the item's record state landed on the PRIMARY side. Only the
 	// worktree ever saw approved->active; main had it at approved.
 	out = callText(t, fresh, "get", map[string]any{"id": prop})
-	if !strings.Contains(out, prop+" proposal active") {
+	if !hasRecordLine(out, "i", prop, "proposal", "active") {
 		t.Fatalf("item record state did not land on the primary side: %q", out)
 	}
 
@@ -254,7 +254,7 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 		t.Fatalf("record-only submit created a code commit: develop %s -> %s", tipBefore, got)
 	}
 	out = callText(t, fresh, "get", map[string]any{"id": recOnly})
-	if !strings.Contains(out, recOnly+" proposal active") {
+	if !hasRecordLine(out, "i", recOnly, "proposal", "active") {
 		t.Fatalf("record-only submit did not replay item state onto main: %q", out)
 	}
 	if !hasEvent(mainJournal(t, root), journal.EvMove, recOnly, "active") {

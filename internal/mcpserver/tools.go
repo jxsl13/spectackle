@@ -44,7 +44,7 @@ type findIn struct {
 }
 
 type getIn struct {
-	ID     string `json:"id" jsonschema:"node ID, rule ID, item ID, sec:<dir>#<name>, or path"`
+	ID     string `json:"id" jsonschema:"node ID, rule ID, item ID (full or shortest unambiguous prefix), sec:<dir>#<name>, or path"`
 	Depth  int    `json:"depth,omitempty" jsonschema:"impact BFS depth for node IDs, default 0"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
 	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
@@ -55,9 +55,9 @@ type draftIn struct {
 	Title   string   `json:"title" jsonschema:"one-line title"`
 	Body    string   `json:"body,omitempty" jsonschema:"intent/delta-spec prose"`
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
-	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID (tasks under a proposal)"`
+	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID, full or prefix (tasks under a proposal)"`
 	Dir     string   `json:"dir,omitempty" jsonschema:"force context dir; default derived from targets"`
-	Refs    []string `json:"refs,omitempty" jsonschema:"item IDs this item cites — research/ADR/proposal, any kind"`
+	Refs    []string `json:"refs,omitempty" jsonschema:"item IDs this item cites, full or prefix — research/ADR/proposal, any kind"`
 }
 
 type ruleIn struct {
@@ -74,11 +74,11 @@ type ruleIn struct {
 	Stem      string   `json:"stem,omitempty" jsonschema:"ID stem e.g. CUDA-KRN; default: stem of last rule in target"`
 	Rationale string   `json:"rationale,omitempty" jsonschema:"optional rationale"`
 	Applies   []string `json:"applies,omitempty" jsonschema:"node IDs the rule is pinned to (anchored for drift)"`
-	Item      string   `json:"item,omitempty" jsonschema:"lifecycle item this change belongs to"`
+	Item      string   `json:"item,omitempty" jsonschema:"lifecycle item this change belongs to, full ID or prefix"`
 }
 
 type moveIn struct {
-	ID   string `json:"id" jsonschema:"item ID, e.g. P-0007"`
+	ID   string `json:"id" jsonschema:"item ID, full or shortest unambiguous prefix"`
 	To   string `json:"to" jsonschema:"submitted|approved|rejected|active|done|archived"`
 	Note string `json:"note,omitempty" jsonschema:"REQUIRED for rejected (rejection corpus); recommended for archived"`
 }
@@ -343,22 +343,23 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	// code/rule/spec search must not pay for a work.md + journal scan.
 	var sc idScope
 	for _, d := range docs {
-		switch d.Kind {
-		case "rule", "section", "journal", "rejection":
-		default:
-			if sc, err = s.idScope(); err != nil {
-				return nil, nil, err
-			}
+		if !isItemDoc(d.Kind) {
+			continue
 		}
-		if sc.known != nil {
-			break
+		if sc, err = s.idScope(); err != nil {
+			return nil, nil, err
 		}
+		break
 	}
 	for _, d := range docs {
 		dir := d.Dir
 		if dir == "" {
 			dir = "."
 		}
+		// the non-item cases here are exactly the kinds isItemDoc rejects;
+		// if the two ever disagree an item would render against an unbuilt
+		// scope, which idScope.short refuses to do rather than emit a short
+		// form computed from an empty peer set.
 		switch d.Kind {
 		case "rule":
 			lines = append(lines, fmt.Sprintf("r %s %s %s", d.ID, dir, d.Title))
@@ -564,9 +565,13 @@ func (s *Server) getPath(p string, tokBudget, offset int) (*mcp.CallToolResult, 
 		if err != nil {
 			return nil, nil, err
 		}
+		sc, err := s.idScope()
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, it := range items {
 			if p == "" || it.Dir == p || strings.HasPrefix(it.Dir, p+"/") {
-				lines = append(lines, item.Record(it))
+				lines = append(lines, sc.record(it))
 			}
 		}
 	}
@@ -646,7 +651,13 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	}
 	s.scan.MarkDirty()
 	var b strings.Builder
-	b.WriteString(item.Record(it) + "\n")
+	// re-assemble the scope: the item just minted is part of the known set
+	// now, and the ID this record shows is the one the caller will paste
+	// back, so it has to be shortened against a set that contains it.
+	if sc, err = s.idScope(); err != nil {
+		return nil, nil, err
+	}
+	b.WriteString(sc.record(it) + "\n")
 	if len(targets) == 0 {
 		return text(b.String())
 	}
@@ -815,10 +826,10 @@ func normalizeItemID(id string) string {
 
 // idScope is the set of record IDs one tool call resolves prefixes against
 // and renders IDs against: every live item plus every ID still answerable as
-// a journal tombstone. Archived records leave work.md and live on only as
-// tombstones (see lifecycle.Tombstone), so a live-items-only set would make
-// the archived half of the history unreferenceable by prefix — which is the
-// same reason draft's refs validation uses this set (knownRefIDs).
+// a journal tombstone. Records that leave work.md live on only as tombstones
+// (see lifecycle.Tombstone and lastReject), so a live-items-only set would
+// make the archived and rejected halves of the history unreferenceable by
+// prefix. See the idScope method for exactly which tombstones count and why.
 //
 // It is a value built once per handler rather than per ID: assembling it
 // costs one item.LoadAll plus one journal pass, and a handler that expands
@@ -827,11 +838,44 @@ type idScope struct {
 	known []string // ascending, deduped
 }
 
-// idScope assembles the known-ID set for the current workspace.
+// idScope assembles the known-ID set for the current workspace: every live
+// item, plus every ID a journal tombstone still answers for — BOTH kinds of
+// tombstone, archive and reject.
+//
+// Widening past knownRefIDs (archive only) is deliberate, and it is not a
+// nicety. A rejected item leaves work.md the same way an archived one does,
+// but it stays *revocable*: move to=draft|submitted|approved|active on a
+// rejected ID is a documented transition that lifecycle reconstructs from the
+// reject snapshot. Leaving reject IDs out made revocation by prefix answer
+// "unknown item" — the archived half of the history would have been
+// referenceable and the rejected half not, for no reason a caller could see.
+//
+// knownRefIDs deliberately stays narrower: it answers a different question —
+// "is this a legitimate citation target for draft refs=" — where an
+// archived record is settled history and a rejected one is not, and widening
+// it would change what draft accepts. Resolution and citation are separate
+// policies over the same journal.
+//
+// The slice is non-nil even for an empty workspace, so that "scope built,
+// nothing in it" stays distinguishable from the zero idScope (see short).
 func (s *Server) idScope() (idScope, error) {
-	known, err := s.knownRefIDs()
+	known := map[string]bool{}
+	items, err := item.LoadAll(s.ws)
 	if err != nil {
 		return idScope{}, err
+	}
+	for _, it := range items {
+		known[it.ID] = true
+	}
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return idScope{}, err
+	}
+	for _, e := range events {
+		switch e.Ev {
+		case journal.EvArchive, journal.EvReject:
+			known[e.ID] = true
+		}
 	}
 	out := make([]string, 0, len(known))
 	for k := range known {
@@ -841,6 +885,18 @@ func (s *Server) idScope() (idScope, error) {
 	return idScope{known: out}, nil
 }
 
+// isItemDoc reports whether a search hit is a lifecycle item, and therefore
+// carries a record ID that renders in short form. The non-item kinds are
+// enumerated rather than the item kinds so that a NEW item kind is short by
+// default; a new document kind is the one that has to be classified here.
+func isItemDoc(kind string) bool {
+	switch kind {
+	case "rule", "section", "journal", "rejection":
+		return false
+	}
+	return true
+}
+
 // expand resolves one item-ID argument. The three outcomes are the three
 // ADR-0013 requires, and they are distinguished by the second return value
 // rather than by an error, because two of them are ordinary tool results:
@@ -848,19 +904,26 @@ func (s *Server) idScope() (idScope, error) {
 //   - resolved: the full ID, nil refusal. A fully spelled-out ID resolves to
 //     itself (ids.ResolveRecordID lets an exact match win), so nothing that
 //     worked before this existed stops working.
-//   - no match: the NORMALIZED input, nil refusal — expand deliberately does
+//   - no match: the input UNCHANGED, nil refusal — expand deliberately does
 //     not decide what "unknown" means. Each caller already has a not-found
 //     behavior (get/grill answer nf with nearest matches, decide refuses by
-//     name, move lets lifecycle report it) and keeps it.
+//     name, move lets lifecycle report it) and keeps it. Handing back the
+//     original rather than the normalized form matters: an argument that
+//     merely LOOKS item-shaped may be something else entirely — lease takes
+//     repo paths in the same slot, and a directory named "d-bus" must not
+//     come back out as "D-BVS" and be leased under a name nobody claimed.
+//     Normalization only ever gets to affect a string that actually named a
+//     record.
 //   - ambiguous: empty ID and a refusal naming every candidate in ITS OWN
 //     shortest form, so the caller can disambiguate in exactly one more
-//     call instead of having to guess how many more characters to add.
+//     call instead of having to guess how many more characters to add. The
+//     prefix is echoed as the caller typed it.
 func (sc idScope) expand(id string) (string, *mcp.CallToolResult) {
-	id = normalizeItemID(id)
-	if !idPrefixRe.MatchString(id) {
+	norm := normalizeItemID(id)
+	if !idPrefixRe.MatchString(norm) {
 		return id, nil
 	}
-	full, err := ids.ResolveRecordID(id, sc.known)
+	full, err := ids.ResolveRecordID(norm, sc.known)
 	if err == nil {
 		return full, nil
 	}
@@ -900,7 +963,15 @@ func (s *Server) expandID(id string) (string, *mcp.CallToolResult, error) {
 // to shorten what it cannot parse as a canonical record ID, and a four-digit
 // counter has nothing to shorten anyway. Non-item strings are likewise
 // returned as they came in, so this is safe to apply to a mixed line.
+//
+// The zero idScope shortens nothing. A shortest-unambiguous prefix is only
+// meaningful relative to a known set, and computing one against an empty set
+// would emit MinRecordPrefixLen characters that may well name several
+// records — a silent ambiguity in output is far worse than a long ID.
 func (sc idScope) short(id string) string {
+	if sc.known == nil {
+		return id
+	}
 	kind, tail, ok := strings.Cut(id, "-")
 	if !ok {
 		return id
@@ -1083,6 +1154,18 @@ func elicitSlots(ctx context.Context, req *mcp.CallToolRequest, in *ruleIn, miss
 
 func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
 	defer s.scan.MarkDirty()
+	// in.Item is written into the journal by journalRule on every op, so it
+	// is resolved to the full ID here rather than stored as whatever prefix
+	// happened to be unambiguous at the time. in.ID is a RULE ID and is
+	// deliberately untouched — rules have their own namespace and their own
+	// resolution rules.
+	if in.Item != "" {
+		full, bad, err := s.expandID(in.Item)
+		if bad != nil || err != nil {
+			return bad, nil, err
+		}
+		in.Item = full
+	}
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -1300,8 +1383,14 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 			_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
 			s.scan.MarkDirty()
+			// re-assemble: Escalate minted the decision item, so the scope
+			// built at the top of move predates it and would render its ID
+			// against a set that does not contain it.
+			if sc, err = s.idScope(); err != nil {
+				return nil, nil, err
+			}
 			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
-				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
+				sc.short(blocked.ID), blocked.Kind, orDot(blocked.Dir), blocked.Title, sc.short(blocked.ID), sc.short(dec.ID)))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per
@@ -1452,6 +1541,10 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	seen := map[string]string{}
 	for _, it := range items {
 		if prev, dup := seen[it.ID]; dup {
+			// deliberately the FULL ID: a duplicate-ID report is the one
+			// place where the shortest UNAMBIGUOUS prefix does not exist,
+			// and a reader chasing this down needs the exact bytes that
+			// appear twice in work.md, not a display form.
 			lines = append(lines, fmt.Sprintf("! E101 E %s duplicate item ID %s (also in %s)", orDot(it.Dir), it.ID, orDot(prev)))
 		}
 		seen[it.ID] = it.Dir
@@ -1829,11 +1922,18 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if len(cands) == 0 && len(doneItems) == 0 {
 		return text("ok nothing to compact")
 	}
+	// compact's dry run is the densest ID list on the surface — one c record
+	// per done item, read only to be pasted back into move — so it renders
+	// short like every other item output.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, c := range cands {
 		b.WriteString(c + "\n")
 	}
 	for _, it := range doneItems {
-		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), it.ID, it.Title)
+		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), sc.short(it.ID), it.Title)
 	}
 	if !in.Apply {
 		b.WriteString("ok dry-run — pass apply=true to execute\n")
@@ -1845,9 +1945,9 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	gateOpts := s.auditGateOpts()
 	for _, it := range doneItems {
 		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
-			fmt.Fprintf(&b, "! SKIP W %s %s\n", it.ID, err.Error())
+			fmt.Fprintf(&b, "! SKIP W %s %s\n", sc.short(it.ID), err.Error())
 		} else {
-			fmt.Fprintf(&b, "ok archived %s\n", it.ID)
+			fmt.Fprintf(&b, "ok archived %s\n", sc.short(it.ID))
 		}
 	}
 	// fold journals over threshold: drop create/move/rule/drift events,

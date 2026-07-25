@@ -21,12 +21,12 @@ import (
 // (tools.go), since `ask` needs req.Session for elicitation.
 type decideIn struct {
 	Op           string   `json:"op" jsonschema:"ask|answer|ls"`
-	ID           string   `json:"id,omitempty" jsonschema:"ADR-id (answer) — omit for ask"`
+	ID           string   `json:"id,omitempty" jsonschema:"ADR-id, full or prefix (answer) — omit for ask"`
 	Question     string   `json:"question,omitempty" jsonschema:"ask: the decision to make"`
 	Context      string   `json:"context,omitempty" jsonschema:"ADR context: the forces and constraints behind this decision"`
 	Kind         string   `json:"kind,omitempty" jsonschema:"radio|confirm|text, default radio"`
 	Options      []string `json:"options,omitempty" jsonschema:"radio choices, 2-5"`
-	Item         string   `json:"item,omitempty" jsonschema:"lifecycle item this decision blocks"`
+	Item         string   `json:"item,omitempty" jsonschema:"lifecycle item this decision blocks, full ID or prefix"`
 	Choose       string   `json:"choose,omitempty" jsonschema:"answer: option text / yes|no / free text"`
 	Consequences string   `json:"consequences,omitempty" jsonschema:"answer: ADR consequences — trade-offs and follow-on effects of the decision"`
 }
@@ -86,7 +86,9 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	if in.Item != "" {
 		// a short prefix names the blocked item just as well as its full ID
 		// (ADR-0013); what gets persisted below — the `blocks:` body line
-		// and the Needs backlink — is always the resolved full ID.
+		// and the Needs backlink — is always the resolved full ID, because a
+		// short form is computed against a set that keeps growing and only
+		// the full ID stays unambiguous forever.
 		full, bad, err := s.expandID(in.Item)
 		if bad != nil || err != nil {
 			return bad, nil, err
@@ -166,7 +168,15 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	if err == nil && res.Action == "accept" {
 		return s.resolveDecision(d.ID, decideChoiceString(kind, res.Content["choice"]), "")
 	}
-	return text(fmt.Sprintf("need decision %s %s | %s", d.ID, in.Question, strings.Join(opts, ", ")))
+	// the need-decision record is the ONLY place this ID is ever published —
+	// answering it later, from any session, means pasting it into
+	// decide op=answer — so it is rendered short like every other item ID,
+	// and prefix resolution is what makes the paste work (ADR-0013).
+	sc, sErr := s.idScope()
+	if sErr != nil {
+		return nil, nil, sErr
+	}
+	return text(fmt.Sprintf("need decision %s %s | %s", sc.short(d.ID), in.Question, strings.Join(opts, ", ")))
 }
 
 // decideChoiceString normalizes an elicitation result's "choice" value to
@@ -200,9 +210,17 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Choose) == "" {
 		return text("! ARG E - answer requires choose")
 	}
-	full, bad, err := s.expandID(in.ID)
-	if bad != nil || err != nil {
-		return bad, nil, err
+	// a short prefix answers a decision just as well as its full ID
+	// (ADR-0013) — and the need-decision record the caller is answering from
+	// only ever published the short form.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	asked := in.ID // what the caller typed, for the refusals that echo it
+	full, bad := sc.expand(in.ID)
+	if bad != nil {
+		return bad, nil, nil
 	}
 	in.ID = full
 	d, ok, err := item.Get(s.ws, in.ID)
@@ -210,10 +228,10 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok || d.Kind != "adr" {
-		return text("! ARG E - unknown decision " + in.ID)
+		return text("! ARG E - unknown decision " + asked)
 	}
 	if d.State == item.StateDone {
-		return text("! ARG E - " + in.ID + " already decided")
+		return text("! ARG E - " + sc.short(in.ID) + " already decided")
 	}
 	choose := in.Choose
 	if opts := decideOptions(d.Body); len(opts) > 0 {
@@ -317,6 +335,11 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 	}
 	_ = s.cd.Emit("decide", d.ID, choice)
 
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	it, hasBlocked, err := blockingItem(s.ws, id)
 	if err != nil {
 		return nil, nil, err
@@ -334,7 +357,7 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 		}
 	}
 	s.scan.MarkDirty()
-	return text("ok " + id + " " + choice)
+	return text("ok " + sc.short(id) + " " + choice)
 }
 
 // blockingItem finds the (at most one) item whose Needs references decisionID.
@@ -369,12 +392,16 @@ func (s *Server) decideLs() (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	var b strings.Builder
 	for _, it := range items {
 		if it.Kind != "adr" || it.State == item.StateDone {
 			continue
 		}
-		b.WriteString(item.Record(it) + "\n")
+		b.WriteString(sc.record(it) + "\n")
 	}
 	if b.Len() == 0 {
 		return text("ok no open decisions")

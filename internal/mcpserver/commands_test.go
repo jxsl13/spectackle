@@ -41,6 +41,7 @@ func connectCommands(t *testing.T, root string, elicit func(context.Context, *mc
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
+	registerTestServer(t, sess, s)
 	return s, sess
 }
 

@@ -51,7 +51,8 @@ func resText(t *testing.T, res *mcp.CallToolResult, err error) string {
 func serverDraftID(t *testing.T, s *Server, in draftIn) string {
 	t.Helper()
 	res, _, err := s.draft(in)
-	return idOfRecord(t, resText(t, res, err), "i")
+	// the stored ID, not the short form draft rendered: see draftID.
+	return storedID(t, s, idOfRecord(t, resText(t, res, err), "i"))
 }
 
 // TestResearchEmptyFallback: no q, no targets — nothing to search, and the

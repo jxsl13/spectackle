@@ -158,7 +158,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 	}
 	// the live (uncommitted) item state traveled into the worktree
 	out = callText(t, alice, "get", map[string]any{"id": prop})
-	if !strings.Contains(out, prop+" proposal active") {
+	if !hasRecordLine(out, "i", prop, "proposal", "active") {
 		t.Fatalf("item not active in worktree: %q", out)
 	}
 
@@ -188,7 +188,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 		t.Fatalf("worktree not torn down")
 	}
 	out = callText(t, alice, "get", map[string]any{"id": prop})
-	if !strings.Contains(out, prop+" proposal done") {
+	if !hasRecordLine(out, "i", prop, "proposal", "done") {
 		t.Fatalf("item state not replayed: %q", out)
 	}
 	out = callText(t, alice, "work", map[string]any{"op": "status"})

@@ -89,31 +89,35 @@ func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
 	if !strings.Contains(out, "#briefs") {
 		t.Fatalf("missing #briefs: %q", out)
 	}
+	// b-lines carry the SHORT rendering of the child's ID (ADR-0013), and
+	// how short is adaptive — these five siblings were minted in the same
+	// millisecond, so grill's rendering is longer than the one each ID was
+	// captured at. hasRecordLine compares by record identity, not bytes.
 	// the clean brief must fail nothing.
-	if strings.Contains(out, "b "+byTitle["clean brief"]+" ") {
+	if hasRecordLine(out, "b", byTitle["clean brief"]) {
 		t.Fatalf("clean brief flagged: %q", out)
 	}
 	// "short only" fails all three heuristics.
 	short := byTitle["short only"]
-	for _, want := range []string{"b " + short + " short-body", "b " + short + " no-path", "b " + short + " no-verify"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("missing %q: %q", want, out)
+	for _, want := range []string{"short-body", "no-path", "no-verify"} {
+		if !hasRecordLine(out, "b", short, want) {
+			t.Fatalf("missing b %s %s: %q", short, want, out)
 		}
 	}
 	// "no path" fails only no-path.
 	noPathID := byTitle["no path"]
-	if !strings.Contains(out, "b "+noPathID+" no-path") {
+	if !hasRecordLine(out, "b", noPathID, "no-path") {
 		t.Fatalf("missing %s no-path: %q", noPathID, out)
 	}
-	if strings.Contains(out, "b "+noPathID+" short-body") || strings.Contains(out, "b "+noPathID+" no-verify") {
+	if hasRecordLine(out, "b", noPathID, "short-body") || hasRecordLine(out, "b", noPathID, "no-verify") {
 		t.Fatalf("%s over-flagged: %q", noPathID, out)
 	}
 	// "no verify" fails only no-verify.
 	noVerifyID := byTitle["no verify"]
-	if !strings.Contains(out, "b "+noVerifyID+" no-verify") {
+	if !hasRecordLine(out, "b", noVerifyID, "no-verify") {
 		t.Fatalf("missing %s no-verify: %q", noVerifyID, out)
 	}
-	if strings.Contains(out, "b "+noVerifyID+" short-body") || strings.Contains(out, "b "+noVerifyID+" no-path") {
+	if hasRecordLine(out, "b", noVerifyID, "short-body") || hasRecordLine(out, "b", noVerifyID, "no-path") {
 		t.Fatalf("%s over-flagged: %q", noVerifyID, out)
 	}
 }
@@ -276,7 +280,16 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	res, _, err := s.grill(grillIn{ID: prop})
 	out := resText(t, res, err)
 	today := time.Now().UTC().Format("2006-01-02")
-	if !strings.Contains(out, "ok grilled "+prop+" "+today) {
+	stamped := false
+	for _, l := range strings.Split(out, "\n") {
+		// "ok grilled <id> <date>" — the ID is rendered short (ADR-0013),
+		// so it is compared by record identity, not as a byte string.
+		if f := strings.Fields(l); len(f) == 4 &&
+			f[0] == "ok" && f[1] == "grilled" && sameItem(f[2], prop) && f[3] == today {
+			stamped = true
+		}
+	}
+	if !stamped {
 		t.Fatalf("grill did not confirm the stamp: %q", out)
 	}
 

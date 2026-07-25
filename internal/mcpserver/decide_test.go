@@ -59,6 +59,7 @@ func connectDecide(t *testing.T, root string, elicit func(context.Context, *mcp.
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
+	registerTestServer(t, sess, s)
 	return s, sess
 }
 
@@ -84,7 +85,7 @@ func TestDecideAskHeadlessNeedPath(t *testing.T) {
 	}
 
 	out := callText(t, sess, "decide", map[string]any{"op": "ls"})
-	if !strings.Contains(out, adr) {
+	if !hasItemID(out, adr) {
 		t.Fatalf("ls should list the still-open decision: %q", out)
 	}
 }
@@ -102,10 +103,10 @@ func TestDecideAskAcceptResolvesImmediately(t *testing.T) {
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 	})
 	f := strings.Fields(out)
-	if len(f) < 3 || f[0] != "ok" || !item.IDRe.MatchString(f[1]) || f[2] != "rest" {
+	if len(f) < 3 || f[0] != "ok" || !idTokenRe.MatchString(f[1]) || f[2] != "rest" {
 		t.Fatalf("accepted ask should resolve immediately: %q", out)
 	}
-	adr := f[1]
+	adr := storedID(t, s, f[1])
 	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok || d.State != item.StateDone {
 		t.Fatalf("%s not done: %+v %v %v", adr, d, ok, err)
@@ -127,12 +128,12 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	})
 
 	blocked, ok, err := item.Get(s.ws, task)
-	if err != nil || !ok || len(blocked.Needs) != 1 || blocked.Needs[0] != adr {
+	if err != nil || !ok || len(blocked.Needs) != 1 || !sameItem(blocked.Needs[0], adr) {
 		t.Fatalf("%s Needs not linked to %s: %+v %v", task, adr, blocked, err)
 	}
 
 	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "grpc"})
-	if !strings.Contains(out, "ok "+adr+" grpc") {
+	if !hasRecordLine(out, "ok", adr, "grpc") {
 		t.Fatalf("answer should resolve: %q", out)
 	}
 
@@ -149,7 +150,7 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("%s gone: %v", task, err)
 	}
-	if len(resolved.Needs) != 1 || resolved.Needs[0] != adr2 {
+	if len(resolved.Needs) != 1 || !sameItem(resolved.Needs[0], adr2) {
 		t.Fatalf("%s should be cleared from Needs, %s still open: %+v", adr, adr2, resolved.Needs)
 	}
 
@@ -159,7 +160,7 @@ func TestDecideAnswerResolvesAndClearsNeeds(t *testing.T) {
 	}
 	found := false
 	for _, e := range events {
-		if e.Ev == journal.EvDecide && e.ID == adr && e.Note == "grpc" {
+		if e.Ev == journal.EvDecide && sameItem(e.ID, adr) && e.Note == "grpc" {
 			found = true
 		}
 	}
@@ -235,7 +236,7 @@ func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "answer", "id": adr, "choose": "defer, revisit later",
 	})
-	if !strings.Contains(out, "ok "+adr+" defer, revisit later") {
+	if !hasRecordLine(out, "ok", adr, "defer,", "revisit", "later") {
 		t.Fatalf("byte-identical comma-containing option should resolve: %q", out)
 	}
 
@@ -249,7 +250,7 @@ func TestDecideOptionFidelityAndLegacyCompat(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = callText(t, sess, "decide", map[string]any{"op": "answer", "id": legacy.ID, "choose": "beta"})
-	if !strings.Contains(out, "ok "+legacy.ID+" beta") {
+	if !hasRecordLine(out, "ok", legacy.ID, "beta") {
 		t.Fatalf("legacy comma-split body should still be answerable: %q", out)
 	}
 }
@@ -301,7 +302,7 @@ func TestDecideAnswerRecordsDecisionStatusAndConsequences(t *testing.T) {
 		"op": "answer", "id": adr, "choose": "grpc",
 		"consequences": "Clients must add a gRPC dependency; REST gateway is deprecated over two releases.",
 	})
-	if !strings.Contains(out, "ok "+adr+" grpc") {
+	if !hasRecordLine(out, "ok", adr, "grpc") {
 		t.Fatalf("answer should resolve: %q", out)
 	}
 
@@ -364,7 +365,7 @@ func TestDecideBlockedOverrideOnce(t *testing.T) {
 	out := callText(t, sess, "decide", map[string]any{
 		"op": "answer", "id": decision.ID, "choose": "override-once",
 	})
-	if !strings.Contains(out, "ok "+decision.ID+" override-once") {
+	if !hasRecordLine(out, "ok", decision.ID, "override-once") {
 		t.Fatalf("override-once answer: %q", out)
 	}
 

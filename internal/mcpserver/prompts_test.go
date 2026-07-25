@@ -45,6 +45,7 @@ func connectRootWithPromptsServer(t *testing.T, root string) (*Server, *mcp.Clie
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
+	registerTestServer(t, sess, s)
 	return s, sess
 }
 

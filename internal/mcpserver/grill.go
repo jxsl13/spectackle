@@ -27,7 +27,7 @@ import (
 // siblings and a later move op=approved can see the item was just reviewed.
 
 type grillIn struct {
-	ID     string `json:"id" jsonschema:"item ID, e.g. P-0007"`
+	ID     string `json:"id" jsonschema:"item ID, full or shortest unambiguous prefix"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
 	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
