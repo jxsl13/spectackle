@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYDGYMDCF2V86YYWHK181SPT records were never committed: the always-covered invariant failed for every .spectackle write
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 Field report, verbatim question: why are uncommitted files lying in the git repo after an MCP full loop. Reproduced immediately: five of five dirty files after a complete lifecycle were .spectackle records.
