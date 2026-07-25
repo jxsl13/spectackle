@@ -451,12 +451,23 @@ func reindex(args []string) int {
 	}
 	defer blobs.Close()
 
-	_, st, typed, err := mcpserver.BuildGraph(context.Background(), ws, blobs)
+	_, st, tp, err := mcpserver.BuildGraph(context.Background(), ws, blobs)
 	if err != nil {
 		log.Printf("reindex: index: %v", err)
 		return 1
 	}
 	log.Printf("reindex: %d files, %d nodes, %d edges (+%d typed calls, %d skipped) (%s)",
-		st.Files, st.Nodes, st.Edges, typed, st.Skipped, ws.Dir)
+		st.Files, st.Nodes, st.Edges, tp.Added, st.Skipped, ws.Dir)
+	// issue 28: this used to be BuildGraph's own log line and nothing more —
+	// an operator watching reindex's stderr saw it, but the same failure was
+	// invisible through the server's tool surface (state/check). Now that
+	// `state`/`check` surface it too (mcpserver.TypedPassState /
+	// typedPassFinding), give the operator watching THIS stderr the one
+	// thing they can act on immediately: rebuilding spectackle itself with a
+	// current Go toolchain restores the pass (the cause text already names
+	// both the required and the running Go version when that's why).
+	if tp.Cause != "" {
+		log.Printf("reindex: typed-call pass disabled, %d package(s) affected: %s — rebuild spectackle with a newer Go toolchain to restore typed cross-package call edges", tp.Packages, tp.Cause)
+	}
 	return 0
 }

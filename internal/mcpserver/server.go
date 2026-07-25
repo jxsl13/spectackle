@@ -8,6 +8,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -118,6 +119,16 @@ type Server struct {
 	// until the first successful reindex — correct, since there is no graph
 	// yet to trust either way.
 	indexedAt time.Time
+
+	// typedPass is the go/types call-edge upgrade pass's outcome on the last
+	// successful reindex (issue 28) — set alongside s.g and s.indexedAt in
+	// reindex, from BuildGraph's return, so state (stateGraphSection) and
+	// check can tell "the graph has typed call edges" from "it doesn't, and
+	// here is why" instead of only seeing a node/edge count that reads the
+	// same either way. The zero value has Cause == "", which
+	// typedPassFinding treats as healthy — see TypedPassState's doc comment
+	// for why that is the field reindex must leave untouched on failure.
+	typedPass TypedPassState
 
 	// compact-hint cache (postCall's proactive nudge, T-0093): a debounced
 	// count of root journal events since the last compact, refreshed at most
@@ -258,7 +269,7 @@ func openBlobs(ws workspace.Root) store.Store {
 // then every langspec-registered language (adding a language is one data
 // file in internal/langspec, no wiring), a syntactic pass over root, then
 // the M3 go/types-resolved call-edge upgrade pass — and returns the
-// resulting graph plus the syntactic Stats and the typed-call count.
+// resulting graph, the syntactic Stats, and the typed-call pass's outcome.
 //
 // Exported and factored out of (*Server).reindex so the `spectackle
 // reindex` CLI subcommand (cmd/spectackle/main.go) can rebuild the exact
@@ -266,7 +277,7 @@ func openBlobs(ws workspace.Root) store.Store {
 // only resyncing the spec/doc cache while claiming to "reindex" (DEFECT 3 /
 // contract-pending T-0107): the two call sites sharing this one function is
 // what keeps them from drifting onto two different parser/resolver lists.
-func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (graph.Graph, index.Stats, int, error) {
+func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (graph.Graph, index.Stats, TypedPassState, error) {
 	g := graph.NewMem()
 	parsers := append(
 		[]index.LanguageParser{index.GoParser{}, index.AsmParser{}, index.CudaParser{}},
@@ -275,16 +286,27 @@ func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (grap
 		resolve.Default().All(), ws.Cfg.Ignore...)
 	st, err := ix.IndexAll(ctx, ws.Dir)
 	if err != nil {
-		return g, st, 0, err
+		return g, st, TypedPassState{}, err
 	}
 	// M3 upgrade pass: go/types-resolved call edges (chained selectors,
 	// cross-package methods). Best-effort — a broken module tree must not
-	// take the syntactic graph down with it.
+	// take the syntactic graph down with it. Before issue 28 this failure
+	// stopped at the log line below: a resident server driven over
+	// stdio/HTTP (or the `call` subcommand) never sees stderr, so state/check
+	// answered as if the graph were complete. tp carries the same
+	// information out to both tools (see TypedPassState's doc comment,
+	// state.go) instead of just this process's log.
 	typed, tErr := index.ResolveTypedCalls(ctx, g, ws.Dir, blobs)
+	tp := TypedPassState{Added: typed}
 	if tErr != nil {
 		log.Printf("index: typed calls: %v (syntactic graph only)", tErr)
+		tp.Cause = tErr.Error()
+		var tpErr *index.TypedPassError
+		if errors.As(tErr, &tpErr) {
+			tp.Packages = tpErr.Packages
+		}
 	}
-	return g, st, typed, nil
+	return g, st, tp, nil
 }
 
 // reindex rebuilds the symbol graph from the active root (startup and after
@@ -298,15 +320,16 @@ func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (grap
 // would create a race window where such an edit looks indexed when it isn't.
 func (s *Server) reindex() {
 	t0 := time.Now()
-	g, st, typed, err := BuildGraph(context.Background(), s.ws, s.blobs)
+	g, st, tp, err := BuildGraph(context.Background(), s.ws, s.blobs)
 	if err != nil {
 		log.Printf("index: %v (keeping previous graph)", err)
 		return
 	}
 	s.g = g
 	s.indexedAt = t0
+	s.typedPass = tp
 	log.Printf("index: %d files, %d nodes, %d edges (+%d typed calls, %d skipped)",
-		st.Files, st.Nodes, st.Edges, typed, st.Skipped)
+		st.Files, st.Nodes, st.Edges, tp.Added, st.Skipped)
 }
 
 // MCP returns the underlying protocol server (for transports and tests).

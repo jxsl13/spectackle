@@ -1572,6 +1572,16 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		lines = append(lines, f.String())
 	}
 
+	// typed-call pass degradation (issue 28): a toolchain mismatch or a
+	// broken module silently drops every typed ECall edge the go/types
+	// upgrade pass would have added, and check would otherwise say nothing
+	// at all about it — same finding and same omit-if-healthy gate as
+	// state's #graph section (see typedPassFinding, state.go), so the two
+	// tools never disagree on when this is worth reporting.
+	if f := s.typedPassFinding(); f != "" {
+		lines = append(lines, f)
+	}
+
 	// coverage: source dirs with zero applicable rules
 	lines = append(lines, s.coverageGaps(c, in.Path)...)
 
