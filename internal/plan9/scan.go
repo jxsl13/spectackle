@@ -42,7 +42,7 @@ var (
 	//      not captured, so it is stripped from the minted name.
 	//   3. File-local/static symbols using the `<>` linker suffix with no
 	//      middle dot at all: TEXT shuffle<>(SB)
-	reText  = regexp.MustCompile(`^TEXT\s+(?:""\.([\w.]+)|(?:[\w]+)?·([\w·]+)(?:<[\w]*>)?|(\w+)<>)\(SB\)\s*(?:,\s*[\w|]+)?\s*(?:,\s*(\$[\d-]+))?`)
+	reText = regexp.MustCompile(`^TEXT\s+(?:""\.([\w.]+)|(?:[\w]+)?·([\w·]+)(?:<[\w]*>)?|(\w+)<>)\(SB\)\s*(?:,\s*[\w|]+)?\s*(?:,\s*(\$[\d-]+))?`)
 	// GLOBL ·shuffleMask(SB), RODATA, $16   /   GLOBL mask<>(SB), RODATA, $32
 	//
 	// Same two name shapes as reText's groups 2/3 (no quoted-method or

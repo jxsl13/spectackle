@@ -179,3 +179,5 @@
 {"t":"2026-07-25T14:17:57Z","eid":"106cd244f6e82b7b","ag":"orchestrator","ev":"create","id":"T-0130","k":"task","ti":"worktree submit end to end under the four conditions the old tests never had","dir":"internal/mcpserver"}
 {"t":"2026-07-25T14:18:17Z","eid":"e94b2076e918f699","ag":"orchestrator","ev":"move","id":"T-0129","dir":"internal/mcpserver","fr":"draft","to":"approved"}
 {"t":"2026-07-25T14:18:17Z","eid":"f6d198c4261b68a7","ag":"orchestrator","ev":"move","id":"T-0130","dir":"internal/mcpserver","fr":"draft","to":"approved"}
+{"t":"2026-07-25T15:31:55Z","eid":"4f46026da463e43a","ag":"impl-t0129","ev":"start","id":"T-0129","dir":"internal/mcpserver","note":"branch spectackle/T-0129 base 61a15a80bd37"}
+{"t":"2026-07-25T15:32:10Z","eid":"4572eb02058ff475","ag":"impl-t0130","ev":"start","id":"T-0130","dir":"internal/mcpserver","note":"branch spectackle/T-0130 base 61a15a80bd37"}
