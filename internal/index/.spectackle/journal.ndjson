@@ -46,3 +46,4 @@
 {"t":"2026-07-25T11:23:09Z","eid":"0494c09bc1eda6a3","ag":"impl-t0125","ev":"move","id":"T-0125","dir":"internal/index","fr":"approved","to":"active"}
 {"t":"2026-07-25T11:27:58Z","eid":"0e570599925ce553","ag":"impl-t0125","ev":"submit","id":"T-0125","dir":"internal/index","note":"branch spectackle/T-0125: 2 events, 0 rules, 1 items replayed"}
 {"t":"2026-07-25T11:28:05Z","eid":"1660996eb9ecf517","ag":"impl-t0125","ev":"move","id":"T-0125","dir":"internal/index","fr":"active","to":"done"}
+{"t":"2026-07-25T13:17:44Z","eid":"adf970bbb9357949","ag":"impl-t0126","ev":"start","id":"T-0126","dir":"internal/index","note":"branch spectackle/T-0126 base 5ba32b0d0556"}
