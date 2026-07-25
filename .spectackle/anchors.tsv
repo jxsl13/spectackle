@@ -35,4 +35,4 @@ MCP-006	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	187-275	5b
 RSV-002	go:resolve.GpuPipeResolver.Resolve	internal/resolve/gpupipe.go	66-80	c1ee7682e99013bd	2a844dd5c561d2dc
 LSP-002	go:langspec.SpecParser.callEdges	internal/langspec/langspec.go	317-338	55b2a954ca598924	b43e489d49084037
 MTC-API-004	objc:Renderer.buildPipeline	examples/metalcompute/Renderer.m	12-15	860a8f45c90b6f15	fc12af87c35b21f4
-MTC-API-006	msl:add_arrays	examples/metalcompute/shaders.metal	4-6	96397888efbc6c60	41ca46660e86a63f
+MTC-API-006	msl:add_arrays	examples/metalcompute/shaders.metal	4-4	96397888efbc6c60	41ca46660e86a63f
