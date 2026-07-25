@@ -287,40 +287,89 @@ func moduleHashKey(root string) ([32]byte, error) {
 func typedCallEdges(fset *token.FileSet, info *types.Info, f *ast.File, rel string) []graph.Edge {
 	var edges []graph.Edge
 	for _, decl := range f.Decls {
-		d, ok := decl.(*ast.FuncDecl)
-		if !ok || d.Body == nil {
-			continue
-		}
-		obj, _ := info.Defs[d.Name].(*types.Func)
-		if obj == nil {
-			continue
-		}
-		src := funcID(obj)
-		if src == "" {
-			continue
-		}
-		seen := map[graph.NodeID]bool{}
-		ast.Inspect(d.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body == nil {
+				continue
 			}
-			fn := calleeFunc(info, call)
-			if fn == nil || fn.Pkg() == nil || isCgoPkg(fn.Pkg()) {
-				return true
+			obj, _ := info.Defs[d.Name].(*types.Func)
+			if obj == nil {
+				continue
 			}
-			dst := funcID(fn)
-			if dst == "" || dst == src || seen[dst] {
-				return true
+			src := funcID(obj)
+			if src == "" {
+				continue
 			}
-			seen[dst] = true
-			edges = append(edges, graph.Edge{
-				Src: src, Dst: dst, Kind: graph.ECall,
-				File: rel, Line: fset.Position(call.Pos()).Line,
-			})
-			return true
-		})
+			edges = append(edges, callBodyEdges(fset, info, d.Body, src, rel)...)
+		case *ast.GenDecl:
+			// A package-level `var F = func(...) {...}` closure: its body is
+			// otherwise never walked for call edges (only *ast.FuncDecl
+			// bodies were), so attribute any calls inside the initializer
+			// func literal to the var's own node here (mirrors
+			// GoParser.callEdges' handling of the same shape).
+			if d.Tok != token.VAR {
+				continue
+			}
+			for _, sp := range d.Specs {
+				vs, ok := sp.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, nm := range vs.Names {
+					if i >= len(vs.Values) {
+						continue
+					}
+					lit, ok := vs.Values[i].(*ast.FuncLit)
+					if !ok {
+						continue
+					}
+					obj, _ := info.Defs[nm].(*types.Var)
+					if obj == nil {
+						continue
+					}
+					src := varID(obj)
+					if src == "" {
+						continue
+					}
+					edges = append(edges, callBodyEdges(fset, info, lit.Body, src, rel)...)
+				}
+			}
+		}
 	}
+	return edges
+}
+
+// callBodyEdges walks one function/closure body and emits a candidate ECall
+// edge, attributed to src, for every CallExpr whose callee resolves to a
+// *types.Func. Shared by typedCallEdges' *ast.FuncDecl and ValueSpec
+// func-literal cases so both go through identical cgo-skip, self-loop, and
+// per-src dedupe handling.
+func callBodyEdges(fset *token.FileSet, info *types.Info, body *ast.BlockStmt, src graph.NodeID, rel string) []graph.Edge {
+	if body == nil {
+		return nil
+	}
+	var edges []graph.Edge
+	seen := map[graph.NodeID]bool{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		fn := calleeFunc(info, call)
+		if fn == nil || fn.Pkg() == nil || isCgoPkg(fn.Pkg()) {
+			return true
+		}
+		dst := funcID(fn)
+		if dst == "" || dst == src || seen[dst] {
+			return true
+		}
+		seen[dst] = true
+		edges = append(edges, graph.Edge{
+			Src: src, Dst: dst, Kind: graph.ECall,
+			File: rel, Line: fset.Position(call.Pos()).Line,
+		})
+		return true
+	})
 	return edges
 }
 
@@ -332,8 +381,20 @@ func typedCallEdges(fset *token.FileSet, info *types.Info, f *ast.File, rel stri
 // resolves the same as cd.Sweep would) — and falls back to Uses for a
 // qualified identifier (pkgalias.Func).
 func calleeFunc(info *types.Info, call *ast.CallExpr) *types.Func {
+	// Explicit generic instantiation (Foo[T](args) / Foo[T, U](args)) wraps
+	// the callee in an *ast.IndexExpr/*ast.IndexListExpr; unwrap to the
+	// underlying callee expression before resolving. Implicit instantiation
+	// (bare Foo(args), inferred type args) never wraps call.Fun and is
+	// unaffected.
+	fnExpr := call.Fun
+	switch idx := fnExpr.(type) {
+	case *ast.IndexExpr:
+		fnExpr = idx.X
+	case *ast.IndexListExpr:
+		fnExpr = idx.X
+	}
 	var obj types.Object
-	switch fn := call.Fun.(type) {
+	switch fn := fnExpr.(type) {
 	case *ast.Ident:
 		obj = info.Uses[fn]
 	case *ast.SelectorExpr:
@@ -371,6 +432,17 @@ func funcID(fn *types.Func) graph.NodeID {
 	}
 	qual += fn.Name()
 	return graph.NodeID(ids.Mint("go", qual))
+}
+
+// varID mints the same go:<pkg>.<name> node ID GoParser.Parse mints for a
+// package-level ValueSpec var, from a resolved *types.Var instead of source
+// text. pkg is v.Pkg().Name(), the package's source name (matching f.Name.Name
+// in GoParser) — not its import path.
+func varID(v *types.Var) graph.NodeID {
+	if v.Pkg() == nil {
+		return ""
+	}
+	return graph.NodeID(ids.Mint("go", v.Pkg().Name()+"."+v.Name()))
 }
 
 // recvTypeName returns the base receiver type name of a method's signature

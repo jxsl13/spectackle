@@ -42,3 +42,4 @@
 {"t":"2026-07-25T11:21:45Z","eid":"f101ffda591f0a75","ag":"orchestrator","ev":"create","id":"T-0126","k":"task","ti":"asm + cuda parsers: linker-suffix symbol forms and kernel modifier orders","dir":"internal/index"}
 {"t":"2026-07-25T11:22:15Z","eid":"baa5a02b1789294c","ag":"orchestrator","ev":"move","id":"T-0125","dir":"internal/index","fr":"draft","to":"approved"}
 {"t":"2026-07-25T11:22:15Z","eid":"cf9ee89116854a69","ag":"orchestrator","ev":"move","id":"T-0126","dir":"internal/index","fr":"draft","to":"approved"}
+{"t":"2026-07-25T11:23:06Z","eid":"cf2b2b481a15cd5c","ag":"impl-t0125","ev":"start","id":"T-0125","dir":"internal/index","note":"branch spectackle/T-0125 base 3dd17807c246"}

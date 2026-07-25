@@ -188,3 +188,73 @@ func TestGoParserSyntaxError(t *testing.T) {
 		t.Error("Parse of invalid source: got nil error, want non-nil")
 	}
 }
+
+// gapSrc is the two fixture shapes from the gap-go finding (scratchpad
+// findings/go.md): a package-level closure var whose body calls another
+// same-package func, and an explicit generic instantiation call
+// (Sum[int](...)). Both are edge-only gaps -- the destination nodes always
+// existed, only the call edge into them was missing.
+var gapSrc = []byte(`package shapes
+
+var Multiplier = func(x int) int {
+	return Add(x, x)
+}
+
+func Add(a, b int) int {
+	return a + b
+}
+
+func Sum[T int | float64](vs []T) T {
+	var total T
+	for _, v := range vs {
+		total += v
+	}
+	return total
+}
+
+func Run() int {
+	total := Sum[int]([]int{1, 2, 3})
+	return total + Add(1, 2)
+}
+`)
+
+// TestGoParserClosureVarCallEdges is the first fixture-derived gap: a
+// package-level `var F = func(...) {...}` closure's body must be walked for
+// call edges (attributed to the var's own node), not silently skipped
+// because only *ast.FuncDecl bodies were visited before.
+func TestGoParserClosureVarCallEdges(t *testing.T) {
+	pr, err := (GoParser{}).Parse("shapes/sample.go", gapSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	bySrc := map[graph.NodeID][]graph.Edge{}
+	for _, e := range pr.Edges {
+		bySrc[e.Src] = append(bySrc[e.Src], e)
+	}
+	dsts := edgeDsts(bySrc["go:shapes.Multiplier"])
+	if !dsts["go:shapes.Add"] {
+		t.Errorf("Multiplier edges = %v, want go:shapes.Add present", dsts)
+	}
+}
+
+// TestGoParserGenericInstantiationCallEdges is the second fixture-derived
+// gap: an explicit generic instantiation call site (Sum[int](...)) has
+// call.Fun as an *ast.IndexExpr, not a bare *ast.Ident, and must still
+// resolve to the same destination node a bare Sum(...) call would.
+func TestGoParserGenericInstantiationCallEdges(t *testing.T) {
+	pr, err := (GoParser{}).Parse("shapes/sample.go", gapSrc)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	bySrc := map[graph.NodeID][]graph.Edge{}
+	for _, e := range pr.Edges {
+		bySrc[e.Src] = append(bySrc[e.Src], e)
+	}
+	dsts := edgeDsts(bySrc["go:shapes.Run"])
+	if !dsts["go:shapes.Sum"] {
+		t.Errorf("Run edges = %v, want go:shapes.Sum present", dsts)
+	}
+	if !dsts["go:shapes.Add"] {
+		t.Errorf("Run edges = %v, want go:shapes.Add present", dsts)
+	}
+}

@@ -73,7 +73,7 @@ func (GoParser) Parse(path string, src []byte) (ParseResult, error) {
 						Line: line(s.Pos()), EndLine: line(s.End()),
 					})
 				case *ast.ValueSpec:
-					for _, nm := range s.Names {
+					for i, nm := range s.Names {
 						if nm.Name == "_" {
 							continue
 						}
@@ -82,6 +82,16 @@ func (GoParser) Parse(path string, src []byte) (ParseResult, error) {
 							ID: id, Kind: graph.KVar, Lang: graph.LangGo, File: path,
 							Line: line(nm.Pos()), EndLine: line(s.End()),
 						})
+						// A package-level `var F = func(...) {...}` closure: its
+						// body is otherwise never walked for call edges (only
+						// *ast.FuncDecl bodies were), so attribute any calls
+						// inside the initializer func literal to the var's own
+						// node here.
+						if i < len(s.Values) {
+							if lit, ok := s.Values[i].(*ast.FuncLit); ok {
+								edges = append(edges, callEdges(fset, id, pkg, path, lit.Body)...)
+							}
+						}
 					}
 				}
 			}
@@ -103,8 +113,20 @@ func callEdges(fset *token.FileSet, src graph.NodeID, pkg, path string, body *as
 		if !ok {
 			return true
 		}
+		// Explicit generic instantiation (Foo[T](args) / Foo[T, U](args)) wraps
+		// the callee in an *ast.IndexExpr/*ast.IndexListExpr; unwrap to the
+		// underlying callee expression before the usual Ident/SelectorExpr
+		// switch. Implicit instantiation (bare Foo(args), inferred type args)
+		// never wraps call.Fun and is unaffected.
+		fnExpr := call.Fun
+		switch idx := fnExpr.(type) {
+		case *ast.IndexExpr:
+			fnExpr = idx.X
+		case *ast.IndexListExpr:
+			fnExpr = idx.X
+		}
 		var dst graph.NodeID
-		switch fn := call.Fun.(type) {
+		switch fn := fnExpr.(type) {
 		case *ast.Ident:
 			dst = graph.NodeID(ids.Mint("go", pkg+"."+fn.Name))
 		case *ast.SelectorExpr:
