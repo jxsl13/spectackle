@@ -138,3 +138,10 @@ TESTS: scripted and httptest — reopen flips ready back to draft and the record
 VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
 SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
 ROLLBACK: additive method and one call site.
+
+## B-01KYDQTEJWET2TGATS5207AJCJ expand-built refusals bypassed the IsError sweep and exited zero
+kind: bug
+state: draft
+created: 2026-07-25
+
+Found by the benchmark harness on its first run and fixed inside T-01KYDP's pull request: the B-01KYD4H sweep converted every refusal returned as a text literal, but the refusals COMPOSED in helpers — the prefix-ambiguity refusal from expand, and the two pattern refusals in editPattern — were built through textResult and returned via plumbing, so they carried no IsError and exited zero. The harness driver keyed its agent-realistic ambiguity retry on the exit code and never saw the refusal at all, which is precisely how a scripted agent in the field would have missed it. Fixed by a refuseResult constructor beside textResult; the residual lesson is recorded in that constructor's comment: a sweep by return-site literal misses refusals born elsewhere, so any NEW composed refusal must use refuseResult.

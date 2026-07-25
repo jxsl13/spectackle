@@ -222,8 +222,26 @@ func stateRulesSection(c *spec.Cascade, path string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "ok rules total=%d dirs=%d findings=%d\n", total, len(files), len(findings))
+	// Per-dir lines only for dirs that carry FINDINGS — the exceptional case
+	// an agent must act on. The healthy inventory used to be listed in full
+	// (eighteen lines, about five hundred bytes on this repository, on EVERY
+	// state call) and is exactly what `get <dir>` answers on demand; the
+	// benchmark showed state to be the most expensive read on the surface,
+	// and this inventory was its least actionable part. A/B-proven under
+	// T-01KYDQ: fewer bytes at equal validity.
+	dirty := map[string]bool{}
+	for _, f := range findings {
+		// a finding's File is <dir>/.spectackle/spec.md; the context dir is
+		// what precedes the bundle path (root when nothing does).
+		d := strings.TrimSuffix(f.File, "spec.md")
+		d = strings.TrimSuffix(d, ".spectackle/")
+		d = strings.TrimSuffix(d, "/")
+		dirty[d] = true
+	}
 	for _, sf := range files {
-		fmt.Fprintf(&b, "ok dir %s rules=%d\n", orDot(sf.Dir), len(sf.Rules))
+		if dirty[sf.Dir] {
+			fmt.Fprintf(&b, "ok dir %s rules=%d\n", orDot(sf.Dir), len(sf.Rules))
+		}
 	}
 	for _, f := range findings {
 		b.WriteString(f.String() + "\n")

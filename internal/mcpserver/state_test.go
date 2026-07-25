@@ -237,3 +237,34 @@ func writeFile(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestStateRulesInventoryCollapses (T-01KYDQ): healthy dirs live in the
+// summary line only; a per-dir line appears exactly where findings exist —
+// the case an agent must act on. The full inventory cost ~500B per state
+// call on a mid-sized repo and answered a question nobody asked from state;
+// A/B-proven and real-repo-measured at -702B per call at equal validity.
+func TestStateRulesInventoryCollapses(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRootWithPrompts(t, root)
+	// root: a lint-clean rule — its dir must NOT be listed.
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "stem": "CLP-API", "pattern": "U",
+		"system": "collapser", "response": "terminate with exit code 0",
+	})
+	// sub: a rule whose response names nothing verifiable — W001, so its dir
+	// carries a finding and MUST be listed.
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "sub", "stem": "CLP-SUB", "pattern": "U",
+		"system": "collapser", "response": "behave nicely",
+	})
+	out := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(out, "ok rules total=2 dirs=2 findings=1") {
+		t.Fatalf("summary line wrong: %q", out)
+	}
+	if strings.Contains(out, "ok dir . ") {
+		t.Fatalf("healthy dir still listed: %q", out)
+	}
+	if !strings.Contains(out, "ok dir sub rules=1") {
+		t.Fatalf("finding dir not listed: %q", out)
+	}
+}
