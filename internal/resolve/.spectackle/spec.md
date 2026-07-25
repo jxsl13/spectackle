@@ -1,11 +1,11 @@
 ---
-schema: v0
+schema: v1
 ---
 
 ## intent
-- P-0008 CUDA chain live: CudaParser + launch edges - saxpy triple-hop reproduces: cuda chain live: CudaParser + launch edges, saxpy triple-hop reproduces
-- T-0099 VulkanResolver: module-provenance line scanner + graph-lookup ELaunch edges: VulkanResolver complete. The first implementer died leaving vulkan.go non-compiling (unused variable) and no test file at all; the continuation removed the dead variable, added six tests and found no contradiction with RSV-001/003/004. Resolver contributes zero edges on this repo, which has no Vulkan host code.
-- P-0069 M6 Vulkan host-binding resolver: SPIR-V module provenance -> ELaunch edges: delivered by T-0099. Last open M6 resolver.
+- P-01KY8ZHMMRE0RBJQMTA4PH5WDB CUDA chain live: CudaParser + launch edges - saxpy triple-hop reproduces: cuda chain live: CudaParser + launch edges, saxpy triple-hop reproduces
+- T-01KYAWGR68FRNB4Z6S6K2J6VBP VulkanResolver: module-provenance line scanner + graph-lookup ELaunch edges: VulkanResolver complete. The first implementer died leaving vulkan.go non-compiling (unused variable) and no test file at all; the continuation removed the dead variable, added six tests and found no contradiction with RSV-001/003/004. Resolver contributes zero edges on this repo, which has no Vulkan host code.
+- P-01KYAWDTE8FPXSMZRV5M0D7GD2 M6 Vulkan host-binding resolver: SPIR-V module provenance -> ELaunch edges: delivered by T-01KYAWGR68FRNB4Z6S6K2J6VBP. Last open M6 resolver.
 
 ## RSV-001 {applies: go:resolve.Default}
 The Binding resolvers SHALL only add cross-language edges between nodes the parsers minted — `resolve.BindingResolver` implementations never mint `graph.Node` values and never mutate parser-owned fields.

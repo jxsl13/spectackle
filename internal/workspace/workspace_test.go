@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jxsl13/spectackle/internal/migrate"
 )
 
 func TestDetect(t *testing.T) {
@@ -21,8 +23,8 @@ func TestDetect(t *testing.T) {
 	}
 
 	// marker: config.yaml at root, nested .spectackle must NOT win
-	mk(".spectackle/config.yaml", "schema: v0\n")
-	mk("sub/deep/.spectackle/spec.md", "---\nschema: v0\n---\n")
+	mk(".spectackle/config.yaml", "schema: v1\n")
+	mk("sub/deep/.spectackle/spec.md", "---\nschema: v1\n---\n")
 
 	ws, err := Detect(filepath.Join(root, "sub", "deep"), "")
 	if err != nil {
@@ -73,10 +75,10 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 	if err := ws.EnsureScaffold("gpu/kernels"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(ws.WorkPath("gpu/kernels"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(ws.WorkPath("gpu/kernels"), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(ws.SpecPath(""), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(ws.SpecPath(""), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ctxs, err := ws.ContextDirs()
@@ -103,7 +105,7 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 	if err := os.MkdirAll(gitFileBundle, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(gitFileBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(gitFileBundle, "spec.md"), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "tmp", "worktrees", "x", ".git"),
@@ -124,7 +126,7 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 	if err := os.MkdirAll(gitDirBundle, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(gitDirBundle, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(gitDirBundle, "spec.md"), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "vendored-repo", ".git"), 0o755); err != nil {
@@ -178,7 +180,7 @@ func TestSkipDirConfigIgnore(t *testing.T) {
 		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(p, "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(p, "spec.md"), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,7 +214,7 @@ func TestFeedbackConfigDefaults(t *testing.T) {
 
 	// explicit feedback.max_rounds: 0 (zero-block) still defaults to 3
 	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
-		[]byte("schema: v0\nfeedback:\n  max_rounds: 0\n"), 0o644); err != nil {
+		[]byte("schema: v1\nfeedback:\n  max_rounds: 0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ws2, err := Detect(root, root)
@@ -225,7 +227,7 @@ func TestFeedbackConfigDefaults(t *testing.T) {
 
 	// explicit non-zero value and grill command are respected
 	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
-		[]byte("schema: v0\nfeedback:\n  max_rounds: 5\n  grill: \"go vet ./...\"\n"), 0o644); err != nil {
+		[]byte("schema: v1\nfeedback:\n  max_rounds: 5\n  grill: \"go vet ./...\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ws3, err := Detect(root, root)
@@ -262,7 +264,7 @@ func TestCompactConfigDefaults(t *testing.T) {
 
 	// explicit compact.journal_max: 0 (zero-block) still defaults to 300
 	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
-		[]byte("schema: v0\ncompact:\n  journal_max: 0\n"), 0o644); err != nil {
+		[]byte("schema: v1\ncompact:\n  journal_max: 0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ws2, err := Detect(root, root)
@@ -275,7 +277,7 @@ func TestCompactConfigDefaults(t *testing.T) {
 
 	// explicit non-zero value is respected
 	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
-		[]byte("schema: v0\ncompact:\n  journal_max: 42\n"), 0o644); err != nil {
+		[]byte("schema: v1\ncompact:\n  journal_max: 42\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ws3, err := Detect(root, root)
@@ -381,7 +383,7 @@ func TestEnsureScaffoldNeverRewritesExistingConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	custom := "schema: v0\nlangs: [rust]\ncompact:\n  journal_max: 77\n"
+	custom := "schema: v1\nlangs: [rust]\ncompact:\n  journal_max: 77\n"
 	cfgPath := filepath.Join(root, Dot, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(custom), 0o644); err != nil {
 		t.Fatal(err)
@@ -398,5 +400,22 @@ func TestEnsureScaffoldNeverRewritesExistingConfig(t *testing.T) {
 	}
 	if string(raw) != custom {
 		t.Fatalf("EnsureScaffold rewrote an existing config.yaml:\ngot:  %q\nwant: %q", raw, custom)
+	}
+}
+
+// TestSchemaStampMatchesMigrationTarget pins the two constants together.
+// SchemaStamp says what the server writes; migrate.To says what the migration
+// produces. If they drift apart, every freshly written file is stamped with
+// something the migration never emits — so a workspace would either be migrated
+// in a loop or refused outright, depending on which way the drift went. Bumping
+// the stamp therefore means bumping the migration, and this is the assertion
+// that makes that non-optional.
+func TestSchemaStampMatchesMigrationTarget(t *testing.T) {
+	if SchemaStamp != migrate.To {
+		t.Fatalf("SchemaStamp = %q but migrate.To = %q — bump both, and add the migration step between them",
+			SchemaStamp, migrate.To)
+	}
+	if migrate.From == migrate.To {
+		t.Fatalf("migrate.From == migrate.To == %q: the migration is a no-op", migrate.To)
 	}
 }

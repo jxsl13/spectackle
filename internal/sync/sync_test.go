@@ -19,7 +19,7 @@ func scaffold(t *testing.T) (workspace.Root, *Scanner) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(ws.SpecPath(""), []byte(`---
-schema: v0
+schema: v1
 prefix: TST
 ---
 ## intent
@@ -34,7 +34,7 @@ The scanner SHALL treat specoldmarker content as the freshness authority.
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(ws.WorkPath(""), []byte(`---
-schema: v0
+schema: v1
 ---
 
 ## P-0001 make sync observable
@@ -111,7 +111,7 @@ func TestNestedContextIndexed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(ws.SpectackleDir("gpu"), "spec.md"), []byte(`---
-schema: v0
+schema: v1
 ---
 ## GPU-KRN-001
 The kernel SHALL guard bounds with an explicit check of i against n.

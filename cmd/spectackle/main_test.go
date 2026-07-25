@@ -270,13 +270,13 @@ func writeSpec(t *testing.T, root, content string) {
 
 func TestLintExitCodes(t *testing.T) {
 	clean := t.TempDir()
-	writeSpec(t, clean, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool SHALL exit with code 0 on clean specs.\n")
+	writeSpec(t, clean, "---\nschema: v1\n---\n## TST-ARC-001\nThe tool SHALL exit with code 0 on clean specs.\n")
 	if code := lint([]string{clean}); code != 0 {
 		t.Fatalf("clean tree: lint = %d, want 0", code)
 	}
 
 	dirty := t.TempDir()
-	writeSpec(t, dirty, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool should handle things appropriately.\n")
+	writeSpec(t, dirty, "---\nschema: v1\n---\n## TST-ARC-001\nThe tool should handle things appropriately.\n")
 	if code := lint([]string{dirty}); code != 1 {
 		t.Fatalf("dirty tree: lint = %d, want 1", code)
 	}
@@ -284,7 +284,7 @@ func TestLintExitCodes(t *testing.T) {
 
 func TestReindexExitCode(t *testing.T) {
 	root := t.TempDir()
-	writeSpec(t, root, "---\nschema: v0\n---\n")
+	writeSpec(t, root, "---\nschema: v1\n---\n")
 	if code := reindex([]string{"-root", root}); code != 0 {
 		t.Fatalf("reindex = %d, want 0", code)
 	}
@@ -305,7 +305,7 @@ func TestReindexExitCode(t *testing.T) {
 // confirm reindex actually ran.
 func TestReindexBuildsSymbolGraph(t *testing.T) {
 	root := t.TempDir()
-	writeSpec(t, root, "---\nschema: v0\n---\n")
+	writeSpec(t, root, "---\nschema: v1\n---\n")
 	src := "package pkg\n\nfunc A() int {\n\treturn B()\n}\n\nfunc B() int {\n\treturn 1\n}\n"
 	if err := os.WriteFile(filepath.Join(root, "f.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestRunDispatch(t *testing.T) {
 	// Test lint with clean and dirty specs
 	t.Run("lint clean", func(t *testing.T) {
 		clean := t.TempDir()
-		writeSpec(t, clean, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool SHALL exit with code 0 on clean specs.\n")
+		writeSpec(t, clean, "---\nschema: v1\n---\n## TST-ARC-001\nThe tool SHALL exit with code 0 on clean specs.\n")
 		code := run([]string{"lint", clean})
 		if code != 0 {
 			t.Errorf("run([lint, cleanDir]) = %d, want 0", code)
@@ -375,7 +375,7 @@ func TestRunDispatch(t *testing.T) {
 
 	t.Run("lint dirty", func(t *testing.T) {
 		dirty := t.TempDir()
-		writeSpec(t, dirty, "---\nschema: v0\n---\n## TST-ARC-001\nThe tool should handle things appropriately.\n")
+		writeSpec(t, dirty, "---\nschema: v1\n---\n## TST-ARC-001\nThe tool should handle things appropriately.\n")
 		code := run([]string{"lint", dirty})
 		if code != 1 {
 			t.Errorf("run([lint, dirtyDir]) = %d, want 1", code)

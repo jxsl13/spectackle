@@ -209,7 +209,7 @@ func TestLintFile(t *testing.T) {
 
 	// a file with a valid rule + a vague (invalid) one: at least one Error
 	mixed := filepath.Join(dir, "mixed.md")
-	if err := os.WriteFile(mixed, []byte("---\nschema: v0\nprefix: A\n---\n## A-001\nThe system SHALL log to `stderr` only.\n\n## A-002\nhandle errors appropriately.\n"), 0o644); err != nil {
+	if err := os.WriteFile(mixed, []byte("---\nschema: v1\nprefix: A\n---\n## A-001\nThe system SHALL log to `stderr` only.\n\n## A-002\nhandle errors appropriately.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fs, err := LintFile(mixed)
@@ -222,7 +222,7 @@ func TestLintFile(t *testing.T) {
 
 	// a file with only the valid rule: no Error findings
 	clean := filepath.Join(dir, "clean.md")
-	if err := os.WriteFile(clean, []byte("---\nschema: v0\nprefix: A\n---\n## A-001\nThe system SHALL log to `stderr` only.\n"), 0o644); err != nil {
+	if err := os.WriteFile(clean, []byte("---\nschema: v1\nprefix: A\n---\n## A-001\nThe system SHALL log to `stderr` only.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fs, err = LintFile(clean)

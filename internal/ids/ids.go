@@ -33,6 +33,7 @@ package ids
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -163,6 +164,40 @@ func MintRecordIDAt(ts time.Time) RecordID {
 		// minting a predictable ID would be worse than stopping.
 		panic("ids: crypto/rand failed: " + err.Error())
 	}
+	id[6] = id[6]&0x0f | 0x70 // version 7
+	id[8] = id[8]&0x3f | 0x80 // variant 10
+	return id
+}
+
+// MintRecordIDFrom mints a record ID stamped with ts whose 74 random bits are
+// derived from seed rather than drawn from the system entropy source, so the
+// same (ts, seed) pair always produces the same ID. The result is a
+// well-formed UUIDv7 — same layout, same version and variant markers, same
+// ordering guarantees — and is indistinguishable from a randomly minted one
+// to every reader.
+//
+// It exists for the schema migration, which has a hard determinism
+// requirement: the same input workspace must migrate to the same IDs on any
+// machine, so a second clone migrating the same committed records converges
+// instead of minting a divergent set that then collides on merge. Journal
+// timestamps are truncated to the second, so a timestamp alone is nowhere
+// near unique — the seed (the record's legacy ID) is what separates records
+// created in the same second.
+//
+// Do NOT use it for ordinary minting. Its uniqueness is only as good as the
+// seed's, whereas MintRecordID's rests on 74 bits of entropy and needs no
+// coordination or care from the caller.
+func MintRecordIDFrom(ts time.Time, seed string) RecordID {
+	sum := sha256.Sum256([]byte(seed))
+	var id RecordID
+	ms := uint64(ts.UnixMilli())
+	id[0] = byte(ms >> 40)
+	id[1] = byte(ms >> 32)
+	id[2] = byte(ms >> 24)
+	id[3] = byte(ms >> 16)
+	id[4] = byte(ms >> 8)
+	id[5] = byte(ms)
+	copy(id[6:], sum[:10])
 	id[6] = id[6]&0x0f | 0x70 // version 7
 	id[8] = id[8]&0x3f | 0x80 // variant 10
 	return id

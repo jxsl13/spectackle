@@ -20,7 +20,7 @@ func buildExtractTree(t *testing.T) string {
 	root := t.TempDir()
 	files := map[string]string{
 		".spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GLB
 ---
 ## intent
@@ -33,7 +33,7 @@ Root notes prose, verbatim too — every whitelisted prose section travels, not 
 The system SHALL log to ` + "`stderr`" + ` only.
 `,
 		"gpu/.spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GPU
 ---
 ## GPU-KRN-001 {applies: cu:pkg.kernel,cu:pkg.other}

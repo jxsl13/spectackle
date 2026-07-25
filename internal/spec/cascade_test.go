@@ -13,7 +13,7 @@ func buildTree(t *testing.T) string {
 	root := t.TempDir()
 	files := map[string]string{
 		".spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GLB
 ---
 ## GLB-ARC-001
@@ -23,7 +23,7 @@ The system SHALL log to ` + "`stderr`" + ` only.
 The repository SHALL keep every exported symbol documented in doc.go files.
 `,
 		"gpu/.spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GPU
 overrides: [ROOT-STY-001]
 ---
@@ -31,7 +31,7 @@ overrides: [ROOT-STY-001]
 WHEN a kernel is launched, the wrapper SHALL check cudaGetLastError.
 `,
 		"gpu/metal/.spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: MTL
 scope: ["*.metal"]
 ---
@@ -97,14 +97,14 @@ func TestForNode(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		".spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GLB
 ---
 ## GLB-ARC-001
 The system SHALL log to ` + "`stderr`" + ` only.
 `,
 		"gpu/.spectackle/spec.md": `---
-schema: v0
+schema: v1
 prefix: GPU
 ---
 ## GPU-KRN-001 {applies: cu:pkg.kernel}
@@ -156,7 +156,7 @@ func TestLoadSkipsNestedGitWorktree(t *testing.T) {
 	root := buildTree(t)
 
 	dup := `---
-schema: v0
+schema: v1
 prefix: GLB
 ---
 ## GLB-ARC-001
@@ -220,7 +220,7 @@ func TestLoadHonorsConfigIgnore(t *testing.T) {
 	root := buildTree(t)
 
 	dup := `---
-schema: v0
+schema: v1
 prefix: GLB
 ---
 ## GLB-ARC-001
@@ -240,7 +240,7 @@ The system SHALL log to ` + "`stderr`" + ` only.
 	if err := os.WriteFile(filepath.Join(regexBundle, "spec.md"), []byte(dup), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := "schema: v0\nignore: [\"generated/**\"]\nignore_regex: [\"^vendor-[a-z]+$\"]\n"
+	cfg := "schema: v1\nignore: [\"generated/**\"]\nignore_regex: [\"^vendor-[a-z]+$\"]\n"
 	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/jxsl13/spectackle/internal/migrate"
 )
 
 // Dot is the folder name every server write is confined to.
@@ -24,9 +26,19 @@ const Dot = ".spectackle"
 
 // SchemaStamp is injected into every server-written file's frontmatter.
 // It marks the file format of a pre-1.0 codebase: the format may break at any
-// time, the stamp changes with it, and there is no migration — an unknown
-// stamp is a tool error ("regenerate"), caches simply rebuild.
-const SchemaStamp = "v0"
+// time and the stamp changes with it.
+//
+// An unknown stamp is still a tool error ("regenerate"), and caches still
+// simply rebuild — but "there is no migration" no longer holds unconditionally:
+// the immediately-preceding stamp is migrated in place on open (see
+// internal/migrate, and the hook in load below). That exception exists because
+// ADR-0013 changed the shape of every record ID, which reaches every workspace
+// already in users' hands; without a path forward the only honest advice would
+// have been to regenerate and lose the history.
+//
+// Its value is the one internal/migrate produces (migrate.To), and that is
+// asserted by a test rather than left to whoever edits this line next.
+const SchemaStamp = "v1"
 
 // Config is .spectackle/config.yaml (root only).
 type Config struct {
@@ -121,6 +133,24 @@ func walkUp(start string, ok func(string) bool) (string, bool) {
 }
 
 func load(dir string) (Root, error) {
+	// The schema migration hooks in here, and not in Detect, because this is
+	// the one function every workspace open funnels through: Detect for the
+	// server, LoadRoot for spec.Load's own root. Hooking Detect alone would
+	// leave spec.Load able to observe an unmigrated cascade, and hooking
+	// anything higher is impossible — the stamp check below is what refuses
+	// the workspace, so the migration has to run before a Root exists at all.
+	//
+	// It runs to completion before this function returns a Root, so no reader
+	// can see a half-migrated workspace. Needed() keeps the already-current
+	// path down to a Stat and up to three small reads (see its comment): this
+	// is a hot path.
+	if need, err := migrate.Needed(dir); err != nil {
+		return Root{}, err
+	} else if need {
+		if _, err := migrate.Run(dir); err != nil {
+			return Root{}, fmt.Errorf("workspace: schema migration: %w", err)
+		}
+	}
 	r := Root{Dir: dir, Cfg: defaultConfig()}
 	raw, err := os.ReadFile(filepath.Join(dir, Dot, "config.yaml"))
 	if os.IsNotExist(err) {

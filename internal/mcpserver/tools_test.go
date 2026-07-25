@@ -753,7 +753,7 @@ func TestCompactKeepsRejections(t *testing.T) {
 
 	// force the fold threshold down via config
 	cfg := filepath.Join(root, ".spectackle", "config.yaml")
-	if err := os.WriteFile(cfg, []byte("schema: v0\ncompact:\n  journal_max: 2\n  done_max: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfg, []byte("schema: v1\ncompact:\n  journal_max: 2\n  done_max: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	sess2 := connectRoot(t, root) // fresh server picks up the config

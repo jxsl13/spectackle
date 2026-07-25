@@ -1,5 +1,5 @@
 ---
-schema: v0
+schema: v1
 ---
 
 ## B-01KYD1G9RAEHWTK3SW3ZH3YFWS the stale-binary hint fires on released and packaged binaries, where its advice cannot be followed
@@ -8,7 +8,7 @@ state: draft
 created: 2026-07-25
 targets: internal/mcpserver/swarm.go
 
-GitHub issue 29. This is a defect in the MCP-010 hint shipped by T-0115, found by field use of the released binary rather than by the development checkout it was built and tested in.
+GitHub issue 29. This is a defect in the MCP-010 hint shipped by T-01KYB2318RFFGV6NA9WBWABMYB, found by field use of the released binary rather than by the development checkout it was built and tested in.
 
 OBSERVED: every tool call prepends the hint naming make dev, including on a freshly installed release binary in a repository that contains no Makefile at all. The advice is unfollowable for anyone who installed spectackle rather than building it. It fires on every tool without exception.
 

@@ -47,9 +47,9 @@ func TestCommitCodeExcludesSpectackle(t *testing.T) {
 	// code change + .spectackle change side by side
 	os.WriteFile(filepath.Join(root, "b.go"), []byte("package a\n"), 0o644)
 	os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755)
-	os.WriteFile(filepath.Join(root, ".spectackle", "work.md"), []byte("---\nschema: v0\n---\n"), 0o644)
+	os.WriteFile(filepath.Join(root, ".spectackle", "work.md"), []byte("---\nschema: v1\n---\n"), 0o644)
 	os.MkdirAll(filepath.Join(root, "sub", ".spectackle"), 0o755)
-	os.WriteFile(filepath.Join(root, "sub", ".spectackle", "spec.md"), []byte("---\nschema: v0\n---\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "sub", ".spectackle", "spec.md"), []byte("---\nschema: v1\n---\n"), 0o644)
 
 	committed, err := CommitCode(root, "code only")
 	if err != nil || !committed {

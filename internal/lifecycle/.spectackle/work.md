@@ -1,3 +1,3 @@
 ---
-schema: v0
+schema: v1
 ---
