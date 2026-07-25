@@ -121,3 +121,5 @@
 {"t":"2026-07-25T13:45:07Z","eid":"b3dcf9296fcd1e3b","ag":"ag-8882","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
 {"t":"2026-07-25T13:47:20Z","eid":"2350c55d1185bc25","ag":"impl-t0124","ev":"submit","id":"T-0124","dir":"internal/langspec","note":"branch spectackle/T-0124: 2 events, 0 rules, 1 items replayed"}
 {"t":"2026-07-25T13:47:25Z","eid":"74e1a2052ab8894e","ag":"impl-t0124","ev":"move","id":"T-0124","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-25T14:08:22Z","eid":"f0707aca0271aace","ag":"ag-3124","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
+{"t":"2026-07-25T14:10:17Z","eid":"fd1c2f612b621fd9","ag":"orchestrator","ev":"drift","dir":"internal/langspec","rule":"LSP-001","node":"go:langspec.SpecParser.Parse","cls":"healed","oh":"9d75c54393e44e0b","nh":"c264bdd9a82ce415"}
