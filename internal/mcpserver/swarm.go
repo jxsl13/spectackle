@@ -52,7 +52,34 @@ func (s *Server) preCall() error {
 			return err
 		}
 	}
+	return s.refreshLocked()
+}
+
+// refreshLocked is the part of preCall that every entry point needs, tool or
+// not: drop the memoized ID scope and bring the index up to date. Prompt
+// handlers bypass gate() and take s.mu themselves (see prompts.go), so they
+// call this instead of s.scan.Refresh directly.
+//
+// Dropping the scope here covers the case markDirty cannot see: a SIBLING
+// process writing work.md between two of our calls. Our own writes invalidate
+// it at the write itself.
+func (s *Server) refreshLocked() error {
+	s.scCache = nil
 	return s.scan.Refresh()
+}
+
+// markDirty records that this call changed the workspace: the index needs a
+// rescan, and the memoized ID scope is now stale.
+//
+// Invalidating at the write rather than at the call boundary is what makes
+// the memo safe for the handlers that call each other directly instead of
+// going through gate() — the grill/draft tests do, and so does every future
+// composite handler. A scope value already pulled into a local variable is a
+// copy and survives this untouched, which is what draft and move rely on to
+// render a just-minted ID against the peer set as it was before the mint.
+func (s *Server) markDirty() {
+	s.scCache = nil
+	s.scan.MarkDirty()
 }
 
 // postCall prepends unseen sibling learnings (sw records) and a proactive
@@ -480,7 +507,14 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 	}
-	return text(fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit", id, root))
+	// The ID is emitted in display form like every other record ID; the root
+	// path beside it necessarily still carries the full one, since that is
+	// the directory actually on disk.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit", sc.short(id), root))
 }
 
 func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
@@ -503,7 +537,12 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	// gate stays unrun (it would only pile up more rounds against a budget
 	// that is already exhausted)
 	if it.State == item.StateBlocked {
-		return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s", it.ID, it.Rounds, s.maxRounds(), lastNeed(it.Needs)))
+		sc, err := s.idScope()
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s",
+			sc.short(it.ID), it.Rounds, s.maxRounds(), sc.short(lastNeed(it.Needs))))
 	}
 
 	// GATE 1: verify + goal on the worktree tree
@@ -622,7 +661,11 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	_ = s.cd.Emit("abort", id, "worktree abandoned")
-	return text("ok " + id + " aborted; item back to approved")
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text("ok " + sc.short(id) + " aborted; item back to approved")
 }
 
 // runGate executes the configured verify commands plus the item goal in the
@@ -679,7 +722,7 @@ func (s *Server) gateFail(it item.Item, gateMsg string) (*mcp.CallToolResult, an
 	}); err != nil {
 		return nil, nil, err
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
 	if it.Rounds < max {
 		return text(gateMsg)
 	}
@@ -688,7 +731,12 @@ func (s *Server) gateFail(it item.Item, gateMsg string) (*mcp.CallToolResult, an
 		return nil, nil, err
 	}
 	_ = s.cd.Emit("escalate", blocked.ID, "gate rounds exhausted -> "+d.ID)
-	return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s", blocked.ID, blocked.Rounds, max, d.ID))
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s",
+		sc.short(blocked.ID), blocked.Rounds, max, sc.short(d.ID)))
 }
 
 // lastNeed mirrors lifecycle's unexported lastNeed (package-private there

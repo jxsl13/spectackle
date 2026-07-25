@@ -154,6 +154,20 @@ func textResult(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }
 
+// resultText unwraps a textResult back to its string, for the prompt handlers
+// (see prompts.go): they share the tool path's ID-expansion helpers, which
+// hand refusals back as tool results, but prompts have their own result type.
+func resultText(res *mcp.CallToolResult) string {
+	if res == nil || len(res.Content) == 0 {
+		return ""
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return ""
+	}
+	return tc.Text
+}
+
 // gate serializes the handler (the SDK dispatches tool calls concurrently,
 // but lifecycle writes are read-modify-write over shared files), runs the
 // swarm bookkeeping + debounced cache sync before it, and piggybacks unseen
@@ -564,9 +578,13 @@ func (s *Server) getPath(p string, tokBudget, offset int) (*mcp.CallToolResult, 
 		if err != nil {
 			return nil, nil, err
 		}
+		sc, err := s.idScope()
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, it := range items {
 			if p == "" || it.Dir == p || strings.HasPrefix(it.Dir, p+"/") {
-				lines = append(lines, item.Record(it))
+				lines = append(lines, sc.record(it))
 			}
 		}
 	}
@@ -644,9 +662,22 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
+	// Re-derive the scope AFTER the write instead of reusing the one the
+	// argument expansion above was done against. sc predates the mint, and on
+	// a shared workspace it also predates whatever a sibling server committed
+	// while this call was running — shortening against it can hand back a
+	// prefix that is already ambiguous on disk. markDirty dropped the memo,
+	// so this reads the current set. (Found by TestTwoServersMintUniqueIDs:
+	// sixteen concurrent drafts through two servers, all minted in the same
+	// few milliseconds, so their tails agree far past the six-character
+	// floor.)
+	sc, err = s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	var b strings.Builder
-	b.WriteString(item.Record(it) + "\n")
+	b.WriteString(sc.record(it) + "\n")
 	if len(targets) == 0 {
 		return text(b.String())
 	}
@@ -827,18 +858,41 @@ type idScope struct {
 	known []string // ascending, deduped
 }
 
-// idScope assembles the known-ID set for the current workspace.
+// idScope assembles the known-ID set for the current workspace, memoized for
+// the rest of this tool call (see Server.scCache).
+//
+// The set is deliberately WIDER than knownRefIDs, which answers a different
+// question — "may a draft cite this?" — and is right to admit only live and
+// archived records. Resolution has to cover every ID a tool can legally be
+// handed, and a rejected item is one of those: rejections leave work.md but
+// stay revocable (move rejected->draft), so their IDs must keep resolving or
+// revocation by prefix refuses an item that demonstrably exists. Found by
+// TestRejectionCorpusAndRevocation, which drives exactly that round trip.
 func (s *Server) idScope() (idScope, error) {
+	if s.scCache != nil {
+		return *s.scCache, nil
+	}
 	known, err := s.knownRefIDs()
 	if err != nil {
 		return idScope{}, err
+	}
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return idScope{}, err
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvReject {
+			known[e.ID] = true
+		}
 	}
 	out := make([]string, 0, len(known))
 	for k := range known {
 		out = append(out, k)
 	}
 	sort.Strings(out)
-	return idScope{known: out}, nil
+	sc := idScope{known: out}
+	s.scCache = &sc
+	return sc, nil
 }
 
 // expand resolves one item-ID argument. The three outcomes are the three
@@ -1082,7 +1136,7 @@ func elicitSlots(ctx context.Context, req *mcp.CallToolRequest, in *ruleIn, miss
 }
 
 func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
-	defer s.scan.MarkDirty()
+	defer s.markDirty()
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -1299,16 +1353,25 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, eErr
 			}
 			_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
-			s.scan.MarkDirty()
+			s.markDirty()
+			// fresh scope: dec was just minted, and the same staleness that
+			// bites draft bites here (see the comment there).
+			if sc, err = s.idScope(); err != nil {
+				return nil, nil, err
+			}
+			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
 			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
-				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
+				bShort, blocked.Kind, orDot(blocked.Dir), blocked.Title, bShort, dShort))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per
 			// offending anchor) — return it verbatim as the tool result,
 			// not wrapped in another "! ARG E -" prefix that would corrupt
-			// the record grammar callers parse.
-			return text(err.Error() + "\n")
+			// the record grammar callers parse. Only the ID is swapped for
+			// its display form: lifecycle composes the refusal and knows
+			// nothing about prefixes, but what reaches the caller has to be
+			// the same ID vocabulary as every other record on the surface.
+			return text(strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)) + "\n")
 		}
 		return text("! ARG E - " + err.Error())
 	}
@@ -1316,7 +1379,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		// dual-write: the rejection reaches siblings before any merge
 		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
 	return text(warns + sc.record(it) + "\n")
 }
 
@@ -1452,6 +1515,9 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	seen := map[string]string{}
 	for _, it := range items {
 		if prev, dup := seen[it.ID]; dup {
+			// the full ID, deliberately: a duplicate means two records claim
+			// one ID, and the operator has to see exactly which string that
+			// is, not a prefix that resolves ambiguously by construction.
 			lines = append(lines, fmt.Sprintf("! E101 E %s duplicate item ID %s (also in %s)", orDot(it.Dir), it.ID, orDot(prev)))
 		}
 		seen[it.ID] = it.Dir
@@ -1812,7 +1878,7 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
 		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
 	}
-	defer s.scan.MarkDirty()
+	defer s.markDirty()
 	var b strings.Builder
 	cands := s.compactCandidates(in.Path)
 	cands = append(cands, s.mergeCandidates(in.Path)...)
@@ -1832,8 +1898,12 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	for _, c := range cands {
 		b.WriteString(c + "\n")
 	}
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, it := range doneItems {
-		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), it.ID, it.Title)
+		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), sc.short(it.ID), it.Title)
 	}
 	if !in.Apply {
 		b.WriteString("ok dry-run — pass apply=true to execute\n")
@@ -1845,9 +1915,9 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	gateOpts := s.auditGateOpts()
 	for _, it := range doneItems {
 		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
-			fmt.Fprintf(&b, "! SKIP W %s %s\n", it.ID, err.Error())
+			fmt.Fprintf(&b, "! SKIP W %s %s\n", sc.short(it.ID), err.Error())
 		} else {
-			fmt.Fprintf(&b, "ok archived %s\n", it.ID)
+			fmt.Fprintf(&b, "ok archived %s\n", sc.short(it.ID))
 		}
 	}
 	// fold journals over threshold: drop create/move/rule/drift events,

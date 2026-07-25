@@ -300,9 +300,13 @@ func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 	if _, err := lifecycle.Move(s.ws, d.ID, item.StateSubmitted, ""); err != nil {
 		return nil, nil, err
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
 	_ = s.cd.Emit("decide", d.ID, "ask "+commandsQuestion)
-	return text(fmt.Sprintf("need decision %s %s\n", d.ID, commandsQuestion))
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("need decision %s %s\n", sc.short(d.ID), commandsQuestion))
 }
 
 // ---- template rendering + per-dialect writers ----

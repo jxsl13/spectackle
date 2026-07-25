@@ -9,8 +9,26 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 ## Design principles
 
 - **Stable short IDs are the currency**: nodes `go:saxpy.Saxpy`, rules
-  `CUDA-KRN-001`, items `P-0007`, sections `sec:gpu#intent`. The LLM names
-  concepts, never file paths or contents.
+  `CUDA-KRN-001`, items `P-01KYD3ZQ8MF8`, sections `sec:gpu#intent`. The LLM
+  names concepts, never file paths or contents.
+- **Item IDs are prefixes, everywhere an item ID is taken** (ADR-0013). A
+  record ID is stored in full — the kind letter plus a 26-character
+  UUIDv7 in Crockford base32, which makes it globally unique without
+  coordination and sortable by mint time. Every tool argument that takes an
+  item ID (`get`, `move`, `grill`, `draft`'s `parent`/`refs`, `decide`'s
+  `item`/`id`, `work`, `lease`) accepts **either the full ID or any
+  unambiguous leading piece of it**, and every result **emits** the shortest
+  currently-unambiguous prefix, so an ID copied out of one result is accepted
+  back verbatim by the next call. Three outcomes, never a guess:
+  a prefix matching one record resolves; one matching several refuses with
+  `! ARG E <prefix> ambiguous prefix — N records: …`, naming every candidate
+  so you can disambiguate in one more call; one matching nothing keeps the
+  ordinary `nf` behavior with nearest matches. Two consequences worth
+  knowing: the emitted length is computed per call and **grows** as records
+  accumulate, so a prefix captured early can turn ambiguous later — re-read
+  it from a fresh result, or keep the full ID; and legacy `P-0007`-style
+  sequential IDs stay valid forever, because archived records live on only
+  as journal tombstones addressed by ID.
 - **Few tools, flat params, enums + defaults** (SPX-ARC-004): the common call
   is one or two fields; no nesting, no option floods.
 - **Dense line records, not JSON, in results** (SPX-MCP-002).

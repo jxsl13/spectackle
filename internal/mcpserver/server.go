@@ -142,6 +142,19 @@ type Server struct {
 	staleVerdict   bool
 	staleHinted    bool
 
+	// scCache memoizes the known-record-ID set for the duration of ONE tool
+	// call (see idScope). Assembling it costs an item.LoadAll plus a full
+	// journal pass, and a single handler routinely needs it several times —
+	// once to expand its ID arguments and again for every record it renders
+	// — so recomputing per use would multiply the cost of the two most
+	// expensive reads in the server by the number of IDs in the output.
+	//
+	// Per call and not longer: any write in the call itself (draft mints,
+	// move archives) changes the set, and a scope cached across calls would
+	// shorten an ID against a stale peer list and hand back a prefix that no
+	// longer resolves. preCall clears it; nothing else may.
+	scCache *idScope
+
 	// mu serializes tool calls: the MCP SDK dispatches them concurrently,
 	// but lifecycle writes are read-modify-write over shared files (ID
 	// minting, work.md rewrites) — found the hard way when two concurrent

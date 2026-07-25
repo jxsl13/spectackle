@@ -31,6 +31,14 @@ func draftID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string 
 // given tag. Scanning lines rather than reading the head of the output is
 // deliberate: several tools prepend an `h ...` health hint, and the context
 // pack follows the item record, so the record is not reliably the whole text.
+//
+// It matches idPrefixRe, not item.IDRe: since T-0136 every emitted ID is in
+// the DISPLAY form (the shortest unambiguous prefix), which item.IDRe rejects
+// by design — it is the acceptance test for a complete, storable ID. What
+// this returns is therefore exactly what an agent reading the same output
+// would copy, and every tool must accept it back verbatim. That is the
+// ADR-0013 round-trip property, and letting the whole suite depend on it is
+// worth more than any single test asserting it.
 func idOfRecord(t *testing.T, out, tag string) string {
 	t.Helper()
 	for _, l := range strings.Split(out, "\n") {
@@ -39,13 +47,113 @@ func idOfRecord(t *testing.T, out, tag string) string {
 			continue
 		}
 		for _, tok := range f[1:] {
-			if item.IDRe.MatchString(tok) {
+			if idPrefixRe.MatchString(tok) && !reRuleID.MatchString(tok) {
 				return tok
 			}
 		}
 	}
 	t.Fatalf("no %q record with an item ID in %q", tag, out)
 	return ""
+}
+
+// fullID expands a displayed ID back to the stored one.
+//
+// Tool arguments never need this — accepting the display form is the whole
+// point of T-0136. It exists for assertions that bypass the tool boundary and
+// read the store directly (item.Get, journal events, work.md bytes), where the
+// key is the canonical ID and a prefix simply is not it. A test reaching for
+// this is asserting about persistence; a test asserting about the surface
+// should keep using the displayed form.
+func fullID(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	sc, err := s.idScope()
+	if err != nil {
+		t.Fatalf("idScope: %v", err)
+	}
+	full, bad := sc.expand(id)
+	if bad != nil {
+		t.Fatalf("expand %s: %s", id, resultText(bad))
+	}
+	return full
+}
+
+// draftFullID drafts and immediately resolves the answer to the stored ID.
+//
+// Long tests that mint many records need this. A displayed prefix is unique
+// only against the record set at the instant it was emitted, and a UUIDv7 puts
+// the millisecond clock first, so every record minted in the same ~17-minute
+// window shares the six-character floor — the prefix a test captured up front
+// turns ambiguous a few drafts later. Resolving at capture time, while the
+// display form is still unique, pins the identity for the rest of the test.
+// Full IDs are accepted by every tool, so this changes nothing about what is
+// being exercised except that it stops testing the clock.
+func draftFullID(t *testing.T, s *Server, sess *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	return fullID(t, s, draftID(t, sess, args))
+}
+
+// storedID resolves a displayed ID against a workspace read straight off disk.
+//
+// It exists for the tests that hold only a client session (two-agent and
+// worktree end-to-end setups) and so cannot reach a *Server to call fullID.
+// Live items are enough for those: they resolve records they just drafted.
+func storedID(t *testing.T, root, display string) string {
+	t.Helper()
+	items, err := item.LoadAll(workspace.Root{Dir: root})
+	if err != nil {
+		t.Fatalf("LoadAll(%s): %v", root, err)
+	}
+	var hits []string
+	for _, it := range items {
+		if strings.HasPrefix(it.ID, display) {
+			hits = append(hits, it.ID)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("storedID(%q): %d matches %v", display, len(hits), hits)
+	}
+	return hits[0]
+}
+
+// storedIDAfterDraft drafts through sess and returns the stored ID, for the
+// session-only tests. storedID's counterpart to draftFullID.
+func storedIDAfterDraft(t *testing.T, root string, sess *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	return storedID(t, root, draftID(t, sess, args))
+}
+
+// wantItemRecord asserts out carries an `i` record naming the stored ID want,
+// followed by rest.
+//
+// It compares the record's ID field by prefix instead of matching the whole
+// line as a literal, because the displayed ID's LENGTH is not stable: it grows
+// as sibling records accumulate (see draftFullID). Prefix-matching the field
+// is precise anyway — a displayed ID is only ever a prefix of the record it
+// names.
+func wantItemRecord(t *testing.T, out, want, rest string) {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 || f[0] != "i" || !strings.HasPrefix(want, f[1]) {
+			continue
+		}
+		if strings.Contains(l, rest) {
+			return
+		}
+	}
+	t.Fatalf("no `i` record for %s with %q in %q", want, rest, out)
+}
+
+// shortID renders a stored ID the way the tools emit it, for assertions that
+// hold a canonical ID (out of a Go struct or a seeded fixture) and have to
+// match it against tool output. The inverse direction of fullID.
+func shortID(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	sc, err := s.idScope()
+	if err != nil {
+		t.Fatalf("idScope: %v", err)
+	}
+	return sc.short(id)
 }
 
 // askID calls decide op=ask and returns the ID of the adr item it minted,
@@ -56,7 +164,7 @@ func askID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
 	out := callText(t, sess, "decide", args)
 	for _, l := range strings.Split(out, "\n") {
 		f := strings.Fields(l)
-		if len(f) >= 3 && f[0] == "need" && f[1] == "decision" && item.IDRe.MatchString(f[2]) {
+		if len(f) >= 3 && f[0] == "need" && f[1] == "decision" && idPrefixRe.MatchString(f[2]) {
 			return f[2]
 		}
 	}
@@ -67,6 +175,15 @@ func askID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
 // connectRoot spins up the server over an in-memory transport against a
 // workspace root and returns a live client session.
 func connectRoot(t *testing.T, root string) *mcp.ClientSession {
+	t.Helper()
+	_, sess := connectRootWithServer(t, root)
+	return sess
+}
+
+// connectRootWithServer is connectRoot for tests that also need the *Server —
+// to resolve a displayed ID against the store (fullID/shortID) or to read
+// internal state directly.
+func connectRootWithServer(t *testing.T, root string) (*Server, *mcp.ClientSession) {
 	t.Helper()
 	s, err := New(root)
 	if err != nil {
@@ -85,7 +202,7 @@ func connectRoot(t *testing.T, root string) *mcp.ClientSession {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	return sess
+	return s, sess
 }
 
 func callText(t *testing.T, sess *mcp.ClientSession, name string, args map[string]any) string {
@@ -143,10 +260,11 @@ func TestLifecycleE2E(t *testing.T) {
 		"targets": []string{"gpu/kernels/saxpy.cu", "gpu/saxpy.go"},
 	})
 	f := strings.Fields(out)
-	if len(f) < 2 || f[0] != "i" || !item.IDRe.MatchString(f[1]) {
+	if len(f) < 2 || f[0] != "i" || !idPrefixRe.MatchString(f[1]) {
 		t.Fatalf("draft: %q", out)
 	}
 	prop := f[1]
+	propFull := storedID(t, root, prop)
 	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("draft: %q", out)
 	}
@@ -192,7 +310,9 @@ func TestLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), prop+" strided saxpy access") {
+	// spec.md stores the canonical ID, not the displayed prefix: the intent
+	// line is persisted state, and persisted state is never abbreviated.
+	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), propFull+" strided saxpy access") {
 		t.Fatalf("archive did not merge into intent:\n%s", spec)
 	}
 	// gone from work.md, but never from the referenceable universe: get

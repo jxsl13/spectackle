@@ -108,7 +108,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	_ = s.cd.Emit("grill", it.ID, "grilled "+it.Grilled)
-	s.scan.MarkDirty()
+	s.markDirty()
 
 	lines = append(lines, fmt.Sprintf("ok grilled %s %s", sc.short(it.ID), it.Grilled))
 

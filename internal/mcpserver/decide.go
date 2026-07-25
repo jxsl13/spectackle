@@ -145,7 +145,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 			return nil, nil, err
 		}
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
 	_ = s.cd.Emit("decide", d.ID, "ask "+in.Question)
 
 	props := map[string]any{}
@@ -166,7 +166,13 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	if err == nil && res.Action == "accept" {
 		return s.resolveDecision(d.ID, decideChoiceString(kind, res.Content["choice"]), "")
 	}
-	return text(fmt.Sprintf("need decision %s %s | %s", d.ID, in.Question, strings.Join(opts, ", ")))
+	// the ID an agent copies straight back into decide op=answer, so it is
+	// rendered in the accepted display form like every other emitted ID.
+	sc, scErr := s.idScope()
+	if scErr != nil {
+		return nil, nil, scErr
+	}
+	return text(fmt.Sprintf("need decision %s %s | %s", sc.short(d.ID), in.Question, strings.Join(opts, ", ")))
 }
 
 // decideChoiceString normalizes an elicitation result's "choice" value to
@@ -333,8 +339,12 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 			}
 		}
 	}
-	s.scan.MarkDirty()
-	return text("ok " + id + " " + choice)
+	s.markDirty()
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text("ok " + sc.short(id) + " " + choice)
 }
 
 // blockingItem finds the (at most one) item whose Needs references decisionID.
@@ -369,12 +379,16 @@ func (s *Server) decideLs() (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	var b strings.Builder
 	for _, it := range items {
 		if it.Kind != "adr" || it.State == item.StateDone {
 			continue
 		}
-		b.WriteString(item.Record(it) + "\n")
+		b.WriteString(sc.record(it) + "\n")
 	}
 	if b.Len() == 0 {
 		return text("ok no open decisions")
