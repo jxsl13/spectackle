@@ -119,7 +119,7 @@ ROLLBACK: per-file regex/data changes, individually revertible. REPORT BACK: per
 
 ## T-0124 langspec hardening systems/functional: rust, swift, zig, haskell, ocaml, erlang
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0085
 refs: R-0005, ADR-0012
