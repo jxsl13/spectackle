@@ -1451,7 +1451,15 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			if eErr != nil {
 				return nil, nil, eErr
 			}
-			_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
+			if err := s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID); err != nil {
+				// the escalation happened; what failed is telling the SIBLINGS
+				// about it. That is an error the server cannot fix, so the LLM
+				// hears it (never silent, and never mislabeled as fine).
+				bShort2 := sc.short(blocked.ID)
+				return text(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
+					fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
+						bShort2, blocked.Kind, orDot(blocked.Dir), blocked.Title, bShort2, sc.short(dec.ID)))
+			}
 			s.markDirty()
 			// fresh scope: dec was just minted, and the same staleness that
 			// bites draft bites here (see the comment there).
@@ -1476,7 +1484,12 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	}
 	if in.To == item.StateRejected {
 		// dual-write: the rejection reaches siblings before any merge
-		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
+		if err := s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note); err != nil {
+			// the rejection is recorded; the realtime broadcast to siblings is
+			// what failed, and silently losing it would mean a sibling repeats
+			// exactly the work this rejection exists to prevent.
+			warns += "! COORD E " + sc.short(in.ID) + " reject broadcast failed: " + err.Error() + "\n"
+		}
 	}
 	s.markDirty()
 	// The state transition drove the git workflow (P-01KYDB): branch, commit,

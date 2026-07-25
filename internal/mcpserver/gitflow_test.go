@@ -368,3 +368,26 @@ func TestSharedWaitOneImplementation(t *testing.T) {
 		t.Fatalf("gate polled %d times, report %d — the two loops have drifted", fa.nChecks, fb.nChecks)
 	}
 }
+
+// TestUnrecoverableFailuresAreErrors pins the severity taxonomy (B-01KYDM):
+// a failure that leaves the workflow obligation unmet must reach the LLM as
+// E, not W — an unrecoverable failure labeled warning is an error message
+// received unclearly, which fails the requirement even though the bytes
+// arrive. The one genuine W is verdict-unknown-at-done, where nothing failed.
+func TestUnrecoverableFailuresAreErrors(t *testing.T) {
+	// red at merge: obligation unmet, must be E
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksFailing}}
+	if out := runGate(t, f, time.Second); !strings.Contains(out, "! GIT E") {
+		t.Fatalf("red-at-merge not E severity: %q", out)
+	}
+	// budget spent at merge: obligation unmet, must be E
+	f = &scriptedForge{checks: []forge.CheckState{forge.ChecksPending}}
+	if out := runGate(t, f, 5*time.Millisecond); !strings.Contains(out, "! GIT E") {
+		t.Fatalf("budget-spent-at-merge not E severity: %q", out)
+	}
+	// verdict unknown at done: item is done, nothing failed — stays W
+	f = &scriptedForge{checks: []forge.CheckState{forge.ChecksPending}}
+	if out := runReport(t, f, 5*time.Millisecond); !strings.Contains(out, "! CI W") {
+		t.Fatalf("verdict-unknown-at-done lost its W: %q", out)
+	}
+}
