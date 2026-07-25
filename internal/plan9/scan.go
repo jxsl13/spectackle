@@ -29,8 +29,25 @@ type AsmSym struct {
 
 var (
 	// TEXT ·mulVec(SB), NOSPLIT, $0-56   /   TEXT runtime·memmove(SB), ...
-	reText  = regexp.MustCompile(`^TEXT\s+(?:[\w]+)?·([\w·]+)\(SB\)\s*(?:,\s*[\w|]+)?\s*(?:,\s*(\$[\d-]+))?`)
-	reGlobl = regexp.MustCompile(`^GLOBL\s+(?:[\w]+)?·([\w·]+)\(SB\)`)
+	//
+	// The name alternation covers three symbol-name shapes, tried in this
+	// order (capture groups 1/2/3 respectively; group 4 is the frame size,
+	// TEXT only):
+	//
+	//   1. Quoted, method/receiver-shaped linker symbols, as emitted for
+	//      generated or linkname'd methods: TEXT "".Vector.Add(SB)
+	//   2. The common middle-dot form, optionally package-qualified
+	//      (runtime·memmove) and optionally register-ABI-tagged
+	//      (·addAVX2<ABIInternal>, Go 1.17+). The <...> tag is matched but
+	//      not captured, so it is stripped from the minted name.
+	//   3. File-local/static symbols using the `<>` linker suffix with no
+	//      middle dot at all: TEXT shuffle<>(SB)
+	reText  = regexp.MustCompile(`^TEXT\s+(?:""\.([\w.]+)|(?:[\w]+)?·([\w·]+)(?:<[\w]*>)?|(\w+)<>)\(SB\)\s*(?:,\s*[\w|]+)?\s*(?:,\s*(\$[\d-]+))?`)
+	// GLOBL ·shuffleMask(SB), RODATA, $16   /   GLOBL mask<>(SB), RODATA, $32
+	//
+	// Same two name shapes as reText's groups 2/3 (no quoted-method or
+	// ABI-tag forms apply to data symbols).
+	reGlobl = regexp.MustCompile(`^GLOBL\s+(?:(?:[\w]+)?·([\w·]+)|(\w+)<>)\(SB\)`)
 )
 
 // Scan extracts symbol definitions from Plan 9 asm source.
@@ -39,10 +56,23 @@ func Scan(src []byte) []AsmSym {
 	for i, line := range strings.Split(string(src), "\n") {
 		l := strings.TrimSpace(line)
 		if m := reText.FindStringSubmatch(l); m != nil {
-			syms = append(syms, AsmSym{Name: m[1], Kind: "text", Line: i + 1, Frame: m[2]})
+			name := firstNonEmpty(m[1], m[2], m[3])
+			syms = append(syms, AsmSym{Name: name, Kind: "text", Line: i + 1, Frame: m[4]})
 		} else if m := reGlobl.FindStringSubmatch(l); m != nil {
-			syms = append(syms, AsmSym{Name: m[1], Kind: "globl", Line: i + 1})
+			name := firstNonEmpty(m[1], m[2])
+			syms = append(syms, AsmSym{Name: name, Kind: "globl", Line: i + 1})
 		}
 	}
 	return syms
+}
+
+// firstNonEmpty returns the first non-empty string among an alternation's
+// mutually-exclusive capture groups (at most one is ever populated).
+func firstNonEmpty(ss ...string) string {
+	for _, s := range ss {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }

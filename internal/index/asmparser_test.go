@@ -60,6 +60,75 @@ func TestAsmParserDeterministic(t *testing.T) {
 	}
 }
 
+// TestAsmParserStaticSuffix covers the file-local `<>` linker-suffix TEXT
+// form (no middle dot), e.g. a helper only reachable via CALL within the
+// same .s file: TEXT shuffle<>(SB), NOSPLIT, $0-16
+func TestAsmParserStaticSuffix(t *testing.T) {
+	pr, err := (AsmParser{}).Parse("mat/mat_amd64.s", []byte("TEXT shuffle<>(SB), NOSPLIT, $0-16\n\tRET\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1: %+v", len(pr.Nodes), pr.Nodes)
+	}
+	n := pr.Nodes[0]
+	if n.ID != "asm:mat.shuffle" || n.Kind != graph.KAsmProc || n.Lang != graph.LangAsm || n.Line != 1 {
+		t.Errorf("TEXT <> static suffix node wrong: %+v", n)
+	}
+}
+
+// TestAsmParserABIInternal covers the register-ABI-tagged TEXT form
+// (Go 1.17+ pattern): TEXT ·addAVX2<ABIInternal>(SB), NOSPLIT, $0-24
+// The <ABIInternal> tag must be stripped from the minted name.
+func TestAsmParserABIInternal(t *testing.T) {
+	pr, err := (AsmParser{}).Parse("mat/mat_amd64.s", []byte("TEXT ·addAVX2<ABIInternal>(SB), NOSPLIT, $0-24\n\tRET\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1: %+v", len(pr.Nodes), pr.Nodes)
+	}
+	n := pr.Nodes[0]
+	if n.ID != "asm:mat.addAVX2" || n.Kind != graph.KAsmProc || n.Lang != graph.LangAsm || n.Line != 1 {
+		t.Errorf("TEXT <ABIInternal> node wrong: %+v", n)
+	}
+}
+
+// TestAsmParserQuotedMethod covers the quoted, method/receiver-shaped
+// linker symbol emitted for generated or linkname'd methods:
+// TEXT "".Vector.Add(SB), NOSPLIT, $0-40
+func TestAsmParserQuotedMethod(t *testing.T) {
+	pr, err := (AsmParser{}).Parse("mat/mat_amd64.s", []byte(`TEXT "".Vector.Add(SB), NOSPLIT, $0-40
+	RET
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1: %+v", len(pr.Nodes), pr.Nodes)
+	}
+	n := pr.Nodes[0]
+	if n.ID != "asm:mat.Vector.Add" || n.Kind != graph.KAsmProc || n.Lang != graph.LangAsm || n.Line != 1 {
+		t.Errorf("TEXT quoted method-shaped node wrong: %+v", n)
+	}
+}
+
+// TestAsmParserGloblStaticSuffix covers the file-local `<>` linker-suffix
+// GLOBL form (no middle dot): GLOBL mask<>(SB), RODATA, $32
+func TestAsmParserGloblStaticSuffix(t *testing.T) {
+	pr, err := (AsmParser{}).Parse("mat/mat_amd64.s", []byte("GLOBL mask<>(SB), RODATA, $32\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pr.Nodes) != 1 {
+		t.Fatalf("got %d nodes, want 1: %+v", len(pr.Nodes), pr.Nodes)
+	}
+	n := pr.Nodes[0]
+	if n.ID != "asm:mat.mask" || n.Kind != graph.KVar || n.Lang != graph.LangAsm || n.Line != 1 {
+		t.Errorf("GLOBL <> static suffix node wrong: %+v", n)
+	}
+}
+
 func TestAsmParserRootDir(t *testing.T) {
 	// a .s file directly at the tree root (dir "." ) qualifies by name alone.
 	pr, err := (AsmParser{}).Parse("mulvec_amd64.s", []byte("TEXT ·mulVec(SB), NOSPLIT, $0-72\n"))
