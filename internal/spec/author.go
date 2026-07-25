@@ -125,22 +125,30 @@ func AddRule(ws workspace.Root, c *Cascade, req AuthorReq) (AuthorRes, error) {
 		return res, err
 	}
 	abs := filepath.Join(ws.Dir, filepath.FromSlash(rel))
-	var content string
-	if raw, err := os.ReadFile(abs); err == nil {
-		content = string(raw)
-	} else {
-		prefix, _, _ := strings.Cut(stem, "-")
-		content = "---\nschema: " + workspace.SchemaStamp + "\nprefix: " + prefix + "\n---\n"
-	}
-	if !strings.HasSuffix(content, "\n") {
-		content += "\n"
-	}
-	// One separator line, then the block in the canonical layout — the same
-	// renderer EditRule uses, so the two write paths cannot drift apart again
-	// (GitHub issue 30). ruleBlockLines already ends the block with a blank
-	// element, which becomes the file's trailing newline on join.
-	body := "\n" + strings.Join(ruleBlockLines(res.ID, req.Sentence, req.Rationale, req.Applies), "\n")
-	if err := os.WriteFile(abs, []byte(content+body), 0o644); err != nil {
+	// The read of abs and the write of abs run as one locked cycle — not the
+	// write alone — because a concurrent AddRule/EditRule/RetireRule against
+	// the SAME bundle file reads the same bytes Save would otherwise silently
+	// overwrite; see withSpecLock.
+	err := withSpecLock(ws, req.Dir, func() error {
+		var content string
+		if raw, err := os.ReadFile(abs); err == nil {
+			content = string(raw)
+		} else {
+			prefix, _, _ := strings.Cut(stem, "-")
+			content = "---\nschema: " + workspace.SchemaStamp + "\nprefix: " + prefix + "\n---\n"
+		}
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		// One separator line, then the block in the canonical layout — the
+		// same renderer EditRule uses, so the two write paths cannot drift
+		// apart again (GitHub issue 30). ruleBlockLines already ends the
+		// block with a blank element, which becomes the file's trailing
+		// newline on join.
+		body := "\n" + strings.Join(ruleBlockLines(res.ID, req.Sentence, req.Rationale, req.Applies), "\n")
+		return os.WriteFile(abs, []byte(content+body), 0o644)
+	})
+	if err != nil {
 		return res, err
 	}
 	res.Written = true
@@ -178,13 +186,19 @@ func EditRule(ws workspace.Root, c *Cascade, id, sentence, rationale string, app
 		}
 	}
 	abs := filepath.Join(ws.Dir, filepath.FromSlash(old.File))
-	lines, start, end, err := ruleBlock(abs, id, old.Line)
+	// Locate-then-rewrite as one locked cycle: ruleBlock re-reads abs fresh
+	// under the lock, so a sibling's just-written edit is what this edit
+	// splices against, never a copy read before the lock was held.
+	err := withSpecLock(ws, ctxFromSpecRel(old.File), func() error {
+		lines, start, end, err := ruleBlock(abs, id, old.Line)
+		if err != nil {
+			return err
+		}
+		b := ruleBlockLines(id, sentence, rationale, applies)
+		out := append(lines[:start:start], append(b, lines[end:]...)...)
+		return os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644)
+	})
 	if err != nil {
-		return res, err
-	}
-	b := ruleBlockLines(id, sentence, rationale, applies)
-	out := append(lines[:start:start], append(b, lines[end:]...)...)
-	if err := os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 		return res, err
 	}
 	res.Written = true
@@ -229,15 +243,18 @@ func RetireRule(ws workspace.Root, c *Cascade, id string) (string, error) {
 		return "", fmt.Errorf("spec: unknown rule %s", id)
 	}
 	abs := filepath.Join(ws.Dir, filepath.FromSlash(r.File))
-	lines, start, end, err := ruleBlock(abs, id, r.Line)
+	err := withSpecLock(ws, ctxFromSpecRel(r.File), func() error {
+		lines, start, end, err := ruleBlock(abs, id, r.Line)
+		if err != nil {
+			return err
+		}
+		for start > 0 && strings.TrimSpace(lines[start-1]) == "" {
+			start--
+		}
+		out := strings.Join(append(lines[:start:start], lines[end:]...), "\n")
+		return os.WriteFile(abs, []byte(out), 0o644)
+	})
 	if err != nil {
-		return "", err
-	}
-	for start > 0 && strings.TrimSpace(lines[start-1]) == "" {
-		start--
-	}
-	out := strings.Join(append(lines[:start:start], lines[end:]...), "\n")
-	if err := os.WriteFile(abs, []byte(out), 0o644); err != nil {
 		return "", err
 	}
 	return r.File, nil
@@ -272,39 +289,78 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 	if err := ws.EnsureScaffold(ctx); err != nil {
 		return err
 	}
-	abs := ws.SpecPath(ctx)
-	var content string
-	if raw, err := os.ReadFile(abs); err == nil {
-		content = string(raw)
-	} else {
-		content = "---\nschema: " + workspace.SchemaStamp + "\n---\n"
-	}
-	lines := strings.Split(content, "\n")
-	// find the intent section's end (last non-empty line before next heading)
-	secStart := -1
-	for i, l := range lines {
-		if strings.TrimSpace(l) == "## intent" {
-			secStart = i
-			break
+	return withSpecLock(ws, ctx, func() error {
+		abs := ws.SpecPath(ctx)
+		var content string
+		if raw, err := os.ReadFile(abs); err == nil {
+			content = string(raw)
+		} else {
+			content = "---\nschema: " + workspace.SchemaStamp + "\n---\n"
 		}
-	}
-	if secStart < 0 {
-		if !strings.HasSuffix(content, "\n") {
-			content += "\n"
+		lines := strings.Split(content, "\n")
+		// find the intent section's end (last non-empty line before next heading)
+		secStart := -1
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "## intent" {
+				secStart = i
+				break
+			}
 		}
-		content += "\n## intent\n" + line + "\n"
-		return os.WriteFile(abs, []byte(content), 0o644)
-	}
-	insert := len(lines)
-	for i := secStart + 1; i < len(lines); i++ {
-		if strings.HasPrefix(lines[i], "## ") {
-			insert = i
-			break
+		if secStart < 0 {
+			if !strings.HasSuffix(content, "\n") {
+				content += "\n"
+			}
+			content += "\n## intent\n" + line + "\n"
+			return os.WriteFile(abs, []byte(content), 0o644)
 		}
+		insert := len(lines)
+		for i := secStart + 1; i < len(lines); i++ {
+			if strings.HasPrefix(lines[i], "## ") {
+				insert = i
+				break
+			}
+		}
+		for insert > secStart+1 && strings.TrimSpace(lines[insert-1]) == "" {
+			insert--
+		}
+		out := append(lines[:insert:insert], append([]string{line}, lines[insert:]...)...)
+		return os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644)
+	})
+}
+
+// withSpecLock serializes one context dir's spec bundle read-modify-write
+// across processes via ws.Lock (coord.db's named lock table — see
+// coord.DB.WithLock and workspace.Locker). ws.Lock is nil outside a
+// swarm-aware caller (tests, migrate, a one-shot CLI run), where there is at
+// most one writer already, so running unlocked is correct there, not merely
+// tolerated.
+//
+// Keyed per context dir, matching item's withWorkLock: two different bundles
+// must stay writable in parallel, or a global lock would serialize the whole
+// swarm behind one file most agents never touch. Rule writes and item writes
+// use disjoint lock names (see the "spec:" vs "work:" prefixes) — they touch
+// different files and have no shared invariant that requires joint locking,
+// so a draft and a rule add in the same context dir proceed independently.
+func withSpecLock(ws workspace.Root, ctx string, fn func() error) error {
+	if ws.Lock == nil {
+		return fn()
 	}
-	for insert > secStart+1 && strings.TrimSpace(lines[insert-1]) == "" {
-		insert--
+	key := ctx
+	if key == "" {
+		key = "."
 	}
-	out := append(lines[:insert:insert], append([]string{line}, lines[insert:]...)...)
-	return os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644)
+	return ws.Lock.WithLock("spec:"+key, fn)
+}
+
+// ctxFromSpecRel reverses SpecRel: the context dir named by a spec bundle's
+// repo-relative path. EditRule and RetireRule only have the stored file path
+// (from the already-loaded Cascade), not the ctx that produced it, so they
+// need the inverse to build the same lock name AddRule/AppendIntent use for
+// the same file.
+func ctxFromSpecRel(rel string) string {
+	suffix := "/" + workspace.Dot + "/spec.md"
+	if !strings.HasSuffix(rel, suffix) {
+		return "" // root: SpecRel("") == ".spectackle/spec.md", no dir prefix
+	}
+	return strings.TrimSuffix(rel, suffix)
 }

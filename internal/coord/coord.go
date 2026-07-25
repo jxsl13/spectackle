@@ -556,10 +556,23 @@ func (d *DB) Applied(item string) (map[string]bool, error) {
 	return out, err
 }
 
-// LockIntegrate acquires the global integration lock (one submit merges at a
-// time). Returns (false, holder) when busy; a lock whose ttl expired counts
-// as free (crashed integrator).
-func (d *DB) LockIntegrate(ttl time.Duration) (bool, string, error) {
+// Lock acquires a named lock row in the `locks` table. It is the one
+// serialization primitive coord.db offers, generalized from what used to be
+// a single hardcoded 'integrate' row: the schema was already generic (name
+// is the primary key), only the caller ever picked one name. Returns (false,
+// holder) when a live foreign lock blocks it; a lock whose ttl expired
+// counts as free, so a holder that crashed mid-operation can never wedge the
+// name forever — the next caller simply takes it.
+//
+// Re-acquiring a name this same agent already holds extends its expiry
+// instead of blocking (the WHERE clause only rejects a DIFFERENT agent's
+// live row). That is deliberate, not an oversight: within one process, tool
+// calls are already serialized by Server.mu (see mcpserver's gate), so this
+// agent never actually contends with itself for the same name — the row
+// only ever needs to repel OTHER processes. Treating it as reentrant avoids
+// a self-deadlock if a future caller ever nests two locked calls under the
+// same name from the same agent.
+func (d *DB) Lock(name string, ttl time.Duration) (bool, string, error) {
 	now := time.Now().Unix()
 	exp := time.Now().Add(ttl).Unix()
 	ok := false
@@ -572,13 +585,13 @@ func (d *DB) LockIntegrate(ttl time.Duration) (bool, string, error) {
 		defer tx.Rollback()
 		var a string
 		var e int64
-		errRow := tx.QueryRow(`SELECT agent, exp FROM locks WHERE name='integrate'`).Scan(&a, &e)
+		errRow := tx.QueryRow(`SELECT agent, exp FROM locks WHERE name=?`, name).Scan(&a, &e)
 		if errRow == nil && e > now && a != d.Agent {
 			ok, holder = false, a
 			return tx.Commit()
 		}
-		if _, err := tx.Exec(`INSERT INTO locks(name,agent,exp) VALUES('integrate',?,?)
-			ON CONFLICT(name) DO UPDATE SET agent=excluded.agent, exp=excluded.exp`, d.Agent, exp); err != nil {
+		if _, err := tx.Exec(`INSERT INTO locks(name,agent,exp) VALUES(?,?,?)
+			ON CONFLICT(name) DO UPDATE SET agent=excluded.agent, exp=excluded.exp`, name, d.Agent, exp); err != nil {
 			return err
 		}
 		ok, holder = true, d.Agent
@@ -587,13 +600,76 @@ func (d *DB) LockIntegrate(ttl time.Duration) (bool, string, error) {
 	return ok, holder, err
 }
 
-// UnlockIntegrate releases the integration lock if held by this agent.
-func (d *DB) UnlockIntegrate() error {
+// Unlock releases a named lock if held by this agent.
+func (d *DB) Unlock(name string) error {
 	return d.retry(func() error {
-		_, err := d.db.Exec(`DELETE FROM locks WHERE name='integrate' AND agent=?`, d.Agent)
+		_, err := d.db.Exec(`DELETE FROM locks WHERE name=? AND agent=?`, name, d.Agent)
 		return err
 	})
 }
+
+// writeLockTTL bounds how long a writer may hold a named write-lock before
+// it is presumed crashed and another writer takes over. It only has to
+// outlive one read-modify-write of a work.md/spec.md/anchors.tsv-sized file
+// (parse, splice, render, write — all in-process, no network), so seconds
+// are generous headroom, not a tight budget.
+//
+// var, not const: TestWithLockBusyTimesOut shortens writeLockAcquireTimeout
+// so the test doesn't spend real seconds proving a timeout fires; production
+// code never assigns to either.
+var writeLockTTL = 15 * time.Second
+
+// writeLockAcquireTimeout bounds how long WithLock will retry against a live
+// foreign holder before giving up and returning an error. It must exceed
+// writeLockTTL by a comfortable margin: a holder that is merely slow (not
+// crashed) still has up to writeLockTTL left to finish, and a caller that
+// gave up sooner than that would report false contention for ordinary,
+// bounded queueing under a concurrent swarm.
+var writeLockAcquireTimeout = 30 * time.Second
+
+// WithLock runs fn while holding the named lock, and releases it on every
+// exit path — including a panic in fn — via defer. A bare Lock/Unlock pair
+// invites the missing-defer that reintroduces the exact class of bug this
+// exists to close (an early return or panic between the two leaves the name
+// held until its ttl lapses). Acquisition retries on a short jittered
+// interval until it succeeds or writeLockAcquireTimeout elapses, at which
+// point it returns an error naming the current holder instead of blocking
+// forever — a stuck caller should fail loudly, not hang the agent that
+// called it.
+//
+// WithLock (via coord.DB) is the concrete implementation of
+// workspace.Locker: item/spec/drift's writers call it through
+// workspace.Root.Lock, a small interface workspace declares so those
+// packages need not import coord directly — they persist bundle files, not
+// swarm coordination.
+func (d *DB) WithLock(name string, fn func() error) error {
+	deadline := time.Now().Add(writeLockAcquireTimeout)
+	for {
+		ok, holder, err := d.Lock(name, writeLockTTL)
+		if err != nil {
+			return err
+		}
+		if ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("coord: lock %q held by %s: timed out after %s", name, holder, writeLockAcquireTimeout)
+		}
+		time.Sleep(time.Duration(10+rand.Intn(40)) * time.Millisecond)
+	}
+	defer d.Unlock(name)
+	return fn()
+}
+
+// LockIntegrate acquires the global integration lock (one submit merges at a
+// time) — a thin, name-fixed caller of Lock, kept so the submit path (and
+// its tests) are untouched by the generalization above. Returns (false,
+// holder) when busy; a lock whose ttl expired counts as free (crashed
+// integrator).
+func (d *DB) LockIntegrate(ttl time.Duration) (bool, string, error) { return d.Lock("integrate", ttl) }
+
+// UnlockIntegrate releases the integration lock if held by this agent.
+func (d *DB) UnlockIntegrate() error { return d.Unlock("integrate") }
 
 // PutWorktree / GetWorktree / DelWorktree / Worktrees manage worktree records.
 func (d *DB) PutWorktree(w Worktree) error {
