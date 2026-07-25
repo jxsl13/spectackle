@@ -357,7 +357,7 @@ CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch acr
 
 ## T-01KYD8M955E9NBPH27D21E4J9J merge policy: never squash - merge commits everywhere the workflow speaks, so the per-edge decision trail survives into main
 kind: task
-state: submitted
+state: active
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007

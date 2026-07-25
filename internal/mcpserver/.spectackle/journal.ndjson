@@ -263,3 +263,5 @@
 {"t":"2026-07-25T19:46:04Z","eid":"e0c696a8efc62d3d","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T19:53:42Z","eid":"dd9ca3d7d70ece06","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","dir":"internal/mcpserver","fr":"active","to":"done"}
 {"t":"2026-07-25T19:54:02Z","eid":"812210c952fd87e9","ag":"dogfeed-orchestrator","ev":"archive","id":"T-01KYDBWE98FPZ9X5X714RV2ZJQ","k":"task","ti":"couple the state transitions to the git workflow in the server","dir":"internal/mcpserver","sum":"archived with parent P-01KYDBRWFZFXSBRF4PNRD6R4D9"}
+{"t":"2026-07-25T19:59:06Z","eid":"5905c99312c9342a","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDDR98HEXE80DJ3JJCY9A8M","k":"bug","ti":"the draft pull request cannot be opened on entry to active: the branch has no commits yet","dir":"internal/mcpserver"}
+{"t":"2026-07-25T20:01:15Z","eid":"33fa16e14936dba5","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDDR98HEXE80DJ3JJCY9A8M","dir":"internal/mcpserver","fr":"draft","to":"active"}

@@ -89,6 +89,20 @@ func RemoteURL(dir, remote string) (string, error) {
 	return git(dir, "remote", "get-url", remote)
 }
 
+// IsAheadOf reports whether branch carries commits base does not have.
+//
+// It answers the question a forge asks before accepting a pull request: is
+// there anything here to review? An unknown base (never fetched, or a fresh
+// repository) counts as not-ahead rather than an error — the caller's response
+// either way is to wait rather than to complain.
+func IsAheadOf(dir, branch, base string) (bool, error) {
+	out, err := git(dir, "rev-list", "--count", branch, "^"+base)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "0", nil
+}
+
 // EnsureBranch makes branch the checked-out branch of dir: creates it from
 // startPoint if it doesn't exist yet, otherwise just checks it out. A retried
 // transition (e.g. a task re-entering active after a reopen) must land on the
