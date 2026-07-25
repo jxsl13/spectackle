@@ -269,3 +269,4 @@
 {"t":"2026-07-25T20:13:13Z","eid":"7f89ce52105c2556","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDEJ4QHEZR9BKYQ16SJSGBA","k":"task","ti":"a task's referenced GitHub issues close when its work merges","dir":"internal/mcpserver"}
 {"t":"2026-07-25T20:13:30Z","eid":"1dda6d2c811f998f","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDEJ4QHEZR9BKYQ16SJSGBA","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T20:18:58Z","eid":"111779de36387bee","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDEJ4QHEZR9BKYQ16SJSGBA","dir":"internal/mcpserver","fr":"active","to":"done"}
+{"t":"2026-07-25T20:58:49Z","eid":"df9a48058d8db393","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDH5M1AFMPS7PPGS4GXGQ9X","k":"bug","ti":"a mechanical merge that fails at archive has no retry path: archived is terminal","dir":"internal/mcpserver"}
