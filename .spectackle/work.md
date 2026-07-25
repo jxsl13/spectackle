@@ -681,30 +681,30 @@ SCOPE: internal/evidence extension, the #dup section wiring in validate.go, the 
 ROLLBACK: remove the #dup section call; the fingerprint code is dead until deleted; cached fingerprints are garbage-collected by the existing cache versioning. No stored state elsewhere.
 REPORT BACK: threshold and shingle consts as landed with rationales, calibration pair score, cold/warm timings, the fixture #dup section verbatim, each test's result including the red-run, anything deliberately not done.
 
-## T-01KYDA17KBFV3SBCEV79KXW7Z3 one task, one branch, one pull request: every finished task opens its own PR immediately, never batched
+## T-01KYDA92TGF3FT994TEE6EDVN6 one task, one branch, one pull request: every finished task opens its own PR immediately, never batched
 kind: task
 state: submitted
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
-refs: R-0007
+refs: R-0007, T-01KYDA17KBFV3SBCEV79KXW7Z3
 grilled: 2026-07-25
 targets: CONTRIBUTING.md, docs/agent-workflow.md
 
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Documentation-and-policy task, no Go code.
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Documentation-and-policy task, no Go code. Supersedes the rejected draft in refs: the user set the merge decision back to a human step - PRs open immediately but are NEVER auto-merged - and added the always-pushed rule; both are folded in, everything else re-recorded intact.
 
 NEEDS: the merge-policy task (title: merge policy: never squash) must be MERGED first - both rewrite the same CONTRIBUTING section and this task extends the policy that one establishes. Do not run concurrently.
 
 WHY. The decision-trail principle has three granularities and the third was convention, not policy: edge commits make every state transition visible inside a task; never-squash merges keep those commits readable on main; and PR-per-task makes the task itself the unit of review and merge. Batching several finished tasks into one pull request re-creates at the PR level exactly what squashing creates at the commit level - N decisions flattened into one reviewable blob, reviewers approving work they cannot attribute, and a revert that cannot take one task back without taking its neighbors. This session's own history is the proving case: multiple finished work items accumulated on one branch and shipped in combined PRs, so no single task can be reverted, bisected, or re-reviewed in isolation.
 
-THE POLICY, exact: when a task reaches done, its branch is pushed and a pull request is opened IMMEDIATELY - before the next task starts, not at end of session. One task per PR; the PR title carries the full task ID; auto-merge (merge commit method, per the sibling policy) is armed at open. Work that never was a task (a typo fix in passing) rides with the task that touched it or becomes a task if it stands alone - nothing merges outside a PR either way, which CONTRIBUTING already mandates. The swarm's worktree branches (spectackle/<item-id>) already give every task its own branch; this policy makes the PR boundary follow the branch boundary instead of collapsing branches into a shared integration branch first.
+THE POLICY, exact: when a task reaches done, its branch is pushed and a pull request is opened IMMEDIATELY - before the next task starts, not at end of session. One task per PR; the PR title carries the full task ID. NO AUTO-MERGE: merging is a human decision, a judgment step per the steps-are-judgments principle - the agent drives CI to green on the open PR (diagnose and push fixes on red) but never merges and never arms auto-merge; when it merges by hand on instruction, the method is merge commit, never squash (sibling policy). ALWAYS PUSHED, ALWAYS COVERED: at no point may changes exist that are not pushed and not covered by an open PR or draft PR - work in progress lives on its pushed branch under a DRAFT pull request from the first commit, flipped to ready when the task is done. An unpushed local change is invisible to every other agent and survives no container; a pushed branch without a PR is work nobody can find from the review surface. Both states are forbidden at any time, not just at task end. Work that never was a task (a typo fix in passing) rides with the task that touched it or becomes a task if it stands alone - nothing merges outside a PR either way, which CONTRIBUTING already mandates. The swarm's worktree branches (spectackle/<item-id>) already give every task its own branch; this policy makes the PR boundary follow the branch boundary instead of collapsing branches into a shared integration branch first.
 
 WHAT TO BUILD
 1. CONTRIBUTING.md: the pull-request section gains the one-task-one-PR rule with the granularity rationale above compressed to a short paragraph, including the explicit anti-pattern (a session-accumulation branch carrying several finished tasks) and the exception handling (follow-up commits to an OPEN unmerged PR for the same task are fine; a merged PR is finished and follow-ups are a new task, which the section already states for branches).
-2. docs/agent-workflow.md: the orchestrator's git duties gain: push and open the PR at the moment a task is checked and done, arm auto-merge, then start the next task; never hold finished work hostage to unfinished siblings. One sentence on the payoff: revert, bisect and review all regain task granularity.
+2. docs/agent-workflow.md: the orchestrator's git duties gain: open a draft PR with the first pushed commit of a task, flip it to ready and stop pushing when the task is checked and done, drive CI to green, leave the merge to the user; never hold finished work hostage to unfinished siblings, never leave any change unpushed or uncovered. One sentence on the payoff: revert, bisect and review all regain task granularity.
 3. Consistency sweep: no remaining sentence in either file implies batching finished work or opening PRs at session end (grep-based check as in the sibling task, state the method).
 
 NON-NEGOTIABLE PROPERTIES
-- The CONTRIBUTING section, read cold, answers: when is the PR opened (at done, immediately), what does it contain (one task), what is in the title (the full task ID), what merge method (merge commit, armed at open). A verifier answering from the text alone is the test, mirror the sibling task's approach.
+- The CONTRIBUTING section, read cold, answers: when is the PR opened (draft at first push, ready at done), what does it contain (one task), what is in the title (the full task ID), who merges (the user, by hand, merge-commit method), and what may never exist (unpushed changes; pushed branches without a PR). A verifier answering from the text alone is the test, mirror the sibling task's approach.
 - No contradiction with the never-squash section or the auto-merge prerequisites it documents - the sections must read as one coherent policy.
 - go build ./... and the full suite still pass (docs must not break anything embedded).
 
