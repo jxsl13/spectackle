@@ -3,6 +3,9 @@ langs: [go]
 ignore:
   - ".git/**"
   - "bin/**"
+verify:
+  - "go build ./..."
+  - "go test ./..."
 budget_default: 2000
 compact:
   journal_max: 500
