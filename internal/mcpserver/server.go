@@ -215,6 +215,15 @@ func New(root string) (*Server, error) {
 		c.Close()
 		return nil, err
 	}
+	// Wire the swarm's shared lock table into every workspace.Root this
+	// server writes through, BEFORE any of them reach item/spec/drift: those
+	// packages serialize their read-modify-writes through Root.Lock (see
+	// coord.DB.WithLock), and a Root built without it would silently write
+	// unlocked — exactly the defect this task exists to close
+	// (B-01KYD57FN3ERHBM5EQ3534YJXP). mainWS and ws are distinct values (a
+	// linked worktree's ws differs from the main repo's mainWS), so both
+	// need it independently; reroot below carries it forward the same way.
+	mainWS.Lock, ws.Lock = cd, cd
 	s := &Server{
 		main:  mainWS,
 		ws:    ws,
@@ -363,7 +372,10 @@ func (s *Server) agentTTL() time.Duration {
 // reroot swaps the active workspace (main <-> worktree), swapping the local
 // index cache and scanner with it. The coordination DB always stays on main.
 func (s *Server) reroot(dir, item string) error {
-	nws := workspace.Root{Dir: dir, Agent: s.agent, Cfg: s.main.Cfg}
+	// Lock: s.cd, same as New — a re-rooted Root writes item/spec files too
+	// (see s.ws call sites throughout mcpserver) and must stay serialized
+	// against siblings exactly like the root it replaces.
+	nws := workspace.Root{Dir: dir, Agent: s.agent, Cfg: s.main.Cfg, Lock: s.cd}
 	if err := nws.EnsureScaffold(""); err != nil {
 		return err
 	}

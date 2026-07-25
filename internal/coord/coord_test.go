@@ -1,7 +1,10 @@
 package coord
 
 import (
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -345,5 +348,197 @@ func TestAppliedAndWorktrees(t *testing.T) {
 	a.DelWorktree("T-0001")
 	if _, ok, _ := a.GetWorktree("T-0001"); ok {
 		t.Fatal("DelWorktree failed")
+	}
+}
+
+// TestLockGeneralized proves Lock/Unlock work for an arbitrary name, not just
+// the 'integrate' special case LockIntegrate used to hardcode — the same
+// three properties TestIntegrateLock already covers for that one name: a
+// live foreign holder blocks, the same agent re-locking is reentrant (see
+// Lock's doc for why that's deliberate, not a gap), and an expired holder's
+// row is stealable (crash safety survives the generalization).
+func TestLockGeneralized(t *testing.T) {
+	a, b := open2(t)
+	ok, _, err := a.Lock("work:gpu", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("lock: %v %v", ok, err)
+	}
+	if ok, holder, _ := b.Lock("work:gpu", time.Minute); ok || holder != "alice" {
+		t.Fatalf("second lock: ok=%v holder=%s", ok, holder)
+	}
+	if ok, _, _ := a.Lock("work:gpu", time.Minute); !ok {
+		t.Fatal("holder re-lock failed")
+	}
+	a.Unlock("work:gpu")
+	if ok, _, _ := b.Lock("work:gpu", time.Minute); !ok {
+		t.Fatal("lock after unlock failed")
+	}
+	b.db.Exec(`UPDATE locks SET exp=? WHERE name='work:gpu'`, time.Now().Add(-time.Minute).Unix())
+	if ok, _, _ := a.Lock("work:gpu", time.Minute); !ok {
+		t.Fatal("expired lock not stealable")
+	}
+}
+
+// TestWithLockNoLostUpdate is the property-level analogue of
+// TestNextIDUniqueAcrossConnections, aimed at WithLock instead of NextID: N
+// writers split across TWO REAL coord.db connections (the two-process shape
+// this whole task exists for — SQLite's file locking does not know or care
+// whether two *sql.DB handles live in one OS process or two, so this
+// exercises the actual cross-connection serialization path, not a Go mutex)
+// perform a whole-file read-modify-write of a shared counter file with no
+// synchronization of their own. Without WithLock this reproduces exactly the
+// item.Upsert defect (both sides read N, both write N+1); with it, every
+// increment must land.
+func TestWithLockNoLostUpdate(t *testing.T) {
+	a, b := open2(t)
+	path := filepath.Join(t.TempDir(), "counter.txt")
+	if err := os.WriteFile(path, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const perSide = 25
+	var wg sync.WaitGroup
+	errs := make(chan error, 2*perSide)
+	for _, d := range []*DB{a, b} {
+		wg.Add(1)
+		go func(d *DB) {
+			defer wg.Done()
+			for i := 0; i < perSide; i++ {
+				err := d.WithLock("counter", func() error {
+					raw, err := os.ReadFile(path)
+					if err != nil {
+						return err
+					}
+					n, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+					if err != nil {
+						return err
+					}
+					return os.WriteFile(path, []byte(strconv.Itoa(n+1)), 0o644)
+				})
+				if err != nil {
+					errs <- err
+				}
+			}
+		}(d)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("WithLock: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if got != 2*perSide {
+		t.Fatalf("counter = %d, want %d — %d increments were lost", got, 2*perSide, 2*perSide-got)
+	}
+}
+
+// TestWithLockReleasesOnPanic proves the scoped-execution wrapper releases
+// the lock on every exit path, including a panic in fn — the bare
+// Lock/Unlock pair this replaces would leave the row held (until its ttl
+// lapses) if fn ever panicked between the two calls.
+func TestWithLockReleasesOnPanic(t *testing.T) {
+	a, b := open2(t)
+	func() {
+		defer func() { recover() }()
+		a.WithLock("panicky", func() error { panic("boom") })
+	}()
+	ok, holder, err := b.Lock("panicky", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("lock after panic: ok=%v holder=%s err=%v", ok, holder, err)
+	}
+}
+
+// TestWithLockBusyTimesOut proves a caller that cannot get the lock fails
+// loudly with the current holder named, instead of blocking forever — a
+// stuck sibling should surface as an error, never a hang.
+func TestWithLockBusyTimesOut(t *testing.T) {
+	a, b := open2(t)
+	if ok, _, err := a.Lock("stuck", time.Minute); err != nil || !ok {
+		t.Fatalf("setup lock: %v %v", ok, err)
+	}
+	saved := writeLockAcquireTimeout
+	writeLockAcquireTimeout = 100 * time.Millisecond
+	defer func() { writeLockAcquireTimeout = saved }()
+	err := b.WithLock("stuck", func() error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "alice") {
+		t.Fatalf("WithLock against a busy lock = %v, want a timeout naming the holder", err)
+	}
+}
+
+// TestWithLockParallelAcrossNames proves two DIFFERENT lock names never
+// serialize each other — the granularity property every per-context writer
+// (item's "work:<ctx>", spec's "spec:<ctx>") depends on. Global-lock-in-
+// disguise would make this test hang; a deterministic handshake (channels,
+// not sleeps) proves B completes while A is still held, not just that B
+// completes eventually.
+func TestWithLockParallelAcrossNames(t *testing.T) {
+	a, b := open2(t)
+	aHolding := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		a.WithLock("ctx-a", func() error {
+			close(aHolding)
+			<-release
+			return nil
+		})
+	}()
+	<-aHolding // a definitely holds "ctx-a" now, and will until we close release
+	bDone := make(chan struct{})
+	go func() {
+		b.WithLock("ctx-b", func() error { return nil })
+		close(bDone)
+	}()
+	select {
+	case <-bDone:
+		// b finished while a is still holding a disjoint name — no serialization.
+	case <-time.After(2 * time.Second):
+		t.Fatal("WithLock on a different name blocked behind an unrelated holder")
+	}
+	close(release)
+}
+
+// TestLockDoesNotBlockLeaseAndViceVersa establishes the ordering this task's
+// brief demands be stated explicitly: the named write-lock (table `locks`)
+// and scope leases (table `leases`) are independent resources that no code
+// path acquires nested inside the other, so there is no ordering to violate.
+// This test is the regression guard for that claim: one agent holds the
+// write-lock while a DIFFERENT agent claims a lease, and vice versa, and
+// neither blocks on the other.
+func TestLockDoesNotBlockLeaseAndViceVersa(t *testing.T) {
+	a, b := open2(t)
+	if ok, _, err := a.Lock("work:.", time.Minute); err != nil || !ok {
+		t.Fatalf("lock: %v %v", ok, err)
+	}
+	done := make(chan struct{})
+	go func() {
+		if _, err := b.Claim([]string{"gpu"}, "T-0001", time.Minute, time.Hour); err != nil {
+			t.Errorf("Claim while sibling holds write-lock: %v", err)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Claim blocked behind an unrelated write-lock holder")
+	}
+	a.Unlock("work:.")
+
+	if _, err := a.Claim([]string{"math"}, "T-0002", time.Minute, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	done2 := make(chan struct{})
+	go func() {
+		if ok, _, err := b.Lock("work:other", time.Minute); err != nil || !ok {
+			t.Errorf("Lock while sibling holds a lease: ok=%v err=%v", ok, err)
+		}
+		close(done2)
+	}()
+	select {
+	case <-done2:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Lock blocked behind an unrelated lease holder")
 	}
 }
