@@ -200,22 +200,36 @@ func runHTTP(ctx context.Context, addr string, handler http.Handler, pidfile str
 // newline-terminated) with mode 0o644. It refuses to overwrite an existing
 // file: a pre-existing pidfile usually means a live server already claims
 // it, and clobbering it would strand that process with no stoppable handle.
+//
+// The write is atomic with respect to appearance (B-01KYDR): the PID goes
+// into a temp file in the same directory first, then os.Link publishes it
+// under path. A create-then-write sequence leaves a window where path
+// exists with zero bytes, and any watcher acting on file appearance — a
+// shell `cat`, or waitForFile in the tests — reads an empty pidfile. Link
+// also keeps the refuse-to-clobber contract: it fails with EEXIST and
+// leaves the pre-existing file untouched.
 func writePIDFile(path string) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
 	if err != nil {
+		return fmt.Errorf("pidfile %s: %w", path, err)
+	}
+	defer os.Remove(tmp.Name())
+	_, writeErr := fmt.Fprintf(tmp, "%d\n", os.Getpid())
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		return fmt.Errorf("pidfile %s: %w", path, writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("pidfile %s: %w", path, closeErr)
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return fmt.Errorf("pidfile %s: %w", path, err)
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("pidfile %s already exists (a server may already be running)", path)
 		}
 		return fmt.Errorf("pidfile %s: %w", path, err)
-	}
-	_, writeErr := fmt.Fprintf(f, "%d\n", os.Getpid())
-	closeErr := f.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		if writeErr != nil {
-			return fmt.Errorf("pidfile %s: %w", path, writeErr)
-		}
-		return fmt.Errorf("pidfile %s: %w", path, closeErr)
 	}
 	return nil
 }

@@ -506,6 +506,59 @@ func TestServePidfileUnwritablePath(t *testing.T) {
 	}
 }
 
+// TestWritePIDFileAtomicAndClean pins B-01KYDR: the pidfile must carry its
+// full content from the instant it is observable (the old create-then-write
+// sequence left a window where the path existed with zero bytes — the exact
+// 0.10s fast-fail TestServePidfileHTTPCreateAndRemove hit under suite
+// load), the temp file used for the atomic publish must not survive, and
+// the refuse-to-clobber failure path must leave a pre-existing file
+// untouched and the directory free of leftovers.
+func TestWritePIDFileAtomicAndClean(t *testing.T) {
+	dir := t.TempDir()
+	pidPath := filepath.Join(dir, "spectackle.pid")
+
+	if err := writePIDFile(pidPath); err != nil {
+		t.Fatalf("writePIDFile: %v", err)
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("read pidfile: %v", err)
+	}
+	if want := fmt.Sprintf("%d\n", os.Getpid()); string(data) != want {
+		t.Fatalf("pidfile content = %q, want %q", data, want)
+	}
+	assertOnlyPidfile(t, dir)
+
+	// Second write against the same path: refused, original untouched,
+	// still no temp leftovers.
+	if err := writePIDFile(pidPath); err == nil {
+		t.Fatal("writePIDFile over an existing pidfile: expected an error, got nil")
+	}
+	after, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("re-read pidfile: %v", err)
+	}
+	if string(after) != string(data) {
+		t.Fatalf("pre-existing pidfile modified by refused write: %q -> %q", data, after)
+	}
+	assertOnlyPidfile(t, dir)
+}
+
+// assertOnlyPidfile fails the test if dir holds anything besides
+// spectackle.pid — i.e. a leaked temp file from the atomic publish.
+func assertOnlyPidfile(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != "spectackle.pid" {
+			t.Fatalf("unexpected leftover in pidfile dir: %s", e.Name())
+		}
+	}
+}
+
 // TestServeNoPidfileFlag: omitting -pidfile must not create any file, and
 // serve behaves exactly as it did before this flag existed.
 func TestServeNoPidfileFlag(t *testing.T) {
