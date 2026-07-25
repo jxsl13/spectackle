@@ -161,15 +161,15 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	dir := s.ws.Dir
 
 	if err := wt.EnsureBranch(dir, branch, ""); err != nil {
-		res.addf("! GIT W %s branch: %s", it.ID, err)
+		res.addf("! GIT E %s branch: %s", it.ID, err)
 		return res
 	}
 	if _, err := wt.CommitCode(dir, "spectackle "+it.ID+": "+it.Title); err != nil {
-		res.addf("! GIT W %s commit: %s", it.ID, err)
+		res.addf("! GIT E %s commit: %s", it.ID, err)
 	}
 	s.gitCommitRecords(res, it, item.StateActive)
 	if err := s.gitPush(dir, branch); err != nil {
-		res.addf("! GIT W %s push: %s", it.ID, err)
+		res.addf("! GIT E %s push: %s", it.ID, err)
 		return res
 	}
 	if s.main.Cfg.Git.Mode == "offline" {
@@ -183,7 +183,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
 		} else {
-			res.addf("! GIT W %s forge: %s", it.ID, err)
+			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
 		return res
 	}
@@ -212,7 +212,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowResult {
 	res := &gitFlowResult{}
 	if pr, ok, err := f.Find(branch); err != nil {
-		res.addf("! GIT W %s pr lookup: %s", it.ID, err)
+		res.addf("! GIT E %s pr lookup: %s", it.ID, err)
 		return res
 	} else if ok {
 		res.addf("g pr %d %s (already open)", pr.Number, pr.URL)
@@ -227,7 +227,7 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 	}
 	pr, err := f.Open(branch, s.gitBase(), it.ID+" "+it.Title, gitPRBody(it))
 	if err != nil {
-		res.addf("! GIT W %s pr open: %s", it.ID, err)
+		res.addf("! GIT E %s pr open: %s", it.ID, err)
 		return res
 	}
 	res.addf("g pr %d draft %s", pr.Number, pr.URL)
@@ -251,7 +251,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	branch := taskBranch(it.ID)
 	dir := s.ws.Dir
 	if _, err := wt.CommitCode(dir, "spectackle "+it.ID+": checkpoint"); err != nil {
-		res.addf("! GIT W %s commit: %s", it.ID, err)
+		res.addf("! GIT E %s commit: %s", it.ID, err)
 		return res
 	}
 	s.gitCommitRecords(res, it, item.StateDone)
@@ -261,7 +261,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 		return res
 	}
 	if err := s.gitPush(dir, branch); err != nil {
-		res.addf("! GIT W %s push: %s", it.ID, err)
+		res.addf("! GIT E %s push: %s", it.ID, err)
 		return res
 	}
 	// Offline mode has nowhere to push to, so saying "pushed" would be a claim
@@ -291,13 +291,13 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
 		} else {
-			res.addf("! GIT W %s forge: %s", it.ID, err)
+			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
 		return res
 	}
 	pr, ok, err := f.Find(branch)
 	if err != nil {
-		res.addf("! GIT W %s pr lookup: %s", it.ID, err)
+		res.addf("! GIT E %s pr lookup: %s", it.ID, err)
 		return res
 	}
 	if !ok {
@@ -312,7 +312,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	if !pr.Draft {
 		res.addf("g pr %d ready (already)", pr.Number)
 	} else if pr, err = f.Ready(pr); err != nil {
-		res.addf("! GIT W %s pr ready: %s", it.ID, err)
+		res.addf("! GIT E %s pr ready: %s", it.ID, err)
 		return res
 	} else {
 		res.addf("g pr %d ready %s", pr.Number, pr.URL)
@@ -344,7 +344,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 func (s *Server) gitCommitRecords(res *gitFlowResult, it item.Item, to string) {
 	committed, err := wt.CommitRecords(s.ws.Dir, "spectackle("+to+"): "+it.ID+" records")
 	if err != nil {
-		res.addf("! GIT W %s records: %s", it.ID, err)
+		res.addf("! GIT E %s records: %s", it.ID, err)
 		return
 	}
 	if committed {
@@ -372,20 +372,20 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	// pull request has already closed.
 	s.gitCommitRecords(res, it, item.StateArchived)
 	if err := s.gitPush(s.ws.Dir, branch); err != nil {
-		res.addf("! GIT W %s push: %s", it.ID, err)
+		res.addf("! GIT E %s push: %s", it.ID, err)
 	}
 	f, err := s.forgeFor()
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
 		} else {
-			res.addf("! GIT W %s forge: %s", it.ID, err)
+			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
 		return res
 	}
 	pr, ok, err := f.Find(branch)
 	if err != nil {
-		res.addf("! GIT W %s pr lookup: %s", it.ID, err)
+		res.addf("! GIT E %s pr lookup: %s", it.ID, err)
 		return res
 	}
 	if !ok {
@@ -440,10 +440,10 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 	state := awaitChecks(f, pr, waitBudget, poll, res)
 	switch state {
 	case forge.ChecksFailing:
-		res.addf("! GIT W pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
+		res.addf("! GIT E pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
 		return
 	case forge.ChecksPending:
-		res.addf("! GIT W pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
+		res.addf("! GIT E pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
 		return
 	case "":
 		return // Checks itself failed; awaitChecks already reported it
@@ -454,7 +454,7 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 	for attempt := 1; ; attempt++ {
 		mr, err := f.Merge(pr)
 		if err != nil {
-			res.addf("! GIT W pr %d merge: %s", pr.Number, err)
+			res.addf("! GIT E pr %d merge: %s", pr.Number, err)
 			return
 		}
 		if mr.Merged {
@@ -462,11 +462,11 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 			return
 		}
 		if mr.Reason != forge.ReasonNotReady {
-			res.addf("! GIT W pr %d left open: %s", pr.Number, mr.Reason)
+			res.addf("! GIT E pr %d left open: %s", pr.Number, mr.Reason)
 			return
 		}
 		if attempt >= mergeRetryBudget {
-			res.addf("! GIT W pr %d left open: still not mergeable after %d attempts — retry budget spent, merge it by hand", pr.Number, attempt)
+			res.addf("! GIT E pr %d left open: still not mergeable after %d attempts — retry budget spent, merge it by hand", pr.Number, attempt)
 			return
 		}
 		time.Sleep(poll)
@@ -484,7 +484,7 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 	for {
 		state, err := f.Checks(pr)
 		if err != nil {
-			res.addf("! GIT W pr %d checks: %s", pr.Number, err)
+			res.addf("! GIT E pr %d checks: %s", pr.Number, err)
 			return ""
 		}
 		switch state {
