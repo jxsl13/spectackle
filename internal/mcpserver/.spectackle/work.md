@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## B-01KYDH5M1AFMPS7PPGS4GXGQ9X a mechanical merge that fails at archive has no retry path: archived is terminal
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 Found live on the automation's own pull request 43. The archive-time records commit was pushed seconds before the merge call, GitHub was still recomputing mergeability, and the merge endpoint answered 405 Pull Request is not mergeable. Per the never-silent decision the failure was reported and the pull request stayed open — correct degradation — but the item is now archived, archived is terminal, and no later transition will ever retry the merge. The loop ends with an open pull request that only a human can land.
