@@ -114,6 +114,10 @@ LLM plans against structure and contracts instead of file contents.
 - P-0070 purge stale pre-rename D-000x references from prose and comments: delivered by T-0100. test fixtures using D-0001/D-0002 as grammar samples were correctly left alone.
 - T-0112 README: mermaid flow diagram and a reference for every persisted structure: README gains a concepts section built around what one /spectackle invocation triggers, plus a reference for every persisted structure. All three mermaid blocks render cleanly, verified twice: the implementer rendered them with mermaid-cli and iterated when notes tokenized wrong and when a feedback edge broke dagre layout; the orchestrator re-rendered all three independently against the preinstalled chromium, zero parse errors. Concepts prose explains why the system is shaped this way -- cascading rules, EARS as a lint error rather than a style nit, the two-hash drift axes, why nothing is discarded, why exploration sits with the orchestrator -- before any file name appears.
 - P-0081 README: a mermaid diagram of the whole flow and a reference for every persisted structure: delivered by T-0112.
+- ADR-0008 Should GoParser.callEdges keep minting call edges syntactically, or add a go/types semantic pass to fix silently-dropped chained-selector calls?: compact
+- ADR-0009 Should spectackle build node-removal machinery for incremental IndexPaths, or keep the full-IndexAll rebuild?: compact
+- ADR-0010 Given correctness-first evaluation, should spectackle stay on cgo tree-sitter, adopt wazero/wasm for C/C++ only, or secure WASI grammars for CUDA/ObjC first?: compact
+- ADR-0011 Scored against the four PoC exit criteria, should spectackle adopt malivvan/tree-sitter now, invest in a wasi-sdk pipeline, or stay on cgo past M6?: compact
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

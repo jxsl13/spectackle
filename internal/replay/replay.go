@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jxsl13/spectackle/internal/coord"
 	"github.com/jxsl13/spectackle/internal/drift"
@@ -61,7 +62,7 @@ func Run(main, wtWS workspace.Root, itemID, base string, cd *coord.DB, g graph.G
 	}
 	var deltas []ctxDelta
 	for _, ctx := range ctxs {
-		baseline, err := baselineEids(main.Dir, base, ctx)
+		baseline, legacy, err := baselineEids(main.Dir, base, ctx)
 		if err != nil {
 			return rep, err
 		}
@@ -72,7 +73,14 @@ func Run(main, wtWS workspace.Root, itemID, base string, cd *coord.DB, g graph.G
 		var delta []journal.Event
 		for _, e := range events {
 			if e.Eid == "" {
-				return rep, fmt.Errorf("replay: %s has a pre-swarm journal event without eid — compact on main first", ctx)
+				// A pre-eid event inherited from the branch-point baseline is
+				// already materialized on main and needs no replay. Only a
+				// NON-baseline event without eid violates the append
+				// invariant (Append always mints one) and stays fatal.
+				if legacy[legacyKey(e)] {
+					continue
+				}
+				return rep, fmt.Errorf("replay: %s has a journal event without eid that is not in the branch baseline — re-branch the worktree from current main", ctx)
 			}
 			if baseline[e.Eid] || applied[e.Eid] {
 				continue
@@ -277,8 +285,10 @@ func intentContains(main workspace.Root, ctx, line string) (bool, error) {
 }
 
 // baselineEids collects the event IDs present in a context's journal at the
-// branch-point commit.
-func baselineEids(mainDir, base, ctx string) (map[string]bool, error) {
+// branch-point commit, plus a legacy-key set for baseline events written
+// before eids existed — those are identified by (t, ev, id) instead so
+// inherited pre-swarm history never blocks a replay.
+func baselineEids(mainDir, base, ctx string) (map[string]bool, map[string]bool, error) {
 	rel := ctx
 	if rel != "" {
 		rel += "/"
@@ -286,21 +296,32 @@ func baselineEids(mainDir, base, ctx string) (map[string]bool, error) {
 	rel += workspace.Dot + "/journal.ndjson"
 	raw, err := wt.ShowFile(mainDir, base, rel)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := map[string]bool{}
+	legacy := map[string]bool{}
 	for _, l := range strings.Split(string(raw), "\n") {
 		if l == "" {
 			continue
 		}
-		var e struct {
-			Eid string `json:"eid"`
+		var e journal.Event
+		if json.Unmarshal([]byte(l), &e) != nil {
+			continue
 		}
-		if json.Unmarshal([]byte(l), &e) == nil && e.Eid != "" {
+		if e.Eid != "" {
 			out[e.Eid] = true
+		} else {
+			legacy[legacyKey(e)] = true
 		}
 	}
-	return out, nil
+	return out, legacy, nil
+}
+
+// legacyKey identifies a pre-eid event by its stable fields. Both sides key
+// through the parsed journal.Event time so formatting drift between the
+// stored string and Go's marshaling cannot split the match.
+func legacyKey(e journal.Event) string {
+	return e.T.UTC().Format(time.RFC3339Nano) + "\x00" + e.Ev + "\x00" + e.ID
 }
 
 // recentEids guards the crash window between file append and MarkApplied.
