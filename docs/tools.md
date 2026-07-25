@@ -55,7 +55,7 @@ d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 c <dir> <reason> <n>                             compact candidate
-! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
 l <path> <agent> <item|-> <exp>s                 scope lease
 h <harness> <marker>                             detected harness (commands op=detect; claude|copilot|codex|kimi)
@@ -229,6 +229,13 @@ duplicate item IDs (branch-merge backstop), `c` compact-due signals.
 `fix=true` drafts one backprop proposal per drifted rule (gone, tightened,
 diverged) and re-stamps anchors. Run until `ok` before `move to=done`.
 
+A `! TYPED W - typed-call pass disabled packages=<n>: <cause> ...` finding
+appears exactly when the last reindex's go/types call-edge upgrade pass did
+not complete (a Go-toolchain mismatch or a broken module) — never on a
+healthy pass, so this never adds a line to a clean run. Without it, the
+graph silently keeps only the syntactic call edges: cross-package
+`get depth`/impact-radius answers under-report and nothing else says so.
+
 **Drift classification is direction-aware (T-0086):** each anchor row
 carries both a code-span hash and a rule-sentence hash, so `check` reads
 two independent axes — did the code change, did the rule sentence change —
@@ -330,8 +337,11 @@ journal, no anchor re-stamp). Sections, each omitted entirely when it has
 nothing to report (SPX-MCP-004 spirit): `#version` (server version, agent
 name, active root), `#items` (counts by state + `i` lines, scoped to
 `path`), `#rules` (per-context-dir rule counts + a global lint-findings
-count), `#graph` (`g.Stats()` node/edge totals), `#swarm` (`ag`/`l`/`wt`
-lines), `#drift` (anchor classification summary + bare `d <cls> ...` lines
+count), `#graph` (`g.Stats()` node/edge totals, plus the `! TYPED` typed-
+call-pass finding described under `check` above when that pass is
+degraded — omitted on a healthy pass, same gate on both tools), `#swarm`
+(`ag`/`l`/`wt` lines), `#drift` (anchor classification summary + bare `d
+<cls> ...` lines
 for evolved/tightened/diverged/gone/stale — `moved` anchors are counted,
 never silently re-stamped, and unlike `check` nothing here is ever healed
 or audited-with-a-backprop-draft: `state` is read-only, so evolved anchors

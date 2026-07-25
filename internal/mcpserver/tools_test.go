@@ -1018,6 +1018,14 @@ func TestCheckOnOwnRepo(t *testing.T) {
 	}
 	out1 := check()
 	assertClean(out1)
+	// the repo's own module builds clean under the toolchain running this
+	// test, so the typed-call pass is healthy — issue 28's output-diet
+	// contract says a healthy pass adds NOTHING, asserted as an absence.
+	for _, line := range out1 {
+		if strings.HasPrefix(line, "! TYPED") {
+			t.Fatalf("check on own (healthy) repo must not emit a typed-pass finding: %q", line)
+		}
+	}
 
 	// The MCP-004 anchor (this very check() function) heals on the first
 	// call above since its own code just changed under T-0086. A second
@@ -1028,6 +1036,54 @@ func TestCheckOnOwnRepo(t *testing.T) {
 		if strings.HasPrefix(line, "d healed ") {
 			t.Fatalf("second check on own repo re-healed something that should already be settled: %q", line)
 		}
+	}
+}
+
+// TestCheckReportsTypedPassDegradation is issue 28's acceptance test for the
+// `check` half: mirrors TestStateReportsTypedPassDegradation (state_test.go)
+// — same forced failure (a real go.mod plus a package importing a path that
+// does not exist), same finding, same gate — so `check` never disagrees with
+// `state` about when the typed-call pass is worth reporting.
+func TestCheckReportsTypedPassDegradation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/typedfail\n\ngo 1.21\n")
+	writeFile(t, root, "pkg1/a.go", "package pkg1\n\nimport \"example.com/typedfail/nope1\"\n\nfunc A() { nope1.Foo() }\n")
+	writeFile(t, root, "pkg2/b.go", "package pkg2\n\nimport \"example.com/typedfail/nope2\"\n\nfunc B() { nope2.Bar() }\n")
+
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "check", map[string]any{})
+
+	if !strings.Contains(out, "! TYPED W") {
+		t.Fatalf("check did not surface the forced typed-pass failure as a finding: %q", out)
+	}
+	if !strings.Contains(out, "packages=2") {
+		t.Fatalf("check's typed-pass finding must name the affected package count (pkg1 and pkg2): %q", out)
+	}
+	if !strings.Contains(out, "nope1") && !strings.Contains(out, "nope2") {
+		t.Fatalf("check's typed-pass finding must name the cause (an example failing import): %q", out)
+	}
+}
+
+// TestCheckHealthyRepoOmitsTypedPassFinding (issue 28): a workspace with a
+// real, resolvable go.mod — the typed-call pass genuinely runs and succeeds
+// — must not add a `! TYPED` line. Complements TestCheckOnOwnRepo's absence
+// assertion with a minimal fixture instead of the whole live repo, and
+// complements TestCheckReportsTypedPassDegradation by pinning the other side
+// of the same gate (healthy vs. forced failure) in one file.
+func TestCheckHealthyRepoOmitsTypedPassFinding(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/typedok\n\ngo 1.21\n")
+	writeFile(t, root, "pkg1/a.go", "package pkg1\n\nfunc A() {}\n")
+
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "check", map[string]any{})
+	if strings.Contains(out, "! TYPED") {
+		t.Fatalf("check on a healthy Go module must not emit a typed-pass finding: %q", out)
+	}
+
+	out = callText(t, sess, "state", map[string]any{})
+	if strings.Contains(out, "! TYPED") {
+		t.Fatalf("state on a healthy Go module must not emit a typed-pass finding: %q", out)
 	}
 }
 

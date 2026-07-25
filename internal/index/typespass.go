@@ -81,9 +81,11 @@ var typedPassCacheVersion = "typed-2"
 // is out of scope for this slice (design doc §3, "Interface dispatch").
 //
 // packages.Load failures (a broken module, a bad build) and any non-empty
-// Package.Errors are returned as errors; the caller (the IndexAll
-// orchestrator) treats a failed upgrade pass as non-fatal to the syntactic
-// index it already has.
+// Package.Errors are returned as a *TypedPassError; the caller (the
+// BuildGraph orchestrator, internal/mcpserver) treats a failed upgrade pass
+// as non-fatal to the syntactic index it already has — but see
+// TypedPassError's doc comment for why the failure must not stop there
+// (issue 28).
 //
 // s is the same content-hash store the syntactic pass uses to skip
 // re-parsing unchanged files (design doc §Performance, mitigation (c)); a nil
@@ -98,7 +100,43 @@ var typedPassCacheVersion = "typed-2"
 // cache hit. A miss runs the full type-checking pass as before and, on
 // success, best-effort Puts the resulting edge list back under that key —
 // a cache-write failure must never fail the pass.
+//
+// TypedPassError is what a failed pass returns. Before issue 28 this was a
+// plain fmt.Errorf: BuildGraph logged it and moved on, so a resident server
+// driven over stdio/HTTP (or the `call` subcommand) never learned the graph
+// it just got "ok" back from has zero typed call edges — exactly the
+// capability the server's own instructions cite as the reason to prefer
+// `get depth` over a shell search (cross-language impact radius, what-calls-
+// X). TypedPassError implements error so ResolveTypedCalls' signature is
+// unchanged for existing callers, but carries the fields a caller needs to
+// turn "the pass errored" into a real record instead of re-parsing Error()'s
+// text: Packages, so state/check can name how much of the module is
+// affected without guessing from a string.
+type TypedPassError struct {
+	// Packages is the number of packages that individually failed to load or
+	// type-check. It is 0 when the whole-module load itself failed before any
+	// per-package breakdown existed (e.g. packages.Load's own driver command
+	// erroring) — there is no count to report in that case, only the cause.
+	Packages int
+	msg      string
+	cause    error // wrapped for errors.Is/As; nil when there is no single underlying error to unwrap (the per-package-errors case joins several).
+}
+
+func (e *TypedPassError) Error() string { return e.msg }
+func (e *TypedPassError) Unwrap() error { return e.cause }
+
 func ResolveTypedCalls(ctx context.Context, g graph.Graph, root string, s store.Store) (int, error) {
+	// No go.mod at root: there is no Go module for this pass to type-check
+	// (a CUDA/asm-only tree, or any non-Go fixture) — not a degradation, just
+	// not applicable. Without this guard, packages.Load still runs and hands
+	// back a single synthetic package whose Errors says "directory prefix .
+	// does not contain main module", which is indistinguishable from a real
+	// failure (issue 28) to a caller that only sees "the pass errored". Treat
+	// "nothing to do" as success-with-zero instead of manufacturing a cause.
+	if _, statErr := os.Stat(filepath.Join(root, "go.mod")); statErr != nil {
+		return 0, nil
+	}
+
 	var key [32]byte
 	cacheable := false
 	if s != nil {
@@ -128,16 +166,31 @@ func ResolveTypedCalls(ctx context.Context, g graph.Graph, root string, s store.
 	}
 	pkgs, err := loadPackages(cfg, "./...")
 	if err != nil {
-		return 0, fmt.Errorf("typespass: load %s: %w", root, err)
+		return 0, &TypedPassError{
+			msg:   fmt.Sprintf("typespass: load %s: %v", root, err),
+			cause: err,
+		}
 	}
+	// affected counts distinct packages that reported at least one error —
+	// the number a caller needs ("how much of the module is unresolved"),
+	// as opposed to loadErrs below, which counts individual error messages
+	// and can run higher than the package count (e.g. a package with both an
+	// import and a type error).
 	var loadErrs []string
+	affected := 0
 	for _, p := range pkgs {
+		if len(p.Errors) > 0 {
+			affected++
+		}
 		for _, e := range p.Errors {
 			loadErrs = append(loadErrs, e.Error())
 		}
 	}
 	if len(loadErrs) > 0 {
-		return 0, fmt.Errorf("typespass: %d package error(s) loading %s, e.g. %s", len(loadErrs), root, loadErrs[0])
+		return 0, &TypedPassError{
+			Packages: affected,
+			msg:      fmt.Sprintf("typespass: %d package error(s) loading %s, e.g. %s", len(loadErrs), root, loadErrs[0]),
+		}
 	}
 
 	var candidates []graph.Edge

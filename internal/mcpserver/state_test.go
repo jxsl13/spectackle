@@ -181,4 +181,59 @@ func TestStateOnOwnRepo(t *testing.T) {
 	if !strings.Contains(out, "ok graph nodes=") {
 		t.Fatalf("state graph summary missing: %q", out)
 	}
+	// the repo's own module builds clean under the toolchain running this
+	// test (go build ./... is part of this same task's verification), so the
+	// typed-call pass is healthy here — the output-diet contract (issue 28,
+	// SPX-ARC-002) says a healthy pass must add NOTHING, asserted as an
+	// absence rather than merely "the happy-path assertions above passed".
+	if strings.Contains(out, "! TYPED") {
+		t.Fatalf("state on own (healthy) repo must not emit a typed-pass finding: %q", out)
+	}
+}
+
+// TestStateReportsTypedPassDegradation is issue 28's acceptance test for the
+// `state` half: a forced typed-call pass failure (a real go.mod plus a
+// package importing a path that does not exist — packages.Load itself
+// succeeds, but the affected packages' own Errors are populated, the same
+// shape a Go-version toolchain mismatch takes in the field, see
+// index.TypedPassError's doc comment) must turn "ok graph nodes=N edges=M"
+// into a record naming the cause and the affected package count, not a bare
+// graph summary with no hint anything is missing.
+func TestStateReportsTypedPassDegradation(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "go.mod", "module example.com/typedfail\n\ngo 1.21\n")
+	writeFile(t, root, "pkg1/a.go", "package pkg1\n\nimport \"example.com/typedfail/nope1\"\n\nfunc A() { nope1.Foo() }\n")
+	writeFile(t, root, "pkg2/b.go", "package pkg2\n\nimport \"example.com/typedfail/nope2\"\n\nfunc B() { nope2.Bar() }\n")
+
+	// New() reindexes once during connectRoot, so the fixture above is what
+	// the typed pass sees on its one and only run in this test.
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "state", map[string]any{})
+
+	if !strings.Contains(out, "ok graph nodes=") {
+		t.Fatalf("state graph summary missing even though the syntactic pass must have indexed pkg1/pkg2: %q", out)
+	}
+	if !strings.Contains(out, "! TYPED W") {
+		t.Fatalf("state did not surface the forced typed-pass failure as a finding: %q", out)
+	}
+	if !strings.Contains(out, "packages=2") {
+		t.Fatalf("state's typed-pass finding must name the affected package count (pkg1 and pkg2): %q", out)
+	}
+	if !strings.Contains(out, "nope1") && !strings.Contains(out, "nope2") {
+		t.Fatalf("state's typed-pass finding must name the cause (an example failing import): %q", out)
+	}
+}
+
+// writeFile is a small helper local to this test file (mirrors
+// internal/index's test helper of the same name, which mcpserver's tests
+// cannot import since it's unexported in a different package).
+func writeFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
