@@ -664,6 +664,14 @@ func TestCursorsResumeAcrossPages(t *testing.T) {
 				cur = strings.TrimPrefix(l, "cur ")
 				continue
 			}
+			// transient advisory lines are appended per CALL, not per record
+			// stream (the MCP-010 stale-binary hint fires once per crossing,
+			// sw sibling learnings once per event), so they legitimately
+			// appear on one page and not the next — pagination equality is a
+			// record-stream contract and excludes them.
+			if strings.HasPrefix(l, "h ") || strings.HasPrefix(l, "sw ") {
+				continue
+			}
 			body += l + "\n"
 		}
 		return body, cur

@@ -23,7 +23,7 @@ Rejected: a separate import tool for the brownfield case. It would duplicate val
 
 ## T-0111 knowledge tool: export, merge, apply — one tool, additive writes, idempotent
 kind: task
-state: active
+state: done
 created: 2026-07-24
 parent: P-0080
 targets: internal/mcpserver/knowledge.go, internal/mcpserver/knowledge_test.go, internal/mcpserver/tools.go, internal/knowledge/apply.go, internal/knowledge/apply_test.go, docs/tools.md
