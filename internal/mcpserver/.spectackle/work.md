@@ -138,16 +138,3 @@ TESTS: scripted and httptest — reopen flips ready back to draft and the record
 VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
 SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
 ROLLBACK: additive method and one call site.
-
-## B-01KYDPC0KPFNETYQXGV8KWFT6T exploratory fuzzing sits inside the deterministic merge gate, and its wind-down flake red-blocked a mechanical merge
-kind: bug
-state: done
-created: 2026-07-25
-
-Observed live on the SHA-pinned gate's first refusal: pull request 52 went red with context deadline exceeded at exactly the ten-second fuzz budget, on a runner executing at a seventh of local speed — the known Go fuzz wind-down race, not a finding. Locally the same target ran 24.5 million executions clean. The gate did its job (a red head is never merged mechanically) but the red was noise, and a merge gate that can go red at random breaks the whole mechanical pipeline: the item archives, the pull request stays open, and only a human can recover — the post-archive retry gap compounding a flake.
-
-THE PRINCIPLE: the per-pull-request gate must be DETERMINISTIC — build, vet, race tests, lint. Fuzzing is exploratory testing: valuable, unbounded, and by nature nondeterministic, so it belongs where a random red informs rather than blocks — the push run on the default branch.
-
-FIX: the fuzz step in ci.yml runs only for push events; the pull_request gate keeps the deterministic steps. This also serves the CI-minutes requirement: three ten-second fuzz targets per finalization run bought no per-change signal (fuzz explores randomly, it does not test the diff) and cost runner time on every task.
-
-VERIFY: a pull_request run's step list contains no fuzz step; a push run on the default branch still fuzzes; the flaked pull request rerun goes green without code changes, confirming the noise diagnosis.
