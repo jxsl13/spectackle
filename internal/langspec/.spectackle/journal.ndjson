@@ -111,3 +111,7 @@
 {"t":"2026-07-25T13:28:54Z","eid":"9de3a97de5c97e42","ag":"impl-t0119","ev":"submit","id":"T-0119","dir":"internal/langspec","note":"branch spectackle/T-0119: 6 events, 0 rules, 2 items replayed"}
 {"t":"2026-07-25T13:29:00Z","eid":"a686545c6294f793","ag":"impl-t0119","ev":"move","id":"T-0119","dir":"internal/langspec","fr":"active","to":"done"}
 {"t":"2026-07-25T13:30:04Z","eid":"8613f15be4fcf2e7","ag":"impl-t0123","ev":"start","id":"T-0123","dir":"internal/langspec","note":"branch spectackle/T-0123 base fbdc934942f8"}
+{"t":"2026-07-25T11:23:29Z","eid":"834ee1935041f5b6","ag":"impl-t0122","ev":"move","id":"T-0122","dir":"internal/langspec","fr":"approved","to":"active"}
+{"t":"2026-07-25T13:36:54Z","eid":"0e86818aa40586bc","ag":"impl-t0122","ev":"submit","id":"T-0122","dir":"internal/langspec","note":"branch spectackle/T-0122: 13 events, 0 rules, 5 items replayed"}
+{"t":"2026-07-25T13:37:00Z","eid":"0302c470831846dc","ag":"impl-t0122","ev":"move","id":"T-0122","dir":"internal/langspec","fr":"active","to":"done"}
+{"t":"2026-07-25T13:37:55Z","eid":"17605943ce572420","ag":"orchestrator","ev":"create","id":"B-0008","k":"bug","ti":"langspec Parse gates body spans and call edges on KFunc/KMethod only, so kernel-originating calls (KKernel) never mint edges","dir":"internal/langspec"}
