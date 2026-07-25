@@ -1205,16 +1205,84 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 	return text(b.String())
 }
 
+// anySlotSupplied reports whether the caller gave any EARS slot, i.e. whether
+// they are asking for a new sentence at all. It is the discriminator between a
+// sentence edit and a metadata-only edit (rationale, applies), which must keep
+// working without a pattern.
+func anySlotSupplied(in ruleIn) bool {
+	for _, v := range []string{in.System, in.Response, in.Trigger, in.State, in.Condition, in.Feature} {
+		if strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// editPattern resolves the pattern an edit should compose with.
+//
+// ok is false when no sentence should be composed — no slots were supplied, so
+// this is a rationale-only or applies-only edit. A non-nil result is a refusal
+// to return verbatim: the caller supplied slots but neither named a pattern nor
+// left one recoverable from the stored rule, which is the one case where
+// guessing would silently store something the caller did not write.
+//
+// The pattern IS stored: ears.ParseRules classifies every rule when it reads
+// the sentence, so ears.Rule.Pattern is available without re-deriving anything
+// from the text.
+func (s *Server) editPattern(in ruleIn, c *spec.Cascade) (ears.Pattern, bool, *mcp.CallToolResult) {
+	if in.Pattern != "" {
+		p := ears.PatternFromString(in.Pattern)
+		if p == ears.PInvalid {
+			return p, false, textResult("! ARG E - " + in.ID + " pattern must be one of U|E|S|N|O|C")
+		}
+		return p, true, nil
+	}
+	if !anySlotSupplied(in) {
+		return ears.PInvalid, false, nil
+	}
+	old, ok := c.Rule(in.ID)
+	if !ok {
+		// unknown ID: let spec.EditRule produce the not-found refusal, so
+		// there is one message for it rather than two.
+		return ears.PInvalid, false, nil
+	}
+	if old.Pattern == ears.PInvalid {
+		return ears.PInvalid, false, textResult("! ARG E - " + in.ID +
+			" stored sentence matches no EARS pattern — pass pattern= explicitly")
+	}
+	return old.Pattern, true, nil
+}
+
 func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
 	if in.ID == "" {
 		return text("! ARG E - edit requires id")
 	}
+	// Composing the new sentence, and the one case that used to fail silently.
+	//
+	// A sentence is composed whenever the caller supplied EARS slots. The
+	// pattern comes from the argument when given, and otherwise from the stored
+	// rule — which is what closes GitHub issue 25. Previously a caller passing
+	// system and response but no pattern got sentence="", spec.EditRule fell
+	// back to the OLD text, the write genuinely happened, and the tool answered
+	// ok: truthful about the write, a lie about the edit.
+	//
+	// Recovering the pattern rather than rejecting a missing one is deliberate.
+	// EditRule's fallbacks (sentence, rationale, applies) exist so a partial
+	// edit works, and making pattern mandatory would break the legitimate
+	// rationale-only and applies-only edits — the very calls the fallbacks are
+	// for. So: no slots supplied means no sentence change, exactly as before;
+	// slots supplied means the caller intends a new sentence and gets one, or a
+	// loud refusal.
 	sentence := ""
-	if in.Pattern != "" {
-		p := ears.PatternFromString(in.Pattern)
+	if p, ok, bad := s.editPattern(in, c); bad != nil {
+		return bad, nil, nil
+	} else if ok {
 		var err error
 		sentence, err = ears.Compose(p, slotsOf(in))
 		if err != nil {
+			// Compose names the slots it is missing. That refusal is the point:
+			// a partial slot set now says so instead of degrading to a no-op
+			// edit reported as success.
 			return text("! ARG E - " + err.Error())
 		}
 	}
