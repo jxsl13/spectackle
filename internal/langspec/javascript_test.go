@@ -195,7 +195,7 @@ func TestJavascriptSpecGapFixes(t *testing.T) {
 		{"js:sample.fetchRemote", "js:sample.fetchData"}: false,
 		{"js:sample.create", "js:sample.Calculator"}:     false,
 		{"js:sample.delayedLog", "js:sample.log"}:        false, // console.log(msg) -> dangling "log"
-		{"js:sample.outer", "js:sample.inner"}:            false,
+		{"js:sample.outer", "js:sample.inner"}:           false,
 	}
 	for _, e := range pr.Edges {
 		if e.Kind != graph.ECall {

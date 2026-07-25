@@ -2,26 +2,6 @@
 schema: v0
 ---
 
-## P-0084 langspec engine: end-keyword body spans, so end-terminated languages get real spans and call edges
-kind: proposal
-state: active
-created: 2026-07-25
-refs: ADR-0012, R-0005
-grilled: 2026-07-25
-targets: internal/cspan/cspan.go, internal/langspec/langspec.go
-
-Per ADR-0012 (engine-endspan) resolving R-0005. The langspec engine bounds bodies exclusively by brace counting (cspan.Span), so end-terminated languages (lua, ruby, elixir, julia, fortran) ship EndLine==Line for every symbol and can never set CallRe — impact BFS is blind there. Add a keyword-counting span: Spec gains an optional EndSpan config (open/close regexes); Parse uses it in place of cspan.Span when set, feeding the existing callEdges loop unchanged. cspan gains KeywordSpan alongside Span, same leaf-package discipline. Default nil = byte-identical current behavior (same guarantee CallRe made when introduced). Then per-language data updates switch the five end-terminated languages onto it. Rejected: indentation-based spans for python/haskell in this pass (different mechanism, separate proposal if the hardened regexes prove insufficient); tree-sitter adoption (ADR-0012 kept the pure-Go chain, wazero stays gated per ADR-0010). Scope disjoint: engine task owns internal/cspan + langspec.go; data task owns the five language files and runs only after the engine task merges. Exit: engine tests green including a no-behavior-change guard for nil EndSpan; the five languages report multi-line spans and call edges over the R-0005 scratch fixtures. Rollback: the field and KeywordSpan are additive; reverting restores brace-only behavior.
-
-## P-0086 hand-written parser fixes: go call-edge coverage, asm linker-suffix symbols, cuda kernel modifiers
-kind: proposal
-state: active
-created: 2026-07-25
-refs: ADR-0012, R-0005
-grilled: 2026-07-25
-targets: internal/index
-
-Per ADR-0012 resolving R-0005. Three empirically confirmed hand-parser gaps. Go (nodes perfect, two edge-coverage holes): callEdges/typedCallEdges walk only *ast.FuncDecl bodies, skipping package-level var F = func(){} initializer bodies, and the callee switch handles only *ast.Ident/*ast.SelectorExpr, dropping explicit generic instantiation Foo[T]() (*ast.IndexExpr/*ast.IndexListExpr). Asm: TEXT/GLOBL patterns miss file-local <> suffixed symbols, <ABIInternal>-tagged symbols (pervasive since Go 1.17), and quoted method-shaped linker symbols. CUDA: static-qualified __global__ kernels (and sibling modifier-order forms) mint no node. Fix in the hand parsers with the R-0005 scratch fixtures as regression inputs. Two disjoint tasks: go edge coverage; asm+cuda symbol patterns. Exit: previously-missed forms produce nodes/edges over the fixtures, package tests green under -race. Rollback: bounded pattern/switch-case additions, revertible per file.
-
 ## P-0087 class-level regression invariants: catch the next instance of each defect family, not just the nine already fixed
 kind: proposal
 state: active
@@ -51,44 +31,6 @@ Classes 1 and 4 assert properties the code currently violates (B-0008's kind gat
 Rejected: one generic table-driven test per bug, mechanically derived. It would restate the specific tests already committed at each site and add maintenance weight without adding a single new detection. Also rejected: fuzzing the tool surface for class 2. Property assertions over a deterministic tool surface are cheaper to read and cannot flake, and the failure mode here is structural, not input-dependent.
 
 Scope is disjoint by package and file: registry invariants in internal/langspec and internal/index, tool-surface invariants and the worktree end-to-end in two separate new files under internal/mcpserver, freshness in internal/sync and internal/cache. Exit criterion: each invariant fails against the pre-fix behavior it encodes and passes after, the full suite is green under -race, and vet and lint stay clean. Rollback: new test files plus two bounded fixes, each revertible on its own.
-
-## T-0128 registry invariants for parsers and Specs, plus the B-0008 kind-gate fix
-kind: task
-state: done
-created: 2026-07-25
-parent: P-0087
-refs: B-0007, B-0008
-targets: internal/langspec/langspec.go, internal/langspec/registry_test.go, internal/index/parsers_test.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-CLASS: a registry of 30 languages means every new entry can silently omit something the engine needs. Assert the properties over the registry itself, so a language added next month is covered without anyone writing a fixture for it.
-
-FIRST, THE FIX (B-0008, read it with get id=B-0008)
-internal/langspec/langspec.go's Parse computes a body span and scans call edges only when def.Kind is KFunc or KMethod. A KKernel def (metal, glsl entry points) therefore never mints edges even with CallRe and EndSpan configured; T-0122 confirmed it live on the gap-metal fixture. Widen the gate to the kinds that actually carry bodies. Decide from the code which kinds qualify and say why in the commit; KKernel is required, anything else is your call with a stated reason.
-
-THEN THE INVARIANTS (new files; do NOT add them to an existing per-language test file)
-internal/index/parsers_test.go
-  A. Every parser the server actually assembles — langspec.All() plus the hand-written GoParser, AsmParser, CudaParser — implements index.CacheVersioner. A parser without it silently reverts to content-only keying, which is exactly B-0007; this catches the next parser added without a version.
-  B. No two of those parsers report the same CacheVersion. Equal versions across languages would let one language's cached blob satisfy another's key.
-internal/langspec/registry_test.go, over every Spec in the registry:
-  C. If a Spec sets CallRe, every Kind appearing in its Defs must be span/edge eligible under the gate you widened. This is B-0008 as a property: a language declaring a kind the gate drops gets no edges from those defs and nobody notices.
-  D. Every Def's Name group index is >= 1 and <= its own regex's NumSubexp, and the same for Sig when non-zero. A capture index pointing past the regex's groups mints empty names or panics; the 27-language hardening rewrote most of these regexes by hand.
-  E. Every Spec declares at least one extension and at least one Def, and its Lang tag is non-empty.
-  F. Report, do not necessarily fail, on two Specs claiming the same extension: the first parser registered wins and the second is dead weight. If the current registry already has an intentional overlap, encode the intent (allow-list it with a comment) rather than bending the registry to the test.
-
-Use table-driven subtests named by language so a failure names the offender directly.
-
-VERIFY (run every one, real output, never predicted)
-  go build ./...
-  go test <your packages> -race
-  go test ./...
-  go vet <your packages>
-  /home/user/spectackle/bin/spectackle lint
-PROVE THE TEST BITES: for each invariant, temporarily reintroduce the defect it encodes (revert the guard, restore the old gate, whatever is minimal), show the test failing, restore, show it passing. A green invariant that would also be green against the broken code is worthless; paste both transcripts.
-
-ROLLBACK: new test files plus the bounded fix named above; each revertible on its own.
-REPORT BACK: each invariant with the class it generalizes, the failing-then-passing transcript, real verify output, and anything you deliberately did NOT do.
 
 ## T-0131 freshness follows content: fix B-0009 and assert it per bundle kind
 kind: task
