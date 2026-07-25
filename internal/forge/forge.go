@@ -69,7 +69,33 @@ type Forge interface {
 	Merge(pr PR) (MergeResult, error)
 	// Find returns the pull request already open for branch, if any.
 	Find(branch string) (PR, bool, error)
+	// Checks reports the CI verdict for the pull request's head. The merge
+	// step consults it BEFORE merging: a red head must never be merged
+	// mechanically, and a pending one is waited for — see CheckState for the
+	// four possible answers and what each obliges the caller to do.
+	Checks(pr PR) (CheckState, error)
 }
+
+// CheckState is the reduced CI verdict for a head commit. Four states, not a
+// bool, because the caller's obligations differ for each: Passing merges,
+// Failing refuses loudly, Pending waits within a bounded budget, and None —
+// a repository with no CI at all — proceeds, since waiting for checks that
+// will never arrive is a hang, not a gate.
+type CheckState string
+
+const (
+	ChecksPassing CheckState = "passing"
+	ChecksFailing CheckState = "failing"
+	ChecksPending CheckState = "pending"
+	ChecksNone    CheckState = "none"
+)
+
+// ReasonNotReady is the MergeResult.Reason for a merge the forge refused as
+// TRANSIENTLY unready: GitHub answers 405 while it recomputes mergeability
+// and 409 when the head advanced moments before — both routine seconds after
+// a push, both resolved by asking again shortly. Distinguished from
+// ReasonNoPermission so callers retry the one and never the other.
+const ReasonNotReady = "not_ready"
 
 // notFoundErr is a small helper so every implementation phrases a missing
 // tracked PR the same way (callers match on branch/number in error text

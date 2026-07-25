@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jxsl13/spectackle/internal/forge"
 	"github.com/jxsl13/spectackle/internal/item"
@@ -387,17 +388,99 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		res.addf("g merge skipped: no open pr for %s (already merged, or never opened)", branch)
 		return res
 	}
-	mr, err := f.Merge(pr)
-	if err != nil {
-		res.addf("! GIT W %s pr merge: %s", it.ID, err)
-		return res
-	}
-	if !mr.Merged {
-		res.addf("! GIT W %s pr %d left open: %s", it.ID, pr.Number, mr.Reason)
-		return res
-	}
-	res.addf("g pr %d merged %s", pr.Number, mr.SHA)
+	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)
 	return res
+}
+
+// Budgets for the mechanical merge. The wait budget covers this repository's
+// own CI (about two minutes) with headroom; the poll interval keeps the forge
+// polling to a handful of cheap reads per merge. Package variables rather
+// than constants so the tests can shrink them to milliseconds — production
+// never mutates them.
+//
+// Known cost, accepted deliberately: the archive tool call holds the server
+// mutex while it waits, so a merge gated on live CI blocks other tool calls
+// from THIS server for up to the budget. The alternative — merging in the
+// background — leaves the archive transition reporting a merge it has not
+// performed yet, which the never-silent decision (ADR-01KYDG) forbids more
+// strongly than it forbids latency. A background finisher with its own
+// notification channel is future work, and the budget bounds the damage.
+var (
+	mergeWaitBudget   = 5 * time.Minute
+	mergePollInterval = 10 * time.Second
+	mergeRetryBudget  = 8 // not-ready retries, one poll interval apart
+)
+
+// awaitChecksAndMerge is the merge gate (ADR-01KYDB: merge after
+// verification), in its mechanically checkable half: the head's CI verdict.
+//
+//	failing  refuse loudly and leave the pull request open — red is never
+//	         merged mechanically, whatever the branch protection situation is
+//	none     proceed; a repository without CI has nothing to wait for, and
+//	         waiting for checks that will never arrive is a hang, not a gate
+//	pending  poll within the budget; a budget spent on still-pending checks
+//	         refuses with the budget named, so the operator knows the loop
+//	         closed without landing (B-01KYDH's required wording)
+//	passing  merge, retrying the forge's transient not-ready refusals — 405
+//	         mergeability recompute and 409 head-out-of-date, both observed
+//	         live seconds after the records push
+//
+// Free-standing rather than a Server method so the tests can drive it with a
+// scripted Forge and millisecond budgets, no Server required.
+func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
+	deadline := time.Now().Add(waitBudget)
+	waited := false
+	for {
+		state, err := f.Checks(pr)
+		if err != nil {
+			res.addf("! GIT W pr %d checks: %s", pr.Number, err)
+			return
+		}
+		switch state {
+		case forge.ChecksFailing:
+			res.addf("! GIT W pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
+			return
+		case forge.ChecksNone:
+			res.addf("g pr %d checks none — nothing to wait for", pr.Number)
+		case forge.ChecksPassing:
+			if waited {
+				res.addf("g pr %d checks passing", pr.Number)
+			}
+		case forge.ChecksPending:
+			if time.Now().After(deadline) {
+				res.addf("! GIT W pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
+				return
+			}
+			if !waited {
+				res.addf("g pr %d checks pending — waiting up to %s", pr.Number, waitBudget)
+				waited = true
+			}
+			time.Sleep(poll)
+			continue
+		}
+		break
+	}
+
+	for attempt := 1; ; attempt++ {
+		mr, err := f.Merge(pr)
+		if err != nil {
+			res.addf("! GIT W pr %d merge: %s", pr.Number, err)
+			return
+		}
+		if mr.Merged {
+			res.addf("g pr %d merged %s", pr.Number, mr.SHA)
+			return
+		}
+		if mr.Reason != forge.ReasonNotReady {
+			res.addf("! GIT W pr %d left open: %s", pr.Number, mr.Reason)
+			return
+		}
+		if attempt >= mergeRetryBudget {
+			res.addf("! GIT W pr %d left open: still not mergeable after %d attempts — retry budget spent, merge it by hand", pr.Number, attempt)
+			return
+		}
+		time.Sleep(poll)
+	}
 }
 
 // gitBase is the branch task branches target.

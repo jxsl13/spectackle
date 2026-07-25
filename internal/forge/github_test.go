@@ -147,18 +147,39 @@ func TestGitHubMergeForbiddenDegradesNotFails(t *testing.T) {
 	}
 }
 
+// TestGitHubMergeOtherErrorIsAnError: a status that is neither success nor a
+// classified refusal is an error. The example used to be 409 — until two live
+// merges showed 405 and 409 are ROUTINE seconds after a push (mergeability
+// recompute, head-out-of-date), so both are now ReasonNotReady values a
+// caller retries. 500 stands in for the genuinely broken case.
 func TestGitHubMergeOtherErrorIsAnError(t *testing.T) {
 	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusConflict) // e.g. merge conflict / not mergeable
-		json.NewEncoder(w).Encode(map[string]any{"message": "not mergeable"})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"message": "boom"})
 	})
 
 	res, err := g.Merge(PR{Number: 42, Branch: "agent/forge-client"})
 	if err == nil {
-		t.Fatalf("expected an error for a non-403 non-200 status, got result %+v", res)
+		t.Fatalf("expected an error for an unclassified status, got result %+v", res)
 	}
-	if !strings.Contains(err.Error(), "409") && !strings.Contains(err.Error(), "Conflict") {
-		t.Fatalf("error does not name the status: %v", err)
+}
+
+// TestGitHubMergeTransientStatusesAreNotReady pins the classification the
+// retry loop depends on: 405 and 409 answer ReasonNotReady, not an error and
+// never ReasonNoPermission.
+func TestGitHubMergeTransientStatusesAreNotReady(t *testing.T) {
+	for _, status := range []int{http.StatusMethodNotAllowed, http.StatusConflict} {
+		g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]any{"message": "transient"})
+		})
+		res, err := g.Merge(PR{Number: 42, Branch: "b"})
+		if err != nil {
+			t.Fatalf("status %d became an error: %v", status, err)
+		}
+		if res.Merged || res.Reason != ReasonNotReady {
+			t.Fatalf("status %d classified as %+v, want ReasonNotReady", status, res)
+		}
 	}
 }
 

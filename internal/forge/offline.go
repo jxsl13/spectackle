@@ -189,6 +189,11 @@ func (o *Offline) Merge(pr PR) (MergeResult, error) {
 	return MergeResult{Merged: true, SHA: strings.TrimSpace(string(sha))}, nil
 }
 
+// Checks answers ChecksNone always: offline has no CI, and None is exactly
+// the state that tells the caller there is nothing to wait for. Answering
+// Passing instead would be a claim about checks that never ran.
+func (o *Offline) Checks(pr PR) (CheckState, error) { return ChecksNone, nil }
+
 // Find returns the tracked PR for branch, if any.
 func (o *Offline) Find(branch string) (PR, bool, error) {
 	o.mu.Lock()
