@@ -35,7 +35,7 @@ func TestStateSeededSections(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "wire the state tool"})
+	task := draftID(t, sess, map[string]any{"kind": "task", "title": "wire the state tool"})
 	callText(t, sess, "rule", map[string]any{
 		"op": "add", "pattern": "U", "stem": "STATE",
 		"system": "state tool", "response": "report items, rules, graph, swarm, drift and health without writing anything",
@@ -51,7 +51,7 @@ func TestStateSeededSections(t *testing.T) {
 	if !strings.Contains(out, "ok items total=1 active=0 approved=0 draft=1 submitted=0 done=0") {
 		t.Fatalf("state items summary: %q", out)
 	}
-	if !strings.Contains(out, "i T-0001 task draft") {
+	if !strings.Contains(out, "i "+task+" task draft") {
 		t.Fatalf("state missing the seeded item's i line: %q", out)
 	}
 	if !strings.Contains(out, "ok rules total=1 dirs=1") {

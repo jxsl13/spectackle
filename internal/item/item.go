@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
@@ -91,29 +92,90 @@ type Item struct {
 	Status       string // proposed|accepted|superseded|deprecated
 }
 
-// IDRe matches item IDs like P-0007 or ADR-0007 (adr). D-0007 is also
-// accepted: the legacy ID letter for adr items before the decision->adr
-// rename — existing D-xxxx items in .spectackle files are not migrated by
-// this change, so the regex must keep reading them. New adr items are
-// always minted as ADR-NNNN (see kindLetter above); D is legacy-only.
-var IDRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-\d{4}$`)
+// kindOfLetter is kindLetter reversed: the kind an ID prefix names. D is the
+// legacy ID letter for adr items (see kindLetter above) and maps to adr like
+// ADR does, so KindOf answers for records minted before the decision->adr
+// rename as well.
+var kindOfLetter = map[string]string{
+	"P": "proposal", "T": "task", "B": "bug", "R": "research",
+	"ADR": "adr", "D": "adr",
+}
+
+// The item ID grammar, in two halves that IDRe accepts equally.
+//
+// legacyIDPat is the sequential scheme every record minted before ADR-0013
+// carries: a kind prefix and a four-digit counter, e.g. P-0007 or ADR-0007.
+// It is NOT a deprecation window that closes later — it must keep parsing for
+// as long as this program exists. Archived records leave work.md entirely and
+// survive only as journal tombstones that lifecycle.Tombstone finds by exact
+// ID (see internal/lifecycle), and the tool boundary refuses an ID that does
+// not match IDRe before it ever reaches the tombstone lookup. The day a
+// legacy ID stops matching is the day the archived half of this repository's
+// history becomes unreachable.
+//
+// recordIDPat is the ADR-0013 scheme minted from here on: the same kind
+// prefix followed by internal/ids' canonical record ID — a UUIDv7 in
+// Crockford base32. The character class is that alphabet (digits plus the
+// uppercase letters minus the confusable I, L, O and U); the first character
+// encodes only the top 3 bits of a 128-bit value and so never exceeds '7',
+// exactly as ids.ParseRecordID enforces. The length comes from
+// ids.RecordIDLen rather than a literal so the two cannot drift apart.
+var (
+	legacyIDPat = `(?:ADR|[PTBRD])-[0-9]{4}`
+	recordIDPat = `(?:ADR|[PTBRD])-[0-7][0-9A-HJKMNP-TV-Z]{` + strconv.Itoa(ids.RecordIDLen-1) + `}`
+	idPat       = `(?:` + legacyIDPat + `|` + recordIDPat + `)`
+)
+
+// IDRe matches an item ID of either scheme: the legacy sequential form
+// (P-0007, ADR-0007, and the legacy adr letter D-0007) and the ADR-0013
+// kind-prefixed record ID (T-01K9XJ...). Both are accepted permanently — see
+// the pattern doc above for why legacy IDs can never be dropped.
+var IDRe = regexp.MustCompile(`^` + idPat + `$`)
+
+// LegacyIDRe matches ONLY the pre-ADR-0013 sequential form. It exists to tell
+// the two schemes apart — a migration deciding what still needs rewriting, a
+// caller reporting which scheme a record predates. Nothing may use it to
+// reject an ID: IDRe is the acceptance test, and it accepts both.
+var LegacyIDRe = regexp.MustCompile(`^` + legacyIDPat + `$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
 
-// NextID mints the next ID for a kind given the highest number seen so far
-// across journal create events and active items (journal is source of truth).
-func NextID(kind string, maxSeen int) string {
-	return fmt.Sprintf("%s-%04d", kindLetter[kind], maxSeen+1)
+// MintID mints a fresh ID for a kind, stamped with the current time.
+//
+// Per ADR-0013 the number no longer comes from a counter. coord.NextID is
+// serialized per machine but its database is gitignored, so two independent
+// clones drafting concurrently minted the same ID and replay silently
+// collapsed the two records into one (reproduced in R-0006). A UUIDv7 needs
+// no coordination at all to be unique, and because it leads with a
+// millisecond timestamp the canonical encoding also sorts by mint time.
+// Returns "" for an unknown kind, matching Letter.
+func MintID(kind string) string { return MintIDAt(kind, time.Now()) }
+
+// MintIDAt mints an ID for a kind stamped with ts instead of the clock. A
+// migration rewriting historical records mints from each record's own
+// creation time so the archive keeps its chronology instead of collapsing
+// into the migration moment; tests use it for deterministic same-millisecond
+// batches.
+func MintIDAt(kind string, ts time.Time) string {
+	l := kindLetter[kind]
+	if l == "" {
+		return ""
+	}
+	return l + "-" + ids.MintRecordIDAt(ts).String()
 }
 
-// Num extracts the numeric part of an item ID (0 if malformed). Handles both
-// single-letter (P-0007) and multi-letter (ADR-0007) prefixes.
+// Num extracts the counter of a LEGACY sequential item ID (P-0007 -> 7),
+// handling both single-letter and multi-letter (ADR-0007) prefixes. It
+// returns 0 for anything else, record IDs included: an ADR-0013 ID has no
+// counter, and a record ID whose base32 tail happens to open with digits
+// would otherwise yield a meaningless number that a caller could mistake for
+// a real one.
 func Num(id string) int {
-	i := strings.IndexByte(id, '-')
-	if i < 0 {
+	if !LegacyIDRe.MatchString(id) {
 		return 0
 	}
+	i := strings.IndexByte(id, '-')
 	var n int
 	if _, err := fmt.Sscanf(id[i+1:], "%d", &n); err != nil {
 		return 0
@@ -124,7 +186,23 @@ func Num(id string) int {
 // Letter returns the ID letter for a kind ("" if unknown).
 func Letter(kind string) string { return kindLetter[kind] }
 
-var reItemHeading = regexp.MustCompile(`^## +((?:ADR|[PTBRD])-\d{4}) +(.+?) *$`)
+// KindOf returns the kind an item ID names ("" if the ID is malformed).
+// It reads the prefix, which both schemes share, so a legacy P-0007 and a
+// record-ID P-01K9XJ... both answer "proposal" — callers deriving a kind from
+// an ID must go through here rather than testing prefixes by hand, which is
+// how the four-digit shape leaked into helpers in the first place.
+func KindOf(id string) string {
+	if !IDRe.MatchString(id) {
+		return ""
+	}
+	prefix, _, _ := strings.Cut(id, "-")
+	return kindOfLetter[prefix]
+}
+
+// reItemHeading matches a work.md item block heading. It shares idPat with
+// IDRe so a shape one accepts is never a shape the other silently drops on
+// the floor — that divergence would make a whole work.md unreadable.
+var reItemHeading = regexp.MustCompile(`^## +(` + idPat + `) +(.+?) *$`)
 
 // LoadWork parses a work.md file (missing file = no items).
 func LoadWork(path, ctx string) ([]Item, error) {

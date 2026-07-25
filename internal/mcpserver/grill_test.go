@@ -33,14 +33,12 @@ func TestGrillTargetsAndContracts(t *testing.T) {
 	}
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{
+	prop := serverDraftID(t, s, draftIn{
 		Kind: "proposal", Title: "demo review",
 		Targets: []string{"go:demo.Foo", "go:demo.Missing", "pkg/new.go"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
-	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	res, _, err := s.grill(grillIn{ID: prop})
 	out := resText(t, res, err)
 
 	if !strings.Contains(out, "#targets") {
@@ -67,9 +65,7 @@ func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{Kind: "proposal", Title: "parent"}); err != nil {
-		t.Fatal(err)
-	}
+	parent := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "parent"})
 
 	clean := "internal/mcpserver/grill.go implements the grill tool. " +
 		"Run `go test ./internal/mcpserver/...` to verify. " + strings.Repeat("detail ", 40)
@@ -77,46 +73,48 @@ func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
 	noPath := strings.Repeat("word ", 80) + "run go test to verify"
 	noVerify := strings.Repeat("x/y/z path segment ", 40)
 
+	byTitle := map[string]string{}
 	for _, c := range []struct{ title, body string }{
 		{"clean brief", clean},
 		{"short only", shortBody},
 		{"no path", noPath},
 		{"no verify", noVerify},
 	} {
-		if _, _, err := s.draft(draftIn{Kind: "task", Title: c.title, Body: c.body, Parent: "P-0001"}); err != nil {
-			t.Fatalf("draft %s: %v", c.title, err)
-		}
+		byTitle[c.title] = serverDraftID(t, s, draftIn{Kind: "task", Title: c.title, Body: c.body, Parent: parent})
 	}
 
-	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	res, _, err := s.grill(grillIn{ID: parent})
 	out := resText(t, res, err)
 
 	if !strings.Contains(out, "#briefs") {
 		t.Fatalf("missing #briefs: %q", out)
 	}
-	// T-0001 (clean) must fail nothing.
-	if strings.Contains(out, "b T-0001 ") {
+	// the clean brief must fail nothing.
+	if strings.Contains(out, "b "+byTitle["clean brief"]+" ") {
 		t.Fatalf("clean brief flagged: %q", out)
 	}
-	// T-0002 (short only) fails all three heuristics.
-	for _, want := range []string{"b T-0002 short-body", "b T-0002 no-path", "b T-0002 no-verify"} {
+	// "short only" fails all three heuristics.
+	short := byTitle["short only"]
+	for _, want := range []string{"b " + short + " short-body", "b " + short + " no-path", "b " + short + " no-verify"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q: %q", want, out)
 		}
 	}
-	// T-0003 (no path) fails only no-path.
-	if !strings.Contains(out, "b T-0003 no-path") {
-		t.Fatalf("missing T-0003 no-path: %q", out)
+	// "no path" fails only no-path.
+	noPathID := byTitle["no path"]
+	if !strings.Contains(out, "b "+noPathID+" no-path") {
+		t.Fatalf("missing %s no-path: %q", noPathID, out)
 	}
-	if strings.Contains(out, "b T-0003 short-body") || strings.Contains(out, "b T-0003 no-verify") {
-		t.Fatalf("T-0003 over-flagged: %q", out)
+	if strings.Contains(out, "b "+noPathID+" short-body") || strings.Contains(out, "b "+noPathID+" no-verify") {
+		t.Fatalf("%s over-flagged: %q", noPathID, out)
 	}
-	// T-0004 (no verify) fails only no-verify.
-	if !strings.Contains(out, "b T-0004 no-verify") {
-		t.Fatalf("missing T-0004 no-verify: %q", out)
+	// "no verify" fails only no-verify.
+	noVerifyID := byTitle["no verify"]
+	if !strings.Contains(out, "b "+noVerifyID+" no-verify") {
+		t.Fatalf("missing %s no-verify: %q", noVerifyID, out)
 	}
-	if strings.Contains(out, "b T-0004 short-body") || strings.Contains(out, "b T-0004 no-path") {
-		t.Fatalf("T-0004 over-flagged: %q", out)
+	if strings.Contains(out, "b "+noVerifyID+" short-body") || strings.Contains(out, "b "+noVerifyID+" no-path") {
+		t.Fatalf("%s over-flagged: %q", noVerifyID, out)
 	}
 }
 
@@ -133,13 +131,11 @@ func TestGrillTestsGap(t *testing.T) {
 	}
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{
+	task := serverDraftID(t, s, draftIn{
 		Kind: "task", Title: "add widget", Targets: []string{"internal/widget/widget.go"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
-	res, _, err := s.grill(grillIn{ID: "T-0001"})
+	res, _, err := s.grill(grillIn{ID: task})
 	out := resText(t, res, err)
 	if !strings.Contains(out, "#tests") {
 		t.Fatalf("missing #tests: %q", out)
@@ -151,7 +147,7 @@ func TestGrillTestsGap(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "internal", "widget", "widget_test.go"), []byte("package widget\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res2, _, err2 := s.grill(grillIn{ID: "T-0001"})
+	res2, _, err2 := s.grill(grillIn{ID: task})
 	out2 := resText(t, res2, err2)
 	if strings.Contains(out2, "#tests") {
 		t.Fatalf("tests section should be gone once the test file exists: %q", out2)
@@ -166,24 +162,20 @@ func TestGrillRejectionsAndQuestions(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{Kind: "proposal", Title: "widget batching plan"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := s.move(moveIn{ID: "P-0001", To: "rejected", Note: "too risky"}); err != nil {
+	old := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "widget batching plan"})
+	if _, _, err := s.move(moveIn{ID: old, To: "rejected", Note: "too risky"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.scan.Refresh(); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, _, err := s.draft(draftIn{
+	v2 := serverDraftID(t, s, draftIn{
 		Kind: "proposal", Title: "widget batching plan v2",
 		Body: "Batches widgets. Rollback: revert the commit if perf regresses.",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
-	res, _, err := s.grill(grillIn{ID: "P-0002"})
+	res, _, err := s.grill(grillIn{ID: v2})
 	out := resText(t, res, err)
 
 	if !strings.Contains(out, "#rejections") {
@@ -268,11 +260,9 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
-	if _, _, err := s.draft(draftIn{Kind: "proposal", Title: "stamp me"}); err != nil {
-		t.Fatal(err)
-	}
+	prop := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "stamp me"})
 
-	before, ok, err := item.Get(s.ws, "P-0001")
+	before, ok, err := item.Get(s.ws, prop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,14 +273,14 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 		t.Fatalf("item pre-grilled unexpectedly: %+v", before)
 	}
 
-	res, _, err := s.grill(grillIn{ID: "P-0001"})
+	res, _, err := s.grill(grillIn{ID: prop})
 	out := resText(t, res, err)
 	today := time.Now().UTC().Format("2006-01-02")
-	if !strings.Contains(out, "ok grilled P-0001 "+today) {
+	if !strings.Contains(out, "ok grilled "+prop+" "+today) {
 		t.Fatalf("grill did not confirm the stamp: %q", out)
 	}
 
-	after, ok, err := item.Get(s.ws, "P-0001")
+	after, ok, err := item.Get(s.ws, prop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +307,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	}
 	found := false
 	for _, e := range events {
-		if e.Ev == journal.EvGrill && e.ID == "P-0001" && e.Gr == today {
+		if e.Ev == journal.EvGrill && e.ID == prop && e.Gr == today {
 			found = true
 		}
 	}
@@ -331,7 +321,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	}
 	foundSw := false
 	for _, e := range swEvents {
-		if e.Ev == "grill" && e.Ref == "P-0001" {
+		if e.Ev == "grill" && e.Ref == prop {
 			foundSw = true
 		}
 	}

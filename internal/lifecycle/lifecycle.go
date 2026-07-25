@@ -103,6 +103,15 @@ func allowed(from, to string) bool {
 // Minter turns a scan-derived floor into the next unique ID number. The
 // swarm coordination DB provides one that is collision-free across parallel
 // worktrees; nil falls back to floor+1 (single-agent behavior).
+//
+// Item IDs no longer come from a Minter: ADR-0013 moved them to
+// item.MintID, which needs no coordination because a UUIDv7 is unique
+// without it. Draft and Escalate still TAKE a Minter — every caller passes
+// one and rules are still minted through coord.NextID, which is a separate
+// counter and a separate task's concern — but the value is now unused by the
+// item path. The parameter stays so that no call site outside this package
+// has to change for an ID-scheme swap; retiring it belongs with retiring the
+// item counter itself.
 type Minter func(kind string, floor int) (int, error)
 
 // Draft creates a new item (state=draft) in the correct context dir:
@@ -116,7 +125,10 @@ type Minter func(kind string, floor int) (int, error)
 // self-reference cannot happen here since the ID does not exist yet
 // anyway); callers that need validation (see item.UnknownRefs) must do it
 // before calling Draft and refuse on a non-empty result.
-func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string, targets []string, refs ...string) (item.Item, error) {
+// The mint parameter is accepted and ignored — see Minter. IDs come from
+// item.MintID, which is collision-free across clones as well as across
+// worktrees, which the counter never was.
+func Draft(ws workspace.Root, _ Minter, kind, title, body, dir, parent string, targets []string, refs ...string) (item.Item, error) {
 	if !item.ValidKind(kind) {
 		return item.Item{}, fmt.Errorf("lifecycle: unknown kind %q", kind)
 	}
@@ -140,18 +152,8 @@ func Draft(ws workspace.Root, mint Minter, kind, title, body, dir, parent string
 	if err != nil {
 		return item.Item{}, err
 	}
-	max, err := maxNum(ws, kind)
-	if err != nil {
-		return item.Item{}, err
-	}
-	if mint != nil {
-		if max, err = mint("item:"+item.Letter(kind), max); err != nil {
-			return item.Item{}, err
-		}
-		max-- // NextID below adds 1
-	}
 	it := item.Item{
-		ID: item.NextID(kind, max), Kind: kind, State: item.StateDraft,
+		ID: item.MintID(kind), Kind: kind, State: item.StateDraft,
 		Title: strings.TrimSpace(title), Dir: ctx, Parent: parent,
 		Targets: targets, Body: strings.TrimSpace(body), Refs: refs,
 	}
@@ -640,42 +642,13 @@ func openChildren(ws workspace.Root, it item.Item) []string {
 	return open
 }
 
-// maxNum finds the highest ID number for a kind across every source that can
-// still witness a used id: journal events (source of truth, includes
-// archived/rejected) and active items. Deliberately not restricted to
-// journal.EvCreate — compact folds create/move/rule/drift events away and
-// keeps only reject/archive/compact, so an id whose create event was
-// compacted away would otherwise look unused and get minted again (seen
-// live: ADR-0001..0004 and P-0067 both re-minted after a compact). Any
-// event carrying both an id and the kind field k — create, archive, reject
-// alike — still witnesses the id, so all of them count toward the floor.
-func maxNum(ws workspace.Root, kind string) (int, error) {
-	letter := item.Letter(kind)
-	max := 0
-	events, err := journal.ReadAll(ws)
-	if err != nil {
-		return 0, err
-	}
-	for _, e := range events {
-		if e.K == kind && strings.HasPrefix(e.ID, letter+"-") {
-			if n := item.Num(e.ID); n > max {
-				max = n
-			}
-		}
-	}
-	items, err := item.LoadAll(ws)
-	if err != nil {
-		return 0, err
-	}
-	for _, it := range items {
-		if strings.HasPrefix(it.ID, letter+"-") {
-			if n := item.Num(it.ID); n > max {
-				max = n
-			}
-		}
-	}
-	return max, nil
-}
+// maxNum is gone with ADR-0013. It existed to find the highest counter a kind
+// had ever used — across journal events as well as active items, because a
+// compact can fold a create event away and an id whose only witness was that
+// event would otherwise be minted a second time (seen live: ADR-0001..0004
+// and P-0067 re-minted after a compact). Every one of those hazards is a
+// property of counters. item.MintID derives nothing from what already exists,
+// so there is no floor to scan for and no way to re-mint a used id.
 
 // scopeFor maps a draft to its context dir: explicit dir (scaffolded on
 // demand) > deepest common existing context dir of the targets > root.

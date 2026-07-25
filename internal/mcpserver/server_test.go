@@ -19,14 +19,14 @@ func TestNewRebindsExistingWorktree(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 
-	callText(t, alice, "draft", map[string]any{
+	prop := draftID(t, alice, map[string]any{
 		"kind": "proposal", "title": "rebind probe", "targets": []string{"main.go"}})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "approved"})
-	out := callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
+	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
 	wtRoot := ""
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "wt P-0001 open ") {
-			wtRoot = strings.TrimPrefix(l, "wt P-0001 open ")
+		if strings.HasPrefix(l, "wt "+prop+" open ") {
+			wtRoot = strings.TrimPrefix(l, "wt "+prop+" open ")
 		}
 	}
 	if wtRoot == "" {
@@ -38,8 +38,8 @@ func TestNewRebindsExistingWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	if s2.wtItem != "P-0001" {
-		t.Fatalf("same-agent server rooted at the worktree: wtItem = %q, want P-0001", s2.wtItem)
+	if s2.wtItem != prop {
+		t.Fatalf("same-agent server rooted at the worktree: wtItem = %q, want %s", s2.wtItem, prop)
 	}
 
 	t.Setenv("SPECTACKLE_AGENT", "mallory")
@@ -61,18 +61,18 @@ func TestWorkAbortJournalsIntoItemDir(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 
-	callText(t, alice, "draft", map[string]any{
+	prop := draftID(t, alice, map[string]any{
 		"kind": "proposal", "title": "abort journal probe", "targets": []string{"main.go"}})
-	callText(t, alice, "move", map[string]any{"id": "P-0001", "to": "approved"})
-	out := callText(t, alice, "work", map[string]any{"op": "start", "item": "P-0001"})
-	if !strings.Contains(out, "wt P-0001 open ") {
+	callText(t, alice, "move", map[string]any{"id": prop, "to": "approved"})
+	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
+	if !strings.Contains(out, "wt "+prop+" open ") {
 		t.Fatalf("work start: %q", out)
 	}
-	out = callText(t, alice, "work", map[string]any{"op": "abort", "item": "P-0001"})
-	if !strings.Contains(out, "ok P-0001 aborted") {
+	out = callText(t, alice, "work", map[string]any{"op": "abort", "item": prop})
+	if !strings.Contains(out, "ok "+prop+" aborted") {
 		t.Fatalf("work abort: %q", out)
 	}
-	if _, err := os.Stat(filepath.Join(root, "P-0001")); err == nil {
+	if _, err := os.Stat(filepath.Join(root, prop)); err == nil {
 		t.Fatal("abort scaffolded a bogus <item-id>/ context dir at the repo root")
 	}
 	raw, err := os.ReadFile(filepath.Join(root, ".spectackle", "journal.ndjson"))

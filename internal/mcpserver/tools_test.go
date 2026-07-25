@@ -9,9 +9,60 @@ import (
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// draftID calls the draft tool and returns the ID the server minted for the
+// new item, read off the `i <id> ...` record draft answers with.
+//
+// Every test that used to hardcode "P-0001" goes through here instead: since
+// ADR-0013 (T-0135) item IDs are UUIDv7-derived, so a minted ID is different
+// on every run and cannot appear in a test literal. Legacy IDs are still
+// perfectly valid to write by hand — tests that seed a pre-migration
+// workspace do exactly that.
+func draftID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	return idOfRecord(t, callText(t, sess, "draft", args), "i")
+}
+
+// idOfRecord picks the ID out of the first record line of out carrying the
+// given tag. Scanning lines rather than reading the head of the output is
+// deliberate: several tools prepend an `h ...` health hint, and the context
+// pack follows the item record, so the record is not reliably the whole text.
+func idOfRecord(t *testing.T, out, tag string) string {
+	t.Helper()
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 2 || f[0] != tag {
+			continue
+		}
+		for _, tok := range f[1:] {
+			if item.IDRe.MatchString(tok) {
+				return tok
+			}
+		}
+	}
+	t.Fatalf("no %q record with an item ID in %q", tag, out)
+	return ""
+}
+
+// askID calls decide op=ask and returns the ID of the adr item it minted,
+// read off the "need decision <id> ..." record. Same reason as draftID: the
+// ID is minted, so it cannot be a literal.
+func askID(t *testing.T, sess *mcp.ClientSession, args map[string]any) string {
+	t.Helper()
+	out := callText(t, sess, "decide", args)
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 3 && f[0] == "need" && f[1] == "decision" && item.IDRe.MatchString(f[2]) {
+			return f[2]
+		}
+	}
+	t.Fatalf("decide ask did not answer with a need-decision record: %q", out)
+	return ""
+}
 
 // connectRoot spins up the server over an in-memory transport against a
 // workspace root and returns a live client session.
@@ -91,7 +142,12 @@ func TestLifecycleE2E(t *testing.T) {
 		"body":    "Support strided x/y access in the saxpy chain.",
 		"targets": []string{"gpu/kernels/saxpy.cu", "gpu/saxpy.go"},
 	})
-	if !strings.Contains(out, "i P-0001 proposal draft") {
+	f := strings.Fields(out)
+	if len(f) < 2 || f[0] != "i" || !item.IDRe.MatchString(f[1]) {
+		t.Fatalf("draft: %q", out)
+	}
+	prop := f[1]
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("draft: %q", out)
 	}
 	// output diet (T-0015): empty sections are omitted entirely, not filled
@@ -110,16 +166,13 @@ func TestLifecycleE2E(t *testing.T) {
 	}
 
 	// child task
-	out = callText(t, sess, "draft", map[string]any{
-		"kind": "task", "title": "adjust kernel indexing", "parent": "P-0001",
+	task := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "adjust kernel indexing", "parent": prop,
 	})
-	if !strings.Contains(out, "i T-0001 task draft") {
-		t.Fatalf("task draft: %q", out)
-	}
 
 	for _, mv := range [][2]string{
-		{"P-0001", "submitted"}, {"P-0001", "approved"}, {"P-0001", "active"},
-		{"T-0001", "active"}, {"T-0001", "done"},
+		{prop, "submitted"}, {prop, "approved"}, {prop, "active"},
+		{task, "active"}, {task, "done"},
 	} {
 		out = callText(t, sess, "move", map[string]any{"id": mv[0], "to": mv[1]})
 		if !strings.Contains(out, mv[1]) {
@@ -128,8 +181,8 @@ func TestLifecycleE2E(t *testing.T) {
 	}
 
 	// archive is a legal forward skip straight from active (implies done);
-	// the only guard left is open children, and T-0001 is already done
-	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived"})
+	// the only guard left is open children, and the task is already done
+	out = callText(t, sess, "move", map[string]any{"id": prop, "to": "archived"})
 	if !strings.Contains(out, "archived") {
 		t.Fatalf("archive from active (forward skip, implies done): %q", out)
 	}
@@ -139,18 +192,18 @@ func TestLifecycleE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), "P-0001 strided saxpy access") {
+	if !strings.Contains(string(spec), "## intent") || !strings.Contains(string(spec), prop+" strided saxpy access") {
 		t.Fatalf("archive did not merge into intent:\n%s", spec)
 	}
 	// gone from work.md, but never from the referenceable universe: get
 	// resolves it as a journal tombstone (LCY-001) instead of nf
-	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	out = callText(t, sess, "get", map[string]any{"id": prop})
 	if !strings.Contains(out, "archived") || !strings.Contains(out, "journal tombstone") {
 		t.Fatalf("archived item should resolve via tombstone, not nf: %q", out)
 	}
 	// history still knows it
 	out = callText(t, sess, "find", map[string]any{"q": "strided", "scope": "history"})
-	if !strings.Contains(out, "P-0001") {
+	if !strings.Contains(out, prop) {
 		t.Fatalf("history lost the archived item: %q", out)
 	}
 }
@@ -161,38 +214,38 @@ func TestRejectionCorpusAndRevocation(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{
+	prop := draftID(t, sess, map[string]any{
 		"kind": "proposal", "title": "cache kernels in VRAM",
 		"body": "Keep compiled kernels resident.",
 	})
 	// note is mandatory
-	out := callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "rejected"})
+	out := callText(t, sess, "move", map[string]any{"id": prop, "to": "rejected"})
 	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "note") {
 		t.Fatalf("rejection without note must fail: %q", out)
 	}
 	callText(t, sess, "move", map[string]any{
-		"id": "P-0001", "to": "rejected",
+		"id": prop, "to": "rejected",
 		"note": "VRAM residency breaks multi-tenant GPU scheduling",
 	})
 
 	// searchable corpus
 	out = callText(t, sess, "find", map[string]any{"q": "multi-tenant scheduling", "scope": "rejection"})
-	if !strings.Contains(out, "P-0001") {
+	if !strings.Contains(out, prop) {
 		t.Fatalf("rejection not searchable: %q", out)
 	}
 
 	// revocable: back to draft, item restored with body
-	out = callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "draft"})
-	if !strings.Contains(out, "i P-0001 proposal draft") {
+	out = callText(t, sess, "move", map[string]any{"id": prop, "to": "draft"})
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("revocation failed: %q", out)
 	}
-	out = callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	out = callText(t, sess, "get", map[string]any{"id": prop})
 	if !strings.Contains(out, "Keep compiled kernels resident.") {
 		t.Fatalf("revoked item lost its body: %q", out)
 	}
 	// the reject event stays in history even after revocation
 	out = callText(t, sess, "find", map[string]any{"q": "multi-tenant", "scope": "rejection"})
-	if !strings.Contains(out, "P-0001") {
+	if !strings.Contains(out, prop) {
 		t.Fatalf("revocation must not erase the rejection corpus: %q", out)
 	}
 }
@@ -518,13 +571,10 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 	}
 
 	// draft + activate an item whose targets include the anchored node
-	out = callText(t, sess, "draft", map[string]any{
+	task := draftID(t, sess, map[string]any{
 		"kind": "task", "title": "touch F", "targets": []string{"go:demo.F"},
 	})
-	if !strings.Contains(out, "i T-0001 task draft") {
-		t.Fatalf("draft: %q", out)
-	}
-	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "active"})
+	out = callText(t, sess, "move", map[string]any{"id": task, "to": "active"})
 	if !strings.Contains(out, "active") {
 		t.Fatalf("move to active: %q", out)
 	}
@@ -543,15 +593,15 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 	// move to=done must refuse with the dense audit-gate record naming the
 	// rule and the node, not silently succeed (the gate was dormant before
 	// T-0091 wired WithAuditGate at this call site).
-	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "done"})
-	want := "! GATE E T-0001 audit GATE-TST-001 go:demo.F tightened"
+	out = callText(t, sess, "move", map[string]any{"id": task, "to": "done"})
+	want := "! GATE E " + task + " audit GATE-TST-001 go:demo.F tightened"
 	if !strings.Contains(out, want) {
 		t.Fatalf("expected the audit-gate refusal %q, got: %q", want, out)
 	}
 
 	// the item must still be active — the refusal did not let the move land
-	out = callText(t, sess, "get", map[string]any{"id": "T-0001"})
-	if !strings.Contains(out, "i T-0001 task active") {
+	out = callText(t, sess, "get", map[string]any{"id": task})
+	if !strings.Contains(out, "i "+task+" task active") {
 		t.Fatalf("item must still be active after the gate refused done: %q", out)
 	}
 
@@ -565,8 +615,8 @@ func TestMoveGateBlocksDoneOnTightenedAnchor(t *testing.T) {
 	}
 
 	// the same move now succeeds
-	out = callText(t, sess, "move", map[string]any{"id": "T-0001", "to": "done"})
-	if !strings.Contains(out, "i T-0001 task done") {
+	out = callText(t, sess, "move", map[string]any{"id": task, "to": "done"})
+	if !strings.Contains(out, "i "+task+" task done") {
 		t.Fatalf("move to=done must succeed once the anchor is reconciled: %q", out)
 	}
 }
@@ -576,8 +626,8 @@ func TestCompactKeepsRejections(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{"kind": "bug", "title": "nan in reduction"})
-	callText(t, sess, "move", map[string]any{"id": "B-0001", "to": "rejected", "note": "not reproducible on sm90"})
+	bug := draftID(t, sess, map[string]any{"kind": "bug", "title": "nan in reduction"})
+	callText(t, sess, "move", map[string]any{"id": bug, "to": "rejected", "note": "not reproducible on sm90"})
 	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "noise a"})
 	callText(t, sess, "draft", map[string]any{"kind": "task", "title": "noise b"})
 
@@ -598,7 +648,7 @@ func TestCompactKeepsRejections(t *testing.T) {
 	}
 	// rejection survives the fold
 	out = callText(t, sess2, "find", map[string]any{"q": "sm90", "scope": "rejection"})
-	if !strings.Contains(out, "B-0001") {
+	if !strings.Contains(out, bug) {
 		t.Fatalf("compact dropped a rejection: %q", out)
 	}
 }
@@ -1064,16 +1114,16 @@ func TestGetItemRendersADRFields(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "decide", map[string]any{
+	adr := askID(t, sess, map[string]any{
 		"op": "ask", "question": "which backend?", "options": []string{"grpc", "rest"},
 		"context": "Latency-sensitive service; current REST gateway is the bottleneck.",
 	})
 	callText(t, sess, "decide", map[string]any{
-		"op": "answer", "id": "ADR-0001", "choose": "grpc",
+		"op": "answer", "id": adr, "choose": "grpc",
 		"consequences": "Clients must add a gRPC dependency; REST gateway is deprecated over two releases.",
 	})
 
-	out := callText(t, sess, "get", map[string]any{"id": "ADR-0001"})
+	out := callText(t, sess, "get", map[string]any{"id": adr})
 	for _, want := range []string{
 		"context: Latency-sensitive service; current REST gateway is the bottleneck.\n",
 		"decision: grpc\n",
@@ -1081,7 +1131,7 @@ func TestGetItemRendersADRFields(t *testing.T) {
 		"status: accepted\n",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("get ADR-0001 missing %q in output: %q", want, out)
+			t.Fatalf("get %s missing %q in output: %q", adr, want, out)
 		}
 	}
 	// classic ADR order: context, decision, consequences, status.
@@ -1098,14 +1148,14 @@ func TestDraftRefsLiveItem(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{"kind": "research", "title": "prefetch survey"})
-	callText(t, sess, "draft", map[string]any{
+	res := draftID(t, sess, map[string]any{"kind": "research", "title": "prefetch survey"})
+	prop := draftID(t, sess, map[string]any{
 		"kind": "proposal", "title": "cache kernels in VRAM",
-		"refs": []string{"R-0001"},
+		"refs": []string{res},
 	})
-	out := callText(t, sess, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "refs R-0001\n") {
-		t.Fatalf("get P-0001 missing refs line: %q", out)
+	out := callText(t, sess, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, "refs "+res+"\n") {
+		t.Fatalf("get %s missing refs line: %q", prop, out)
 	}
 }
 
@@ -1123,10 +1173,13 @@ func TestDraftUnknownRefsRefused(t *testing.T) {
 	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "R-9999") {
 		t.Fatalf("unknown ref not refused: %q", out)
 	}
-	// nothing persisted: the item ID is still free (counter unadvanced).
+	// nothing persisted: no item exists at all, so any well-formed ID misses.
 	nf := callText(t, sess, "get", map[string]any{"id": "P-0001"})
 	if !strings.HasPrefix(nf, "nf") {
 		t.Fatalf("draft with unknown ref must not persist an item: get P-0001 = %q", nf)
+	}
+	if items := callText(t, sess, "state", map[string]any{"section": "items"}); strings.Contains(items, "cache kernels in VRAM") {
+		t.Fatalf("draft with unknown ref persisted an item: %q", items)
 	}
 }
 
@@ -1136,19 +1189,16 @@ func TestDraftRefsArchivedItem(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "old idea"})
-	callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived", "note": "shipped"})
+	prop := draftID(t, sess, map[string]any{"kind": "proposal", "title": "old idea"})
+	callText(t, sess, "move", map[string]any{"id": prop, "to": "archived", "note": "shipped"})
 
-	out := callText(t, sess, "draft", map[string]any{
+	task := draftID(t, sess, map[string]any{
 		"kind": "task", "title": "follow-up work",
-		"refs": []string{"P-0001"},
+		"refs": []string{prop},
 	})
-	if strings.Contains(out, "! ARG") {
-		t.Fatalf("ref to archived item wrongly refused: %q", out)
-	}
-	got := callText(t, sess, "get", map[string]any{"id": "T-0001"})
-	if !strings.Contains(got, "refs P-0001\n") {
-		t.Fatalf("get T-0001 missing refs line for archived citation: %q", got)
+	got := callText(t, sess, "get", map[string]any{"id": task})
+	if !strings.Contains(got, "refs "+prop+"\n") {
+		t.Fatalf("get %s missing refs line for archived citation: %q", task, got)
 	}
 }
 
@@ -1161,12 +1211,12 @@ func TestGetItemNonADRUnchanged(t *testing.T) {
 	root := t.TempDir()
 	sess := connectRoot(t, root)
 
-	callText(t, sess, "draft", map[string]any{
+	prop := draftID(t, sess, map[string]any{
 		"kind": "proposal", "title": "cache kernels in VRAM",
 		"body": "Keep compiled kernels resident.",
 	})
-	out := callText(t, sess, "get", map[string]any{"id": "P-0001"})
-	if !strings.Contains(out, "i P-0001 proposal draft") {
+	out := callText(t, sess, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, "i "+prop+" proposal draft") {
 		t.Fatalf("unexpected header: %q", out)
 	}
 	if !strings.Contains(out, "Keep compiled kernels resident.\n") {

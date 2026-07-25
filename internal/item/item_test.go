@@ -2,9 +2,12 @@ package item
 
 import (
 	"os"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
@@ -324,8 +327,8 @@ func TestADRKindAndIDs(t *testing.T) {
 	if !IDRe.MatchString("ADR-0001") {
 		t.Fatal("IDRe rejects ADR- ids")
 	}
-	if NextID("adr", 0) != "ADR-0001" {
-		t.Fatalf("NextID(adr, 0) = %s", NextID("adr", 0))
+	if id := MintID("adr"); !IDRe.MatchString(id) || !strings.HasPrefix(id, "ADR-") {
+		t.Fatalf("MintID(adr) = %q, want an ADR-prefixed record ID", id)
 	}
 	if Num("ADR-0007") != 7 {
 		t.Fatalf("Num(ADR-0007) = %d, want 7", Num("ADR-0007"))
@@ -345,9 +348,6 @@ func TestIDHelpers(t *testing.T) {
 	if !ValidKind("proposal") || ValidKind("epic") {
 		t.Fatal("ValidKind broken")
 	}
-	if NextID("task", 41) != "T-0042" {
-		t.Fatalf("NextID = %s", NextID("task", 41))
-	}
 	if Num("P-0007") != 7 || Num("P-broken") != 0 {
 		t.Fatal("Num broken")
 	}
@@ -356,5 +356,263 @@ func TestIDHelpers(t *testing.T) {
 	}
 	if got := Record(Item{ID: "P-0001", Kind: "proposal", State: "draft", Dir: "", Title: "t"}); got != "i P-0001 proposal draft . t" {
 		t.Fatalf("Record = %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0013: the two ID schemes (T-0135)
+// ---------------------------------------------------------------------------
+
+// TestIDReAcceptsBothSchemes is the acceptance contract of the ID grammar: a
+// legacy sequential ID and an ADR-0013 record ID are equally valid, and
+// neither near-miss shape is. Legacy acceptance is not a courtesy — archived
+// records exist only as journal tombstones that lifecycle.Tombstone finds by
+// exact ID, and the tool boundary screens IDs through IDRe before the lookup,
+// so the moment a legacy ID stops matching the archive stops being readable.
+func TestIDReAcceptsBothSchemes(t *testing.T) {
+	legacy := []string{"P-0001", "T-0042", "B-0003", "R-0007", "ADR-0013", "D-0007"}
+	for _, id := range legacy {
+		if !IDRe.MatchString(id) {
+			t.Errorf("IDRe rejects legacy ID %q — archived history would become unreachable", id)
+		}
+		if !LegacyIDRe.MatchString(id) {
+			t.Errorf("LegacyIDRe does not recognize %q as legacy", id)
+		}
+		if KindOf(id) == "" {
+			t.Errorf("KindOf(%q) = \"\"", id)
+		}
+	}
+
+	for _, kind := range []string{"proposal", "task", "bug", "research", "adr"} {
+		id := MintID(kind)
+		if !IDRe.MatchString(id) {
+			t.Errorf("IDRe rejects freshly minted %s ID %q", kind, id)
+		}
+		if LegacyIDRe.MatchString(id) {
+			t.Errorf("LegacyIDRe matches record ID %q", id)
+		}
+	}
+
+	bad := []string{
+		"",                              // empty
+		"X-0003",                        // unknown kind letter
+		"P-3",                           // too few digits
+		"P-00001",                       // too many digits
+		"p-0001",                        // lowercase prefix
+		"T-01KYD04YNJF7QSYR15D4ZXPND",   // one char short of a record ID
+		"T-01KYD04YNJF7QSYR15D4ZXPNDNX", // one char long
+		"T-I1KYD04YNJF7QSYR15D4ZXPNDN",  // 'I' is excluded from Crockford base32
+		"T-01KYD04YNJF7QSYR15D4ZXPNDL",  // 'L' is excluded
+		"T-01KYD04YNJF7QSYR15D4ZXPNDO",  // 'O' is excluded
+		"T-01KYD04YNJF7QSYR15D4ZXPNDU",  // 'U' is excluded
+		"T-91KYD04YNJF7QSYR15D4ZXPNDN",  // first char > '7' overflows 128 bits
+		"T-01kyd04ynjf7qsyr15d4zxpndn",  // lowercase tail
+		"not-an-id",
+		"T-0001 ", // trailing space
+	}
+	for _, id := range bad {
+		if IDRe.MatchString(id) {
+			t.Errorf("IDRe accepts malformed ID %q", id)
+		}
+		if KindOf(id) != "" {
+			t.Errorf("KindOf(%q) = %q, want \"\"", id, KindOf(id))
+		}
+	}
+}
+
+// TestIDReAgreesWithIDsPackage pins the regexp to internal/ids rather than to
+// a hand-copied alphabet: IDRe's record half must accept exactly the strings
+// ids.ValidRecordID accepts. A divergence here is the silent kind — IDs would
+// mint fine and then be refused at a boundary, or vice versa.
+func TestIDReAgreesWithIDsPackage(t *testing.T) {
+	// every canonical symbol, in every position that can hold it
+	for _, c := range "0123456789ABCDEFGHJKMNPQRSTVWXYZ" {
+		tail := "0" + strings.Repeat(string(c), ids.RecordIDLen-1)
+		if got, want := IDRe.MatchString("T-"+tail), ids.ValidRecordID(tail); got != want {
+			t.Errorf("IDRe(T-%s) = %v, ids.ValidRecordID = %v", tail, got, want)
+		}
+		lead := string(c) + strings.Repeat("0", ids.RecordIDLen-1)
+		if got, want := IDRe.MatchString("T-"+lead), ids.ValidRecordID(lead); got != want {
+			t.Errorf("IDRe(T-%s) = %v, ids.ValidRecordID = %v", lead, got, want)
+		}
+	}
+	// 500 real mints, since only these carry the version/variant bits
+	for i := 0; i < 500; i++ {
+		id := MintID("task")
+		tail := strings.TrimPrefix(id, "T-")
+		if !ids.ValidRecordID(tail) {
+			t.Fatalf("MintID produced a tail ids rejects: %q", id)
+		}
+		if !IDRe.MatchString(id) {
+			t.Fatalf("IDRe rejects minted %q", id)
+		}
+	}
+}
+
+// TestMintIDUniqueAndOrdered: minting is the collision fix, so the tight loop
+// is the point — R-0006 reproduced two clones minting the same counter value.
+// A UUIDv7 needs no coordination, and because it leads with a millisecond
+// timestamp its canonical text also sorts by mint time.
+func TestMintIDUniqueAndOrdered(t *testing.T) {
+	const n = 5000
+	seen := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		id := MintID("task")
+		if seen[id] {
+			t.Fatalf("MintID collided after %d mints: %q", i, id)
+		}
+		seen[id] = true
+	}
+
+	// unknown kind mints nothing rather than an ID with an empty prefix
+	if got := MintID("epic"); got != "" {
+		t.Errorf("MintID(epic) = %q, want \"\"", got)
+	}
+	if got := MintIDAt("epic", time.Now()); got != "" {
+		t.Errorf("MintIDAt(epic) = %q, want \"\"", got)
+	}
+
+	// distinct milliseconds sort by time, in ID order, per kind prefix
+	base := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	var ordered []string
+	for i := 0; i < 50; i++ {
+		ordered = append(ordered, MintIDAt("task", base.Add(time.Duration(i)*time.Millisecond)))
+	}
+	if !sort.StringsAreSorted(ordered) {
+		t.Errorf("IDs minted at ascending times are not in ascending string order: %v", ordered)
+	}
+
+	// the stamped time survives the encoding, which is what lets a migration
+	// preserve an archived record's chronology instead of flattening it
+	id := MintIDAt("research", base)
+	rid, err := ids.ParseRecordID(strings.TrimPrefix(id, "R-"))
+	if err != nil {
+		t.Fatalf("ParseRecordID(%q): %v", id, err)
+	}
+	if !rid.Time().Equal(base) {
+		t.Errorf("MintIDAt time = %v, want %v", rid.Time(), base)
+	}
+}
+
+// TestKindOfBothSchemes: the kind-derivation helper answers off the prefix,
+// which both schemes share, so nothing downstream needs to know which scheme
+// a record predates.
+func TestKindOfBothSchemes(t *testing.T) {
+	kinds := map[string]string{
+		"proposal": "P", "task": "T", "bug": "B", "research": "R", "adr": "ADR",
+	}
+	for kind, letter := range kinds {
+		legacy := letter + "-0007"
+		if got := KindOf(legacy); got != kind {
+			t.Errorf("KindOf(%q) = %q, want %q", legacy, got, kind)
+		}
+		minted := MintID(kind)
+		if got := KindOf(minted); got != kind {
+			t.Errorf("KindOf(%q) = %q, want %q", minted, got, kind)
+		}
+	}
+	// D is the pre-rename adr letter and still answers adr, in both shapes
+	if got := KindOf("D-0007"); got != "adr" {
+		t.Errorf("KindOf(D-0007) = %q, want adr", got)
+	}
+	if got := KindOf("D-" + strings.TrimPrefix(MintID("adr"), "ADR-")); got != "adr" {
+		t.Errorf("KindOf(D-<record id>) = %q, want adr", got)
+	}
+}
+
+// TestLegacyWorkRoundTripsByteIdentically: a work.md written by an older
+// version — legacy IDs throughout, including a legacy parent and refs — must
+// load with every field intact and rewrite to exactly the same bytes. Byte
+// identity is the real assertion: it proves the widened heading regexp did
+// not quietly reclassify part of a block as body, which would corrupt a file
+// the moment any tool touched the context dir.
+func TestLegacyWorkRoundTripsByteIdentically(t *testing.T) {
+	root := ws(t)
+	legacy := "---\nschema: " + workspace.SchemaStamp + "\n---\n" +
+		"\n## P-0007 cache kernels in VRAM\n" +
+		"kind: proposal\nstate: active\ncreated: 2025-11-03\n" +
+		"refs: R-0002, ADR-0004\n" +
+		"targets: go:a.F, gpu/kern.cu\n" +
+		"\nThe proposal body.\n\nWith a second paragraph.\n" +
+		"\n## T-0009 wire the cache\n" +
+		"kind: task\nstate: draft\ncreated: 2025-11-04\nparent: P-0007\n" +
+		"needs: D-0003\n" +
+		"\nTask body.\n"
+	if err := os.WriteFile(root.WorkPath(""), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := LoadWork(root.WorkPath(""), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("LoadWork read %d items, want 2: %+v", len(items), items)
+	}
+	p, task := items[0], items[1]
+	if p.ID != "P-0007" || p.Kind != "proposal" || p.State != "active" ||
+		p.Title != "cache kernels in VRAM" || p.Created != "2025-11-03" ||
+		len(p.Refs) != 2 || p.Refs[1] != "ADR-0004" || len(p.Targets) != 2 ||
+		p.Body != "The proposal body.\n\nWith a second paragraph." {
+		t.Fatalf("legacy proposal mis-parsed: %+v", p)
+	}
+	if task.ID != "T-0009" || task.Parent != "P-0007" || len(task.Needs) != 1 ||
+		task.Needs[0] != "D-0003" || task.Body != "Task body." {
+		t.Fatalf("legacy task mis-parsed: %+v", task)
+	}
+
+	// rewriting through the ordinary write path reproduces the file exactly
+	if err := Upsert(root, task); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(root.WorkPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != legacy {
+		t.Fatalf("legacy work.md did not round-trip byte-identically:\n--- want ---\n%s\n--- got ---\n%s", legacy, got)
+	}
+}
+
+// TestMixedSchemeWorkFile: the two schemes coexist in one work.md, which is
+// exactly the state a workspace is in between minting its first record ID and
+// migrating its old ones.
+func TestMixedSchemeWorkFile(t *testing.T) {
+	root := ws(t)
+	old := Item{ID: "P-0007", Kind: "proposal", State: StateActive, Title: "legacy one", Created: "2025-11-03"}
+	fresh := Item{ID: MintID("task"), Kind: "task", State: StateDraft, Title: "new one",
+		Parent: "P-0007", Created: "2026-07-25"}
+	if err := Upsert(root, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Upsert(root, fresh); err != nil {
+		t.Fatal(err)
+	}
+	items, err := LoadWork(root.WorkPath(""), "")
+	if err != nil || len(items) != 2 {
+		t.Fatalf("LoadWork = %+v, %v", items, err)
+	}
+	if items[0].ID != old.ID || items[1].ID != fresh.ID || items[1].Parent != "P-0007" {
+		t.Fatalf("mixed-scheme file mis-parsed: %+v", items)
+	}
+
+	// Get resolves either scheme
+	for _, want := range []string{old.ID, fresh.ID} {
+		got, ok, err := Get(root, want)
+		if err != nil || !ok || got.ID != want {
+			t.Fatalf("Get(%q) = %+v, %v, %v", want, got, ok, err)
+		}
+	}
+
+	// UnknownRefs validates a record ID exactly as it validates a legacy one
+	known := map[string]bool{old.ID: true, fresh.ID: true}
+	if got := UnknownRefs(fresh.ID, []string{old.ID}, known); len(got) != 0 {
+		t.Fatalf("UnknownRefs rejected a legacy ref from a record-ID item: %v", got)
+	}
+	if got := UnknownRefs(old.ID, []string{fresh.ID}, known); len(got) != 0 {
+		t.Fatalf("UnknownRefs rejected a record-ID ref: %v", got)
+	}
+	if got := UnknownRefs(old.ID, []string{"T-" + strings.Repeat("Z", 26)}, known); len(got) != 1 {
+		t.Fatalf("UnknownRefs accepted an unknown record ID: %v", got)
 	}
 }

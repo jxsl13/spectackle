@@ -76,12 +76,13 @@ func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	}
 
 	out = callText(t, sess, "commands", map[string]any{"op": "gen"})
-	if !strings.Contains(out, "need decision ADR-0001") {
+	adr := idOfRecord(t, out, "need")
+	if !strings.Contains(out, "need decision "+adr) {
 		t.Fatalf("expected a need-decision fallback: %q", out)
 	}
-	d, ok, err := item.Get(s.ws, "ADR-0001")
+	d, ok, err := item.Get(s.ws, adr)
 	if err != nil || !ok {
-		t.Fatalf("ADR-0001 not persisted: %v %v", ok, err)
+		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}
 	if d.Kind != "adr" {
 		t.Fatalf("minted item is not kind=adr: %+v", d)

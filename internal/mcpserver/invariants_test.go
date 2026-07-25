@@ -208,27 +208,24 @@ func TestInvariantNoBundleOutsideContextDir(t *testing.T) {
 	tr := &invTrace{t: t, sess: connectRoot(t, root)}
 
 	// ---- draft: every kind the tool accepts, spread over context dirs ----
-	tr.call("draft", map[string]any{"kind": "proposal", "title": "pool buffers per stream",
-		"body": "Give each stream its own buffer pool.", "targets": []string{"core/pool.go"}})
-	tr.call("draft", map[string]any{"kind": "task", "title": "thread the pool through run",
-		"parent": "P-0001", "targets": []string{"core/engine/run.go"}})
-	tr.call("draft", map[string]any{"kind": "research", "title": "survey pooling strategies",
-		"targets": []string{"docs/notes.md"}})
-	tr.call("draft", map[string]any{"kind": "bug", "title": "pool leaks on reset",
-		"targets": []string{"core/pool.go"}})
+	prop := idOfRecord(t, tr.call("draft", map[string]any{"kind": "proposal", "title": "pool buffers per stream",
+		"body": "Give each stream its own buffer pool.", "targets": []string{"core/pool.go"}}), "i")
+	task := idOfRecord(t, tr.call("draft", map[string]any{"kind": "task", "title": "thread the pool through run",
+		"parent": prop, "targets": []string{"core/engine/run.go"}}), "i")
+	research := idOfRecord(t, tr.call("draft", map[string]any{"kind": "research", "title": "survey pooling strategies",
+		"targets": []string{"docs/notes.md"}}), "i")
+	bug := idOfRecord(t, tr.call("draft", map[string]any{"kind": "bug", "title": "pool leaks on reset",
+		"targets": []string{"core/pool.go"}}), "i")
 
 	// ---- move: the forward states, plus rejected-with-note and archived ----
-	for _, mv := range [][2]string{
-		{"R-0001", "submitted"}, {"R-0001", "approved"}, {"R-0001", "active"},
-		{"R-0001", "done"},
-	} {
-		tr.call("move", map[string]any{"id": mv[0], "to": mv[1]})
+	for _, to := range []string{"submitted", "approved", "active", "done"} {
+		tr.call("move", map[string]any{"id": research, "to": to})
 	}
-	tr.call("move", map[string]any{"id": "R-0001", "to": "archived", "note": "folded into P-0001"})
-	tr.call("move", map[string]any{"id": "B-0001", "to": "rejected",
+	tr.call("move", map[string]any{"id": research, "to": "archived", "note": "folded into " + prop})
+	tr.call("move", map[string]any{"id": bug, "to": "rejected",
 		"note": "not a leak; the reset path reuses the buffer by design"})
-	tr.call("move", map[string]any{"id": "T-0001", "to": "active"})
-	tr.call("move", map[string]any{"id": "T-0001", "to": "done"})
+	tr.call("move", map[string]any{"id": task, "to": "active"})
+	tr.call("move", map[string]any{"id": task, "to": "done"})
 
 	// ---- rule: add, edit, retire ----
 	tr.call("rule", map[string]any{"op": "add", "dir": "core", "pattern": "E", "stem": "CORE-POOL",
@@ -240,35 +237,35 @@ func TestInvariantNoBundleOutsideContextDir(t *testing.T) {
 	tr.call("rule", map[string]any{"op": "retire", "id": "CORE-POOL-001"})
 
 	// ---- decide: ask (no elicitation UI -> stays open) then answer ----
-	tr.call("decide", map[string]any{"op": "ask", "question": "one pool per stream or one shared pool?",
-		"kind": "radio", "options": []string{"per-stream", "shared"}, "item": "P-0001",
-		"context": "per-stream trades memory for contention"})
-	tr.call("decide", map[string]any{"op": "answer", "id": "ADR-0001", "choose": "per-stream",
+	adr := idOfRecord(t, tr.call("decide", map[string]any{"op": "ask", "question": "one pool per stream or one shared pool?",
+		"kind": "radio", "options": []string{"per-stream", "shared"}, "item": prop,
+		"context": "per-stream trades memory for contention"}), "need")
+	tr.call("decide", map[string]any{"op": "answer", "id": adr, "choose": "per-stream",
 		"consequences": "higher steady-state memory, no cross-stream lock"})
 
 	// ---- grill ----
-	tr.call("grill", map[string]any{"id": "P-0001"})
+	tr.call("grill", map[string]any{"id": prop})
 
 	// ---- lease: claim and release ----
-	tr.call("lease", map[string]any{"op": "claim", "paths": []string{"docs"}, "item": "P-0001"})
+	tr.call("lease", map[string]any{"op": "claim", "paths": []string{"docs"}, "item": prop})
 	tr.call("lease", map[string]any{"op": "release", "paths": []string{"docs"}})
 
 	// ---- work: start then abort (B-0003's own call path) ----
-	tr.call("move", map[string]any{"id": "P-0001", "to": "submitted"})
-	tr.call("move", map[string]any{"id": "P-0001", "to": "approved"})
-	if out := tr.call("work", map[string]any{"op": "start", "item": "P-0001"}); !strings.Contains(out, "wt P-0001 open ") {
+	tr.call("move", map[string]any{"id": prop, "to": "submitted"})
+	tr.call("move", map[string]any{"id": prop, "to": "approved"})
+	if out := tr.call("work", map[string]any{"op": "start", "item": prop}); !strings.Contains(out, "wt "+prop+" open ") {
 		t.Fatalf("work start (abort leg): %q\ntrace:\n%s", out, tr)
 	}
-	if out := tr.call("work", map[string]any{"op": "abort", "item": "P-0001"}); !strings.Contains(out, "aborted") {
+	if out := tr.call("work", map[string]any{"op": "abort", "item": prop}); !strings.Contains(out, "aborted") {
 		t.Fatalf("work abort: %q\ntrace:\n%s", out, tr)
 	}
 
 	// ---- work: start then submit ----
-	out := tr.call("work", map[string]any{"op": "start", "item": "P-0001"})
+	out := tr.call("work", map[string]any{"op": "start", "item": prop})
 	wtRoot := ""
 	for _, l := range strings.Split(out, "\n") {
-		if strings.HasPrefix(l, "wt P-0001 open ") {
-			wtRoot = strings.TrimPrefix(l, "wt P-0001 open ")
+		if strings.HasPrefix(l, "wt "+prop+" open ") {
+			wtRoot = strings.TrimPrefix(l, "wt "+prop+" open ")
 		}
 	}
 	if wtRoot == "" {
