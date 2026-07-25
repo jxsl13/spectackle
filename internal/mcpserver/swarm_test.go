@@ -36,7 +36,7 @@ func gitRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
-		[]byte("schema: v0\nverify: [\"test -f ok.txt\"]\n"), 0o644); err != nil {
+		[]byte("schema: v1\nverify: [\"test -f ok.txt\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
@@ -276,7 +276,7 @@ func TestWorkLifecycleE2E(t *testing.T) {
 func TestWorkAbortAndConcurrentSubmit(t *testing.T) {
 	root := gitRoot(t)
 	// no verify gate for this one
-	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
+	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v1\n"), 0o644)
 	alice, bob := twoAgents(t, root)
 
 	// stored IDs, resolved at draft time: two proposals minted milliseconds
@@ -370,7 +370,7 @@ func wtRootOf(t *testing.T, out, item string) string {
 
 func TestCompactBlockedInWorktree(t *testing.T) {
 	root := gitRoot(t)
-	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v0\n"), 0o644)
+	os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"), []byte("schema: v1\n"), 0o644)
 	t.Setenv("SPECTACKLE_AGENT", "alice")
 	alice := connectRoot(t, root)
 	prop := draftID(t, alice, map[string]any{"kind": "proposal", "title": "x"})

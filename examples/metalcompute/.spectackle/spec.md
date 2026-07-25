@@ -1,5 +1,5 @@
 ---
-schema: v0
+schema: v1
 prefix: MTC
 ---
 ## MTC-API-004 {applies: objc:Renderer.buildPipeline}

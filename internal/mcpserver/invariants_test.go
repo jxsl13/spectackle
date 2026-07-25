@@ -171,7 +171,7 @@ func invScratchRoot(t *testing.T) string {
 		}
 	}
 	files := map[string]string{
-		workspace.Dot + "/config.yaml": "schema: v0\nverify: [\"true\"]\n",
+		workspace.Dot + "/config.yaml": "schema: v1\nverify: [\"true\"]\n",
 		"main.go":                      "package main\n\nfunc main() {}\n",
 		"core/pool.go":                 "package core\n\n// Pool holds buffers.\ntype Pool struct{}\n",
 		"core/engine/run.go":           "package engine\n\n// Run drives the loop.\nfunc Run() {}\n",

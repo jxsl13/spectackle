@@ -1,6 +1,10 @@
 /bin/
 /spectackle
 .spectackle/cache/
+# internal/migrate keeps the pre-migration bundles on disk so a user can get
+# the old state back. For a workspace that is committed, git history already is
+# that recovery path, so the copy is local-only.
+.spectackle/migrate-backup-*/
 *.out
 *.test
 dist/

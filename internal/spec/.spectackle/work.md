@@ -1,5 +1,5 @@
 ---
-schema: v0
+schema: v1
 ---
 
 ## B-01KYD1G9SJFE8B1CGF6THPX6J4 rule op=edit drops the blank-line separator before the next rule, the loss accumulates, and lint does not notice
