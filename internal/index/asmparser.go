@@ -21,6 +21,15 @@ func (AsmParser) Lang() graph.Lang { return graph.LangAsm }
 // Extensions are the file suffixes this parser claims.
 func (AsmParser) Extensions() []string { return []string{".s", ".S"} }
 
+// asmParserCacheVersion discriminates cached parse blobs produced by this
+// parser. BUMP IT whenever Parse's output changes for input it already
+// accepted (B-0007); T-0126 (<> static, <ABIInternal> and quoted
+// method-shaped linker symbols) is exactly such a change.
+const asmParserCacheVersion = "asm-2"
+
+// CacheVersion implements index.CacheVersioner.
+func (AsmParser) CacheVersion() string { return asmParserCacheVersion }
+
 // Parse turns one Plan 9 asm file into symbol nodes. Symbols are qualified by
 // their containing directory's base name (the Go package convention: a
 // mat_amd64.s file living beside package mat mints "mat.mulVec"), matching

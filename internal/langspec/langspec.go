@@ -18,8 +18,10 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jxsl13/spectackle/internal/cspan"
@@ -111,6 +113,48 @@ type SpecParser struct {
 
 // Lang identifies the parser's language.
 func (p SpecParser) Lang() graph.Lang { return p.S.Lang }
+
+// CacheVersion implements index.CacheVersioner by digesting the Spec itself.
+// A langspec language IS its data, so the data is the version: edit a regex
+// and every cached parse blob for that language — and only that language —
+// stops matching, instead of replaying pre-edit nodes for unchanged files
+// (B-0007). Nothing to bump by hand, which matters because a Spec edit is
+// the single most common change in this package.
+//
+// Every input is walked in declaration order and never through a map, so the
+// digest is stable across processes; the nil markers keep an unset CallRe or
+// EndSpan from colliding with a set one that happens to stringify empty.
+func (p SpecParser) CacheVersion() string {
+	h := sha256.New()
+	writeField := func(parts ...string) {
+		for _, s := range parts {
+			h.Write([]byte(s))
+			h.Write([]byte{0})
+		}
+	}
+	writeField(string(p.S.Lang), strconv.Itoa(int(p.S.Qual)))
+	for _, e := range p.S.Exts {
+		writeField(e)
+	}
+	for _, d := range p.S.Defs {
+		writeField(strconv.Itoa(int(d.Kind)), d.Re.String(),
+			strconv.Itoa(d.Name), strconv.Itoa(d.Sig))
+	}
+	if p.S.CallRe != nil {
+		writeField("call", p.S.CallRe.String())
+	} else {
+		writeField("call-nil")
+	}
+	for _, s := range p.S.Stop {
+		writeField(s)
+	}
+	if p.S.EndSpan != nil {
+		writeField("endspan", p.S.EndSpan.Open.String(), p.S.EndSpan.Close.String())
+	} else {
+		writeField("endspan-nil")
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
 
 // Extensions are the file suffixes this parser claims.
 func (p SpecParser) Extensions() []string { return p.S.Exts }
