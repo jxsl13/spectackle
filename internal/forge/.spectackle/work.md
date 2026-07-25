@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYDE7AX8ES6V6XGYDXA3TJSN Ready reported success while the pull request stayed a draft: REST cannot un-draft
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 DEFECT, found live on the automation's own pull request 40, which it announced as readied and which GitHub still showed as a draft.

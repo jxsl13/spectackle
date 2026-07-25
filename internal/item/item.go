@@ -449,11 +449,31 @@ func dedupeStrings(ss []string) []string {
 func UnknownRefs(selfID string, refs []string, known map[string]bool) []string {
 	var out []string
 	for _, r := range refs {
+		if ExternalRef(r) {
+			continue // an external citation has no local ID to be known by
+		}
 		if !IDRe.MatchString(r) || r == selfID || !known[r] {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// ExternalRef reports whether a ref cites something outside the workspace by
+// URL rather than an item inside it by ID.
+//
+// This is the PREFERRED way to cite a tracker issue: structured, unambiguous,
+// and carrying its own repository, instead of prose a parser has to guess at.
+// The alternative — recognizing "GitHub issue 26" in a body — has a blast
+// radius that is not worth it, since acting on a false positive closes a
+// stranger's issue; a URL in the refs field cannot be mistaken for a rule ID,
+// a record count or a version number.
+//
+// Validation is deliberately shallow: the scheme is checked, the destination
+// is not. Whether the far end exists is the forge's answer to give, and a
+// citation that 404s is still a citation the record should keep.
+func ExternalRef(r string) bool {
+	return strings.HasPrefix(r, "https://") || strings.HasPrefix(r, "http://")
 }
 
 // Record renders the dense `i` output line.

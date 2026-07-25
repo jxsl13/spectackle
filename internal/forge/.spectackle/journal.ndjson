@@ -1,2 +1,3 @@
 {"t":"2026-07-25T20:07:19Z","eid":"ef04c6f3bd96ed02","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDE7AX8ES6V6XGYDXA3TJSN","k":"bug","ti":"Ready reported success while the pull request stayed a draft: REST cannot un-draft","dir":"internal/forge"}
 {"t":"2026-07-25T20:08:52Z","eid":"b19588b44fdf03e1","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDE7AX8ES6V6XGYDXA3TJSN","dir":"internal/forge","fr":"draft","to":"active"}
+{"t":"2026-07-25T20:08:55Z","eid":"cb0ef0986e38be97","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDE7AX8ES6V6XGYDXA3TJSN","dir":"internal/forge","fr":"active","to":"done"}

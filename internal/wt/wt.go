@@ -76,6 +76,22 @@ func CurrentBranch(dir string) (string, error) {
 // never has to be a hardcoded "main" (see MergeMain's B-0004 fix for the same
 // principle applied to merge targets).
 func DefaultBranch(dir string) (string, error) {
+	// The remote's HEAD is the repository's actual default branch, and it is
+	// what a forge compares a pull request against.
+	//
+	// `symbolic-ref --short HEAD` — the obvious-looking call, and what this
+	// used to do — returns the CURRENTLY CHECKED OUT branch instead. That is a
+	// different thing entirely, and it read as correct for as long as nobody
+	// called it from a branch: driven from a task branch it returned the task
+	// branch, so the base a pull request was opened against was the head.
+	if out, err := git(dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		if _, branch, ok := strings.Cut(strings.TrimSpace(out), "/"); ok && branch != "" {
+			return branch, nil
+		}
+	}
+	// No remote HEAD recorded (a repository created locally rather than
+	// cloned). Fall back to the checked-out branch, which is right often
+	// enough for a fresh repo and is what the caller had before.
 	return git(dir, "symbolic-ref", "--short", "HEAD")
 }
 
@@ -101,6 +117,23 @@ func IsAheadOf(dir, branch, base string) (bool, error) {
 		return false, err
 	}
 	return strings.TrimSpace(out) != "0", nil
+}
+
+// IsAheadOfRemote is IsAheadOf against the REMOTE-tracking ref for base,
+// falling back to the local ref when there is no remote-tracking one.
+//
+// This is the question a forge actually answers before accepting a pull
+// request, and the local ref is the wrong oracle for it: in a worktree the
+// local base branch is often stale — the primary checkout owns it and it is
+// not updated by fetching — so a task branch can read as fifty commits ahead
+// of a local base while the forge, comparing against its own current base,
+// sees no commits at all and refuses the pull request. Asking the
+// remote-tracking ref asks what the forge will say.
+func IsAheadOfRemote(dir, branch, remote, base string) (bool, error) {
+	if _, err := git(dir, "rev-parse", "--verify", "--quiet", remote+"/"+base); err == nil {
+		return IsAheadOf(dir, branch, remote+"/"+base)
+	}
+	return IsAheadOf(dir, branch, base)
 }
 
 // EnsureBranch makes branch the checked-out branch of dir: creates it from

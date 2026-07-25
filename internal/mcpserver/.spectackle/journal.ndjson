@@ -266,3 +266,5 @@
 {"t":"2026-07-25T19:59:06Z","eid":"5905c99312c9342a","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDDR98HEXE80DJ3JJCY9A8M","k":"bug","ti":"the draft pull request cannot be opened on entry to active: the branch has no commits yet","dir":"internal/mcpserver"}
 {"t":"2026-07-25T20:01:15Z","eid":"33fa16e14936dba5","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDDR98HEXE80DJ3JJCY9A8M","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-25T20:01:56Z","eid":"9b3b9910872933db","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDDR98HEXE80DJ3JJCY9A8M","dir":"internal/mcpserver","fr":"active","to":"done"}
+{"t":"2026-07-25T20:13:13Z","eid":"7f89ce52105c2556","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDEJ4QHEZR9BKYQ16SJSGBA","k":"task","ti":"a task's referenced GitHub issues close when its work merges","dir":"internal/mcpserver"}
+{"t":"2026-07-25T20:13:30Z","eid":"1dda6d2c811f998f","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYDEJ4QHEZR9BKYQ16SJSGBA","dir":"internal/mcpserver","fr":"draft","to":"active"}
