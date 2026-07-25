@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -194,6 +195,152 @@ func TestSkipDirConfigIgnore(t *testing.T) {
 	}
 	if len(ctxs) != 1 || ctxs[0] != "" {
 		t.Fatalf("ContextDirs = %v, want only the root bundle (glob/regex ignores must prune generated/ and vendor-acme/)", ctxs)
+	}
+}
+
+// initGitRepo creates a real git repo at root or skips the test — the
+// git-ignore layer of SkipDir (internal/ignore) only has anything to prove
+// against an actual git checkout.
+func initGitRepo(t *testing.T, root string) {
+	t.Helper()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v: %s", err, out)
+	}
+}
+
+// walkFiles mirrors ContextDirs' own walk (WalkDir + SkipDir at every
+// directory) but collects plain files instead of .spectackle bundles, so it
+// can stand in for "what would the indexer see" without reaching into
+// internal/index, which is out of scope for this change.
+func walkFiles(t *testing.T, ws Root) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(ws.Dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(ws.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if d.IsDir() {
+			if rel != "" && ws.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		out = append(out, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestSkipDirGitIgnoreDuplicateSymbol reproduces the issue 26 field report at
+// the level this change owns: a gitignored directory holding a same-named
+// copy of a file disappears from the walk entirely, leaving only the real,
+// non-ignored copy reachable. (Which copy of a duplicate symbol keeps the
+// unsuffixed node ID is decided downstream in internal/index's disambiguate,
+// out of scope here — but it can only ever see the one copy this walk hands
+// it.)
+func TestSkipDirGitIgnoreDuplicateSymbol(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root)
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(".gitignore", ".venv/\n")
+	// same basename, same content, one copy inside a gitignored virtualenv —
+	// the exact shape of the collision the field report measured.
+	mk(".venv/pkg/mod.go", "package pkg\nfunc Foo() {}\n")
+	mk("pkg/mod.go", "package pkg\nfunc Foo() {}\n")
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := walkFiles(t, ws)
+
+	if !slices.Contains(files, "pkg/mod.go") {
+		t.Errorf("walk = %v, want it to contain pkg/mod.go (the real, non-ignored copy)", files)
+	}
+	if slices.Contains(files, ".venv/pkg/mod.go") {
+		t.Errorf("walk = %v, must NOT contain .venv/pkg/mod.go (gitignored)", files)
+	}
+}
+
+// TestSkipDirGitIgnoreNoGitRepo proves the required degradation: a
+// workspace with no git repository at all must walk exactly as it did
+// before internal/ignore existed — every path visited, nothing pruned by
+// the new check.
+func TestSkipDirGitIgnoreNoGitRepo(t *testing.T) {
+	root := t.TempDir() // deliberately never git-init'd
+	p := filepath.Join(root, "anydir", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.SkipDir("anydir", "anydir") {
+		t.Fatal("SkipDir pruned a directory in a non-git workspace")
+	}
+	if files := walkFiles(t, ws); !slices.Contains(files, "anydir/keep.txt") {
+		t.Errorf("walk = %v, want anydir/keep.txt reachable", files)
+	}
+}
+
+// TestSkipDirGitIgnoreConfigPrecedence proves the config.yaml ignore knobs
+// still work, and still run ahead of the git-backed check, once both are in
+// play side by side: a glob-ignored dir that git knows nothing about is
+// still pruned, and a git-ignored dir that config knows nothing about is
+// also pruned — neither mechanism shadows the other.
+func TestSkipDirGitIgnoreConfigPrecedence(t *testing.T) {
+	root := t.TempDir()
+	initGitRepo(t, root)
+	mk := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(".gitignore", ".venv/\n") // git-only ignore, config knows nothing of it
+	mk(".venv/x.go", "package x\n")
+	mk("generated/x.go", "package x\n") // config-only ignore, git knows nothing of it
+	mk("kept/x.go", "package x\n")
+
+	ws, err := LoadRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.Cfg.Ignore = append(ws.Cfg.Ignore, "generated/**")
+
+	files := walkFiles(t, ws)
+	if slices.Contains(files, ".venv/x.go") {
+		t.Errorf("walk = %v, must NOT contain .venv/x.go (git-ignored)", files)
+	}
+	if slices.Contains(files, "generated/x.go") {
+		t.Errorf("walk = %v, must NOT contain generated/x.go (config-ignored)", files)
+	}
+	if !slices.Contains(files, "kept/x.go") {
+		t.Errorf("walk = %v, want kept/x.go reachable", files)
 	}
 }
 
