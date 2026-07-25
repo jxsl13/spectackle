@@ -36,6 +36,7 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - T-0115 server hints when its own binary is older than the sources it serves: stale-binary hint live: h record naming make dev, 30s debounced walk honoring SkipDir, once per crossing; merged via work op=submit
 - P-0080 one knowledge tool with export, merge and apply; additive writes through the existing paths: knowledge tool shipped (T-0111): one tool, three ops, additive idempotent apply through existing write paths per MCP-009
 - B-0002 server never rebinds an existing worktree: wtItem is set only by in-session work op=start, so per-call stdio clients and crashed servers cannot submit: fix live at 9321b70: New() rebinds a coord worktree record matching root+agent; verified by per-call stdio submits of T-0111 and T-0115
+- B-0003 workAbort journals into a context dir named after the item: journal.Append gets w.Item where every other call site passes it.Dir: fix live: workAbort journals into the item context dir, regression test guards the stray-dir shape; one-time repair of the misplaced T-0114 abort event already committed earlier
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
