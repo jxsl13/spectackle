@@ -36,6 +36,18 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	if in.Budget <= 0 {
 		in.Budget = 1500
 	}
+	// short prefixes are accepted everywhere an item ID is (ADR-0013); the
+	// same scope renders the pack, so every ID grill emits can be fed back
+	// into grill or get verbatim.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	id, bad := sc.expand(in.ID)
+	if bad != nil {
+		return bad, nil, nil
+	}
+	in.ID = id
 	it, ok, err := item.Get(s.ws, in.ID)
 	if err != nil {
 		return nil, nil, err
@@ -62,7 +74,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 
 	var lines []string
-	lines = append(lines, item.Record(it))
+	lines = append(lines, sc.record(it))
 
 	addSection := func(name string, recs []string) {
 		if len(recs) == 0 {
@@ -74,7 +86,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 
 	addSection("#targets", grillTargets(s.g, it.Targets, anchored))
 	addSection("#contracts", grillContracts(c, it.Targets))
-	addSection("#briefs", grillBriefs(all, it.ID))
+	addSection("#briefs", grillBriefs(all, it.ID, sc))
 	addSection("#tests", s.grillTests(it.Targets))
 
 	rej, err := s.grillRejections(it)
@@ -98,7 +110,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	_ = s.cd.Emit("grill", it.ID, "grilled "+it.Grilled)
 	s.scan.MarkDirty()
 
-	lines = append(lines, fmt.Sprintf("ok grilled %s %s", it.ID, it.Grilled))
+	lines = append(lines, fmt.Sprintf("ok grilled %s %s", sc.short(it.ID), it.Grilled))
 
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
@@ -144,14 +156,14 @@ func grillContracts(c *spec.Cascade, targets []string) []string {
 // grillBriefs applies the task-brief quality heuristics from the
 // ORCHESTRATION paragraph ("Task bodies must be exhaustive") to every child
 // task, one b-line per failing heuristic — a task can fail more than one.
-func grillBriefs(all []item.Item, parentID string) []string {
+func grillBriefs(all []item.Item, parentID string, sc idScope) []string {
 	var out []string
 	for _, ch := range all {
 		if ch.Parent != parentID || ch.Kind != "task" {
 			continue
 		}
 		for _, h := range briefHeuristics(ch.Body) {
-			out = append(out, "b "+ch.ID+" "+h)
+			out = append(out, "b "+sc.short(ch.ID)+" "+h)
 		}
 	}
 	sort.Strings(out)

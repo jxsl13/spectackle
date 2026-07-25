@@ -84,6 +84,14 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	hasBlocks := false
 	blocksID := ""
 	if in.Item != "" {
+		// a short prefix names the blocked item just as well as its full ID
+		// (ADR-0013); what gets persisted below — the `blocks:` body line
+		// and the Needs backlink — is always the resolved full ID.
+		full, bad, err := s.expandID(in.Item)
+		if bad != nil || err != nil {
+			return bad, nil, err
+		}
+		in.Item = full
 		found, ok, err := item.Get(s.ws, in.Item)
 		if err != nil {
 			return nil, nil, err
@@ -192,6 +200,11 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Choose) == "" {
 		return text("! ARG E - answer requires choose")
 	}
+	full, bad, err := s.expandID(in.ID)
+	if bad != nil || err != nil {
+		return bad, nil, err
+	}
+	in.ID = full
 	d, ok, err := item.Get(s.ws, in.ID)
 	if err != nil {
 		return nil, nil, err
