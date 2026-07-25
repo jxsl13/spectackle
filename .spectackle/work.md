@@ -92,3 +92,56 @@ Regression test: index a fixture, swap in a parser stub with different output, r
 
 ROLLBACK
 Key/stamp change only; worst case is a one-time full re-parse per workspace.
+
+## T-0127 parse and typed-call caches: mix a parser-identity component into both keys so upgrades self-invalidate
+kind: task
+state: approved
+created: 2026-07-25
+parent: B-0007
+refs: B-0007, T-0125
+grilled: 2026-07-25
+targets: internal/index/indexer.go, internal/index/indexer_cache_test.go, internal/index/typespass.go, internal/index/typespass_test.go, internal/index/goparser.go, internal/index/asmparser.go, internal/index/cudaparser.go, internal/langspec/langspec.go, internal/langspec/langspec_test.go
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first; the design below is DECIDED, do not redesign it.
+
+VERIFIED CURRENT STATE (orchestrator read this code; do not re-explore it)
+  internal/index/indexer.go parseCached (sole caller indexer.go:154): hash := sha256.Sum256(src); s.Get(rel, hash) on hit gob-decodes a ParseResult; on miss it parses and s.Put(store.Entry{Path: rel, Hash: hash, Blob: gob}).
+  internal/index/typespass.go ResolveTypedCalls: a SECOND instance of the same defect. Its whole-module edge cache lives under the sentinel path typedCallsCacheKey with key = moduleHashKey(root), module source content only, so a change to the typed pass itself (exactly what T-0125 shipped) is served stale.
+  internal/store/store.go: Entry.Hash is [32]byte documented as sha256 of file contents; Get selects the one row per path and misses on hash mismatch, so a changed key overwrites rather than growing the store.
+  index.LanguageParser is Lang() / Extensions() / Parse(path, src).
+  langspec.Def{Kind, Re *regexp.Regexp, Name, Sig int}; langspec.Spec{Lang, Exts, Qual, Defs, CallRe, Stop, EndSpan}.
+  Both cache paths already fall through to a recompute on a corrupt or shape-incompatible gob blob; leave that as is.
+  internal/index/indexer_cache_test.go already has a counting fake parser and direct parseCached tests; extend that harness rather than building a new one.
+
+PROBLEM
+Both keys are content-only, so a parser or pass upgrade keeps serving pre-upgrade nodes and edges for unchanged sources. Confirmed live during T-0125 and every ADR-0012 remediation task: fixtures needed .spectackle/cache deleted by hand before a fix was observable. In a released binary this poisons every upgrade, users silently keep the old graph forever, and the typed Go call edges, the graph's highest-value edges, are affected too.
+
+DESIGN
+1. internal/index: optional interface CacheVersioner { CacheVersion() string }. Add a helper computing the parse-blob key: sha256 over the source bytes, then a domain separator, then the parser's version string when it implements CacheVersioner. A parser NOT implementing it must yield a key byte-identical to today's sha256.Sum256(src), a required test that keeps future and third-party parsers working unchanged.
+2. internal/langspec: SpecParser implements CacheVersion by digesting its own Spec: every Def in order (regex source, Kind, Name and Sig indices), CallRe source, the Stop list, EndSpan Open and Close sources when set, Qual and Exts. Deterministic and order-stable: iterate slices, never a map. Any regex change then invalidates exactly that language.
+3. Hand-written parsers (GoParser, AsmParser, CudaParser): CacheVersion returns a small explicit constant each, with a comment stating the bump rule (bump when the parser's output for unchanged input changes). T-0125 and T-0126 both changed these parsers, so the rule is not hypothetical.
+4. typespass.go: mix an explicit typed-pass version constant into the module cache key the same way, same bump-rule comment, keeping the sentinel path and the [32]byte key shape.
+
+Do NOT fold in the running binary's identity or build revision anywhere: that invalidates everything on every rebuild, which in this repository's own make dev loop means a full re-parse per iteration and on a large target repo throws away the entire point of the cache. Do NOT touch internal/store: the key stays [32]byte and the store keeps its content-agnostic contract.
+
+SCOPE (lease exactly the nine target files)
+Siblings currently hold internal/langspec language DATA files (javascript, typescript, dart, python, perl, php, shell, r). You own langspec.go and langspec_test.go only, never a language data file. On a reported lease conflict, stop and report.
+
+TESTS
+  index/parse: a fake parser reporting version v1 populates the cache; the same content parsed by a fake parser reporting v2 must re-parse and the NEW result must win with no cache deletion, the B-0007 regression proof. A parser without CacheVersion must produce the pre-fix key exactly (assert against sha256.Sum256 of the same bytes). A hit must still be a hit when version and content are both unchanged, so the optimization is not silently disabled.
+  index/typed: changing the typed-pass version constant must miss the module cache and recompute. The existing typespass tests stub loadPackages, so assert the stub is invoked again after a version change and not invoked when nothing changed.
+  langspec: two Specs differing in exactly one Def regex yield different CacheVersion; identical Specs yield identical CacheVersion; repeated calls on one Spec are stable.
+
+VERIFY (run every one, real output, never predicted)
+  go build ./...
+  go test ./internal/index/... ./internal/langspec/... ./internal/store/... -race
+  go test ./...
+  go vet ./internal/index/... ./internal/langspec/...
+  /home/user/spectackle/bin/spectackle lint
+Then the live proof that closes B-0007, in a scratch workspace, WITHOUT ever deleting a cache directory: index a small fixture with your built binary, then edit one langspec regex so a previously missed construct now matches, rebuild, reindex the same fixture, and show the new node appearing. Paste the transcript. Revert that demonstration edit before submitting, or make it in a throwaway copy; the committed diff must contain only the cache work.
+
+EXIT CRITERION
+All listed tests green under -race, the no-CacheVersioner key proven byte-identical to today's, both cache paths covered, the whole suite green, vet and lint clean, and the live transcript showing a parser change taking effect with a warm cache.
+
+ROLLBACK
+One key helper, one optional interface, one digest method and four constants. Reverting restores content-only keying; no store schema, record format or blob shape changes, and a stale cache from either side simply misses and recomputes.
