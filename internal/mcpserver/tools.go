@@ -1465,7 +1465,13 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
 	}
 	s.markDirty()
-	return text(warns + sc.record(it) + "\n")
+	// The state transition drove the git workflow (P-01KYDB): branch, commit,
+	// push and a draft pull request on the way into active; ready on done;
+	// merge on archive. Its records are appended, never substituted for the
+	// item record, and a forge problem is a note here rather than a failed
+	// transition — the lifecycle state is the server's own, and an unreachable
+	// forge must not be able to stop an item from moving.
+	return text(warns + sc.record(it) + "\n" + s.gitFlowFor(it, in.To).String())
 }
 
 // auditGateOpts loads the spec cascade and, if that succeeds, returns a

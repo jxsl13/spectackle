@@ -169,6 +169,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - P-01KYD8DK52EG5A1AKC1KSRR4Z2 close the four open field-reported defects: gitignore, worktree root, degraded index, stale hint: issues 26-29 closed: gitignore honored in the index walk and SkipDir, a nested worktree is its own root even when an ancestor carries a bundle, index degradation is a TYPED finding on state and check, and the stale-binary hint fires only for a dev build serving its own tree
 - ADR-01KYCZ13KRF84VD5DSVQ4017MV Which ID scheme closes the cross-clone collision hole?: compact
 - T-01KYD2XQG6E38APSR3EY4GY137 rule op=edit: recompose from the stored pattern instead of silently rewriting the old text, and stop eating the separator: compact
+- P-01KYDBRWFZFXSBRF4PNRD6R4D9 the git workflow becomes server automation: state transitions drive branch, push, draft pull request, ready and merge: state transitions now drive branch, commit, push, draft pull request, ready and merge from server code; two modes with online the default and offline doing the same lifecycle locally; opt-out by config; no gh dependency, credentials via env then git credential helper
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

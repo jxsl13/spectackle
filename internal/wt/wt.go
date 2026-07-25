@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -65,6 +66,79 @@ func Head(dir string) (string, error) { return git(dir, "rev-parse", "HEAD") }
 // CurrentBranch returns the checked-out branch name of dir.
 func CurrentBranch(dir string) (string, error) {
 	return git(dir, "rev-parse", "--abbrev-ref", "HEAD")
+}
+
+// DefaultBranch resolves the branch checked out at dir via HEAD's symbolic
+// ref rather than CurrentBranch's rev-parse: workspace.Config.Git.Base reads
+// this at config-load time, which can run before the repo has a single
+// commit yet (rev-parse --abbrev-ref HEAD errors on an unborn HEAD;
+// symbolic-ref resolves regardless) — and it exists at all so that default
+// never has to be a hardcoded "main" (see MergeMain's B-0004 fix for the same
+// principle applied to merge targets).
+func DefaultBranch(dir string) (string, error) {
+	return git(dir, "symbolic-ref", "--short", "HEAD")
+}
+
+// RemoteURL returns the configured URL of a named remote.
+//
+// It exists so the forge client can derive owner and repository from the same
+// remote git itself pushes to, rather than from a second source that could
+// disagree with it — a workspace whose remote was re-pointed must open pull
+// requests against the repository it actually pushes to.
+func RemoteURL(dir, remote string) (string, error) {
+	return git(dir, "remote", "get-url", remote)
+}
+
+// EnsureBranch makes branch the checked-out branch of dir: creates it from
+// startPoint if it doesn't exist yet, otherwise just checks it out. A retried
+// transition (e.g. a task re-entering active after a reopen) must land on the
+// SAME branch it used before, not fail because that branch is already there —
+// so the second call on an existing branch is an ordinary checkout, never an
+// error.
+func EnsureBranch(dir, branch, startPoint string) error {
+	if _, err := git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+		// An empty startPoint means "branch from where we are". It must be
+		// OMITTED rather than passed through: git reads an empty argument as a
+		// pathspec and fails with "empty string is not a valid pathspec",
+		// which is a confusing way to report a caller that simply had no
+		// specific start point in mind.
+		args := []string{"checkout", "-b", branch}
+		if startPoint != "" {
+			args = append(args, startPoint)
+		}
+		_, err := git(dir, args...)
+		return err
+	}
+	_, err := git(dir, "checkout", branch)
+	return err
+}
+
+// Push pushes branch to remote, setting upstream tracking so HasUnpushedCommits
+// can later read it back. Safe to call on every submit round, not just the
+// first: -u on an already-tracked branch just re-affirms the tracking config,
+// it does not error.
+func Push(dir, remote, branch string) error {
+	_, err := git(dir, "push", "-u", remote, branch)
+	return err
+}
+
+// HasUnpushedCommits reports whether branch carries commits remote does not
+// have yet. Before the first Push there is no remote-tracking ref to compare
+// against at all, so every local commit trivially counts as unpushed; after
+// Push lands them, the comparison is a straight rev-list.
+func HasUnpushedCommits(dir, remote, branch string) (bool, error) {
+	if _, err := git(dir, "rev-parse", "--verify", "--quiet", remote+"/"+branch); err != nil {
+		return true, nil
+	}
+	out, err := git(dir, "rev-list", "--count", branch, "^"+remote+"/"+branch)
+	if err != nil {
+		return false, err
+	}
+	n, convErr := strconv.Atoi(out)
+	if convErr != nil {
+		return false, fmt.Errorf("wt: unexpected rev-list output %q", out)
+	}
+	return n > 0, nil
 }
 
 // Add creates a worktree at wtRoot on a fresh branch from startPoint,
