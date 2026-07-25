@@ -9,11 +9,11 @@ usage-billed APIs:
 
 ```
             ┌─────────────────────────────────────────────────────┐
-            │                    spectackle (MCP)                  │
+            │                    spectackle (MCP)                 │
  structural │  cross-language AST map      (Aider-inspired)       │
             │  go:Saxpy ─cgo→ c:launch ─launch→ cu:kernel         │
             ├─────────────────────────────────────────────────────┤
-topological │  cascading spec bundles      (.spectackle/spec.md)   │
+topological │  cascading spec bundles      (.spectackle/spec.md)  │
             │  root → module → directory, overrides explicit      │
             ├─────────────────────────────────────────────────────┤
    semantic │  EARS notation, linted       (WHEN …, X SHALL …)    │
