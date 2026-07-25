@@ -164,6 +164,7 @@ WHAT TO DELETE RATHER THAN ADD: grillQuestions' word-presence checks and briefHe
 
 THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that died are exactly the two that would have criticized the result. The anti-ceremony lens was to say what the aggregate token cost of all this is and which mechanisms are theatre; the orchestration lens was to ask whether an orchestrator and an implementer drawn from the same model can ever be independent reviewers, which is the assumption underneath half the shortlist. Adopt from this list incrementally, cheapest and most unfakeable first, and re-run those two lenses before committing to the expensive fourth mechanism.
 - P-01KYCZ04BRFJF9AH75QRWMGXPC globally unique, chronologically sortable record IDs: close the cross-clone collision hole: globally unique time-ordered record IDs shipped: UUIDv7 base32 stored, shortest unambiguous prefix accepted and displayed, legacy sequential IDs still resolvable, and every workspace on the old stamp migrates itself on open
+- B-01KYD1G9G1EVCAEWWVFR15GRT3 rule op=edit silently discards the edit and answers ok when the pattern slot is omitted: fixed under T-01KYD2: the tool layer recovers the stored pattern when slots are supplied without pattern=, so a slot edit either recomposes or refuses naming the missing slots; it can no longer answer ok while keeping the old text. Lint findings now describe the text actually stored
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

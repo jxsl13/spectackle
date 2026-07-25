@@ -123,17 +123,12 @@ func AddRule(ws workspace.Root, c *Cascade, req AuthorReq) (AuthorRes, error) {
 	if !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	var b strings.Builder
-	b.WriteString(content)
-	b.WriteString("\n## " + res.ID)
-	if len(req.Applies) > 0 {
-		b.WriteString(" {applies: " + strings.Join(req.Applies, ",") + "}")
-	}
-	b.WriteString("\n" + strings.TrimSpace(req.Sentence) + "\n")
-	if r := strings.TrimSpace(req.Rationale); r != "" {
-		b.WriteString("\nRationale: " + r + "\n")
-	}
-	if err := os.WriteFile(abs, []byte(b.String()), 0o644); err != nil {
+	// One separator line, then the block in the canonical layout — the same
+	// renderer EditRule uses, so the two write paths cannot drift apart again
+	// (GitHub issue 30). ruleBlockLines already ends the block with a blank
+	// element, which becomes the file's trailing newline on join.
+	body := "\n" + strings.Join(ruleBlockLines(res.ID, req.Sentence, req.Rationale, req.Applies), "\n")
+	if err := os.WriteFile(abs, []byte(content+body), 0o644); err != nil {
 		return res, err
 	}
 	res.Written = true
@@ -158,6 +153,12 @@ func EditRule(ws workspace.Root, c *Cascade, id, sentence, rationale string, app
 		applies = old.Applies
 	}
 	res := AuthorRes{ID: id, Path: old.File}
+	// Linted AFTER the fallbacks above, deliberately: sentence now holds the
+	// text this call will actually store, so every finding describes the stored
+	// state rather than an intermediate one. (Before the tool layer learned to
+	// recover the pattern for a slot edit, a pattern-less edit reached here with
+	// sentence="" and lint therefore described the old text while the caller
+	// believed they had changed it — the third symptom in GitHub issue 25.)
 	res.Findings = ears.LintSentence(sentence, old.File, old.Line)
 	for _, f := range res.Findings {
 		if f.Severity == ears.Error {
@@ -169,21 +170,43 @@ func EditRule(ws workspace.Root, c *Cascade, id, sentence, rationale string, app
 	if err != nil {
 		return res, err
 	}
-	var b []string
-	head := "## " + id
-	if len(applies) > 0 {
-		head += " {applies: " + strings.Join(applies, ",") + "}"
-	}
-	b = append(b, head, strings.TrimSpace(sentence))
-	if r := strings.TrimSpace(rationale); r != "" {
-		b = append(b, "", "Rationale: "+r)
-	}
+	b := ruleBlockLines(id, sentence, rationale, applies)
 	out := append(lines[:start:start], append(b, lines[end:]...)...)
 	if err := os.WriteFile(abs, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 		return res, err
 	}
 	res.Written = true
 	return res, nil
+}
+
+// ruleBlockLines renders one rule block in THE canonical layout, and is the
+// single place that layout is defined:
+//
+//	## <ID>[ {applies: a,b}]
+//	<sentence>
+//	[blank]
+//	[Rationale: <text>]
+//	[blank]
+//
+// The trailing blank line is the load-bearing part. A rule block's extent runs
+// from its heading to the next heading, so the span an edit replaces includes
+// the separator before the following rule; a rebuilt block without a trailing
+// blank therefore consumed one separator per edit, permanently, and add and
+// edit produced different bytes for identical content (GitHub issue 30). Ending
+// the block with exactly one blank line makes the layout a property of the rule
+// rather than of how the rule got there, which is what lets the two paths
+// converge — and it is also correct for the last rule in a file, where the
+// trailing blank is the file's final newline.
+func ruleBlockLines(id, sentence, rationale string, applies []string) []string {
+	head := "## " + id
+	if len(applies) > 0 {
+		head += " {applies: " + strings.Join(applies, ",") + "}"
+	}
+	b := []string{head, strings.TrimSpace(sentence)}
+	if r := strings.TrimSpace(rationale); r != "" {
+		b = append(b, "", "Rationale: "+r)
+	}
+	return append(b, "")
 }
 
 // RetireRule deletes a rule block from its spec bundle; the full text
