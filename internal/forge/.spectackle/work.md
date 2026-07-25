@@ -19,7 +19,7 @@ REMAINING RISK, unchanged by this fix: any forge operation whose stub is written
 
 ## B-01KYDN1BMXFAMB773EE7SH2B1P the CI verdict is polled by branch name, so seconds after a push it can belong to the previous head
 kind: bug
-state: draft
+state: active
 created: 2026-07-25
 
 Observed on the archive of the severity-taxonomy fix: the archive-time records commit was pushed and the merge gate reported checks passing within nine seconds — faster than this repository's CI has ever concluded. The verdict it read almost certainly belonged to the PREVIOUS head: Checks queries the check-runs API by branch NAME, and immediately after a push the forge can still resolve that ref to the old commit, whose runs are concluded and green. Same defect class as the zero-runs ambiguity fixed earlier (B-01KYDJ), from the opposite direction — that one merged before CI started, this one can merge on the predecessor's green.
