@@ -85,3 +85,24 @@ go test ./internal/wt/... -race with a new regression test (worktree whose only 
 
 ROLLBACK
 One detection block in CommitCode; reverting restores prior behavior. No schema or record change.
+
+## B-0006 worktree .spectackle live state blocks MergeMain: seeded uncommitted by copyBundles, excluded by CommitCode, refused by git when main's tip touches the same files
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+copyBundles snapshots main's live .spectackle bundles into a fresh worktree as uncommitted working-tree files (deliberate: bundles may be ahead of HEAD), and CommitCode's codeOnly pathspec keeps them out of every branch commit (deliberate: replay.Run reconciles record state semantically, git never merges it). Net effect: every worktree carries permanent uncommitted .spectackle diffs. While MergeMain silently merged a stale ref (B-0004) this was invisible; merging the real advancing tip — whose commits touch the same journal files — makes git abort with would-be-overwritten-by-merge. Deterministic for every worktree by construction; reproduced by T-0115 and expected identically for T-0111.
+
+CAUSE
+The live record snapshot and the git merge share paths but not ownership: the files are replay's input and must survive verbatim, yet they sit in git's working tree where a merge is entitled to update them.
+
+FIX (decision)
+MergeMain preserves and restores: before merging (only when no merge is already in progress), save the bytes of every modified-tracked and untracked working-tree path under a .spectackle dir, clear them (checkout for tracked, remove for untracked), merge, then write the exact bytes back — replay's input survives verbatim, the merge sees a clean tree, and replay stays the sole owner of record-state reconciliation. Rejected: discarding the local .spectackle diffs (loses the worktree's own record delta — item moves, rule events — that replay must apply); git stash (pop conflicts on the same paths reintroduce the problem nondeterministically); committing bundles in worktrees (contradicts the standing design that git never carries record-state merges).
+
+VERIFY
+go test ./internal/wt/... -race with a regression test (worktree with local journal edit, main commits a change to the same file, MergeMain succeeds, local bytes preserved, FFMain follows); go test ./...; live: T-0111 and T-0115 submits complete.
+
+ROLLBACK
+One helper and one call inside MergeMain; reverting restores prior behavior. No schema or record change.

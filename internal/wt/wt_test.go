@@ -175,3 +175,48 @@ func TestCommitCodeNoOpsOnUnstagedSpectackleOnly(t *testing.T) {
 		t.Fatal("CommitCode reported a commit with nothing code-side to commit")
 	}
 }
+
+// TestMergeMainPreservesSpectackleState: the worktree's uncommitted
+// .spectackle files (live replay input) must neither block a merge whose tip
+// touches the same paths nor be altered by it (B-0006).
+func TestMergeMainPreservesSpectackleState(t *testing.T) {
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o644)
+	os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755)
+	os.WriteFile(filepath.Join(root, ".spectackle", "journal.ndjson"), []byte("{\"v\":1}\n"), 0o644)
+	if err := InitTestRepo(root); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	// the worktree's live record delta: an uncommitted local journal edit
+	local := "{\"v\":1}\n{\"wt-event\":true}\n"
+	os.WriteFile(filepath.Join(wtRoot, ".spectackle", "journal.ndjson"), []byte(local), 0o644)
+	// main advances, committing a change to the SAME journal file plus code
+	os.WriteFile(filepath.Join(root, ".spectackle", "journal.ndjson"), []byte("{\"v\":1}\n{\"main-event\":true}\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "b.go"), []byte("package a\n"), 0o644)
+	if _, err := git(root, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(root, "commit", "-m", "advance main incl journal"); err != nil {
+		t.Fatal(err)
+	}
+
+	conflicts, err := MergeMain(wtRoot)
+	if err != nil || len(conflicts) > 0 {
+		t.Fatalf("MergeMain must not be blocked by live .spectackle state: %v %v", conflicts, err)
+	}
+	// the merge landed (code arrived) and the live record bytes survived
+	if _, err := os.Stat(filepath.Join(wtRoot, "b.go")); err != nil {
+		t.Fatalf("merge did not land: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(wtRoot, ".spectackle", "journal.ndjson"))
+	if err != nil || string(got) != local {
+		t.Fatalf("live .spectackle bytes not preserved: %q err=%v", got, err)
+	}
+	if err := FFMain(root, "spectackle/T-0001"); err != nil {
+		t.Fatalf("FFMain after preserved merge: %v", err)
+	}
+}

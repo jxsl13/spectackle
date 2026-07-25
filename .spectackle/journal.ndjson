@@ -205,3 +205,5 @@
 {"t":"2026-07-25T09:13:09Z","eid":"93555c1ebaeade4d","ag":"orchestrator","ev":"move","id":"B-0004","fr":"draft","to":"active"}
 {"t":"2026-07-25T09:19:16Z","eid":"a62f235f2d57b0c8","ag":"orchestrator","ev":"create","id":"B-0005","k":"bug","ti":"CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line"}
 {"t":"2026-07-25T09:19:16Z","eid":"ab3241ff47651bdb","ag":"orchestrator","ev":"move","id":"B-0005","fr":"draft","to":"active"}
+{"t":"2026-07-25T09:23:26Z","eid":"9d750908d6bee567","ag":"orchestrator","ev":"create","id":"B-0006","k":"bug","ti":"worktree .spectackle live state blocks MergeMain: seeded uncommitted by copyBundles, excluded by CommitCode, refused by git when main's tip touches the same files"}
+{"t":"2026-07-25T09:23:26Z","eid":"bff2e99506fd16be","ag":"orchestrator","ev":"move","id":"B-0006","fr":"draft","to":"active"}
