@@ -156,12 +156,39 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		}
 		return res
 	}
+	res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
+	return res
+}
+
+// gitOpenPR opens the draft pull request, but only once the branch actually
+// has something in it.
+//
+// A branch that entered active a moment ago is identical to base: the work has
+// not happened yet, so there is nothing to commit and nothing to review. GitHub
+// refuses such a pull request outright — "No commits between main and
+// <branch>", a 422 — and it is right to, since an empty pull request describes
+// nothing. Seeding an empty commit to force it open was rejected: it pollutes
+// the per-edge commit trail that the never-squash policy exists to protect.
+//
+// So the draft opens at the FIRST COMMIT rather than at a fixed transition,
+// which still satisfies the requirement (a draft exists while work is ongoing)
+// — every later step calls this, so whichever one first finds the branch ahead
+// of base is the one that opens it.
+//
+// Found live: the offline forge has no such precondition, so the same sequence
+// succeeded locally and only the run against a real forge exposed it. The
+// offline implementation is a lifecycle double, not a fidelity double.
+func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowResult {
+	res := &gitFlowResult{}
 	if pr, ok, err := f.Find(branch); err != nil {
 		res.addf("! GIT W %s pr lookup: %s", it.ID, err)
 		return res
 	} else if ok {
 		res.addf("g pr %d %s (already open)", pr.Number, pr.URL)
 		return res
+	}
+	if ahead, err := wt.IsAheadOf(s.ws.Dir, branch, s.gitBase()); err != nil || !ahead {
+		return res // nothing to review yet; a later step opens it
 	}
 	pr, err := f.Open(branch, s.gitBase(), it.ID+" "+it.Title, gitPRBody(it))
 	if err != nil {
@@ -235,8 +262,13 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 		return res
 	}
 	if !ok {
-		res.addf("! GIT W %s no open pr for %s", it.ID, branch)
-		return res
+		// Not opened yet because the branch was empty when the task started
+		// (see gitOpenPR). Done is the last moment it can still be opened, and
+		// by now there is certainly something to review.
+		res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
+		if pr, ok, err = f.Find(branch); err != nil || !ok {
+			return res
+		}
 	}
 	if !pr.Draft {
 		res.addf("g pr %d ready (already)", pr.Number)
