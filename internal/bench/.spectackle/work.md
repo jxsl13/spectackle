@@ -1,3 +1,10 @@
 ---
 schema: v1
 ---
+
+## T-01KYDTQDN1EHCSJ5QH5N3XTZ36 bench fixture v2: multi-dir rules inventory so text-surface changes measure at real magnitude
+kind: task
+state: active
+created: 2026-07-25
+
+Motivation, measured: the state rules-inventory collapse (T-01KYDQ) benched at minus 17 bytes on the fixture but minus 702 bytes on this repository — a 40x underestimate, because the fixture holds a single directory with a single rule while the real repository renders a dozen-plus per-dir inventory lines in every state call. A harness that underestimates a change class by that factor cannot rank competing text implementations, which is its entire purpose. Change: enrich the generated fixture with a realistic directory topology — three to four source dirs (api, store, cli, plus one nested dir) each with a compilable Go file — and seed each with two to three rules through the real tool surface (rule op=add) in an unmetered seed phase that runs after Fixture and before the metered script; seeding through tools keeps the server the sole author of record files, so grammar changes never desynchronize hand-written fixtures. The metered Script stays byte-identical in structure (same steps, all eight states still covered by construction) so cross-version step comparisons stay meaningful; only the ambient workspace is richer. Report labels the fixture as v2; absolute totals are not comparable to v1 baselines and the record must say so. Acceptance: (1) TestScriptCoversAllStatesByConstruction unchanged and green; (2) a state call in the enriched fixture renders a multi-dir rules inventory (asserted by a new unit test on the seeded workspace); (3) self A/B — current binary against itself — reports 0B delta at equal validity, proving seed determinism; (4) the magnitude proof: bench -against a pre-collapse binary (first parent of the T-01KYDQ merge) shows the collapse class at over 100 bytes on the enriched fixture, versus the 17 bytes v1 measured. VERIFY: go test ./internal/bench/ -count=1 green including the full-run test; spectackle bench self-A/B delta 0B; the magnitude number recorded in the archive note.
