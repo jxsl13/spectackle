@@ -138,3 +138,17 @@ TESTS: scripted and httptest — reopen flips ready back to draft and the record
 VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
 SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
 ROLLBACK: additive method and one call site.
+
+## B-01KYDMP34XE8PRTDYPWY6EREWB unrecoverable git and forge failures reach the LLM as warnings, and coordination emit failures reach nobody
+kind: bug
+state: active
+created: 2026-07-25
+refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
+
+Requirement: every error the MCP cannot fix itself must reach the LLM cleanly — the named example being network problems at state transitions.
+
+AUDIT, measured: after the transport-retry work a budget-spent network failure does surface in the transition result, but twenty-one of twenty-two gitflow failure records carry W severity — including push failures, merge failures and the budget-spent case itself. The dense grammar has severities precisely so a caller can branch on them; an unrecoverable failure labeled W is an error message received unclearly, which fails the requirement even though the bytes arrive. Separately, every coordination broadcast discards its error (underscore-assigned Emit at four sites): a failed reject emit means sibling agents never learn of a rejection, and nobody — LLM included — learns the broadcast failed.
+
+FIX. Severity taxonomy in the gitflow: a failure that leaves the workflow obligation unmet is E — branch, commit, records, push, pull request open and lookup, ready, merge including permission-refused and budget-spent. Deferrals and no-ops stay g records as designed. The one genuine warning stays W: verdict-unknown-at-done, where the item is done, nothing failed, and archive re-gates. Coordination emits on the transition path stop discarding: a failed Emit appends one COORD E record naming what was not broadcast.
+
+VERIFY: existing merge-gate and report tests updated for the E wording; a forced Emit failure surfaces the COORD record; full race suite; live transition transcript showing the severities.
