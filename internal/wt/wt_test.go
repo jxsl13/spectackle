@@ -107,3 +107,41 @@ func TestMergeConflictAndTouched(t *testing.T) {
 		t.Fatalf("TouchedFiles = %v", touched)
 	}
 }
+
+// TestMergeMainResolvesPrimaryBranch: the integration target is whatever
+// branch the primary checkout has checked out, not a ref literally named
+// "main" — a repo developing on another branch (with a stale local main)
+// otherwise gets a silent no-op merge and a diverging-branches fast-forward
+// failure at submit (B-0004).
+func TestMergeMainResolvesPrimaryBranch(t *testing.T) {
+	root := repo(t)
+	// develop on a differently named branch; the stale "main" stays behind
+	if _, err := git(root, "checkout", "-b", "feature/dev"); err != nil {
+		t.Fatal(err)
+	}
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	// the primary branch advances after the worktree branched
+	os.WriteFile(filepath.Join(root, "b.go"), []byte("package a\n"), 0o644)
+	if _, err := git(root, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := git(root, "commit", "-m", "advance feature/dev"); err != nil {
+		t.Fatal(err)
+	}
+
+	conflicts, err := MergeMain(wtRoot)
+	if err != nil || len(conflicts) > 0 {
+		t.Fatalf("MergeMain: %v %v", conflicts, err)
+	}
+	// the worktree picked up the primary branch's commit...
+	if _, err := os.Stat(filepath.Join(wtRoot, "b.go")); err != nil {
+		t.Fatalf("worktree missing primary-branch commit: %v", err)
+	}
+	// ...so the primary branch fast-forwards to the worktree branch
+	if err := FFMain(root, "spectackle/T-0001"); err != nil {
+		t.Fatalf("FFMain after resolved merge: %v", err)
+	}
+}

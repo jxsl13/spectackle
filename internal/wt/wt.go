@@ -129,10 +129,22 @@ func CommitCode(wtRoot, msg string) (bool, error) {
 	return true, nil
 }
 
-// MergeMain merges main INTO the worktree branch. On conflict the merge is
-// left in progress (resumable) and the conflicted files are returned.
+// MergeMain merges the primary checkout's current branch INTO the worktree
+// branch. On conflict the merge is left in progress (resumable) and the
+// conflicted files are returned. The target is resolved, never assumed: a
+// hardcoded "main" silently merged a stale ref in repos developing on a
+// differently named branch, and the submit then died at the fast-forward
+// with a diverging-branches error (B-0004).
 func MergeMain(wtRoot string) (conflicts []string, err error) {
-	if _, err := git(wtRoot, "merge", "--no-edit", "main"); err != nil {
+	target := "main"
+	if mainRoot, isWT, crErr := CommonRoot(wtRoot); crErr == nil && isWT {
+		if b, brErr := git(mainRoot, "symbolic-ref", "--short", "HEAD"); brErr == nil && b != "" {
+			target = b
+		} else if sha, shErr := git(mainRoot, "rev-parse", "HEAD"); shErr == nil && sha != "" {
+			target = sha // detached primary checkout: merge the commit itself
+		}
+	}
+	if _, err := git(wtRoot, "merge", "--no-edit", target); err != nil {
 		out, lsErr := git(wtRoot, "diff", "--name-only", "--diff-filter=U")
 		if lsErr == nil && out != "" {
 			return strings.Split(out, "\n"), nil

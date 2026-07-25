@@ -43,3 +43,24 @@ go test ./internal/replay/... -race with two new tests (baseline pre-eid event s
 
 ROLLBACK
 One function's return set and one loop condition; reverting replay.go restores prior behavior. No schema, record or journal format change.
+
+## B-0004 MergeMain hardcodes the branch name main, so submit silently merges a stale ref and dies at the fast-forward on repos developing on another branch
+kind: bug
+state: active
+created: 2026-07-25
+targets: internal/wt/wt.go
+
+DEFECT
+wt.MergeMain runs git merge --no-edit main inside the worktree. When the primary checkout's development branch is not literally named main (observed live: claude/repo-mcp-spec-driven-3l93dx at fb11265, with a stale local main 77 commits behind on a diverged lineage), the merge is a silent no-op against the stale ref, GATE 2 passes trivially, and FFMain then fails with exit 128 diverging-branches because the worktree branch never picked up the real tip. Every worktree submit in such a repo fails identically; T-0115 reproduced it end to end. Secondary observation: workSubmit leaves the coord worktree state stamped gating/integrating on early return, which is cosmetic (submit does not check it) but misleading in swarm output.
+
+CAUSE
+The integration target is a naming convention, not a resolved fact. The correct target is whatever branch the primary checkout has checked out — already discoverable from the worktree via CommonRoot + symbolic-ref.
+
+FIX (decision)
+MergeMain resolves the primary checkout via CommonRoot(wtRoot) and merges its current branch (symbolic-ref --short HEAD), falling back to the literal main only when resolution fails (non-worktree callers, tests) and to the HEAD sha when the primary checkout is detached. Signature unchanged, so the leased swarm.go call site is untouched. Rejected: passing the branch through workSubmit — correct too, but needlessly edits a file another agent holds a lease on, and every future caller would have to re-derive the same fact.
+
+VERIFY
+go test ./internal/wt/... -race with a new regression test (primary checkout on a non-main branch, commit lands on it after worktree creation, MergeMain in the worktree picks it up so FFMain succeeds); go test ./...; live: T-0115 and T-0111 submits complete.
+
+ROLLBACK
+One function body; reverting restores prior behavior. No schema or record change.
