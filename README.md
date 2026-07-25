@@ -406,7 +406,25 @@ warm cache instead. (A single `call` invocation with a multi-line stdin
 batch already shares one session and one index — this section is for
 sharing that index *across* invocations too.)
 
-Start it bound to localhost, with a pidfile so it has a stoppable handle:
+**Recommended: `make dev`.** It builds the current tree, stops any resident
+dev server already running, starts a fresh one over Streamable HTTP with a
+pidfile, and only returns once a real `state` call answers — so it's safe
+to run repeatedly (e.g. after every merge; see
+[CONTRIBUTING.md](CONTRIBUTING.md#the-resident-server-must-be-rebuilt-and-restarted-after-every-merge))
+without ever leaving two servers on one port or wedging on a stale pidfile:
+
+```sh
+make dev         # build + restart, blocks until it answers a real call
+make dev-status  # report whether it's running, without changing anything
+make dev-stop    # stop it (a no-op if nothing is running)
+```
+
+It binds `127.0.0.1:7412` with pidfile `bin/dev.pid` by default — override
+with `DEV_ADDR=... DEV_PIDFILE=...` the same way `BIN`/`GO`/etc are
+overridable elsewhere in the Makefile.
+
+**Manual invocation**, for anyone not using `make` — bind it to localhost
+with a pidfile so it has a stoppable handle:
 
 ```sh
 ./bin/spectackle serve -root . -http 127.0.0.1:7331 -pidfile .spectackle/serve.pid &
