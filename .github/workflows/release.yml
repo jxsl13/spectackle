@@ -11,6 +11,11 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # The secrets context is NOT available in a step-level `if`, only in
+    # `env:` and `with:`, so the App-configured probe below reads this
+    # job-level env var instead of the secret directly.
+    env:
+      TAP_APP_ID: ${{ secrets.TAP_APP_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,7 +40,7 @@ jobs:
       # exists the release still succeeds without updating the tap.
       - name: mint tap token
         id: tap_token
-        if: ${{ secrets.TAP_APP_ID != '' }}
+        if: ${{ env.TAP_APP_ID != '' }}
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.TAP_APP_ID }}
