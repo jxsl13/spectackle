@@ -138,26 +138,3 @@ TESTS: scripted and httptest — reopen flips ready back to draft and the record
 VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
 SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
 ROLLBACK: additive method and one call site.
-
-## T-01KYDN4Z88ETHA2AMRAN0DM0W6 runners fire only at finalization: draft pull requests skip CI, done gates locally before flipping ready, skipped stubs never count as green
-kind: task
-state: done
-created: 2026-07-25
-refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
-
-Requirement: minimize CI minutes. Runners are triggered only at feature finalization, after local gates and tests pass — never for work in progress.
-
-MEASURED COST TODAY: three pull_request runs per task branch (the active push, the done push, the archive records push) plus the post-merge run on main — about eight runner minutes per task where one finalization run plus the main run would do. Every during-work push burns a runner although its verdict gates nothing.
-
-THREE CHANGES, one feature.
-1. ci.yml: pull_request runs are skipped while the pull request is a DRAFT — job-level condition on draft state, with ready_for_review among the trigger types. The existing draft-while-working, ready-at-done mapping then does the minimization by itself: during-work pushes cost effectively nothing, the ready flip at done triggers the one real run.
-2. Local gates before ready: done runs the workspace verify commands (config verify, already present and already used by work op=submit's gate) BEFORE flipping the pull request ready. A red local gate leaves the pull request a draft, reports GATE E with the failing command, and skips the CI await entirely — a failure that never reaches a runner costs zero runner minutes, which is the requirement's core. Local gates passing is said in one g record (never silent).
-3. The Checks reducer: a head whose runs all concluded skipped — which is exactly what the draft-skip produces — counts as PENDING when the repository has workflows, never as passing. Without this, the await after the ready flip would read the draft phase's skipped stubs as green and repeat the predecessor-verdict defect (B-01KYDN) in a new costume.
-
-INTERACTION, stated: the archive records push still triggers one run on the ready pull request. Eliminating that one too (skip-ci markers on records-only commits) collides with SHA-verdict polling and belongs to B-01KYDN's design space, deliberately not here.
-
-TESTS: reducer — all-skipped plus active workflows is Pending, all-skipped without workflows stays None, a real success among skipped stays Passing; gitflow — a failing local gate leaves the pull request draft and reports the command, a passing one proceeds to ready and the await; ci.yml asserted by a workflow-lint test if one exists, else by review.
-
-VERIFY: go build ./... ; go test ./... -race ; go vet ; gofmt -l (empty). Live: one full lifecycle showing the draft-phase pushes producing skipped runs, done gating locally then flipping ready, and exactly one real CI run before merge.
-SCOPE: .github/workflows/ci.yml, internal/forge/github.go (reducer), internal/mcpserver/gitflow.go, tests.
-ROLLBACK: each of the three is independently revertible.
