@@ -353,3 +353,4 @@
 {"t":"2026-07-25T17:17:31Z","eid":"dae90fc458a31834","ag":"ag-ed96","ev":"start","id":"T-0138","note":"branch spectackle/T-0138 base 50e7d6bdfc69"}
 {"t":"2026-07-25T17:25:57Z","eid":"78ff80385710295c","ag":"ag-2e8c","ev":"abort","id":"T-0138","note":"worktree abandoned by ag-2e8c"}
 {"t":"2026-07-25T17:30:07Z","eid":"156b20a32fffeec7","ag":"ag-c439","ev":"create","id":"B-01KYD57FN3ERHBM5EQ3534YJXP","k":"bug","ti":"concurrent draft from two agents silently loses items: work.md is read-modify-written with no cross-process lock"}
+{"t":"2026-07-25T17:36:03Z","eid":"600a929b4f2bdfe3","ag":"ag-1535","ev":"create","id":"T-01KYD5JB7GF34BFNVRAAX8B6GE","k":"task","ti":"serialize server-side whole-file rewrites through the coord.db lock table"}
