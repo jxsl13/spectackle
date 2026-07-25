@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jxsl13/spectackle/internal/forge"
@@ -187,7 +189,7 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 		res.addf("g pr %d %s (already open)", pr.Number, pr.URL)
 		return res
 	}
-	if ahead, err := wt.IsAheadOf(s.ws.Dir, branch, s.gitBase()); err != nil || !ahead {
+	if ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase()); err != nil || !ahead {
 		return res // nothing to review yet; a later step opens it
 	}
 	pr, err := f.Open(branch, s.gitBase(), it.ID+" "+it.Title, gitPRBody(it))
@@ -349,8 +351,48 @@ func gitPRBody(it item.Item) string {
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
 	}
+	if closes := closesLines(it); len(closes) > 0 {
+		b.WriteString("\n" + strings.Join(closes, "\n") + "\n")
+	}
 	return b.String()
 }
+
+// closesLines turns the item's external refs into forge closing keywords, so
+// an issue a task cites is closed by the forge when the task's work MERGES.
+//
+// Driven by the structured refs field, never by prose in the body. A URL is
+// unambiguous and carries its own repository; recognizing "GitHub issue 26" in
+// free text would be a heuristic whose false positives close other people's
+// issues. Refs that are internal item IDs are skipped — they cite records, not
+// trackers.
+//
+// The close is tied to the MERGE rather than to a record transition on purpose.
+// Archiving an item says its record is finished; it says nothing about whether
+// the branch landed. An issue should close when the fix reaches the base
+// branch, which is exactly what a closing keyword in the pull request body
+// means, and it costs no API call and no permission of its own.
+//
+// Only issue URLs are emitted: a cited pull request or document is provenance,
+// and turning it into a closing keyword would close something the task never
+// claimed to finish.
+func closesLines(it item.Item) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range it.Refs {
+		if !item.ExternalRef(r) || !issueURLRe.MatchString(r) || seen[r] {
+			continue
+		}
+		seen[r] = true
+		out = append(out, "Closes "+r)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// issueURLRe matches a forge issue URL. Deliberately narrow: /issues/<n> only,
+// so a pull-request URL or a link to a discussion is cited without being
+// closed.
+var issueURLRe = regexp.MustCompile(`^https?://[^/\s]+/[^/\s]+/[^/\s]+/issues/\d+/?$`)
 
 // gitFlowFor dispatches on the destination state. One place decides what a
 // transition implies, so the mapping is readable as a whole rather than

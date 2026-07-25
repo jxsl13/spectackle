@@ -86,3 +86,37 @@ WHY IT MATTERS: it is the first step of the workflow, so the whole always-covere
 FIX DIRECTION: the pull request is opened as soon as the branch HAS a commit, not at a fixed transition. On entry to active, open it only when the branch is already ahead of base; otherwise skip silently and let the next sync — the checkpoint push that happens while the task is active, and the flip on done — open it. The requirement is that a draft exists while work is ongoing, which is satisfied by opening at the first commit rather than at the first transition. Do not seed an empty commit to force the pull request open: it pollutes the per-edge trail the never-squash policy exists to protect.
 
 VERIFY: against a real remote, a task entering active with no changes yet emits the branch record and NO pull-request warning; after the first code change the draft pull request exists; and the flip on done finds it. Offline keeps behaving as it does today.
+
+## T-01KYDEJ4QHEZR9BKYQ16SJSGBA a task's referenced GitHub issues close when its work merges
+kind: task
+state: active
+created: 2026-07-25
+refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4
+targets: internal/mcpserver/gitflow.go
+
+Requirement: an issue referenced by a task closes automatically when that task completes.
+
+MECHANISM CHOSEN, and why it is not an API call. The pull request body carries `Closes #N` for every issue the item references, and the forge closes them when the branch merges. That is idiomatic, atomic with the merge, and it cross-links the issue to the pull request in both directions for free. The rejected alternative was closing each issue through the API at the archive transition: it duplicates a mechanism the forge already has, and it can close an issue for work that never shipped, because archive is a record-state transition and says nothing about whether the branch landed. Tying the close to the MERGE means an issue closes exactly when the fix reaches the base branch, which is the property the requirement actually wants.
+
+PARSING, the part with real blast radius. Closing an issue is public and outward-facing, so a false positive closes a stranger's issue. Two constraints follow. Match only the explicit prose form this repository already uses — GitHub issue N, and the list form GitHub issues N and M / N, M — case-insensitive, since that is what every existing bug body writes. Do NOT match a bare #N: in these records a bare number is far more often a rule ID, a record count, or a pull request, and the cost of being wrong is asymmetric. An item that references nothing produces no Closes line and no behavior change at all.
+
+SCOPE OF THE REFERENCE: the item's title and body, since both carry them in practice (the four field-reported bugs put the reference in the body's first line; nothing prevents a title).
+
+DEDUPLICATION: an item naming the same issue twice, or naming issues 25 and 30 in two separate sentences, produces each number once, in ascending order, so the pull request body is stable rather than dependent on prose order.
+
+WHAT TO BUILD
+1. A parser over the item's title and body returning the referenced issue numbers, deduped and sorted.
+2. gitPRBody appends one `Closes #N` line per reference, after the brief, so a reader sees the task first and the linkage last.
+3. Nothing else changes: no new transition, no API call, no config.
+
+TESTS
+  singular and plural prose forms, mixed case, and the two list shapes (N and M; N, M, and K).
+  a bare #N is NOT matched, asserted explicitly — this is the false-positive guard and the whole reason the parser is conservative.
+  a number that is part of another token (a rule ID, a record ID, a version) is not matched.
+  duplicates collapse and output is ascending.
+  an item with no references yields a body byte-identical to today's, so the common case is provably unchanged.
+  the composed body contains one Closes line per issue and the brief above it.
+
+VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
+SCOPE: internal/mcpserver/gitflow.go and its tests only.
+ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
