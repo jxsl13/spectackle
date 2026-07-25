@@ -130,6 +130,7 @@ LLM plans against structure and contracts instead of file contents.
 - B-0007 parse-blob cache keyed by content hash only: parser upgrades silently serve stale nodes/edges until the cache is hand-cleared: fixed by T-0127 and proven live: an upgraded parser no longer replays pre-upgrade blobs, a version-less parser still keys byte-identically, and the typed-call pass gained the same discriminator (its cache had the identical defect, found while scoping the fix).
 - ADR-0012 R-0005 found major parser gaps in 30 of 32 languages. Which remediation path should spectackle take?: engine-endspan chosen and executed: EndSpan engine plus regex hardening across all brace-style languages and the three hand-written parsers; wazero stays gated per ADR-0010
 - T-0118 langspec engine: Spec.EndSpan keyword-counting body spans (cspan.KeywordSpan): Spec.EndSpan and cspan.KeywordSpan shipped; nil EndSpan proven byte-identical to brace-only behavior
+- T-0132 homebrew tap: formula instead of cask, so brew install works on Linux as well as macOS: formula replaces the cask: brew install now serves macOS and Linux from one artifact, the quarantine hook is gone with the cask, and the goreleaser version is pinned so the deprecated brews block cannot break a release unannounced. Snapshot verified: dist/homebrew/Formula/spectackle.rb carries both darwin and linux URLs.
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

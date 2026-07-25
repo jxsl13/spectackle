@@ -28,8 +28,8 @@ For each tag, goreleaser produces:
 - `checksums.txt` covering all archives.
 - A GitHub Release with an auto-generated changelog (commits prefixed
   `docs:`, `spec:`, or `chore:` are excluded).
-- A Homebrew cask pushed to `jxsl13/homebrew-tap`, installable with
-  `brew install --cask jxsl13/tap/spectackle`.
+- A Homebrew formula pushed to `jxsl13/homebrew-tap`, installable on macOS
+  and Linux with `brew install jxsl13/tap/spectackle`.
 
 ## The Homebrew tap
 
@@ -66,14 +66,33 @@ to every repository you can reach, to publish one formula file.
 If neither is configured the release still succeeds — only the tap update is
 skipped — so a fork can cut releases without owning a tap.
 
-The published binaries are unsigned. macOS quarantines a cask download, so
-the cask carries a `postflight` hook that removes the quarantine attribute
-(`xattr -dr com.apple.quarantine`), which is the supported alternative to an
-Apple Developer ID plus notarization. Prerelease tags (`-rc`, `-beta`, …)
-are detected by `skip_upload: auto` and never become the version
-`brew install` resolves to.
+The tap ships a **formula**, not a cask, and that choice carries the rest of
+this section:
 
-Homebrew casks are macOS-only; Linux users install from the release tarball.
+- Homebrew installs casks on macOS only, so a cask would leave `brew
+  install` broken on Linux. One formula covers both.
+- The published binaries are unsigned, and that is fine here: Homebrew
+  attaches the macOS quarantine attribute to cask downloads but not to
+  formula installs, so no Apple Developer ID, no notarization, and no
+  `xattr -dr` postflight hook are needed.
+- Prerelease tags (`-rc`, `-beta`, …) are detected by `skip_upload: auto`
+  and never become the version `brew install` resolves to.
+
+The cost is that GoReleaser deprecated its `brews` block in favor of
+`homebrew_casks`. Two consequences worth knowing before they surprise
+someone:
+
+1. `goreleaser check` exits non-zero purely because of that deprecation.
+   It is not part of CI, so nothing is gated today — do not read that exit
+   code as a broken config.
+2. The release workflow pins its goreleaser version (`~> v2.17`) instead of
+   tracking `latest`, so an upstream removal of the block cannot break a
+   release without a deliberate bump here. When bumping, re-run
+   `make release-snapshot` and confirm `dist/homebrew/Formula/spectackle.rb`
+   still appears.
+
+If the block is eventually removed for good, the choice is between staying
+on a pinned goreleaser and giving up Linux support through brew.
 
 The version string baked into the binary (`spectackle version`) is stamped at
 build time via ldflags into

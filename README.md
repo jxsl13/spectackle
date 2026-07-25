@@ -29,13 +29,13 @@ topological │  cascading spec bundles      (.spectackle/spec.md)  │
 
 Grab a prebuilt binary — no build required.
 
-On macOS, via Homebrew:
+Via Homebrew, on macOS and Linux alike:
 
 ```sh
-brew install --cask jxsl13/tap/spectackle
+brew install jxsl13/tap/spectackle
 ```
 
-Everywhere else, download the archive for your OS/arch from the
+Or download the archive for your OS/arch from the
 [latest release](https://github.com/jxsl13/spectackle/releases/latest);
 assets are named `spectackle_<os>_<arch>.tar.gz` (`.zip` on Windows), for
 `linux`/`darwin`/`windows` × `amd64`/`arm64`, alongside `checksums.txt`.
@@ -338,8 +338,8 @@ what CI verifies, not just its code.
 CGO-free binaries for linux, darwin and windows on amd64 and arm64, with
 archives, `checksums.txt` and a generated changelog. The version reported
 by `spectackle version` is stamped from the tag at build time. A Homebrew
-cask is pushed to `jxsl13/homebrew-tap` in the same run; no code-signing
-certificate is involved anywhere in the pipeline.
+formula covering macOS and Linux is pushed to `jxsl13/homebrew-tap` in the
+same run; no code-signing certificate is involved anywhere in the pipeline.
 
 Cutting a release is one command — see
 [docs/release.md](docs/release.md), including `make release-snapshot` for a
