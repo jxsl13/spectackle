@@ -176,3 +176,25 @@ CONSEQUENCE: reconciling the two records by ID, which is exactly what replay doe
 WHY IT MATTERS FOR THE MIGRATION: the same two-clone setup is the honest verification for the new scheme. After T-0134 through T-0138 land, repeating this must produce two different IDs and both tasks must remain reachable.
 
 HARNESS: a dogfood workspace built from this repository's real records (18 context dirs, 927 journal events, 235 archived tombstones) is the migration fixture of record. It is far richer than any synthetic one, and notably its check reports pending anchors because only records were copied without sources, so it exercises record migration rather than drift.
+
+## R-0007 how to make the workflow force multi-perspective analysis, so specifications stop shipping with implementation gaps
+kind: research
+state: active
+created: 2026-07-25
+targets: internal/mcpserver/grill.go, docs/agent-workflow.md
+
+PROBLEM
+The lifecycle produces well-formed records and still ships implementations with holes. This repository is its own evidence, and the evidence is unusually good because the holes were found later by other means:
+- R-0005 probed all 32 supported languages empirically and found major extraction gaps in 30 of them. Every one of those language entries had passed through drafting and review; none had been run against adversarial-but-idiomatic source until that probe.
+- Ten defects, B-0001 through B-0010, were found by dogfooding the server on itself rather than by the review step that preceded each change. Four of them hid behind one shared blind spot in the test bed, which no reviewer noticed because every test agreed on the same wrong assumptions.
+- A prior rejection already recorded the shape of the error: a hash refresh is not a verification, it only records that something happened. Review artifacts can be produced without the underlying property being checked.
+
+WHAT EXISTS TODAY
+grill renders targets, contracts, child-brief heuristics, tests and rejections, then asks a fixed checklist. Its brief heuristics are substring and length checks (body length, a slash for a path, the literal text of a verify command), and its questions fire when a word is absent from the body. All of them are satisfiable by writing the word, which is the anti-ceremony problem in miniature. research aggregates read-only context. decide records choices. check compares anchors. None of these demands that a claim be demonstrated.
+
+QUESTION
+What mechanisms would make the workflow structurally demand that a problem be examined from several independent angles, and that implementation claims be demonstrated rather than asserted, without degrading into ceremony that inflates every task body?
+
+METHOD: six independent lenses, run in parallel, each answering from evidence rather than from opinion, then synthesized.
+
+EXIT CRITERION: a ranked set of concrete mechanism proposals, each with the failure it would have caught in this repository's own history, its token and latency cost, and its ceremony risk with a mitigation. Anything that cannot name a real failure it would have caught is to be reported as such and dropped.
