@@ -41,6 +41,12 @@ jobs:
         run: make cover
 
       - name: fuzz (M4 linter hardening)
+        # Push runs only: fuzzing is exploratory and nondeterministic, and its
+        # wind-down race red-blocked a mechanical merge on a slow runner
+        # (B-01KYDP). The pull_request gate stays deterministic — build, vet,
+        # race tests — so a mechanical merge can never be refused by noise; a
+        # fuzz finding on main informs without blocking.
+        if: github.event_name == 'push'
         run: make fuzz
 
       - name: lint specs
