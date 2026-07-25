@@ -122,6 +122,178 @@ func TestCudaParserExternCWrapperNode(t *testing.T) {
 	}
 }
 
+// TestCudaParserStaticKernel covers a translation-unit-local kernel using
+// the `static` qualifier before `__global__` (common in .cu files):
+// static __global__ void reduce_kernel(const float *in, float *out, int n) { ... }
+func TestCudaParserStaticKernel(t *testing.T) {
+	src := []byte(`static __global__ void reduce_kernel(const float *in, float *out, int n) {
+    extern __shared__ float sdata[];
+    int tid = threadIdx.x;
+    sdata[tid] = (tid < n) ? in[tid] : 0.0f;
+    __syncthreads();
+    if (tid == 0) out[0] = sdata[0];
+}
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+	n, ok := byID["cu:reduce_kernel"]
+	if !ok {
+		t.Fatalf("node cu:reduce_kernel missing, got nodes %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KKernel || n.Lang != graph.LangCuda || n.Line != 1 {
+		t.Errorf("cu:reduce_kernel node wrong: %+v", n)
+	}
+}
+
+// TestCudaParserLaunchBoundsKernel covers a __launch_bounds__(N)-decorated
+// kernel. Before the fix this attribute (sitting between the return type
+// and the kernel name) was mis-captured as the kernel's own name, minting
+// a wrong node cu:__launch_bounds__ instead of cu:bounded_kernel.
+func TestCudaParserLaunchBoundsKernel(t *testing.T) {
+	src := []byte(`__global__ void __launch_bounds__(256) bounded_kernel(float *data, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) data[i] += 1.0f;
+}
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+	if _, wrong := byID["cu:__launch_bounds__"]; wrong {
+		t.Errorf("minted wrong node cu:__launch_bounds__, got nodes %+v", pr.Nodes)
+	}
+	n, ok := byID["cu:bounded_kernel"]
+	if !ok {
+		t.Fatalf("node cu:bounded_kernel missing, got nodes %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KKernel || n.Lang != graph.LangCuda || n.Line != 1 {
+		t.Errorf("cu:bounded_kernel node wrong: %+v", n)
+	}
+}
+
+// TestCudaParserDeviceFunction covers a __device__ helper function, a
+// symbol kind the parser previously minted no node for at all.
+func TestCudaParserDeviceFunction(t *testing.T) {
+	src := []byte(`__device__ float square_device(float v) {
+    return v * v;
+}
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+	n, ok := byID["cu:square_device"]
+	if !ok {
+		t.Fatalf("node cu:square_device missing, got nodes %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Lang != graph.LangCuda || n.Line != 1 {
+		t.Errorf("cu:square_device node wrong: %+v", n)
+	}
+}
+
+// TestCudaParserHostDeviceFunction covers a __host__ __device__ dual-mode
+// function.
+func TestCudaParserHostDeviceFunction(t *testing.T) {
+	src := []byte(`__host__ __device__ int clamp_hd(int v, int lo, int hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+	n, ok := byID["cu:clamp_hd"]
+	if !ok {
+		t.Fatalf("node cu:clamp_hd missing, got nodes %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KFunc || n.Lang != graph.LangCuda || n.Line != 1 {
+		t.Errorf("cu:clamp_hd node wrong: %+v", n)
+	}
+}
+
+// TestCudaParserExternCBlock covers wrapper functions grouped inside an
+// `extern "C" { ... }` block (avoids repeating `extern "C"` per function).
+// Functions declared this way lack their own extern "C" prefix, so they
+// previously never became nodes at all.
+func TestCudaParserExternCBlock(t *testing.T) {
+	src := []byte(`extern "C" {
+
+int launch_scale(int n, float factor, float *data) {
+    int threads = 256;
+    int blocks = (n + threads - 1) / threads;
+    scale_kernel<<<blocks, threads>>>(n, factor, data);
+    return 0;
+}
+
+int launch_reduce(const float *in, float *out, int n) {
+    reduce_kernel<<<1, 256, 256 * sizeof(float)>>>(in, out, n);
+    return 0;
+}
+
+} // extern "C"
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+
+	scale, ok := byID["c:launch_scale"]
+	if !ok {
+		t.Fatalf("node c:launch_scale missing, got nodes %+v", pr.Nodes)
+	}
+	if scale.Kind != graph.KFunc || scale.Lang != graph.LangC || scale.Line != 3 {
+		t.Errorf("c:launch_scale node wrong: %+v", scale)
+	}
+
+	reduce, ok := byID["c:launch_reduce"]
+	if !ok {
+		t.Fatalf("node c:launch_reduce missing, got nodes %+v", pr.Nodes)
+	}
+	if reduce.Kind != graph.KFunc || reduce.Lang != graph.LangC || reduce.Line != 10 {
+		t.Errorf("c:launch_reduce node wrong: %+v", reduce)
+	}
+
+	// Statements inside the wrapper bodies (declarations, kernel launches,
+	// returns) must not themselves be mistaken for new definitions.
+	if len(pr.Nodes) != 2 {
+		t.Errorf("got %d nodes, want exactly 2 (launch_scale, launch_reduce): %+v", len(pr.Nodes), pr.Nodes)
+	}
+}
+
+// TestCudaParserDeviceStructMethod covers a C++ class/struct with a
+// __device__ method (the thrust/cub-style functor idiom): the method is
+// qualified as "<Struct>.<method>" and minted as a KMethod, distinct from
+// a free __device__ function.
+func TestCudaParserDeviceStructMethod(t *testing.T) {
+	src := []byte(`struct AddFunctor {
+    __device__ float operator()(float a, float b) const {
+        return a + b;
+    }
+};
+`)
+	pr, err := (CudaParser{}).Parse("sample.cu", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	byID := cudaNodesByID(pr)
+	n, ok := byID["cu:AddFunctor.operator()"]
+	if !ok {
+		t.Fatalf("node cu:AddFunctor.operator() missing, got nodes %+v", pr.Nodes)
+	}
+	if n.Kind != graph.KMethod || n.Lang != graph.LangCuda || n.Line != 2 {
+		t.Errorf("cu:AddFunctor.operator() node wrong: %+v", n)
+	}
+}
+
 func TestCudaParserNoEdges(t *testing.T) {
 	pr := parseCudaDemo(t)
 	if len(pr.Edges) != 0 {

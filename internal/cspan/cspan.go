@@ -16,7 +16,10 @@
 // that duplication was the last blocker on ddnet's cpp:->c: FFI crossing).
 package cspan
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Span finds the end of the body opened for the def hit on lines[start].
 // K&R style (the def line itself opens '{') is handled first and is
@@ -134,4 +137,52 @@ func Delta(line string) (delta int, opened bool) {
 		}
 	}
 	return delta, opened
+}
+
+// KeywordSpan finds the end of the body opened for the def hit on
+// lines[start], for end-terminated languages (Lua's function/if/for/do ..
+// end, Ruby's def/class/module .. end, and similar) that have no braces for
+// Span to count. Depth is counted the same way as Span/Delta, just with
+// regexes standing in for '{'/'}': open and close are matched against each
+// line with FindAllString, and each match increments/decrements depth
+// respectively — nested and repeated keywords on one line (e.g. an
+// interleaved "if x then y end" one-liner) are handled by the same net-sum
+// logic Delta already uses for braces, no special-casing required.
+//
+// The def line (lines[start]) is where counting begins: it "counts as one
+// open when it matches open" exactly as Span's K&R case treats the def
+// line's own '{' — if open doesn't match lines[start] at all, there is
+// nothing to close and ok is false without touching any other line. From
+// there, depth is tracked forward exactly like SpanFrom: the first line
+// where it returns to <= 0 is the end, single-line bodies (open and close
+// both on lines[start]) included. If depth never returns to <= 0 before the
+// source ends, ok is false.
+func KeywordSpan(lines []string, start int, open, close *regexp.Regexp) (end int, ok bool) {
+	if start < 0 || start >= len(lines) {
+		return 0, false
+	}
+	depth, opened := keywordDelta(lines[start], open, close)
+	if !opened {
+		return 0, false
+	}
+	if depth <= 0 {
+		return start, true
+	}
+	for i := start + 1; i < len(lines); i++ {
+		d, _ := keywordDelta(lines[i], open, close)
+		depth += d
+		if depth <= 0 {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// keywordDelta returns the net depth change contributed by line (each open
+// match is +1, each close match is -1) and whether the line contains at
+// least one open match.
+func keywordDelta(line string, open, close *regexp.Regexp) (delta int, opened bool) {
+	opens := len(open.FindAllString(line, -1))
+	closes := len(close.FindAllString(line, -1))
+	return opens - closes, opens > 0
 }

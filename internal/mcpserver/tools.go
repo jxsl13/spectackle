@@ -56,6 +56,7 @@ type draftIn struct {
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
 	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID (tasks under a proposal)"`
 	Dir     string   `json:"dir,omitempty" jsonschema:"force context dir; default derived from targets"`
+	Refs    []string `json:"refs,omitempty" jsonschema:"item IDs this item cites — research/ADR/proposal, any kind"`
 }
 
 type ruleIn struct {
@@ -91,6 +92,55 @@ type checkIn struct {
 type compactIn struct {
 	Path  string `json:"path,omitempty" jsonschema:"context dir, default all"`
 	Apply bool   `json:"apply,omitempty" jsonschema:"execute (default: dry-run listing candidates)"`
+}
+
+// knowledgeEntryIn is one brownfield-authored entry for knowledge
+// op=export's mode (b): a repository with no .spectackle bundle at all,
+// where the caller (an LLM that surveyed code/tests/docs) authors entries
+// directly instead of them being lifted by knowledge.Extract. Every field
+// here maps straight onto knowledge.Entry's payload; there is deliberately
+// no key/id field — knowledge.NewEntry computes the content key itself, so
+// a caller cannot supply (or corrupt) one even by mistake.
+type knowledgeEntryIn struct {
+	Kind         string   `json:"kind" jsonschema:"rule|adr|intent"`
+	Dir          string   `json:"dir,omitempty" jsonschema:"context dir this entry was drawn from, default root"`
+	Text         string   `json:"text,omitempty" jsonschema:"rule: the composed EARS sentence"`
+	Rationale    string   `json:"rationale,omitempty" jsonschema:"rule: optional rationale"`
+	Question     string   `json:"question,omitempty" jsonschema:"adr: the decision question"`
+	Context      string   `json:"context,omitempty" jsonschema:"adr: forces and constraints behind the decision"`
+	Decision     string   `json:"decision,omitempty" jsonschema:"adr: the chosen option"`
+	Consequences string   `json:"consequences,omitempty" jsonschema:"adr: trade-offs and follow-on effects"`
+	Status       string   `json:"status,omitempty" jsonschema:"adr: proposed|accepted|superseded|deprecated"`
+	Options      []string `json:"options,omitempty" jsonschema:"adr: rejected alternatives"`
+	Prose        string   `json:"prose,omitempty" jsonschema:"intent: prose section text, verbatim"`
+}
+
+// knowledgeIn is the one input struct for the knowledge tool (op=export|
+// merge|apply — see internal/mcpserver/knowledge.go). Fields are shared
+// across ops rather than nested per-op, matching this file's flat-params
+// convention (SPX-ARC-004): Path/Body/Paths are read tool-agnostically —
+// which ones apply depends on Op, documented per-field below.
+type knowledgeIn struct {
+	Op string `json:"op" jsonschema:"export|merge|apply"`
+
+	// export: write the marshaled artifact here too (still returned
+	// inline) — a fleet workflow needs a file to move between
+	// repositories. apply: read the artifact to fold in from this path
+	// (alternative to Body).
+	Path string `json:"path,omitempty" jsonschema:"export: also write the artifact here; apply: read the artifact from this path"`
+
+	// apply: inline artifact text, alternative to Path. merge: one more
+	// artifact to merge, alongside Paths.
+	Body string `json:"body,omitempty" jsonschema:"inline artifact text — apply: the artifact to fold in; merge: one more artifact to merge, alongside paths"`
+
+	// merge: artifact file paths to parse and merge (2 or more, typically;
+	// combine with Body for one more inline artifact).
+	Paths []string `json:"paths,omitempty" jsonschema:"merge: artifact file paths to parse and merge"`
+
+	// export mode (b), brownfield: caller-authored entries for a repo with
+	// no .spectackle bundle. Omitted/empty selects mode (a): walk this
+	// workspace's own cascade+items via knowledge.Extract.
+	Entries []knowledgeEntryIn `json:"entries,omitempty" jsonschema:"export brownfield mode: caller-authored entries (no .spectackle bundle here) — each is validated+keyed via knowledge.NewEntry, a supplied key is impossible"`
 }
 
 func text(s string) (*mcp.CallToolResult, any, error) {
@@ -185,6 +235,10 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "state",
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
 		gate(s, s.state))
+
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "knowledge",
+		Description: "Portable knowledge: export/merge/apply rules+ADRs+intent across repositories. export: this workspace's cascade+items -> artifact (no entries), or brownfield caller-authored entries (entries=..., validated+keyed via NewEntry) for a repo with no .spectackle bundle; path also writes the file. merge: N artifacts (path/body) -> one condensate; conflicts (same question, different decision) are reported as x records, NEVER auto-resolved. apply: fold ONE artifact into this workspace — additive only, idempotent, dedups on content key not rule ID; rules go through rule op=add's composer, ADRs through the decide path, no new write path; reports added= and gaps= in one call."},
+		gate(s, s.knowledge))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
 		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
@@ -343,6 +397,9 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	}
 	if len(it.Rules) > 0 {
 		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
+	}
+	if len(it.Refs) > 0 {
+		b.WriteString("refs " + strings.Join(it.Refs, " ") + "\n")
 	}
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
@@ -511,7 +568,18 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			return res, out, err
 		}
 	}
-	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets)
+	if len(in.Refs) > 0 {
+		known, err := s.knownRefIDs()
+		if err != nil {
+			return nil, nil, err
+		}
+		// selfID is "" — the item being drafted has no ID yet, so
+		// self-reference cannot occur here; UnknownRefs still guards it.
+		if bad := item.UnknownRefs("", in.Refs, known); len(bad) > 0 {
+			return text("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+		}
+	}
+	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets, in.Refs...)
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
@@ -595,6 +663,35 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	return text(b.String())
+}
+
+// knownRefIDs builds the "known" set draft's refs validation checks
+// candidate citations against via item.UnknownRefs: every live item ID
+// (item.LoadAll) plus every ID still answerable as a journal tombstone — an
+// item archived out of work.md is a legitimate citation target (see
+// lifecycle.Tombstone's doc comment). Built as one set over one journal
+// pass instead of probing lifecycle.Tombstone per candidate ref; the scan
+// mirrors exactly what Tombstone itself looks for (journal.ReadAll,
+// e.Ev == journal.EvArchive) rather than re-deriving the journal format.
+func (s *Server) knownRefIDs() (map[string]bool, error) {
+	known := map[string]bool{}
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		known[it.ID] = true
+	}
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvArchive {
+			known[e.ID] = true
+		}
+	}
+	return known, nil
 }
 
 // splitContractRules buckets resolved rules into full r-lines (rl) and

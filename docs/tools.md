@@ -1,6 +1,7 @@
 # MCP tool surface
 
-Fifteen orthogonal tools (eleven lifecycle + three swarm + one codegen). The Go structs in `internal/mcpserver/tools.go` are
+Sixteen orthogonal tools (eleven lifecycle + three swarm + one codegen + one
+portability). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
 handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
@@ -34,6 +35,7 @@ d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|stale)
 d healed <rule> <node> <file>:<s>-<e> was=<h> now=<h>  drift, mechanically healed (evolved)
 d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|diverged)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
+x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS)
 ag <name> <item|-> <hb-age>s <wt|main>           agent
@@ -106,7 +108,8 @@ file-cascade rules as `r` records, root-scoped ones collapsed to one
   "body":   {"type":"string"},
   "targets":{"type":"array","items":{"type":"string"}},
   "parent": {"type":"string"},
-  "dir":    {"type":"string"}}}
+  "dir":    {"type":"string"},
+  "refs":   {"type":"array","items":{"type":"string"}}}}
 ```
 Server assigns ID (`P-0001`…) and context dir (targets→deepest common
 context, else root). With `targets` the response is the **context pack**:
@@ -116,6 +119,17 @@ rules collapse into a single `r-root` ID-only line instead of repeating
 their full text every draft, and any of the three sections with nothing to
 report is omitted outright rather than filled with an `ok` placeholder
 (SPX-MCP-004).
+
+`refs` cites other item IDs this item draws on — research, an ADR, a prior
+proposal, any kind — and is validated before the item is persisted: an ID
+that resolves to neither a live item nor a journal-tombstoned (archived)
+one refuses with `! ARG E - unknown refs: ...` and writes nothing. A
+citation to an archived item is legitimate (its outcome lives in the
+journal, per `find scope=history`) and passes. `get` on an item with refs
+renders a `refs <id> <id> ...` line after `rules`; `grill` on a `proposal`
+with no `ADR-`/`R-` ref and no rejected-alternative prose in its body asks
+`q no deliberation recorded: no ADR/research ref and no rejected
+alternative`.
 
 ### 4. `rule` — author EARS contracts (the only rule write path)
 
@@ -429,7 +443,84 @@ output). Writes go straight to disk (`os.WriteFile`) — these are generated
 repo files, not `.spectackle/` lifecycle state: no journal event, just one
 coord `commands` emit so siblings see it happened in realtime.
 
-### 16. Prompts — slash-command entry points
+### 16. `knowledge` — portable knowledge (export/merge/apply)
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":     {"enum":["export","merge","apply"]},
+  "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path"},
+  "body":   {"type":"string","description":"inline artifact text — apply: the artifact to fold in; merge: one more artifact, alongside paths"},
+  "paths":  {"type":"array","items":{"type":"string"},"description":"merge: artifact file paths to parse and merge"},
+  "entries":{"type":"array","items":{"type":"object","required":["kind"],"properties":{
+    "kind":"rule|adr|intent","dir":"string",
+    "text":"string","rationale":"string",
+    "question":"string","context":"string","decision":"string","consequences":"string",
+    "status":"proposed|accepted|superseded|deprecated","options":["string"],
+    "prose":"string"}},"description":"export brownfield mode: caller-authored entries for a repo with no .spectackle bundle"}}}
+```
+One tool, three ops on one noun — internal/knowledge lifts the reusable part
+of this repository's spec/item corpus (EARS rules, ADRs, whitelisted prose
+sections) into a portable artifact and condenses several such artifacts
+into one; this tool is the only wiring between that package and the wire.
+
+`export`: two input modes. **(a)** no `entries` — walks this workspace's
+live cascade + items (`knowledge.Extract`); `source` is this module's path,
+derived the same way the server's own defect-report URL is (`moduleRepoURL`,
+via `debug.ReadBuildInfo`), never hardcoded. **(b)** `entries` supplied —
+the **brownfield** path, for a repository with no `.spectackle` bundle at
+all, where an LLM surveyed code/tests/docs and authored entries directly:
+every entry is routed through `knowledge.NewEntry`, which computes the
+content key itself (`drift.NormHash` of the entry's text/question/prose) —
+there is no key field on an entry input, so a caller-supplied key is
+impossible by construction, and a malformed entry (missing required fields)
+rejects with `! ARG E` rather than being coerced. Either mode: the marshaled
+artifact is the result body (front-matter-fenced markdown, per
+`internal/knowledge`'s own format — never JSON, SPX-MCP-002), followed by an
+`ok export entries=<n> rule=<n> adr=<n> intent=<n> [written=<path>]`
+trailer; `path` additionally writes the same bytes to disk — a fleet
+workflow needs a file to move between repositories.
+
+`merge`: parses N artifacts (`paths`, plus one more inline via `body`),
+`knowledge.Merge`s them, and returns the condensate followed by every
+conflict as dense `x <kind> <key> src=<repo,repo> <summary>` records — one
+line per competing entry sharing an identity (same kind, same content key)
+but disagreeing in substance (in practice, always an ADR: two repositories
+answering the same question differently). Conflicts are **reported, never
+auto-resolved** — curation is a human's call, not this tool's. Trailer:
+`ok merge sources=<n> entries=<n> conflicts=<n>`.
+
+`apply`: the only writing operation — folds ONE artifact (`path` or `body`)
+into this workspace. **Additive only**: `internal/knowledge`'s `FoldInto`
+(named to avoid colliding with `knowledge.Apply`, the unrelated
+conflict-resolution fold in `merge.go`) diffs the incoming artifact against
+this workspace's own current one (freshly `Extract`ed) and returns only the
+entries the workspace lacks, deduped **on content key, not rule ID** — the
+receiving repo mints its own IDs, so the same sentence arriving twice is
+still recognized. **Idempotent**: applying the same artifact twice adds
+nothing the second time — the first call's writes are what the second
+call's `Extract` sees as already-current. **No new write path**: a rule
+entry goes through `spec.AddRule`, the exact composer `rule op=add` itself
+calls, at root scope with no `applies` binding (a portable entry carries
+neither a context dir nor node anchors — both are repository-local,
+stripped by `Extract`) under a fixed `KB` stem (so imported rules are
+recognizable and AddRule always has a stem to mint from, even into an empty
+`spec.md`); an ADR entry lands through the same
+`lifecycle.Draft`/`item.Upsert`/`journal.Append(EvDecide)` primitives
+`decide.go`'s own `resolveDecision` uses (not the `decide op=ask` RPC
+itself, which would trigger a live elicitation prompt for a decision that
+is already known — wrong for a bulk, already-answered import), landing
+directly at `state=done`; an intent/prose entry goes through
+`spec.AppendIntent`, the same append-only `## intent` writer
+`lifecycle`'s archive step already uses. An applied rule arrives with no
+`applies` binding, so `check` has nothing anchored to audit for it yet —
+that is intended, not a bug: the anchoring is exactly the adoption work
+`check`'s coverage-gap list exists to worklist. Trailer:
+`ok applied added=<n> gaps=<n>` — `gaps` is recomputed from the same two
+computations `check` itself runs (`g uncovered` + `g orphan`, without
+`check`'s side effects), so it is provably the same number a standalone
+`check` call reports afterward, never a guess.
+
+### 17. Prompts — slash-command entry points
 
 Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`

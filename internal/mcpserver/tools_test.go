@@ -64,6 +64,7 @@ func TestToolSurface(t *testing.T) {
 		"move": false, "check": false, "compact": false,
 		"lease": false, "work": false, "swarm": false, "state": false,
 		"research": false, "grill": false, "decide": false, "commands": false,
+		"knowledge": false,
 	}
 	for _, tool := range res.Tools {
 		if _, ok := want[tool.Name]; !ok {
@@ -663,6 +664,14 @@ func TestCursorsResumeAcrossPages(t *testing.T) {
 				cur = strings.TrimPrefix(l, "cur ")
 				continue
 			}
+			// transient advisory lines are appended per CALL, not per record
+			// stream (the MCP-010 stale-binary hint fires once per crossing,
+			// sw sibling learnings once per event), so they legitimately
+			// appear on one page and not the next — pagination equality is a
+			// record-stream contract and excludes them.
+			if strings.HasPrefix(l, "h ") || strings.HasPrefix(l, "sw ") {
+				continue
+			}
 			body += l + "\n"
 		}
 		return body, cur
@@ -1080,6 +1089,66 @@ func TestGetItemRendersADRFields(t *testing.T) {
 		strings.Index(out, "decision:") > strings.Index(out, "consequences:") ||
 		strings.Index(out, "consequences:") > strings.Index(out, "status:") {
 		t.Fatalf("ADR fields out of order: %q", out)
+	}
+}
+
+// TestDraftRefsLiveItem (T-0117): drafting with refs to a live item persists
+// them in the same write and get renders the refs line after rules.
+func TestDraftRefsLiveItem(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{"kind": "research", "title": "prefetch survey"})
+	callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "cache kernels in VRAM",
+		"refs": []string{"R-0001"},
+	})
+	out := callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if !strings.Contains(out, "refs R-0001\n") {
+		t.Fatalf("get P-0001 missing refs line: %q", out)
+	}
+}
+
+// TestDraftUnknownRefsRefused (T-0117): a ref to an ID that resolves nowhere
+// (neither a live item nor a journal tombstone) refuses with the ! ARG E
+// prefix, names the unknown ID, and persists nothing.
+func TestDraftUnknownRefsRefused(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "proposal", "title": "cache kernels in VRAM",
+		"refs": []string{"R-9999"},
+	})
+	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "R-9999") {
+		t.Fatalf("unknown ref not refused: %q", out)
+	}
+	// nothing persisted: the item ID is still free (counter unadvanced).
+	nf := callText(t, sess, "get", map[string]any{"id": "P-0001"})
+	if !strings.HasPrefix(nf, "nf") {
+		t.Fatalf("draft with unknown ref must not persist an item: get P-0001 = %q", nf)
+	}
+}
+
+// TestDraftRefsArchivedItem (T-0117): a ref to an archived (tombstoned)
+// item is a legitimate citation and must pass validation.
+func TestDraftRefsArchivedItem(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	callText(t, sess, "draft", map[string]any{"kind": "proposal", "title": "old idea"})
+	callText(t, sess, "move", map[string]any{"id": "P-0001", "to": "archived", "note": "shipped"})
+
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "follow-up work",
+		"refs": []string{"P-0001"},
+	})
+	if strings.Contains(out, "! ARG") {
+		t.Fatalf("ref to archived item wrongly refused: %q", out)
+	}
+	got := callText(t, sess, "get", map[string]any{"id": "T-0001"})
+	if !strings.Contains(got, "refs P-0001\n") {
+		t.Fatalf("get T-0001 missing refs line for archived citation: %q", got)
 	}
 }
 

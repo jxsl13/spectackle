@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -350,4 +351,175 @@ func TestCompactHintFiresOncePerCrossing(t *testing.T) {
 	if strings.Contains(out2, "c . journal") {
 		t.Fatalf("compact hint repeated on the very next call: %q", out2)
 	}
+}
+
+// ---- stale-binary hint (MCP-010) ----
+
+const staleHintText = "h . binary stale — rebuild+restart: make dev"
+
+// currentExecutableModTime resolves the running test binary's mtime the same
+// way binaryStale does (os.Executable, symlinks resolved, Stat) — the
+// reference point every staleness fixture below is built relative to.
+func currentExecutableModTime(t *testing.T) time.Time {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	fi, err := os.Stat(exe)
+	if err != nil {
+		t.Fatalf("stat executable: %v", err)
+	}
+	return fi.ModTime()
+}
+
+// writeGoFileAt writes a trivial .go file at root-relative rel and stamps its
+// mtime explicitly, so staleness fixtures don't depend on wall-clock timing
+// between "build the test binary" and "write the fixture".
+func writeGoFileAt(t *testing.T, root, rel string, mtime time.Time) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("package pkg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// staleWorkspace builds a fresh scaffolded workspace root for the staleness
+// tests below — no git needed, the swarm/get tools it exercises don't touch
+// version control.
+func staleWorkspace(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// TestStaleHintSilentWhenBinaryNewest: 1. binary newer than all sources ->
+// no hint anywhere in the result.
+func TestStaleHintSilentWhenBinaryNewest(t *testing.T) {
+	root := staleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	writeGoFileAt(t, root, "pkg/older.go", bin.Add(-time.Hour))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if strings.Contains(out, staleHintText) {
+		t.Fatalf("stale hint fired though binary is newest: %q", out)
+	}
+}
+
+// TestStaleHintFiresOnceOnCrossing: 2. a source file newer than the binary
+// -> exactly one hint, naming the rebuild command, on the call that first
+// observes the crossing.
+func TestStaleHintFiresOnceOnCrossing(t *testing.T) {
+	root := staleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	writeGoFileAt(t, root, "pkg/newer.go", bin.Add(time.Hour))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if n := strings.Count(out, staleHintText); n != 1 {
+		t.Fatalf("want exactly one stale hint, got %d: %q", n, out)
+	}
+}
+
+// TestStaleHintDebounced: 3. once per crossing — a second call inside the
+// debounce window (the two calls below run back-to-back, well under
+// staleCheckInterval) must not repeat the hint.
+func TestStaleHintDebounced(t *testing.T) {
+	root := staleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	writeGoFileAt(t, root, "pkg/newer.go", bin.Add(time.Hour))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if !strings.Contains(out, staleHintText) {
+		t.Fatalf("stale hint missing on first (crossing) call: %q", out)
+	}
+	out2 := callText(t, alice, "get", map[string]any{"id": "does-not-matter"})
+	if strings.Contains(out2, staleHintText) {
+		t.Fatalf("stale hint repeated inside the debounce window: %q", out2)
+	}
+}
+
+// TestStaleHintHonorsSkipDir: 4. a newer file inside a directory the
+// workspace's skip rules prune (vendor/, a defaultSkipNames entry) must NOT
+// trigger the hint — a naive walk that ignores ws.SkipDir fails this test.
+func TestStaleHintHonorsSkipDir(t *testing.T) {
+	root := staleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	writeGoFileAt(t, root, "vendor/pruned/newer.go", bin.Add(time.Hour))
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice := connectRoot(t, root)
+
+	out := callText(t, alice, "swarm", map[string]any{})
+	if strings.Contains(out, staleHintText) {
+		t.Fatalf("stale hint fired from a SkipDir-pruned directory: %q", out)
+	}
+}
+
+// TestStaleHintSilentOnExecutableFailure: 5. os.Executable failing, or the
+// resolved binary being unstattable, degrades to silence — never to an
+// error on the tool call. execPath is swapped out (production is always
+// os.Executable; see swarm.go) to simulate both failure shapes without a
+// genuinely unresolvable binary in-process.
+func TestStaleHintSilentOnExecutableFailure(t *testing.T) {
+	root := staleWorkspace(t)
+	bin := currentExecutableModTime(t)
+	// a source newer than the binary would fire the hint were the walk ever
+	// reached — proves the degrade happens before the walk, not because
+	// there was nothing to report.
+	writeGoFileAt(t, root, "pkg/newer.go", bin.Add(time.Hour))
+
+	t.Run("ExecutableErrors", func(t *testing.T) {
+		orig := execPath
+		execPath = func() (string, error) { return "", fmt.Errorf("boom") }
+		t.Cleanup(func() { execPath = orig })
+
+		t.Setenv("SPECTACKLE_AGENT", "bob")
+		bob := connectRoot(t, root)
+		out := callText(t, bob, "swarm", map[string]any{})
+		if strings.Contains(out, staleHintText) {
+			t.Fatalf("stale hint fired despite os.Executable failing: %q", out)
+		}
+		if strings.Contains(out, "! ") {
+			t.Fatalf("os.Executable failure degraded to a tool error, not silence: %q", out)
+		}
+	})
+
+	t.Run("BinaryUnstattable", func(t *testing.T) {
+		orig := execPath
+		execPath = func() (string, error) { return filepath.Join(root, "no-such-binary"), nil }
+		t.Cleanup(func() { execPath = orig })
+
+		t.Setenv("SPECTACKLE_AGENT", "carol")
+		carol := connectRoot(t, root)
+		out := callText(t, carol, "swarm", map[string]any{})
+		if strings.Contains(out, staleHintText) {
+			t.Fatalf("stale hint fired despite an unstattable binary: %q", out)
+		}
+		if strings.Contains(out, "! ") {
+			t.Fatalf("unstattable binary degraded to a tool error, not silence: %q", out)
+		}
+	})
 }

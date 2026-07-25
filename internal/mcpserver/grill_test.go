@@ -206,6 +206,61 @@ func TestGrillRejectionsAndQuestions(t *testing.T) {
 	}
 }
 
+// TestGrillQuestionsDeliberation (T-0117): grillQuestions asks "no
+// deliberation recorded" for a proposal with neither an ADR-/R- ref nor
+// rejected-alternative prose, stays silent once either shows up, and never
+// asks it at all for a non-proposal kind.
+func TestGrillQuestionsDeliberation(t *testing.T) {
+	const want = "q no deliberation recorded: no ADR/research ref and no rejected alternative"
+	body := "Body text that satisfies scope, rollback and exit criterion, and done when verified."
+
+	cases := []struct {
+		name string
+		it   item.Item
+		ask  bool
+	}{
+		{
+			name: "proposal with no refs and no rejected prose asks",
+			it:   item.Item{Kind: "proposal", Body: body},
+			ask:  true,
+		},
+		{
+			name: "proposal with an ADR ref stays silent",
+			it:   item.Item{Kind: "proposal", Body: body, Refs: []string{"ADR-0001"}},
+			ask:  false,
+		},
+		{
+			name: "proposal with a research ref stays silent",
+			it:   item.Item{Kind: "proposal", Body: body, Refs: []string{"R-0001"}},
+			ask:  false,
+		},
+		{
+			name: "proposal whose body mentions a rejected alternative stays silent",
+			it:   item.Item{Kind: "proposal", Body: body + " Considered X; rejected: too slow."},
+			ask:  false,
+		},
+		{
+			name: "task kind never asks, even with no refs and no rejected prose",
+			it:   item.Item{Kind: "task", Body: body},
+			ask:  false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := grillQuestions(c.it)
+			got := false
+			for _, q := range out {
+				if q == want {
+					got = true
+				}
+			}
+			if got != c.ask {
+				t.Fatalf("grillQuestions(%+v) = %v, want contains %q: %v", c.it, out, want, c.ask)
+			}
+		})
+	}
+}
+
 // TestGrillStampsGrilledAndJournal is grill's write-side-effect contract:
 // exactly one write — it.Grilled=today (persisted to work.md), one EvGrill
 // journal event, one swarm learning. Unlike research, grill is NOT read-only.

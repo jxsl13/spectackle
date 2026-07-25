@@ -130,6 +130,18 @@ type Server struct {
 	compactCount     int
 	hintedAt         int
 
+	// stale-binary hint cache (postCall's proactive nudge, MCP-010): a
+	// debounced verdict for whether the running executable is older than the
+	// newest .go file under s.ws.Dir, refreshed at most once every
+	// staleCheckInterval so the hint never walks the workspace tree on every
+	// single tool call. staleHinted mirrors hintedAt's role above: false
+	// means armed (never surfaced for the current crossing, or re-armed
+	// after a rebuild made staleVerdict false again). See swarm.go:
+	// staleHint, binaryStale.
+	lastStaleCheck time.Time
+	staleVerdict   bool
+	staleHinted    bool
+
 	// mu serializes tool calls: the MCP SDK dispatches them concurrently,
 	// but lifecycle writes are read-modify-write over shared files (ID
 	// minting, work.md rewrites) — found the hard way when two concurrent
@@ -188,6 +200,23 @@ func New(root string) (*Server, error) {
 		cd:    cd,
 		agent: agent,
 		blobs: openBlobs(ws),
+	}
+	// A fresh process started inside an existing worktree (per-call stdio
+	// client, or a restart after the resident server died) must rebind the
+	// open-worktree state that work op=start established in another
+	// process — without this, submit/abort answer "no open worktree" from
+	// any process but the starter, orphaning the worktree (B-0002).
+	// Identity must match: adopting a dead sibling's worktree stays an
+	// explicit work op=abort decision, never an implicit takeover.
+	if ws.Dir != mainWS.Dir {
+		if wts, err := cd.Worktrees(); err == nil {
+			for _, w := range wts {
+				if w.Agent == agent && filepath.Clean(w.Root) == filepath.Clean(ws.Dir) {
+					s.wtItem = w.Item
+					break
+				}
+			}
+		}
 	}
 	s.reindex()
 	s.mcp = mcp.NewServer(&mcp.Implementation{

@@ -81,6 +81,27 @@ type Spec struct {
 	// language keywords/operators whose syntax happens to look like a call
 	// (`if (`, `sizeof(`, ...). Only consulted when CallRe is set.
 	Stop []string
+
+	// EndSpan is the optional keyword-counting alternative to brace-counted
+	// body spans, for end-terminated languages (Lua, Ruby, and similar,
+	// where a def's body is closed by a keyword like "end" rather than by
+	// '}'). Unset (nil) is the framework default and means zero behavior
+	// change from before this field existed — Parse bounds a KFunc/KMethod
+	// def's body with cspan.Span exactly as it always has (see CallRe's doc
+	// for the same nil-means-unchanged guarantee this mirrors). Set it only
+	// for languages with no braces at all; a brace language leaves EndSpan
+	// nil and CallRe (if set) drives cspan.Span as before.
+	EndSpan *EndSpanSpec
+}
+
+// EndSpanSpec is Spec.EndSpan's shape: the keyword regexes cspan.KeywordSpan
+// depth-counts to find where a def's body ends, standing in for the
+// '{'/'}' pair that cspan.Span counts for brace languages. Open matches
+// increment depth, Close matches decrement it; see cspan.KeywordSpan's doc
+// for the exact counting rules (per-line net sum, def line included).
+type EndSpanSpec struct {
+	Open  *regexp.Regexp
+	Close *regexp.Regexp
 }
 
 // SpecParser adapts a Spec to index.LanguageParser.
@@ -96,13 +117,15 @@ func (p SpecParser) Extensions() []string { return p.S.Exts }
 
 // Parse scans one source file line by line, trying each Def in order
 // against every line and minting a node per match. When the Spec sets
-// CallRe, each KFunc/KMethod hit also gets its body span brace-counted and
-// scanned for call edges (LSP-001: "WHEN a Spec sets CallRe, the SpecParser
-// SHALL emit ECall edges from each Def's brace-counted body span"). With
-// CallRe unset — the default — no edges are emitted and EndLine stays equal
-// to Line, exactly as before this field existed: same-language and
-// cross-language relations are otherwise a resolver's job (see
-// internal/resolve), not a langspec.Spec's.
+// CallRe, each KFunc/KMethod hit also gets its body span scanned for call
+// edges (LSP-001: "WHEN a Spec sets CallRe, the SpecParser SHALL emit ECall
+// edges from each Def's brace-counted body span"): the body span itself is
+// brace-counted via cspan.Span, unless the Spec sets EndSpan, in which case
+// it is keyword-counted via cspan.KeywordSpan instead (for end-terminated
+// languages with no braces at all). With CallRe unset — the default — no
+// edges are emitted and EndLine stays equal to Line, exactly as before this
+// field existed: same-language and cross-language relations are otherwise a
+// resolver's job (see internal/resolve), not a langspec.Spec's.
 func (p SpecParser) Parse(path string, src []byte) (index.ParseResult, error) {
 	lines, err := scanLines(src)
 	if err != nil {
@@ -137,7 +160,14 @@ func (p SpecParser) Parse(path string, src []byte) (index.ParseResult, error) {
 			id := graph.NodeID(ids.Mint(string(p.S.Lang), p.qualify(path, name)))
 			endLine := lineNo
 			if p.S.CallRe != nil && (def.Kind == graph.KFunc || def.Kind == graph.KMethod) {
-				if bodyEnd, ok := cspan.Span(lines, i); ok {
+				var bodyEnd int
+				var ok bool
+				if p.S.EndSpan != nil {
+					bodyEnd, ok = cspan.KeywordSpan(lines, i, p.S.EndSpan.Open, p.S.EndSpan.Close)
+				} else {
+					bodyEnd, ok = cspan.Span(lines, i)
+				}
+				if ok {
 					endLine = bodyEnd + 1
 					edges = append(edges, p.callEdges(id, name, path, lines, i, bodyEnd, stop)...)
 				}

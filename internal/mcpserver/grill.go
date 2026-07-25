@@ -243,5 +243,22 @@ func grillQuestions(it item.Item) []string {
 	if !strings.Contains(body, "exit criterion") && !strings.Contains(body, "done when") && !strings.Contains(body, "verif") {
 		out = append(out, "q exit criterion not addressed")
 	}
+	if it.Kind == "proposal" && !hasRecordedDeliberation(it) {
+		out = append(out, "q no deliberation recorded: no ADR/research ref and no rejected alternative")
+	}
 	return out
+}
+
+// hasRecordedDeliberation reports whether a proposal shows any sign of a
+// weighed decision: a ref citing an adr or research item (kind is encoded
+// in the ID prefix — ADR-/R- — so no item lookup is needed), or body prose
+// naming a rejected alternative (same cheap case-insensitive substring
+// style as grillQuestions' other checks).
+func hasRecordedDeliberation(it item.Item) bool {
+	for _, r := range it.Refs {
+		if strings.HasPrefix(r, "ADR-") || strings.HasPrefix(r, "R-") {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(it.Body), "rejected")
 }

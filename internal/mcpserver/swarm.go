@@ -89,6 +89,9 @@ func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 	if hint := s.compactHint(); hint != "" {
 		b.WriteString(hint + "\n")
 	}
+	if hint := s.staleHint(); hint != "" {
+		b.WriteString(hint + "\n")
+	}
 	if b.Len() == 0 {
 		return res
 	}
@@ -147,6 +150,103 @@ func rootJournalSince(ws workspace.Root) int {
 		since++
 	}
 	return since
+}
+
+// staleCheckInterval bounds how often staleHint re-walks the workspace tree
+// to refresh its verdict. A full walk per tool call is unacceptable (this
+// runs on every call, same as the compact hint); the verdict only needs to
+// be as fresh as the time it takes an operator to notice and run `make
+// dev`, so the same 30s cadence as the compact-hint cache and the
+// stale-agent sweep is more than tight enough — this is a debounce, not a
+// correctness requirement.
+const staleCheckInterval = 30 * time.Second
+
+// staleHint returns a "h . binary stale ..." record naming the rebuild
+// command (MCP-010) once the running executable is older than the newest
+// .go file under s.ws.Dir — the resident server is answering from code the
+// tree has moved past. Debounced like compactHint: the walk itself is
+// cached and refreshed at most once per staleCheckInterval, and once
+// surfaced for a given crossing the hint stays silent (staleHinted) until
+// the verdict drops back to "not stale" (a rebuild ran — re-armed) and
+// crosses again. Empty string = nothing to say right now.
+func (s *Server) staleHint() string {
+	if time.Since(s.lastStaleCheck) > staleCheckInterval {
+		s.lastStaleCheck = time.Now()
+		s.staleVerdict = binaryStale(s.ws)
+	}
+	if !s.staleVerdict {
+		s.staleHinted = false // not stale (or freshly rebuilt): re-armed
+		return ""
+	}
+	if s.staleHinted {
+		return "" // already surfaced this crossing
+	}
+	s.staleHinted = true
+	return "h . binary stale — rebuild+restart: make dev"
+}
+
+// execPath resolves the running executable's path. A package var (not a
+// direct os.Executable call) purely so tests can simulate os.Executable
+// failing without needing a genuinely unresolvable binary in-process;
+// production wiring is exactly os.Executable, nothing more.
+var execPath = os.Executable
+
+// binaryStale reports whether the running executable (os.Executable,
+// symlinks resolved — a dev binary invoked via a symlink is common) is
+// older than the newest .go file under ws.Dir. It walks with ws.SkipDir,
+// the same skip logic every other workspace walk uses, so vendored trees,
+// nested git boundaries and ignored directories are pruned exactly as
+// elsewhere — a naive walk would descend into worktrees and cache
+// directories and report nonsense. It stops at the first newer file found
+// (filepath.SkipAll): the caller needs a boolean, not a maximum age.
+//
+// Any failure along the way — os.Executable, an unresolvable symlink, an
+// unstattable binary — degrades to false (not stale). Staleness is
+// informational; it must never turn into an error on a tool call.
+func binaryStale(ws workspace.Root) bool {
+	exe, err := execPath()
+	if err != nil {
+		return false
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return false
+	}
+	bin, err := os.Stat(exe)
+	if err != nil {
+		return false
+	}
+	binTime := bin.ModTime()
+	stale := false
+	_ = filepath.WalkDir(ws.Dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // unreadable entry: skip it, don't fail the walk
+		}
+		if d.IsDir() {
+			rel, _ := filepath.Rel(ws.Dir, p)
+			rel = filepath.ToSlash(rel)
+			if rel == "." {
+				rel = ""
+			}
+			if ws.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil // unstattable file: skip it, don't fail the walk
+		}
+		if info.ModTime().After(binTime) {
+			stale = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return stale
 }
 
 func swLine(e coord.Event) string {
@@ -503,14 +603,21 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	_ = wt.DeleteBranch(s.main.Dir, w.Branch)
 	_ = s.cd.DelWorktree(id)
 	_ = s.cd.ReleaseItem(id)
-	// the item returns to approved on main (its worktree state is discarded)
-	if it, ok, _ := item.Get(s.main, id); ok && it.State == item.StateActive {
-		it.State = item.StateApproved
-		if err := item.Upsert(s.main, it); err != nil {
-			return nil, nil, err
+	// the item returns to approved on main (its worktree state is discarded);
+	// its context dir is also where the abort event belongs — passing the
+	// item ID here scaffolded a bogus <item-id>/.spectackle dir at the repo
+	// root (B-0003; coord.Worktree carries no Dir, so w.Item was reached for)
+	dir := ""
+	if it, ok, _ := item.Get(s.main, id); ok {
+		dir = it.Dir
+		if it.State == item.StateActive {
+			it.State = item.StateApproved
+			if err := item.Upsert(s.main, it); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
-	if err := journal.Append(s.main, w.Item, journal.Event{Ev: journal.EvAbort, ID: id,
+	if err := journal.Append(s.main, dir, journal.Event{Ev: journal.EvAbort, ID: id,
 		Note: "worktree abandoned by " + s.agent}); err != nil {
 		return nil, nil, err
 	}
