@@ -70,3 +70,28 @@ Do NOT touch any per-language data file (a sibling task owns the five end-langua
 
 VERIFY: go build ./... ; go test ./internal/cspan/... ./internal/langspec/... -race ; go test ./... ; go vet ./internal/cspan/... ./internal/langspec/... ; /home/user/spectackle/bin/spectackle lint.
 ROLLBACK: additive function + optional field; revert restores brace-only. REPORT: the exact EndSpanSpec shape, test list with real output, anything deliberately not done.
+
+## B-0009 search cache staleness: bundle freshness is decided by mtime and size alone, while the files table's sha column is never written or read
+kind: bug
+state: draft
+created: 2026-07-25
+refs: B-0007
+targets: internal/sync/sync.go, internal/cache/cache.go
+
+DEFECT
+sync.Scanner decides whether a .spectackle bundle needs re-feeding by comparing os.Stat mtime (UnixNano) and size against cache.FileStat. A content change that preserves both is therefore invisible, and every FTS-backed surface keeps answering from the pre-change docs: find scope=rule|spec|proposal|task|history|rejection, the research pack, and grill's rejection lookup. The cache DDL already declares files(path, mtime, size, sha) but nothing ever writes or reads sha, which is evidence the content-hash check was designed and then not wired.
+
+REPRODUCTION (scratch workspace, observed)
+Mint a rule containing a marker word, search it (hit). Replace the marker with a same-length word directly in spec.md and restore the file's original mtime. Search again: the old marker is still returned, and the word actually on disk returns no matches. Note the reproduction restores mtime by hand to isolate the mechanism; in the field the same window opens by itself wherever mtime granularity is coarser than a nanosecond (HFS+, several network and container filesystems) or wherever tooling preserves timestamps across a write (rsync with times, tar with permissions, cp -p, image layers, CI cache restore).
+
+CAUSE
+Freshness is inferred from metadata that a same-size, timestamp-preserving write leaves unchanged, rather than from the content the cache actually indexes. Same defect class as B-0007, one layer up: there the cached artifact outlived the producer, here it outlives the input.
+
+FIX (decision at implementation)
+Write and compare the sha column the schema already carries. Keep mtime and size as the cheap first gate so the common path stays a stat, and hash only when that gate says unchanged, or hash unconditionally if measurement shows the read is affordable for bundle-sized files. Bump the cache gen stamp so existing caches rebuild once with the column populated.
+
+VERIFY
+Regression test: feed a bundle, rewrite it with equal length and a restored mtime, re-scan, and assert the new content is searchable and the old is not. Plus the existing sync tests unchanged, and a check that an untouched bundle still short-circuits without re-feeding.
+
+ROLLBACK
+One column write, one comparison and a gen bump; reverting restores metadata-only comparison and costs one cache rebuild.
