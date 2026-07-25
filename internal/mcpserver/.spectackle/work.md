@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## T-01KYDJC0T9E3695Z8QW14M11EP done awaits CI like archive does: the LLM waits on the transition while the MCP polls, and the verdict lands in that result
 kind: task
-state: draft
+state: active
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 
