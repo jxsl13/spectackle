@@ -130,28 +130,6 @@ SCOPE: the migration package plus the stamp constant and the load hooks it needs
 ROLLBACK: restoring the previous stamp constant and removing the hook returns to refuse-on-mismatch; already-migrated workspaces then need the retained pre-migration copy, which is why keeping it is a required property above.
 REPORT BACK: where you hooked the migration and why there, how atomicity and recovery are achieved, the before/after counts on the repository copy, each test's real result, anything deliberately not done.
 
-## R-0007 how to make the workflow force multi-perspective analysis, so specifications stop shipping with implementation gaps
-kind: research
-state: active
-created: 2026-07-25
-targets: internal/mcpserver/grill.go, docs/agent-workflow.md
-
-PROBLEM
-The lifecycle produces well-formed records and still ships implementations with holes. This repository is its own evidence, and the evidence is unusually good because the holes were found later by other means:
-- R-0005 probed all 32 supported languages empirically and found major extraction gaps in 30 of them. Every one of those language entries had passed through drafting and review; none had been run against adversarial-but-idiomatic source until that probe.
-- Ten defects, B-0001 through B-0010, were found by dogfooding the server on itself rather than by the review step that preceded each change. Four of them hid behind one shared blind spot in the test bed, which no reviewer noticed because every test agreed on the same wrong assumptions.
-- A prior rejection already recorded the shape of the error: a hash refresh is not a verification, it only records that something happened. Review artifacts can be produced without the underlying property being checked.
-
-WHAT EXISTS TODAY
-grill renders targets, contracts, child-brief heuristics, tests and rejections, then asks a fixed checklist. Its brief heuristics are substring and length checks (body length, a slash for a path, the literal text of a verify command), and its questions fire when a word is absent from the body. All of them are satisfiable by writing the word, which is the anti-ceremony problem in miniature. research aggregates read-only context. decide records choices. check compares anchors. None of these demands that a claim be demonstrated.
-
-QUESTION
-What mechanisms would make the workflow structurally demand that a problem be examined from several independent angles, and that implementation claims be demonstrated rather than asserted, without degrading into ceremony that inflates every task body?
-
-METHOD: six independent lenses, run in parallel, each answering from evidence rather than from opinion, then synthesized.
-
-EXIT CRITERION: a ranked set of concrete mechanism proposals, each with the failure it would have caught in this repository's own history, its token and latency cost, and its ceremony risk with a mitigation. Anything that cannot name a real failure it would have caught is to be reported as such and dropped.
-
 ## B-01KYD1G9G1EVCAEWWVFR15GRT3 rule op=edit silently discards the edit and answers ok when the pattern slot is omitted
 kind: bug
 state: draft
