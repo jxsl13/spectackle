@@ -45,6 +45,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jxsl13/spectackle/internal/bench"
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/mcpclient"
@@ -79,6 +80,8 @@ func run(args []string) int {
 		return lint(args[1:])
 	case "reindex":
 		return reindex(args[1:])
+	case "bench":
+		return benchCmd(args[1:])
 	case "version":
 		fmt.Println("spectackle " + mcpserver.Version)
 		return 0
@@ -376,6 +379,45 @@ func callStdin(ctx context.Context, sess *mcpclient.Session) int {
 		return 1
 	}
 	if failed {
+		return 1
+	}
+	return 0
+}
+
+// benchCmd runs the text-surface benchmark: a scripted full lifecycle over a
+// generated fixture, metering every result byte (see internal/bench). With
+// -against it A/Bs two binaries; alone it reports the running binary's own
+// baseline. Exit non-zero when validity fails, so the harness is scriptable.
+func benchCmd(args []string) int {
+	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
+	against := fs.String("against", "", "candidate binary to A/B against this one")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	self, err := os.Executable()
+	if err != nil {
+		log.Printf("bench: resolve self: %v", err)
+		return 1
+	}
+	if *against != "" {
+		out, err := bench.AB(self, *against)
+		if err != nil {
+			log.Printf("bench: %v", err)
+			return 1
+		}
+		fmt.Print(out)
+		if strings.Contains(out, "CANDIDATE LOSES") {
+			return 1
+		}
+		return 0
+	}
+	res, err := bench.Run(self)
+	if err != nil {
+		log.Printf("bench: %v", err)
+		return 1
+	}
+	fmt.Print(bench.Report(res))
+	if !res.Valid {
 		return 1
 	}
 	return 0
