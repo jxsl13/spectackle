@@ -630,3 +630,53 @@ CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a di
 SCOPE: the verdict paths in grill.go and validate.go, the gate in tools.go, the one EARS rule, docs wording, tests. Do not change the computed classes themselves, the identity/hash binding, the reopen machinery, or the edge-commit engine.
 ROLLBACK: revert the commit; the EARS rule retires via rule op=retire. Waiver records in journals are inert history for a reverted server.
 REPORT BACK: the finding-key scheme as landed, each adjusted fixture, the real waive-and-approve transcript, each test's result including the red-run, anything deliberately not done.
+
+## T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing
+kind: task
+state: submitted
+created: 2026-07-25
+parent: P-01KYD9466KEPWBV2RBK7EQM202
+refs: R-0007
+grilled: 2026-07-25
+targets: internal/evidence, internal/mcpserver/validate.go, docs/agent-workflow.md
+
+IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
+
+NEEDS, in order: the validation-phase task (title: validate: the post-implementation phase) must be MERGED first - this task adds a section to its pack. The evidence-sweeps task (title: evidence sweeps scoped to an item's targets) should be merged first too - this task extends the internal/evidence package it creates. The verdict-authority task (title: steps are judgments, automations are implications) defines the waiver semantics these findings inherit; no code coupling, but read it.
+
+WHY. The standing requirement: implementations must be free of redundant blocks that could and should be reused. The cost in this project is not abstract style - it is measured in agent tokens, and this repository carries the proving example: gate[T] (tools.go:175-185) and the rule tool's inline twin (tools.go:200-210) are the same block written twice, and every task brief that touches the tool dispatch has had to say "and the rule tool's inline twin" forever after - duplication makes every future brief longer, every lease broader, and every fix a two-site fix that B-0003-style divergence eventually splits. Prose review does not catch this reliably (the twin survived every review to date); a computed finding in front of the validator will.
+
+PLACEMENT DECISION, alternatives rejected: the detector runs in the VALIDATION pack, scoped to the item's diff. Rejected: a check-time global sweep (unbounded output and cost, violates the token principle; a whole-repo duplication census is a one-time study, draftable as an R-item, not a standing gate); a grill-time check (pre-implementation, there is no new code to compare); a CI linter like dupl bolted outside the loop (its findings would reach no verdict, no waiver record, and no implementer brief - orphaned evidence).
+
+VERIFIED GROUND (do not re-derive)
+- The graph stores KFunc/KMethod/KKernel nodes with file and line spans (internal/graph); the indexer caches per-file parses keyed by content hash with a CacheVersioner version salt (internal/index, the T-0127 pattern) - the fingerprint index MUST reuse that cache discipline, including a version salt so detector changes invalidate stale fingerprints.
+- internal/evidence exists after the NEEDS task: pure functions over graph + file access, records render one line each, caps + tail, deterministic order. Extend it; do not create a second evidence home.
+- The validate pack's sections, budget, and finding-key/waiver semantics come from the two NEEDS tasks. A dup finding is a normal computed finding: stable key dup:<new-node>, addressable as fixed or waived-with-reason per the verdict-authority semantics - deliberate duplication (a fixture, a fork-on-purpose) is the validator's judgment to record, never the server's to guess.
+- MCP-005 is the in-repo precedent for similarity mechanics: sentence-token Jaccard >= 0.6 for rule merge suggestions, suggestion-only. Same philosophy here: the server surfaces, the agent judges.
+
+WHAT TO BUILD
+1. FINGERPRINTS: internal/evidence gains Fingerprint(node span bytes) and an index built lazily per validation run over the graph's function-kind nodes, cached under the workspace cache dir keyed by (file content hash, detector version). Normalization for type-2 clones: Go tokens via go/scanner with identifiers and basic literals replaced by kind placeholders; non-Go spans fall back to whitespace-normalized byte shingles (state the shingle size as a const with rationale). Minimum block size: 15 significant tokens (below that, matches are idiom, not redundancy) - const with rationale.
+2. DETECTION, diff-scoped: for each function-kind node ADDED or CHANGED in the item's diff (the validate pack already computes the changed-file set), compare against the index; report best matches with similarity >= 0.85 as "v dup <new-node> ~= <existing-node> <pct>" - capped 10 + tail, deterministic order, first 1 match per new node (the best; more is noise). Matches WITHIN the diff (two new functions duplicating each other) count and are reported the same way. Test files compare only against test files, production only against production (fixture boilerplate across tests is a different, deliberate idiom - state this in a comment).
+3. THRESHOLDS are consts with one-line rationales, and the proving example is the calibration fixture: the gate/rule-inline twin pair MUST score above threshold in a test pinning real excerpts of both blocks (copy them into the fixture; do not read tools.go at test time - the twin is scheduled for de-duplication by the edge-commit work and the fixture must survive that).
+4. COST CEILING, enforced: index construction touches only files the graph names for function nodes, is cached across runs, and the per-run comparison is O(changed nodes x index buckets) via shingle-hash buckets, never all-pairs. Add the pass to the validate timing test; SPX-MCP-001 (2s warm, 1 MiB reads) holds - the cold index build may exceed the read budget on huge repos, so it reads spans, not whole files, and reports "v dup-index truncated" past a 2000-node ceiling rather than blowing the budget. Report measured wall time cold and warm on this repository.
+5. GUIDANCE (one sentence each, guidance layer only, per the enforcement layering): docs/agent-workflow.md's task-body anatomy gains: name the existing helpers the implementer must reuse (find scope=code before writing); the orchestrator checklist gains: a dup finding in validation means the brief failed to name a reusable helper - fix the brief pattern, not just the code.
+
+NON-NEGOTIABLE PROPERTIES, each with a test
+- The calibration pair (gate/rule-twin excerpts) scores >= threshold and is reported; an unrelated pair scores below and is not.
+- A diff adding a function 90% identical to an existing one yields exactly one v dup finding with the correct pair; fixing by delegating to the existing function clears it on re-render.
+- Two new functions duplicating each other are caught intra-diff.
+- Test-vs-production isolation holds both ways (fixture proves both directions silent).
+- Caps hold (30 duplicating functions -> 10 + tail); determinism (two runs byte-identical); cache: second run on unchanged files rebuilds nothing (assert via a counting hook or cache-dir mtime check - state which).
+- A generated file (contains a standard generated-code marker line) is excluded from both sides, tested.
+
+VERIFY (real output, never predicted)
+  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
+  spectackle lint <worktree-root> (positional)
+  spectackle call -root <worktree-root> check '{}' ends exactly ok
+  Run validate on a fixture item whose diff plants one true duplicate; paste the #dup section. Report cold and warm wall times on this repository.
+  Red-run: the calibration-pair test written first, shown failing before the detector exists; paste the failing output.
+CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a distinct agent identity re-runs the calibration and isolation tests from the diff alone, then validates one real merged item and judges the findings (waiving any deliberate duplication with reasons); verdict recorded in the archive note.
+
+SCOPE: internal/evidence extension, the #dup section wiring in validate.go, the two guidance sentences, tests. Do NOT de-duplicate any existing production code in this task (the gate/rule twin included - that is its own change with its own review), do not touch grill.go, tools.go, the graph, or the index beyond reading.
+ROLLBACK: remove the #dup section call; the fingerprint code is dead until deleted; cached fingerprints are garbage-collected by the existing cache versioning. No stored state elsewhere.
+REPORT BACK: threshold and shingle consts as landed with rationales, calibration pair score, cold/warm timings, the fixture #dup section verbatim, each test's result including the red-run, anything deliberately not done.

@@ -227,3 +227,6 @@
 {"t":"2026-07-25T18:46:13Z","eid":"30df922f74b1581d","ag":"ag-ffc6","ev":"create","id":"T-01KYD9JTSDFYHTEM8B6YXX6NSP","k":"task","ti":"steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons"}
 {"t":"2026-07-25T18:46:22Z","eid":"ed0b58035e34356a","ag":"ag-aa37","ev":"grill","id":"T-01KYD9JTSDFYHTEM8B6YXX6NSP","gr":"2026-07-25"}
 {"t":"2026-07-25T18:46:23Z","eid":"b283e5e900e15a90","ag":"ag-9919","ev":"move","id":"T-01KYD9JTSDFYHTEM8B6YXX6NSP","fr":"draft","to":"submitted"}
+{"t":"2026-07-25T18:49:22Z","eid":"203c5981dae6088f","ag":"ag-0a91","ev":"create","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","k":"task","ti":"redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing"}
+{"t":"2026-07-25T18:49:31Z","eid":"22ebc507f0be641c","ag":"ag-3d82","ev":"grill","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","gr":"2026-07-25"}
+{"t":"2026-07-25T18:49:31Z","eid":"84cd3e058d027689","ag":"ag-d9d0","ev":"move","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","fr":"draft","to":"submitted"}
