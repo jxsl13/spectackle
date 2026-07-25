@@ -586,3 +586,12 @@
 {"t":"2026-07-25T17:25:57Z","eid":"78ff80385710295c","ag":"ag-2e8c","ev":"abort","id":"T-0138","note":"worktree abandoned by ag-2e8c"}
 {"t":"2026-07-25T17:30:07Z","eid":"156b20a32fffeec7","ag":"ag-c439","ev":"create","id":"B-01KYD57FN3ERHBM5EQ3534YJXP","k":"bug","ti":"concurrent draft from two agents silently loses items: work.md is read-modify-written with no cross-process lock"}
 {"t":"2026-07-25T17:36:03Z","eid":"600a929b4f2bdfe3","ag":"ag-1535","ev":"create","id":"T-01KYD5JB7GF34BFNVRAAX8B6GE","k":"task","ti":"serialize server-side whole-file rewrites through the coord.db lock table"}
+{"t":"2026-07-25T18:25:53Z","eid":"394712ede26fa089","ag":"ag-a11a","ev":"create","id":"P-01KYD8DK52EG5A1AKC1KSRR4Z2","k":"proposal","ti":"close the four open field-reported defects: gitignore, worktree root, degraded index, stale hint"}
+{"t":"2026-07-25T18:26:20Z","eid":"8b8886aeb3465228","ag":"ag-a11a","ev":"create","id":"T-01KYD8EDGCEGJSCAEEVYKJ0VRY","k":"task","ti":"honor gitignore during the index walk, by asking git"}
+{"t":"2026-07-25T18:26:45Z","eid":"f481ef9c3ae0634c","ag":"ag-a11a","ev":"create","id":"T-01KYD8F5WGFMCAFHFEGREFNRPS","k":"task","ti":"a .git file terminates the root walk, so a nested worktree is its own workspace root"}
+{"t":"2026-07-25T18:27:25Z","eid":"38e2183974f0b087","ag":"ag-a11a","ev":"create","id":"T-01KYD8GDBKF3FTZN64KM733A5Y","k":"task","ti":"index degradation becomes a first-class record on state and check"}
+{"t":"2026-07-25T18:27:57Z","eid":"f8e704c2e5bfe401","ag":"ag-a11a","ev":"grill","id":"P-01KYD8DK52EG5A1AKC1KSRR4Z2","gr":"2026-07-25"}
+{"t":"2026-07-25T18:28:23Z","eid":"e44b113bdcf6bb65","ag":"ag-a11a","ev":"move","id":"P-01KYD8DK52EG5A1AKC1KSRR4Z2","fr":"draft","to":"active"}
+{"t":"2026-07-25T18:28:23Z","eid":"ddd3ceecddeda572","ag":"ag-a11a","ev":"move","id":"T-01KYD8F5WGFMCAFHFEGREFNRPS","fr":"draft","to":"active"}
+{"t":"2026-07-25T18:28:23Z","eid":"66c0c6b49c2636d3","ag":"ag-a11a","ev":"move","id":"T-01KYD8GDBKF3FTZN64KM733A5Y","fr":"draft","to":"active"}
+{"t":"2026-07-25T18:28:37Z","eid":"01bc7b2ef5de9f3d","ag":"ag-a11a","ev":"move","id":"T-01KYD8EDGCEGJSCAEEVYKJ0VRY","fr":"draft","to":"active"}

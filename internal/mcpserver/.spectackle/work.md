@@ -49,3 +49,35 @@ RANKED REMAINDER, by verified failures per unit of cost:
 TO DELETE RATHER THAN ADD: grill's word-presence questions and the brief substring heuristics. They cannot fail for a determined author, they train bodies to grow padding, and they occupy the slot where a computed check belongs.
 
 Scope for the follow-up tasks is disjoint by file: grill.go for the env differential and the verdict stamp, tools.go and research.go for coverage, a new sweep for callers. Rollback for each is the removal of one section or one predicate.
+
+## T-01KYD8HC02EDSVB104TRJS23Y1 the stale-binary hint fires only for a development build serving its own tree
+kind: task
+state: active
+created: 2026-07-25
+parent: P-01KYD8DK52EG5A1AKC1KSRR4Z2
+refs: B-01KYD1G9RAEHWTK3SW3ZH3YFWS
+targets: internal/mcpserver/swarm.go
+
+Closes GitHub issue 29 (see B-01KYD1G9R for the field report).
+
+ROOT CAUSE IN OUR OWN TERMS: binaryStale compares the executable's modification time against the newest .go file under the workspace root. In a development checkout of spectackle that is meaningful. For an INSTALLED binary the sources under the user's own repository are almost always newer, so the condition is permanently true and the hint says nothing — while naming `make dev`, in repositories that frequently contain no Makefile at all. The feature was verified only from the perspective it was written in.
+
+WHY IT IS WORTH FIXING RATHER THAN TOLERATING, both reasons from the reporter and both about the token path: it costs a fixed tax on every single tool result of a server whose stated purpose is long-term token efficiency, carrying no information for the majority of users; and it trains callers to filter h records wholesale, which is the same class used for real signal such as commands op=detect reporting a detected harness. A noisy channel gets filtered and the useful records go with it.
+
+DECISION ALREADY TAKEN: fire only where the advice is actionable — a development build of spectackle serving spectackle's own tree. Rejected alternative: a config flag to silence it. A noisy default that every user must individually silence is the defect, not the fix.
+
+VERIFIED GROUND, do not re-derive. internal/mcpserver/server.go line 37 has `var Version = "0.2.0-dev"`, ldflags-stamped for a release, so the running binary already knows whether it is a dev build. Line 54 has `const modulePath = "github.com/jxsl13/spectackle"` and moduleRepoURLFrom already reads the main module path from build info. The staleness walk itself (binaryStale, and staleHint above it with its 30s debounce and once-per-crossing staleHinted latch) is in internal/mcpserver/swarm.go and is otherwise fine — keep it.
+
+WHAT TO BUILD: a precondition on the hint, evaluated before the walk so an installed binary does not even pay for the traversal. Both of these must hold, and say in your report how you tested each: the running binary is a development build (Version carries a dev marker rather than a stamped release version), AND the workspace being served is spectackle's own module (compare the workspace's go.mod module path against modulePath). Either one alone is insufficient — a dev build serving an unrelated repository would still give unfollowable advice, and a released binary serving a spectackle checkout cannot act on `make dev` either.
+
+TESTS
+  a released Version serving any tree: no hint, on any tool, ever — and assert the walk did not run.
+  a dev Version serving an unrelated module: no hint.
+  a dev Version serving spectackle's own tree with sources newer than the binary: exactly one hint per crossing, which is today's behavior and must be preserved.
+  the existing debounce and once-per-crossing tests keep passing unchanged — if you have to edit them, you have probably changed behavior you should not have.
+
+VERIFY: go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL).
+
+SCOPE: internal/mcpserver/swarm.go and its tests, plus a read-only reference to the Version and modulePath already in server.go. Do NOT touch internal/mcpserver/state.go or the check path (a sibling owns those), nor internal/workspace, internal/index, internal/ignore, nor any .spectackle file.
+ROLLBACK: remove the precondition; the hint returns to firing as it does today.
+REPORT BACK: how you detected each of the two conditions, how you tested the released-binary case without a release build, each test's real result, anything deliberately not done.
