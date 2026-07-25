@@ -391,3 +391,72 @@ func TestUnrecoverableFailuresAreErrors(t *testing.T) {
 		t.Fatalf("verdict-unknown-at-done lost its W: %q", out)
 	}
 }
+
+// TestArchiveNeverActiveItemLandsRecords pins B-01KYDS's first half: a
+// records-only closure (draft -> archived, item never entered active) must
+// not reference a branch that was never created. The old code committed the
+// records onto whatever was checked out, then pushed the nonexistent item
+// ref ("src refspec does not match any") and stranded the closure. Now the
+// merge path creates the branch at the current head, opens the pull request
+// itself, flips it ready, and merges — the closure reaches the default
+// branch mechanically.
+func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "bug", "title": "closed on paper only"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "records-only closure"})
+
+	if !strings.Contains(out, "records-only closure of a never-active item") {
+		t.Fatalf("missing the created-branch line:\n%s", out)
+	}
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("records-only closure did not merge:\n%s", out)
+	}
+	if strings.Contains(out, "! GIT E") {
+		t.Fatalf("closure raised a git error:\n%s", out)
+	}
+
+	// The archival record commit must be reachable from the default branch,
+	// not stranded: the offline forge merges into the local default.
+	logOut, err := exec.Command("git", "-C", root, "log", "--format=%s", "main", "master", "--").CombinedOutput()
+	if err != nil {
+		// Only one of main/master exists; ask git for the current branch log instead.
+		logOut, err = exec.Command("git", "-C", root, "log", "--format=%s", "--all").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") {
+		t.Fatalf("archival records commit not reachable:\n%s", logOut)
+	}
+}
+
+// TestArchiveForwardSkipFlipsDraftReady pins B-01KYDS's second half: a legal
+// active -> archived forward skip reaches the merge with the pull request
+// still draft (done's ready flip never ran). A draft can never merge — the
+// merge path must flip it ready itself, behind the same local gate done
+// uses, and then merge.
+func TestArchiveForwardSkipFlipsDraftReady(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "skip done entirely"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "skipped.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "forward skip"})
+
+	if !strings.Contains(out, "local gates passed") {
+		t.Fatalf("draft flip skipped the local gate:\n%s", out)
+	}
+	if !strings.Contains(out, "ready") {
+		t.Fatalf("draft pull request was not flipped ready before merge:\n%s", out)
+	}
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("forward skip did not merge:\n%s", out)
+	}
+}

@@ -380,6 +380,19 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		return res
 	}
 	branch := taskBranch(it.ID)
+	// B-01KYDS: an item archived without ever entering active has no feature
+	// branch — the old code committed the records onto whatever branch
+	// happened to be checked out, then pushed the nonexistent item ref ("src
+	// refspec does not match any") and stranded the closure. Create the
+	// branch now, at the current head, exactly what the active transition
+	// would have done; the unchanged machinery below then applies.
+	if !wt.BranchExists(s.ws.Dir, branch) {
+		if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
+			res.addf("! GIT E %s branch: %s", it.ID, err)
+			return res
+		}
+		res.addf("g branch %s created: records-only closure of a never-active item", branch)
+	}
 	// The archive journal event was written by Move before this runs, so it is
 	// on disk and must ride the branch INTO the merge — committed and pushed
 	// first, or the record of the archival would be stranded on a branch whose
@@ -403,8 +416,34 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		return res
 	}
 	if !ok {
-		res.addf("g merge skipped: no open pr for %s (already merged, or never opened)", branch)
-		return res
+		// No open pull request can also mean one was never opened: the
+		// records-only closure above, or a branch that was empty until this
+		// very records commit. Try to open it before concluding there is
+		// nothing to merge — gitOpenPR's not-ahead guard keeps this honest.
+		res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
+		if pr, ok, err = f.Find(branch); err != nil || !ok {
+			res.addf("g merge skipped: no open pr for %s (already merged, or nothing to review)", branch)
+			return res
+		}
+	}
+	// A draft pull request can never merge — GitHub answers 405, which the
+	// not-ready retry loop would burn its whole budget on. Reached with a
+	// draft in two legal ways: the records-only closure above, and an
+	// active->archived forward skip that bypassed done's ready flip. Flip it
+	// here, behind the same local gate done uses — runners fire only after
+	// local gates pass, whichever transition fronts them.
+	if pr.Draft {
+		if gate := s.runGate(it.Goal); gate != "" {
+			res.addf("%s", gate)
+			res.addf("! GATE E %s local gate failed — pr %d stays draft, merge refused", it.ID, pr.Number)
+			return res
+		}
+		res.addf("g local gates passed")
+		if pr, err = f.Ready(pr); err != nil {
+			res.addf("! GIT E %s pr ready: %s", it.ID, err)
+			return res
+		}
+		res.addf("g pr %d ready %s", pr.Number, pr.URL)
 	}
 	s.pinHead(&pr, branch, res)
 	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)

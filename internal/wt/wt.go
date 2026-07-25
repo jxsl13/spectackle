@@ -143,6 +143,14 @@ func IsAheadOfRemote(dir, branch, remote, base string) (bool, error) {
 	return IsAheadOf(dir, branch, base)
 }
 
+// BranchExists reports whether a local branch ref exists. A query, not a
+// gate: any git failure reads as "absent", and the caller's subsequent
+// EnsureBranch surfaces real breakage loudly.
+func BranchExists(dir, branch string) bool {
+	_, err := git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
 // EnsureBranch makes branch the checked-out branch of dir: creates it from
 // startPoint if it doesn't exist yet, otherwise just checks it out. A retried
 // transition (e.g. a task re-entering active after a reopen) must land on the
