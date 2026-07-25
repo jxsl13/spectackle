@@ -145,19 +145,3 @@ state: draft
 created: 2026-07-25
 
 Found by the benchmark harness on its first run and fixed inside T-01KYDP's pull request: the B-01KYD4H sweep converted every refusal returned as a text literal, but the refusals COMPOSED in helpers — the prefix-ambiguity refusal from expand, and the two pattern refusals in editPattern — were built through textResult and returned via plumbing, so they carried no IsError and exited zero. The harness driver keyed its agent-realistic ambiguity retry on the exit code and never saw the refusal at all, which is precisely how a scripted agent in the field would have missed it. Fixed by a refuseResult constructor beside textResult; the residual lesson is recorded in that constructor's comment: a sweep by return-site literal misses refusals born elsewhere, so any NEW composed refusal must use refuseResult.
-
-## T-01KYDQWEQ5ETHBVYFRCWY536H3 state's rules inventory collapses to its summary: per-dir lines appear only where findings exist, proven by A/B
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYDPRXQSF8XAP1HCHY7390T8
-
-First text optimization under the benchmark discipline. state's #rules section emits one line per context dir (ok dir X rules=N) — eighteen lines and about five hundred bytes on this repository, on EVERY state call, carrying inventory an agent can fetch on demand with get <dir> and almost never acts on from state. The summary line (total, dirs, findings) already exists above them.
-
-CHANGE: the per-dir lines are emitted only for dirs that carry FINDINGS — the exceptional case an agent must act on — and the healthy inventory collapses into the summary. docs/tools.md's state section follows (SPX-REPO-001).
-
-PROOF OBLIGATION, the parent proposal's discipline: spectackle bench -against comparing a main-built baseline against the candidate, over the same fixture. The candidate must show fewer bytes at equal validity; the verdict line ships in the archive note. A validity regression is an automatic loss regardless of savings.
-
-VERIFY: go build ./... ; go test ./... -race ; gofmt -l (empty) ; the A/B verdict; spectackle lint . (POSITIONAL).
-SCOPE: internal/mcpserver/state.go, its tests, docs/tools.md.
-ROLLBACK: one rendering branch.
