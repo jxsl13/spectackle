@@ -288,3 +288,4 @@
 {"t":"2026-07-25T21:42:35Z","eid":"17c897934c337fb6","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDKNR8KF66BSZ9W7ZPTX9BC","k":"task","ti":"a reopened task flips its pull request back to draft: the PR draft state mirrors the item state in both directions","dir":"internal/mcpserver"}
 {"t":"2026-07-25T22:00:14Z","eid":"754aae87a47d9db8","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYDMP34XE8PRTDYPWY6EREWB","k":"bug","ti":"unrecoverable git and forge failures reach the LLM as warnings, and coordination emit failures reach nobody","dir":"internal/mcpserver"}
 {"t":"2026-07-25T22:00:30Z","eid":"0c60766525bbd436","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDMP34XE8PRTDYPWY6EREWB","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-25T22:03:10Z","eid":"5dc3bd31a8735572","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYDMP34XE8PRTDYPWY6EREWB","dir":"internal/mcpserver","fr":"active","to":"done"}

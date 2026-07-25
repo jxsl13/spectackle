@@ -141,7 +141,7 @@ ROLLBACK: additive method and one call site.
 
 ## B-01KYDMP34XE8PRTDYPWY6EREWB unrecoverable git and forge failures reach the LLM as warnings, and coordination emit failures reach nobody
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 
