@@ -17,6 +17,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/index"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
@@ -144,7 +145,27 @@ type knowledgeIn struct {
 }
 
 func text(s string) (*mcp.CallToolResult, any, error) {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}, nil, nil
+	return textResult(s), nil, nil
+}
+
+// textResult is text without the (any, error) tail, for the helpers that
+// build a refusal to be returned by somebody else's return statement.
+func textResult(s string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
+}
+
+// resultText unwraps a textResult back to its string, for the prompt handlers
+// (see prompts.go): they share the tool path's ID-expansion helpers, which
+// hand refusals back as tool results, but prompts have their own result type.
+func resultText(res *mcp.CallToolResult) string {
+	if res == nil || len(res.Content) == 0 {
+		return ""
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		return ""
+	}
+	return tc.Text
 }
 
 // gate serializes the handler (the SDK dispatches tool calls concurrently,
@@ -202,11 +223,11 @@ func (s *Server) registerTools() {
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "lease",
 		Description: "Scope leases stop agent collisions. claim: reserve dirs/files/item IDs (auto-refreshed each call; conflict → l line naming the holder). release: drop — do this the moment your item is done, a stale claim blocks siblings until TTL expiry. ls: all live leases. work op=start auto-claims its item+targets — explicit claims only for extra scope."},
-		gate(s, s.lease))
+		gate(s, s.expandLeaseIDs(s.lease)))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "work",
 		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectackle paths stay repo-relative). submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectackle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
-		gate(s, s.work))
+		gate(s, s.expandWorkItem(s.work)))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
 		Description: "Sibling awareness, zero params: ag agents (item, freshness), l leases, wt open worktrees, sw recent learnings (rejections first). Check before claiming scope or hypothesizing — a sibling may have failed at it already."},
@@ -331,6 +352,22 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if len(docs) == 0 && len(lines) == 0 {
 		return text("ok no matches")
 	}
+	// The known-ID set is only assembled if an item record is actually going
+	// to be rendered — find is the hottest read path on the surface and a
+	// code/rule/spec search must not pay for a work.md + journal scan.
+	var sc idScope
+	for _, d := range docs {
+		switch d.Kind {
+		case "rule", "section", "journal", "rejection":
+		default:
+			if sc, err = s.idScope(); err != nil {
+				return nil, nil, err
+			}
+		}
+		if sc.known != nil {
+			break
+		}
+	}
 	for _, d := range docs {
 		dir := d.Dir
 		if dir == "" {
@@ -344,7 +381,7 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 		case "journal", "rejection":
 			lines = append(lines, fmt.Sprintf("j %s %s :: %s", d.ID, d.Title, d.Body))
 		default: // items
-			lines = append(lines, fmt.Sprintf("i %s %s %s %s", d.ID, d.Kind, dir, d.Title))
+			lines = append(lines, fmt.Sprintf("i %s %s %s %s", sc.short(d.ID), d.Kind, dir, d.Title))
 		}
 	}
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
@@ -359,7 +396,13 @@ func (s *Server) get(in getIn) (*mcp.CallToolResult, any, error) {
 	}
 	id := strings.TrimSpace(in.ID)
 	switch {
-	case item.IDRe.MatchString(id):
+	// item, by full ID or by short prefix. idPrefixRe is looser than
+	// item.IDRe, so the rule-ID test has to be excluded explicitly: a
+	// three-digit rule ID under a one-letter stem (B-004) is item-shaped
+	// too, and rules own that shape. No canonical or displayed item ID can
+	// match reRuleID — legacy tails are four digits, displayed ones at
+	// least ids.MinRecordPrefixLen — so this never steals an item.
+	case idPrefixRe.MatchString(normalizeItemID(id)) && !reRuleID.MatchString(id):
 		return s.getItem(id)
 	case reRuleID.MatchString(id):
 		return s.getRule(id)
@@ -373,6 +416,14 @@ func (s *Server) get(in getIn) (*mcp.CallToolResult, any, error) {
 }
 
 func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	id, bad := sc.expand(id)
+	if bad != nil {
+		return bad, nil, nil
+	}
 	it, ok, err := item.Get(s.ws, id)
 	if err != nil {
 		return nil, nil, err
@@ -385,12 +436,12 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 		if !tombOk {
 			return s.nearest(id)
 		}
-		return text(item.Record(tomb) + " (archived; journal tombstone)\n")
+		return text(sc.record(tomb) + " (archived; journal tombstone)\n")
 	}
 	var b strings.Builder
-	b.WriteString(item.Record(it) + "\n")
+	b.WriteString(sc.record(it) + "\n")
 	if it.Parent != "" {
-		b.WriteString("parent " + it.Parent + "\n")
+		b.WriteString("parent " + sc.short(it.Parent) + "\n")
 	}
 	if len(it.Targets) > 0 {
 		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
@@ -399,7 +450,7 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
 	}
 	if len(it.Refs) > 0 {
-		b.WriteString("refs " + strings.Join(it.Refs, " ") + "\n")
+		b.WriteString("refs " + strings.Join(sc.shorts(it.Refs), " ") + "\n")
 	}
 	if it.Body != "" {
 		b.WriteString(it.Body + "\n")
@@ -527,9 +578,13 @@ func (s *Server) getPath(p string, tokBudget, offset int) (*mcp.CallToolResult, 
 		if err != nil {
 			return nil, nil, err
 		}
+		sc, err := s.idScope()
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, it := range items {
 			if p == "" || it.Dir == p || strings.HasPrefix(it.Dir, p+"/") {
-				lines = append(lines, item.Record(it))
+				lines = append(lines, sc.record(it))
 			}
 		}
 	}
@@ -568,7 +623,31 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			return res, out, err
 		}
 	}
+	// parent and refs are stored, so they are expanded to their full IDs
+	// before anything persists them: a short prefix is a display convenience
+	// computed against a set that grows, and what gets written to work.md
+	// must stay unambiguous forever.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.Parent != "" {
+		parent, bad := sc.expand(in.Parent)
+		if bad != nil {
+			return bad, nil, nil
+		}
+		in.Parent = parent
+	}
 	if len(in.Refs) > 0 {
+		refs := make([]string, len(in.Refs))
+		for i, r := range in.Refs {
+			full, bad := sc.expand(r)
+			if bad != nil {
+				return bad, nil, nil
+			}
+			refs[i] = full
+		}
+		in.Refs = refs
 		known, err := s.knownRefIDs()
 		if err != nil {
 			return nil, nil, err
@@ -583,9 +662,22 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return text("! ARG E - " + err.Error())
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
+	// Re-derive the scope AFTER the write instead of reusing the one the
+	// argument expansion above was done against. sc predates the mint, and on
+	// a shared workspace it also predates whatever a sibling server committed
+	// while this call was running — shortening against it can hand back a
+	// prefix that is already ambiguous on disk. markDirty dropped the memo,
+	// so this reads the current set. (Found by TestTwoServersMintUniqueIDs:
+	// sixteen concurrent drafts through two servers, all minted in the same
+	// few milliseconds, so their tails agree far past the six-character
+	// floor.)
+	sc, err = s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	var b strings.Builder
-	b.WriteString(item.Record(it) + "\n")
+	b.WriteString(sc.record(it) + "\n")
 	if len(targets) == 0 {
 		return text(b.String())
 	}
@@ -694,6 +786,267 @@ func (s *Server) knownRefIDs() (map[string]bool, error) {
 	return known, nil
 }
 
+// ---- short ID prefixes at the tool boundary (ADR-0013) ----
+
+// idPrefixRe matches the shape of an item ID or of a leading piece of one:
+// the kind prefix, a dash, and at least one character of the canonical
+// Crockford tail (which subsumes the legacy four-digit counter).
+//
+// It is deliberately looser than item.IDRe. IDRe is the acceptance test for
+// a COMPLETE, storable ID and nothing may weaken it; this is the far cheaper
+// question the tool boundary actually has to answer — "is the caller naming
+// a lifecycle record at all, or a node/rule/path?" — before it can decide
+// whether prefix resolution applies.
+var idPrefixRe = regexp.MustCompile(`^(?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+$`)
+
+// idPasteRe is idPrefixRe with lowercase and the confusable characters let
+// back in: it recognizes what a human or an LLM may PASTE, before
+// normalizeItemID folds it onto the canonical alphabet. See normalizeItemID
+// for why the boundary is lenient where internal/ids is strict.
+var idPasteRe = regexp.MustCompile(`^(?i:ADR|[PTBRD])-[0-9A-Za-z]+$`)
+
+// normalizeItemID folds a pasted item ID or prefix onto the canonical
+// alphabet: uppercase, and the four characters Crockford excludes as
+// confusable mapped to what they were confused with (I and L -> 1, O -> 0,
+// U -> V).
+//
+// ids.ParseRecordID refuses both of these, and is right to: it validates
+// MACHINE-produced identifiers, where a lowercase letter or an "O" means the
+// value was corrupted rather than mistyped. This function sits at the other
+// end — the boundary where a human or an LLM pastes an ID out of a chat log,
+// a commit message or a rendered record — and Crockford's alphabet was
+// designed with exactly that split in mind: excluded from the encoder so
+// they can never be emitted, accepted by the decoder so a transcription can
+// still be read back.
+//
+// The fold cannot mis-resolve anything. No minted ID contains a lowercase
+// letter or an I, L, O or U, so every character this touches is one that
+// could not have been in a real ID; the mapping therefore only ever turns a
+// guaranteed miss into a hit or another miss, and can never turn a request
+// for one record into a hit on a different one. Strings that are not
+// item-ID-shaped (node IDs, rule IDs, paths) are returned untouched.
+func normalizeItemID(id string) string {
+	id = strings.TrimSpace(id)
+	if !idPasteRe.MatchString(id) {
+		return id
+	}
+	kind, tail, _ := strings.Cut(strings.ToUpper(id), "-")
+	return kind + "-" + strings.Map(func(r rune) rune {
+		switch r {
+		case 'I', 'L':
+			return '1'
+		case 'O':
+			return '0'
+		case 'U':
+			return 'V'
+		}
+		return r
+	}, tail)
+}
+
+// idScope is the set of record IDs one tool call resolves prefixes against
+// and renders IDs against: every live item plus every ID still answerable as
+// a journal tombstone. Archived records leave work.md and live on only as
+// tombstones (see lifecycle.Tombstone), so a live-items-only set would make
+// the archived half of the history unreferenceable by prefix — which is the
+// same reason draft's refs validation uses this set (knownRefIDs).
+//
+// It is a value built once per handler rather than per ID: assembling it
+// costs one item.LoadAll plus one journal pass, and a handler that expands
+// an argument and then renders records would otherwise pay that twice.
+type idScope struct {
+	known []string // ascending, deduped
+}
+
+// idScope assembles the known-ID set for the current workspace, memoized for
+// the rest of this tool call (see Server.scCache).
+//
+// The set is deliberately WIDER than knownRefIDs, which answers a different
+// question — "may a draft cite this?" — and is right to admit only live and
+// archived records. Resolution has to cover every ID a tool can legally be
+// handed, and a rejected item is one of those: rejections leave work.md but
+// stay revocable (move rejected->draft), so their IDs must keep resolving or
+// revocation by prefix refuses an item that demonstrably exists. Found by
+// TestRejectionCorpusAndRevocation, which drives exactly that round trip.
+func (s *Server) idScope() (idScope, error) {
+	if s.scCache != nil {
+		return *s.scCache, nil
+	}
+	known, err := s.knownRefIDs()
+	if err != nil {
+		return idScope{}, err
+	}
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return idScope{}, err
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvReject {
+			known[e.ID] = true
+		}
+	}
+	out := make([]string, 0, len(known))
+	for k := range known {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	sc := idScope{known: out}
+	s.scCache = &sc
+	return sc, nil
+}
+
+// expand resolves one item-ID argument. The three outcomes are the three
+// ADR-0013 requires, and they are distinguished by the second return value
+// rather than by an error, because two of them are ordinary tool results:
+//
+//   - resolved: the full ID, nil refusal. A fully spelled-out ID resolves to
+//     itself (ids.ResolveRecordID lets an exact match win), so nothing that
+//     worked before this existed stops working.
+//   - no match: the NORMALIZED input, nil refusal — expand deliberately does
+//     not decide what "unknown" means. Each caller already has a not-found
+//     behavior (get/grill answer nf with nearest matches, decide refuses by
+//     name, move lets lifecycle report it) and keeps it.
+//   - ambiguous: empty ID and a refusal naming every candidate in ITS OWN
+//     shortest form, so the caller can disambiguate in exactly one more
+//     call instead of having to guess how many more characters to add.
+func (sc idScope) expand(id string) (string, *mcp.CallToolResult) {
+	id = normalizeItemID(id)
+	if !idPrefixRe.MatchString(id) {
+		return id, nil
+	}
+	full, err := ids.ResolveRecordID(id, sc.known)
+	if err == nil {
+		return full, nil
+	}
+	var amb *ids.AmbiguousPrefixError
+	if errors.As(err, &amb) {
+		cands := make([]string, len(amb.Candidates))
+		for i, c := range amb.Candidates {
+			cands[i] = sc.short(c)
+		}
+		return "", textResult(fmt.Sprintf("! ARG E %s ambiguous prefix — %d records: %s",
+			id, len(cands), strings.Join(cands, " ")))
+	}
+	return id, nil // ids.ErrNoMatch: the caller's own not-found path
+}
+
+// expandID is expand for the handlers that need to resolve a single argument
+// and nothing else, so they do not have to name the scope. err is a real
+// failure (unreadable workspace); a non-nil result is a refusal to return
+// verbatim.
+func (s *Server) expandID(id string) (string, *mcp.CallToolResult, error) {
+	sc, err := s.idScope()
+	if err != nil {
+		return "", nil, err
+	}
+	full, bad := sc.expand(id)
+	return full, bad, nil
+}
+
+// short renders an ID in display form: the kind prefix plus the shortest
+// tail that no other known record OF THE SAME KIND shares, floored at
+// ids.MinRecordPrefixLen. Peering per kind rather than across the whole set
+// is what keeps the form short without making it ambiguous — the kind letter
+// is part of the string prefix that expand matches on, so T-01K9XJ can never
+// be confused with P-01K9XJ however long their tails agree.
+//
+// Legacy sequential IDs are returned unchanged: ids.ShortenRecordID refuses
+// to shorten what it cannot parse as a canonical record ID, and a four-digit
+// counter has nothing to shorten anyway. Non-item strings are likewise
+// returned as they came in, so this is safe to apply to a mixed line.
+func (sc idScope) short(id string) string {
+	kind, tail, ok := strings.Cut(id, "-")
+	if !ok {
+		return id
+	}
+	peers := make([]string, 0, len(sc.known))
+	for _, k := range sc.known {
+		if p, t, ok := strings.Cut(k, "-"); ok && p == kind {
+			peers = append(peers, t)
+		}
+	}
+	st, err := ids.ShortenRecordID(tail, peers)
+	if err != nil {
+		return id
+	}
+	return kind + "-" + st
+}
+
+// shorts renders a list of IDs in display form, preserving order.
+func (sc idScope) shorts(list []string) []string {
+	out := make([]string, len(list))
+	for i, id := range list {
+		out[i] = sc.short(id)
+	}
+	return out
+}
+
+// record renders item.Record with the ID in display form.
+func (sc idScope) record(it item.Item) string {
+	it.ID = sc.short(it.ID)
+	return item.Record(it)
+}
+
+// expandWorkItem and expandLeaseIDs wrap the two swarm handlers (work,
+// lease) so their item arguments accept a short prefix like every other
+// tool's do. They live here, as registration-site decorators, rather than
+// inside internal/mcpserver/swarm.go, because prefix resolution is a
+// property of the TOOL BOUNDARY and this file is where the boundary is
+// defined — swarm.go keeps working in full IDs, which is what it stores in
+// worktree records, branch names and lease rows.
+
+// expandWorkItem resolves work's item argument. An empty Item is left alone:
+// submit/abort default it to the session's own worktree item.
+func (s *Server) expandWorkItem(h func(workIn) (*mcp.CallToolResult, any, error)) func(workIn) (*mcp.CallToolResult, any, error) {
+	return func(in workIn) (*mcp.CallToolResult, any, error) {
+		if in.Item != "" {
+			full, bad, err := s.expandID(in.Item)
+			if bad != nil || err != nil {
+				return bad, nil, err
+			}
+			in.Item = full
+		}
+		return h(in)
+	}
+}
+
+// expandLeaseIDs resolves the item IDs among lease's paths. Leases are keyed
+// by exact string and work op=start claims the FULL item ID, so a prefix
+// that stayed short would claim a scope nothing else ever checks. Entries
+// that are not item-shaped are paths and pass through untouched; an
+// item-shaped entry that resolves to nothing also passes through, since
+// claiming scope for an ID that does not exist yet is legitimate.
+func (s *Server) expandLeaseIDs(h func(leaseIn) (*mcp.CallToolResult, any, error)) func(leaseIn) (*mcp.CallToolResult, any, error) {
+	return func(in leaseIn) (*mcp.CallToolResult, any, error) {
+		if in.Item == "" && len(in.Paths) == 0 {
+			return h(in)
+		}
+		sc, err := s.idScope()
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.Item != "" {
+			full, bad := sc.expand(in.Item)
+			if bad != nil {
+				return bad, nil, nil
+			}
+			in.Item = full
+		}
+		if len(in.Paths) > 0 {
+			paths := make([]string, len(in.Paths))
+			for i, p := range in.Paths {
+				full, bad := sc.expand(p)
+				if bad != nil {
+					return bad, nil, nil
+				}
+				paths[i] = full
+			}
+			in.Paths = paths
+		}
+		return h(in)
+	}
+}
+
 // splitContractRules buckets resolved rules into full r-lines (rl) and
 // root-scoped IDs (rootIDs), each deduped by rule ID. seen may be nil to
 // skip non-root dedup (fresh probe list); rootSeen must not be nil.
@@ -783,7 +1136,7 @@ func elicitSlots(ctx context.Context, req *mcp.CallToolRequest, in *ruleIn, miss
 }
 
 func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
-	defer s.scan.MarkDirty()
+	defer s.markDirty()
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {
 		return nil, nil, err
@@ -955,6 +1308,18 @@ func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string 
 // ---- move ----
 
 func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
+	// Expand before the lease check: leases are held on the full item ID
+	// (work op=start claims it), so a prefix has to become the real ID or
+	// the foreign-lease guard would silently not fire.
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	id, bad := sc.expand(in.ID)
+	if bad != nil {
+		return bad, nil, nil
+	}
+	in.ID = id
 	if s.wtItem == "" {
 		if res, out, err := s.blockedByLease([]string{in.ID}); res != nil || err != nil {
 			return res, out, err
@@ -965,14 +1330,15 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	warns := ""
 	if forwardState(in.To) {
 		if pre, ok, _ := item.Get(s.ws, in.ID); ok {
+			short := sc.short(in.ID)
 			if pre.Kind == "proposal" && pre.Grilled == "" {
 				if s.ws.Cfg.Feedback.Grill == "require" {
-					return text("! GRILL E " + in.ID + " ungrilled — grill first (feedback.grill=require)")
+					return text("! GRILL E " + short + " ungrilled — grill first (feedback.grill=require)")
 				}
-				warns += "! GRILL W " + in.ID + " ungrilled — grill first or proceed deliberately\n"
+				warns += "! GRILL W " + short + " ungrilled — grill first or proceed deliberately\n"
 			}
 			if open := s.openNeeds(pre); len(open) > 0 {
-				warns += "! NEEDS W " + in.ID + " open needs: " + strings.Join(open, " ") + "\n"
+				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"
 			}
 		}
 	}
@@ -987,16 +1353,25 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, eErr
 			}
 			_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
-			s.scan.MarkDirty()
+			s.markDirty()
+			// fresh scope: dec was just minted, and the same staleness that
+			// bites draft bites here (see the comment there).
+			if sc, err = s.idScope(); err != nil {
+				return nil, nil, err
+			}
+			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
 			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
-				blocked.ID, blocked.Kind, orDot(blocked.Dir), blocked.Title, blocked.ID, dec.ID))
+				bShort, blocked.Kind, orDot(blocked.Dir), blocked.Title, bShort, dShort))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per
 			// offending anchor) — return it verbatim as the tool result,
 			// not wrapped in another "! ARG E -" prefix that would corrupt
-			// the record grammar callers parse.
-			return text(err.Error() + "\n")
+			// the record grammar callers parse. Only the ID is swapped for
+			// its display form: lifecycle composes the refusal and knows
+			// nothing about prefixes, but what reaches the caller has to be
+			// the same ID vocabulary as every other record on the surface.
+			return text(strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)) + "\n")
 		}
 		return text("! ARG E - " + err.Error())
 	}
@@ -1004,8 +1379,8 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		// dual-write: the rejection reaches siblings before any merge
 		_ = s.cd.Emit("reject", in.ID, it.Title+" :: "+in.Note)
 	}
-	s.scan.MarkDirty()
-	return text(warns + item.Record(it) + "\n")
+	s.markDirty()
+	return text(warns + sc.record(it) + "\n")
 }
 
 // auditGateOpts loads the spec cascade and, if that succeeds, returns a
@@ -1140,6 +1515,9 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	seen := map[string]string{}
 	for _, it := range items {
 		if prev, dup := seen[it.ID]; dup {
+			// the full ID, deliberately: a duplicate means two records claim
+			// one ID, and the operator has to see exactly which string that
+			// is, not a prefix that resolves ambiguously by construction.
 			lines = append(lines, fmt.Sprintf("! E101 E %s duplicate item ID %s (also in %s)", orDot(it.Dir), it.ID, orDot(prev)))
 		}
 		seen[it.ID] = it.Dir
@@ -1500,7 +1878,7 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
 		return text("! WT E compact is blocked inside a worktree — journal folds would corrupt the submit replay")
 	}
-	defer s.scan.MarkDirty()
+	defer s.markDirty()
 	var b strings.Builder
 	cands := s.compactCandidates(in.Path)
 	cands = append(cands, s.mergeCandidates(in.Path)...)
@@ -1520,8 +1898,12 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	for _, c := range cands {
 		b.WriteString(c + "\n")
 	}
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	for _, it := range doneItems {
-		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), it.ID, it.Title)
+		fmt.Fprintf(&b, "c %s done-item %s %s\n", orDot(it.Dir), sc.short(it.ID), it.Title)
 	}
 	if !in.Apply {
 		b.WriteString("ok dry-run — pass apply=true to execute\n")
@@ -1533,9 +1915,9 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	gateOpts := s.auditGateOpts()
 	for _, it := range doneItems {
 		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
-			fmt.Fprintf(&b, "! SKIP W %s %s\n", it.ID, err.Error())
+			fmt.Fprintf(&b, "! SKIP W %s %s\n", sc.short(it.ID), err.Error())
 		} else {
-			fmt.Fprintf(&b, "ok archived %s\n", it.ID)
+			fmt.Fprintf(&b, "ok archived %s\n", sc.short(it.ID))
 		}
 	}
 	// fold journals over threshold: drop create/move/rule/drift events,

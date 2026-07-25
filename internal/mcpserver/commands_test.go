@@ -80,7 +80,7 @@ func TestCommandsGenNoHarnessHeadlessMintsDecision(t *testing.T) {
 	if !strings.Contains(out, "need decision "+adr) {
 		t.Fatalf("expected a need-decision fallback: %q", out)
 	}
-	d, ok, err := item.Get(s.ws, adr)
+	d, ok, err := item.Get(s.ws, fullID(t, s, adr))
 	if err != nil || !ok {
 		t.Fatalf("%s not persisted: %v %v", adr, ok, err)
 	}

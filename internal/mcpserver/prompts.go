@@ -89,7 +89,7 @@ func lifecycleLines(task string) []string {
 func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.scan.Refresh(); err != nil {
+	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
 
@@ -133,8 +133,12 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 		dj := items[j].State == item.StateDraft
 		return !di && dj
 	})
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, err
+	}
 	for _, it := range items {
-		b.WriteString(item.Record(it) + "\n")
+		b.WriteString(sc.record(it) + "\n")
 	}
 
 	b.WriteString("LOOP\n")
@@ -154,13 +158,24 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.scan.Refresh(); err != nil {
+	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
 
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, err
+	}
 	id := strings.TrimSpace(req.Params.Arguments["item"])
 	var it item.Item
 	if id != "" {
+		// the brief is fetched by whatever ID form the caller saw in a state
+		// or workflow prompt, which is the display form (ADR-0013).
+		full, bad := sc.expand(id)
+		if bad != nil {
+			return textPrompt(resultText(bad)), nil
+		}
+		id = full
 		found, ok, err := item.Get(s.ws, id)
 		if err != nil {
 			return nil, err
@@ -206,9 +221,9 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 	}
 
 	var b strings.Builder
-	b.WriteString(item.Record(it) + "\n")
+	b.WriteString(sc.record(it) + "\n")
 	if it.Parent != "" {
-		b.WriteString("parent " + it.Parent + "\n")
+		b.WriteString("parent " + sc.short(it.Parent) + "\n")
 	}
 	if len(it.Targets) > 0 {
 		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
@@ -221,8 +236,11 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 	if leasePath == "" {
 		leasePath = "."
 	}
+	// the protocol is a script the implementer pastes back verbatim, so the
+	// IDs in it are the display form the tool boundary accepts.
+	short := sc.short(id)
 	fmt.Fprintf(&b, "IMPLEMENTER PROTOCOL\n1 get id=%s\n2 lease op=claim paths=%s item=%s\n3 move id=%s to=active\n4 implement + test\n5 move id=%s to=done; lease op=release paths=%s\n",
-		id, leasePath, id, id, id, leasePath)
+		short, leasePath, short, short, short, leasePath)
 
 	return &mcp.GetPromptResult{
 		Description: "implementer brief for " + id,
@@ -238,7 +256,7 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 func (s *Server) promptState(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.scan.Refresh(); err != nil {
+	if err := s.refreshLocked(); err != nil {
 		return nil, err
 	}
 	path := req.Params.Arguments["path"]

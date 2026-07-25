@@ -84,6 +84,14 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	hasBlocks := false
 	blocksID := ""
 	if in.Item != "" {
+		// a short prefix names the blocked item just as well as its full ID
+		// (ADR-0013); what gets persisted below — the `blocks:` body line
+		// and the Needs backlink — is always the resolved full ID.
+		full, bad, err := s.expandID(in.Item)
+		if bad != nil || err != nil {
+			return bad, nil, err
+		}
+		in.Item = full
 		found, ok, err := item.Get(s.ws, in.Item)
 		if err != nil {
 			return nil, nil, err
@@ -137,7 +145,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 			return nil, nil, err
 		}
 	}
-	s.scan.MarkDirty()
+	s.markDirty()
 	_ = s.cd.Emit("decide", d.ID, "ask "+in.Question)
 
 	props := map[string]any{}
@@ -158,7 +166,13 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	if err == nil && res.Action == "accept" {
 		return s.resolveDecision(d.ID, decideChoiceString(kind, res.Content["choice"]), "")
 	}
-	return text(fmt.Sprintf("need decision %s %s | %s", d.ID, in.Question, strings.Join(opts, ", ")))
+	// the ID an agent copies straight back into decide op=answer, so it is
+	// rendered in the accepted display form like every other emitted ID.
+	sc, scErr := s.idScope()
+	if scErr != nil {
+		return nil, nil, scErr
+	}
+	return text(fmt.Sprintf("need decision %s %s | %s", sc.short(d.ID), in.Question, strings.Join(opts, ", ")))
 }
 
 // decideChoiceString normalizes an elicitation result's "choice" value to
@@ -192,6 +206,11 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Choose) == "" {
 		return text("! ARG E - answer requires choose")
 	}
+	full, bad, err := s.expandID(in.ID)
+	if bad != nil || err != nil {
+		return bad, nil, err
+	}
+	in.ID = full
 	d, ok, err := item.Get(s.ws, in.ID)
 	if err != nil {
 		return nil, nil, err
@@ -320,8 +339,12 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 			}
 		}
 	}
-	s.scan.MarkDirty()
-	return text("ok " + id + " " + choice)
+	s.markDirty()
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	return text("ok " + sc.short(id) + " " + choice)
 }
 
 // blockingItem finds the (at most one) item whose Needs references decisionID.
@@ -356,12 +379,16 @@ func (s *Server) decideLs() (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
 	var b strings.Builder
 	for _, it := range items {
 		if it.Kind != "adr" || it.State == item.StateDone {
 			continue
 		}
-		b.WriteString(item.Record(it) + "\n")
+		b.WriteString(sc.record(it) + "\n")
 	}
 	if b.Len() == 0 {
 		return text("ok no open decisions")
