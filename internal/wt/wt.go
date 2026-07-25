@@ -79,6 +79,16 @@ func DefaultBranch(dir string) (string, error) {
 	return git(dir, "symbolic-ref", "--short", "HEAD")
 }
 
+// RemoteURL returns the configured URL of a named remote.
+//
+// It exists so the forge client can derive owner and repository from the same
+// remote git itself pushes to, rather than from a second source that could
+// disagree with it — a workspace whose remote was re-pointed must open pull
+// requests against the repository it actually pushes to.
+func RemoteURL(dir, remote string) (string, error) {
+	return git(dir, "remote", "get-url", remote)
+}
+
 // EnsureBranch makes branch the checked-out branch of dir: creates it from
 // startPoint if it doesn't exist yet, otherwise just checks it out. A retried
 // transition (e.g. a task re-entering active after a reopen) must land on the
@@ -87,7 +97,16 @@ func DefaultBranch(dir string) (string, error) {
 // error.
 func EnsureBranch(dir, branch, startPoint string) error {
 	if _, err := git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
-		_, err := git(dir, "checkout", "-b", branch, startPoint)
+		// An empty startPoint means "branch from where we are". It must be
+		// OMITTED rather than passed through: git reads an empty argument as a
+		// pathspec and fails with "empty string is not a valid pathspec",
+		// which is a confusing way to report a caller that simply had no
+		// specific start point in mind.
+		args := []string{"checkout", "-b", branch}
+		if startPoint != "" {
+			args = append(args, startPoint)
+		}
+		_, err := git(dir, args...)
 		return err
 	}
 	_, err := git(dir, "checkout", branch)
