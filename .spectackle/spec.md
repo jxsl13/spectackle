@@ -124,6 +124,7 @@ LLM plans against structure and contracts instead of file contents.
 - B-0004 MergeMain hardcodes the branch name main, so submit silently merges a stale ref and dies at the fast-forward on repos developing on another branch: fix live at 8c82a7f: MergeMain resolves the primary checkout branch; verified by both submits merging the real tip
 - B-0005 CommitCode misreads unstaged .spectackle changes as staged: the shared git() helper trims the leading space off the first porcelain status line: fix live at fe340ea: stagedness via git diff --cached --quiet exit code; verified by both submit retries no-opping cleanly on record-only dirt
 - B-0006 worktree .spectackle live state blocks MergeMain: seeded uncommitted by copyBundles, excluded by CommitCode, refused by git when main's tip touches the same files: fix live at 0169bef: MergeMain preserves live .spectackle bytes across the merge; verified by both submits merging over dirty bundle files
+- T-0117 surface item Refs: draft accepts them, get renders them, grill demands deliberation: refs live end to end: draft validates against live+tombstoned IDs and refuses unknowns, get renders the refs line, grill asks for a recorded deliberation on proposals without one; variadic lifecycle.Draft kept every existing call site compiling
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
