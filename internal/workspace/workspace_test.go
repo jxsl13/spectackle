@@ -530,6 +530,117 @@ func TestCompactConfigDefaults(t *testing.T) {
 	}
 }
 
+// TestGitConfigDefaults proves the opt-out shape of Config.Git: a config.yaml
+// that omits the `git` block entirely (which includes every workspace
+// scaffolded before this field existed) must resolve to enabled, online,
+// origin — the same as if the block were present and empty. An opt-out
+// feature whose zero value silently opted out would be worse than no feature
+// at all.
+func TestGitConfigDefaults(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init", "-q", "-b", "main")
+	runGit(t, root, "commit", "-q", "--allow-empty", "-m", "init")
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ws.Cfg.Git.IsEnabled() {
+		t.Fatal("Git.IsEnabled() = false, want true (opt-out default, git block omitted)")
+	}
+	if ws.Cfg.Git.Mode != "online" {
+		t.Fatalf("Git.Mode = %q, want %q", ws.Cfg.Git.Mode, "online")
+	}
+	if ws.Cfg.Git.Remote != "origin" {
+		t.Fatalf("Git.Remote = %q, want %q", ws.Cfg.Git.Remote, "origin")
+	}
+}
+
+// TestGitConfigExplicitDisableHonored proves the one thing a plain bool
+// couldn't: an explicit `enabled: false` must stick, not get overridden back
+// to the opt-out default the way a zero-block int default would.
+func TestGitConfigExplicitDisableHonored(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
+		[]byte("schema: v1\ngit:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Cfg.Git.IsEnabled() {
+		t.Fatal("Git.IsEnabled() = true, want false — an explicit disable must be honored")
+	}
+}
+
+// TestGitConfigUnknownModeRejectedAtLoad proves an unknown git.mode is a
+// config error AT LOAD — matching how ignore_regex is validated today —
+// rather than a failure deferred to whichever internal/wt call happens to
+// run first.
+func TestGitConfigUnknownModeRejectedAtLoad(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
+		[]byte("schema: v1\ngit:\n  mode: bogus\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Detect(root, root)
+	if err == nil {
+		t.Fatal("expected an error for an unknown git.mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "git.mode") {
+		t.Fatalf("error %q does not name the offending key (git.mode)", err)
+	}
+}
+
+// TestGitConfigBaseReadFromRepoDefaultBranch proves Base is READ from the
+// repository rather than assumed: a repo whose default branch is deliberately
+// not named "main" must still resolve Base to its actual branch.
+func TestGitConfigBaseReadFromRepoDefaultBranch(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init", "-q", "-b", "trunk")
+	runGit(t, root, "commit", "-q", "--allow-empty", "-m", "init")
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Cfg.Git.Base != "trunk" {
+		t.Fatalf("Git.Base = %q, want %q (read from the repo, never hardcoded main)", ws.Cfg.Git.Base, "trunk")
+	}
+}
+
+// TestGitConfigDegradesQuietlyWithoutRepo proves the other half of the
+// opt-out contract: a workspace with no git repository at all (so nothing to
+// read a default branch from) must still load cleanly, Enabled/Mode/Remote
+// still defaulted, Base simply left empty rather than the load failing.
+func TestGitConfigDegradesQuietlyWithoutRepo(t *testing.T) {
+	root := t.TempDir() // deliberately never git-init'd
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Cfg.Git.Base != "" {
+		t.Fatalf("Git.Base = %q, want empty (no repository to read a default branch from)", ws.Cfg.Git.Base)
+	}
+	if !ws.Cfg.Git.IsEnabled() {
+		t.Fatal("Git.IsEnabled() = false, want true — the absence of a repo must not disable the config default")
+	}
+}
+
 // TestEnsureScaffoldGeneratesSelfDocumentingConfig proves a NEWLY created
 // config.yaml (a) documents every setting with its default value and a
 // trailing comment, and (b) parses back through load() into a Config equal

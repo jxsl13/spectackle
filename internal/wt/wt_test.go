@@ -176,6 +176,106 @@ func TestCommitCodeNoOpsOnUnstagedSpectackleOnly(t *testing.T) {
 	}
 }
 
+// TestEnsureBranchIdempotent: a second call on a branch that already exists
+// must be a plain checkout, never an error — the transition mapping retries
+// the same task's branch across multiple rounds (gate fails, reopens, ...)
+// and can't treat "the branch is already there" as a failure.
+func TestEnsureBranchIdempotent(t *testing.T) {
+	root := repo(t)
+	branch := "spectackle/T-9000"
+	if err := EnsureBranch(root, branch, "HEAD"); err != nil {
+		t.Fatalf("EnsureBranch (create): %v", err)
+	}
+	if got, err := CurrentBranch(root); err != nil || got != branch {
+		t.Fatalf("CurrentBranch after create = %q %v, want %q", got, err, branch)
+	}
+	// switch away, then ensure again against the SAME branch
+	if _, err := git(root, "checkout", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureBranch(root, branch, "HEAD"); err != nil {
+		t.Fatalf("EnsureBranch (second call, existing branch) errored: %v", err)
+	}
+	if got, err := CurrentBranch(root); err != nil || got != branch {
+		t.Fatalf("CurrentBranch after second call = %q %v, want %q", got, err, branch)
+	}
+}
+
+// TestPushSetsUpstreamAndUnpushedCommitsReport proves Push and
+// HasUnpushedCommits against a REAL local bare remote rather than a mock:
+// unpushed is true before the first Push (no remote-tracking ref exists yet
+// to compare against) and false once Push has landed the commits and set
+// upstream tracking.
+func TestPushSetsUpstreamAndUnpushedCommitsReport(t *testing.T) {
+	root := repo(t)
+	bareDir := t.TempDir()
+	if _, err := git(bareDir, "init", "--bare", "-q", "-b", "main"); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	if _, err := git(root, "remote", "add", "origin", bareDir); err != nil {
+		t.Fatal(err)
+	}
+	branch := "spectackle/T-9001"
+	if err := EnsureBranch(root, branch, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "c.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if committed, err := CommitCode(root, "code change"); err != nil || !committed {
+		t.Fatalf("CommitCode = %v %v", committed, err)
+	}
+
+	if unpushed, err := HasUnpushedCommits(root, "origin", branch); err != nil || !unpushed {
+		t.Fatalf("HasUnpushedCommits before push = %v %v, want true", unpushed, err)
+	}
+
+	if err := Push(root, "origin", branch); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	if up, err := git(root, "rev-parse", "--abbrev-ref", branch+"@{upstream}"); err != nil || up != "origin/"+branch {
+		t.Fatalf("upstream after first push = %q %v, want %q", up, err, "origin/"+branch)
+	}
+
+	if unpushed, err := HasUnpushedCommits(root, "origin", branch); err != nil || unpushed {
+		t.Fatalf("HasUnpushedCommits after push = %v %v, want false", unpushed, err)
+	}
+}
+
+// TestBranchEnsureAndCommitNeverLeakSpectackle proves the new branch-ensure
+// primitive doesn't reopen the door B-0006 closed: committing through
+// EnsureBranch + CommitCode must still exclude every .spectackle path, since
+// that exclusion — not a git merge — is the whole reason record state is safe
+// to keep uncommitted in a worktree at all.
+func TestBranchEnsureAndCommitNeverLeakSpectackle(t *testing.T) {
+	root := repo(t)
+	if err := EnsureBranch(root, "spectackle/T-9002", "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "d.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "journal.ndjson"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	committed, err := CommitCode(root, "primitives commit")
+	if err != nil || !committed {
+		t.Fatalf("CommitCode = %v %v", committed, err)
+	}
+	out, err := git(root, "show", "--name-only", "--format=", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, ".spectackle") {
+		t.Fatalf("commit made via the branch-ensure + commit primitives leaked .spectackle: %q", out)
+	}
+}
+
 // TestMergeMainPreservesSpectackleState: the worktree's uncommitted
 // .spectackle files (live replay input) must neither block a merge whose tip
 // touches the same paths nor be altered by it (B-0006).
