@@ -150,3 +150,5 @@
 {"t":"2026-07-24T21:56:47Z","eid":"5db09d85d9de041a","ag":"orchestrator","ev":"rule","dir":"internal/mcpserver","op":"add","rule":"MCP-010","txt":"WHEN a tool call arrives and the server executable is older than the newest source file under its root, the server SHALL append one debounced hint record naming the `make dev` rebuild-and-restart command, at most once per crossing.","item":"P-0083"}
 {"t":"2026-07-24T21:56:47Z","eid":"503219b9921ba1bd","ag":"orchestrator","ev":"create","id":"T-0115","k":"task","ti":"server hints when its own binary is older than the sources it serves","dir":"internal/mcpserver"}
 {"t":"2026-07-24T21:56:47Z","eid":"7a77c615f0aa737f","ag":"orchestrator","ev":"move","id":"T-0115","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-07-25T08:06:26Z","eid":"1a440e208e4c14b4","ag":"impl-t0111","ev":"start","id":"T-0111","dir":"internal/mcpserver","note":"branch spectackle/T-0111 base c56849d3ef02"}
+{"t":"2026-07-25T08:06:46Z","eid":"09f87b2d47966207","ag":"impl-t0115","ev":"start","id":"T-0115","dir":"internal/mcpserver","note":"branch spectackle/T-0115 base c56849d3ef02"}

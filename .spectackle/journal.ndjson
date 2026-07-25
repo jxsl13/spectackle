@@ -186,3 +186,4 @@
 {"t":"2026-07-24T21:56:47Z","eid":"c657ca7caa3a49a2","ag":"orchestrator","ev":"create","id":"T-0114","k":"task","ti":"make dev: one idempotent command that rebuilds and restarts the resident server"}
 {"t":"2026-07-24T21:56:47Z","eid":"2f05fe885e496edb","ag":"orchestrator","ev":"move","id":"P-0083","fr":"draft","to":"active"}
 {"t":"2026-07-24T21:56:47Z","eid":"4be5fe185ebce1a9","ag":"orchestrator","ev":"move","id":"T-0114","fr":"draft","to":"active"}
+{"t":"2026-07-25T08:02:42Z","eid":"65d2497ccf9548ba","ag":"ag-e307","ev":"start","id":"T-0114","note":"branch spectackle/T-0114 base c56849d3ef02"}
