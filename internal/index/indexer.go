@@ -22,6 +22,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/ignore"
 	"github.com/jxsl13/spectackle/internal/resolve"
 	"github.com/jxsl13/spectackle/internal/store"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -125,6 +126,20 @@ var ignoreDirs = map[string]bool{
 func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 	var files []string
 	byLang := map[graph.Lang][]string{}
+	// Gitignored paths are not source (issue 26). This walk does NOT go
+	// through workspace.Root.SkipDir — it has its own ignoreDirs set, which
+	// typespass.go's moduleHashKey walk has to mirror exactly — so wiring the
+	// matcher into SkipDir alone left the graph, and therefore find
+	// scope=code, still full of gitignored copies. Field-measured: a real
+	// symbol yielded three nodes, and the copy under .venv sorted FIRST and
+	// took the unsuffixed node ID, so a rule anchored via applies pinned its
+	// contract inside a virtualenv.
+	//
+	// Built once per walk: ignore.New shells out to git, and this must never
+	// become a subprocess per directory entry. Outside a git repository it
+	// answers false for everything, so a non-git workspace walks exactly as
+	// before.
+	gitIgnored := ignore.New(root)
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -132,6 +147,14 @@ func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 		if d.IsDir() {
 			if ignoreDirs[d.Name()] {
 				return filepath.SkipDir
+			}
+			// Pruned at the directory, not per file: a wholly ignored tree is
+			// one lookup here instead of one per file inside it, which is the
+			// difference between skipping a 1.2 GB virtualenv and walking it.
+			if rel, relErr := filepath.Rel(root, p); relErr == nil && rel != "." {
+				if gitIgnored.Ignored(filepath.ToSlash(rel)) {
+					return filepath.SkipDir
+				}
 			}
 			// any nested git boundary (linked worktree, submodule, or nested
 			// clone) is foreign territory — this generalizes what used to be
@@ -156,6 +179,11 @@ func (ix *indexer) IndexAll(ctx context.Context, root string) (Stats, error) {
 		// custom globs (skipping the walk early via filepath.SkipDir) is left
 		// as a later optimization — see T-0026.
 		if MatchIgnore(ix.ignore, rel) {
+			return nil
+		}
+		// a gitignored FILE inside an otherwise tracked directory — the
+		// directory-level prune above cannot catch these.
+		if gitIgnored.Ignored(rel) {
 			return nil
 		}
 		files = append(files, rel)

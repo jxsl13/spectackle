@@ -102,7 +102,7 @@ func Detect(start, flagRoot string) (Root, error) {
 	if err != nil {
 		return Root{}, err
 	}
-	if d, ok := walkUp(abs, func(dir string) bool {
+	if d, ok := walkUpToGitBoundary(abs, func(dir string) bool {
 		return fileExists(filepath.Join(dir, Dot, "config.yaml"))
 	}); ok {
 		return load(d)
@@ -126,6 +126,43 @@ func Detect(start, flagRoot string) (Root, error) {
 		return load(fr)
 	}
 	return Root{}, fmt.Errorf("workspace: no %s/config.yaml or .git found above %s (pass -root)", Dot, abs)
+}
+
+// walkUpToGitBoundary is walkUp that refuses to ascend OUT of a git
+// repository or worktree: the current directory is always tested, but once it
+// turns out to be a git boundary the walk stops there rather than continuing
+// into the enclosing checkout.
+//
+// This is the other half of GitHub issue 27, and the half a .git-file
+// predicate alone does not reach. Root detection tries the
+// .spectackle/config.yaml marker BEFORE the .git marker, so a worktree nested
+// inside a repository that already carries a bundle used to resolve straight
+// past itself to the parent's config.yaml — writing the enclosing checkout's
+// bundle even when an absolute -root named the worktree, which is exactly what
+// the reporter observed. A nested worktree, submodule or clone is foreign
+// territory; the codebase already treats it that way in every content walk
+// (see IsNestedGitBoundary and its use in SkipDir and the indexer), and
+// detection has to agree with them or the two disagree about what the
+// workspace is.
+//
+// The common case is untouched: from repo/sub/dir the walk tests dir, sub and
+// then repo — repo is the boundary, but it is TESTED before the walk stops, so
+// a bundle at the repository root is still found from any depth inside it.
+func walkUpToGitBoundary(start string, ok func(string) bool) (string, bool) {
+	d := start
+	for {
+		if ok(d) {
+			return d, true
+		}
+		if IsNestedGitBoundary(d) {
+			return "", false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", false
+		}
+		d = parent
+	}
 }
 
 func walkUp(start string, ok func(string) bool) (string, bool) {

@@ -660,3 +660,60 @@ func TestSchemaStampMatchesMigrationTarget(t *testing.T) {
 		t.Fatalf("migrate.From == migrate.To == %q: the migration is a no-op", migrate.To)
 	}
 }
+
+// TestDetectNestedWorktreeWinsOverAncestorBundle is the half of GitHub issue 27
+// that a .git-file predicate alone does not reach, and the case the original
+// report actually described: "not even with an absolute -root naming it".
+//
+// Detection tries the .spectackle/config.yaml marker BEFORE the .git marker, so
+// when the ENCLOSING checkout already carries a bundle the walk used to sail
+// past the worktree straight to the parent's config.yaml — and every write
+// landed in the parent. Accepting .git files fixed only the case where no
+// ancestor bundle existed yet, which is why a reproduction built on a bare
+// parent passed while the reported scenario stayed broken.
+func TestDetectNestedWorktreeWinsOverAncestorBundle(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	// the enclosing checkout owns a bundle, as any real repository would —
+	// this is the ingredient the sibling reproduction lacked.
+	if err := (Root{Dir: main}).EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(filepath.Join(main, Dot, "config.yaml")) {
+		t.Fatal("fixture: the parent bundle was not scaffolded")
+	}
+	wtDir := filepath.Join(main, "wt", "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	got, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePathTest(got.Dir, wtDir) {
+		t.Fatalf("Detect(nested worktree) = %s, want %s — it resolved past the worktree to the ancestor bundle", got.Dir, wtDir)
+	}
+
+	// and the ordinary case must not regress: from a plain subdirectory of a
+	// normal repo, the root bundle above is still what gets found.
+	sub := filepath.Join(main, "deep", "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Detect(sub, sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !samePathTest(got.Dir, main) {
+		t.Fatalf("Detect(subdir of a normal repo) = %s, want the repo root %s", got.Dir, main)
+	}
+}
+
+func samePathTest(a, b string) bool {
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	if err1 != nil || err2 != nil {
+		return a == b
+	}
+	return ra == rb
+}
