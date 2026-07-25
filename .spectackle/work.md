@@ -766,7 +766,7 @@ EXIT CRITERION: on a repository with the feature enabled, driving a task from ac
 
 ## T-01KYDBTDF0EG28WEVQEGXGNH3Z internal/forge: pull requests over HTTPS, no gh binary, with an offline implementation
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYDBRWFZFXSBRF4PNRD6R4D9
 refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4
