@@ -130,6 +130,18 @@ type Server struct {
 	compactCount     int
 	hintedAt         int
 
+	// stale-binary hint cache (postCall's proactive nudge, MCP-010): a
+	// debounced verdict for whether the running executable is older than the
+	// newest .go file under s.ws.Dir, refreshed at most once every
+	// staleCheckInterval so the hint never walks the workspace tree on every
+	// single tool call. staleHinted mirrors hintedAt's role above: false
+	// means armed (never surfaced for the current crossing, or re-armed
+	// after a rebuild made staleVerdict false again). See swarm.go:
+	// staleHint, binaryStale.
+	lastStaleCheck time.Time
+	staleVerdict   bool
+	staleHinted    bool
+
 	// mu serializes tool calls: the MCP SDK dispatches them concurrently,
 	// but lifecycle writes are read-modify-write over shared files (ID
 	// minting, work.md rewrites) — found the hard way when two concurrent
