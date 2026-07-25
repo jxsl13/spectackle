@@ -120,3 +120,23 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
+
+## T-01KYDJC0T9E3695Z8QW14M11EP done awaits CI like archive does: the LLM waits on the transition while the MCP polls, and the verdict lands in that result
+kind: task
+state: draft
+created: 2026-07-25
+refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
+
+Requirement, refined across four user messages and recorded so the refinement survives: failed CI reaches the LLM through the MCP; the LLM never queries for it; the MCP polls; and the LLM WAITS on the transition call until the MCP has finished polling. That is the blocking-await model, not a background push. archive already implements it for the merge gate (awaitChecksAndMerge: pending polls within a bounded budget, red refuses the merge loudly, transient merge refusals retry). The gap is done.
+
+WHAT TO BUILD: the done transition, after commit, push and the ready flip, awaits the head CI verdict with the same bounded polling the merge gate uses, and the verdict lands in the done result itself: passing as one g record, failing as a ! finding naming the item, the pull request and its URL, budget-spent-still-pending as its own distinct wording. The item STAYS done either way — the lifecycle state is the server own and a forge cannot veto it; this is a report, not a refusal — but a red done is a done the LLM hears about in the same breath, while the context of what changed is still hot.
+
+REUSE, not duplication: factor the awaiting loop out of awaitChecksAndMerge so done and archive share one poll implementation with different conclusions — done reports, archive gates. Two polling loops with budgets is how the two drift.
+
+COST, stated because it is real: done blocks up to the wait budget while CI runs, holding the server mutex, exactly as archive already does. That is the model the user chose, restated twice; the budget bounds it, and the pending record names what is being waited on within the first poll interval.
+
+TESTS: scripted forge — done with passing CI carries the g record; with failing CI carries the finding and the item is still done; never-concluding CI spends the budget and says so; the factored loop is shared, asserted by both transitions exercising one implementation. Offline answers ChecksNone and done proceeds without waiting, said in one record.
+
+VERIFY: go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Live: a done on a branch whose CI is running blocks until conclusion and the result carries the verdict.
+SCOPE: internal/mcpserver/gitflow.go and tests; docs/tools.md if the finding code is new.
+ROLLBACK: the await is additive at done; removing the call restores flip-and-return.
