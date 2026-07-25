@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,7 +51,10 @@ func TestDetect(t *testing.T) {
 		t.Fatalf("git fallback = %s, want %s", ws2.Dir, root2)
 	}
 
-	// flag fallback: bare dir
+	// flag fallback: bare dir. No git anywhere above (t.TempDir() is not
+	// nested in a repo) — the workspace must anchor at the given directory
+	// rather than walking all the way up to the filesystem root (issue 27's
+	// second probe).
 	root3 := t.TempDir()
 	ws3, err := Detect(root3, root3)
 	if err != nil {
@@ -58,6 +62,97 @@ func TestDetect(t *testing.T) {
 	}
 	if ws3.Dir != root3 {
 		t.Fatalf("flag fallback = %s, want %s", ws3.Dir, root3)
+	}
+}
+
+// runGit runs git in dir with a fixed identity, matching internal/wt's own
+// test fixtures, so these tests never depend on the host's git config. It
+// skips the calling test (not fails it) when git itself is unavailable,
+// matching internal/wt.InitTestRepo's convention.
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{"-C", dir,
+		"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}, args...)
+	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+		if _, lookErr := exec.LookPath("git"); lookErr != nil {
+			t.Skipf("git unavailable: %v", lookErr)
+		}
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// TestDetectNestedGitWorktreeIsOwnRoot is GitHub issue 27: a linked git
+// worktree's .git is a FILE (a "gitdir: ..." pointer), not a directory.
+// Detect's git-boundary walk used to test only dirExists(.git), so from
+// inside such a worktree it skipped straight past that file and kept
+// climbing until it hit the main checkout's real .git directory — an
+// explicit -root naming the worktree therefore silently resolved to the
+// enclosing checkout instead, and every bundle write landed there.
+func TestDetectNestedGitWorktreeIsOwnRoot(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	wtDir := filepath.Join(main, "wt", "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	ws, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != wtDir {
+		t.Fatalf("Detect(nested worktree) = %s, want %s (a .git FILE must terminate the walk exactly like a .git dir)", ws.Dir, wtDir)
+	}
+
+	// the write lands in the worktree's OWN bundle...
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	if !fileExists(filepath.Join(wtDir, Dot, "config.yaml")) {
+		t.Fatal("worktree did not get its own .spectackle bundle")
+	}
+	// ...and the enclosing main checkout's bundle is untouched.
+	if _, err := os.Stat(filepath.Join(main, Dot)); err == nil {
+		t.Fatal("the enclosing main checkout's .spectackle must not have been written to")
+	}
+}
+
+// TestDetectWorktreeOutsideMainCheckoutStillWorks is the field report's third
+// probe: a worktree placed OUTSIDE the main checkout already got its own
+// bundle before this fix (there is no enclosing .git directory to find), and
+// must keep doing so — this guards against a fix to the nested case that
+// accidentally widens the walk and starts skipping non-nested worktrees too.
+func TestDetectWorktreeOutsideMainCheckoutStillWorks(t *testing.T) {
+	main := t.TempDir()
+	runGit(t, main, "init", "-q", "-b", "main")
+	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
+	wtDir := filepath.Join(t.TempDir(), "feature")
+	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
+
+	ws, err := Detect(wtDir, wtDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != wtDir {
+		t.Fatalf("Detect(worktree outside main checkout) = %s, want %s", ws.Dir, wtDir)
+	}
+}
+
+// TestDetectRootFlagTargetsNamedRepo is the field report's first probe: an
+// explicit root naming a different repository must target that repository,
+// not the one detection would otherwise land in — the flag was never
+// ignored, and this fix must not change that.
+func TestDetectRootFlagTargetsNamedRepo(t *testing.T) {
+	repoA := t.TempDir()
+	repoB := t.TempDir()
+	runGit(t, repoA, "init", "-q", "-b", "main")
+	runGit(t, repoB, "init", "-q", "-b", "main")
+
+	ws, err := Detect(repoA, repoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Dir != repoA {
+		t.Fatalf("Detect(-root repoA) = %s, want %s (must target the named repo, never repoB)", ws.Dir, repoA)
 	}
 }
 

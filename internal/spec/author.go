@@ -30,8 +30,20 @@ type AuthorReq struct {
 
 // AuthorRes reports the outcome.
 type AuthorRes struct {
-	ID       string
-	Path     string // repo-relative spec file path
+	ID   string
+	Path string // repo-relative spec file path
+
+	// Root is the absolute dir Path is relative to: the workspace root
+	// AddRule/EditRule were called with, not necessarily the main checkout.
+	// GitHub issue 27: a caller inside a linked git worktree got back a
+	// bare "ok ID .spectackle/spec.md" that read as if it landed in the
+	// worktree, when the write had actually landed in the enclosing main
+	// checkout — the relative Path alone can't tell the two apart. Root
+	// pins down the other half of that join so a caller (or a future
+	// mcpserver reporting change) can print filepath.Join(Root, Path) and
+	// never wonder which directory it is relative to.
+	Root string
+
 	Findings []ears.Finding
 	Written  bool
 }
@@ -69,7 +81,7 @@ func AddRule(ws workspace.Root, c *Cascade, req AuthorReq) (AuthorRes, error) {
 		req.Dir = ""
 	}
 	rel := SpecRel(req.Dir)
-	res := AuthorRes{Path: rel}
+	res := AuthorRes{Path: rel, Root: ws.Dir}
 
 	res.Findings = ears.LintSentence(req.Sentence, rel, 0)
 	for _, f := range res.Findings {
@@ -152,7 +164,7 @@ func EditRule(ws workspace.Root, c *Cascade, id, sentence, rationale string, app
 	if applies == nil {
 		applies = old.Applies
 	}
-	res := AuthorRes{ID: id, Path: old.File}
+	res := AuthorRes{ID: id, Path: old.File, Root: ws.Dir}
 	// Linted AFTER the fallbacks above, deliberately: sentence now holds the
 	// text this call will actually store, so every finding describes the stored
 	// state rather than an intermediate one. (Before the tool layer learned to
