@@ -13,6 +13,7 @@ The langspec registry SHALL define a language purely as one `Spec` data value so
 - T-0121 langspec hardening jvm/dotnet: java, kotlin, scala, groovy, csharp: java, kotlin, scala, groovy and csharp hardened; all five gained call edges, csharp recall 9 to 22 symbols on the fixture
 - T-0122 langspec hardening c-family/shader: c, cpp, objc, metal, glsl: c, cpp, objc, metal and glsl hardened; cpp 11 to 21 symbols, glsl gained 8 edges, objc phantom duplicate declarations removed
 - T-0124 langspec hardening systems/functional: rust, swift, zig, haskell, ocaml, erlang: rust, swift, zig, haskell, ocaml and erlang hardened; rust, swift and zig gained call edges, ocaml recall 11 to 22 symbols
+- T-0120 langspec hardening web: javascript (+NEW test), typescript, dart: web hardening live: javascript 10 to 20 nodes with 7 edges (class methods, constructors and getters minted no node at all before), typescript 10 to 23 with 7 edges (class and interface members), dart 13 to 24 with 5 edges; all three gained CallRe so spans bound real bodies. Pre-existing tests that asserted EndLine==Line encoded the span-collapse defect and were corrected.
 
 ## LSP-001 {applies: go:langspec.SpecParser.Parse}
 WHEN a `Spec` sets `CallRe`, the SpecParser SHALL emit `ECall` edges from each Def's brace-counted body span, callee IDs minted in the same language — destinations may be dangling exactly like Go's syntactic pass.
