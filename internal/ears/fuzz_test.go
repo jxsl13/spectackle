@@ -40,12 +40,12 @@ func FuzzParseRules(f *testing.F) {
 }
 
 func FuzzStripFrontMatter(f *testing.F) {
-	f.Add("---\nschema: v0\n---\nbody\n")
+	f.Add("---\nschema: v1\n---\nbody\n")
 	f.Add("---\nunclosed frontmatter\n")
 	f.Add("body without frontmatter\n")
 	f.Add("---\n---\n")
 	f.Add("")
-	f.Add("\r\n---\r\nschema: v0\r\n---\r\nbody\r\n")
+	f.Add("\r\n---\r\nschema: v1\r\n---\r\nbody\r\n")
 	f.Fuzz(func(t *testing.T, text string) {
 		body, start := StripFrontMatter(text)
 		if start < 1 {

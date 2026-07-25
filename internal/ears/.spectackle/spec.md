@@ -1,5 +1,5 @@
 ---
-schema: v0
+schema: v1
 prefix: SPX-EARS
 ---
 

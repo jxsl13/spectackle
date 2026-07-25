@@ -24,7 +24,7 @@ func ws(t *testing.T) workspace.Root {
 	if err := root.EnsureScaffold("gpu"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(root.SpecPath("gpu"), []byte("---\nschema: v0\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(root.SpecPath("gpu"), []byte("---\nschema: v1\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return root

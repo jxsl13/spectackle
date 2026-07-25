@@ -1,4 +1,4 @@
-schema: v0
+schema: v1
 langs: [go]
 ignore:
   - ".git/**"

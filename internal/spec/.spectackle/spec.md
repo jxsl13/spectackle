@@ -1,5 +1,5 @@
 ---
-schema: v0
+schema: v1
 prefix: SPX-SPC
 ---
 
@@ -36,3 +36,6 @@ Rationale: archive is the OpenSpec delta-merge moment; work.md stays bounded.
 
 ## SPX-SPC-007 {applies: go:spec.Cascade.ForNode}
 WHEN ForNode resolves a node ID with a known file, the cascade SHALL return the rules whose applies list names the node first, then the file's cascade rules, deduplicated by rule ID.
+
+## intent
+- B-01KYD1G9SJFE8B1CGF6THPX6J4 rule op=edit drops the blank-line separator before the next rule, the loss accumulates, and lint does not notice: fixed under T-01KYD2: add and edit share one canonical block serializer that ends every rule block with exactly one blank line, so the two paths produce byte-identical files and no edit eats a separator
