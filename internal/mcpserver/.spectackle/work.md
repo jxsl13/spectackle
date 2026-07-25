@@ -64,32 +64,3 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the 
 SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifecycle.go's state machine, the item model, templates.
 ROLLBACK: revert the commit - one conditional, no stored state, no format change.
 REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
-
-## T-01KYDBWE98FPZ9X5X714RV2ZJQ couple the state transitions to the git workflow in the server
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYDBRWFZFXSBRF4PNRD6R4D9
-refs: ADR-01KYDBQGMRFBN9SAHCWWNSAKX4
-targets: internal/mcpserver/swarm.go, internal/mcpserver/tools.go
-
-IMPLEMENTER IN OWN WORKTREE. BLOCKED-ON: both siblings under P-01KYDB (internal/forge, and the config plus git primitives) must be MERGED first — this task is the wiring and has nothing to call until they exist. Verify with find scope=code before starting; if either is absent, stop and report.
-
-WHAT TO BUILD: the transition mapping, and only it. The LLM must never have to issue a git command again — that is the requirement's whole point, since every such command is tokens spent on mechanics instead of judgment.
-  work op=start, or a move into active: ensure the task branch, commit code, push, open a DRAFT pull request whose title carries the full task ID.
-  any server write while a task is active: commit and push, so no change is ever only local. Debounce it the way the compact and stale hints already debounce their work — a push per journal append is unacceptable — and say in your report what you chose and why.
-  move to done: flip the pull request to ready for review.
-  archive after verification: merge, merge commit, never squash.
-
-IDEMPOTENCE IS THE CORRECTNESS PROPERTY. Every step must be safe to repeat: an existing branch is reused, an existing pull request is found rather than duplicated, an already-ready pull request is left alone, an already-merged one is not merged twice. Tool calls retry and agents crash mid-sequence; a mapping that only works on a clean first run will produce duplicate pull requests in normal use.
-
-DEGRADATION: everything the forge cannot do is reported as a record on the tool result, never as a failed state transition — except that the automation must not claim success it did not have. Insufficient permission on merge leaves the pull request open and says so (ADR-01KYDB). Offline mode runs the same sequence against the local repository. Feature disabled in config restores today's behavior exactly, which is the assertion that protects every existing user on upgrade.
-
-THE CONSTRAINT THAT OVERRIDES CONVENIENCE, from B-0006, SPX-SWM-001 and a prior rejection of this exact idea: record state reaches the default branch through the semantic replay, never through a git merge of journal files. Commit and push CODE. Never git-merge .spectackle between branches. The sibling primitives already enforce this; do not route around them.
-
-TESTS: the full active-to-archived sequence against the offline implementation, asserting branch, draft, ready and a local merge commit (assert the merge is a merge commit — two parents — not a fast-forward, since never-squash is the point); every step repeated twice and shown to be a no-op the second time; the feature disabled producing byte-identical output and no git side effects; a merge refused for permission leaving the pull request open with a record naming why; and the existing work op=start and submit tests passing UNCHANGED, since this must extend that flow rather than replace it.
-
-VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ./... ; gofmt -l . (empty) ; spectackle lint . (POSITIONAL) ; spectackle call -root . check '{}' ends exactly ok. Then drive it live in OFFLINE mode over a scratch repository and paste the resulting git log.
-SCOPE: the two named files plus their tests, and docs/tools.md if any tool schema or record shape changes (SPX-REPO-001 binds them). Do NOT touch internal/forge or internal/wt beyond calling them, and no file under any .spectackle directory.
-ROLLBACK: the coupling is behind the config flag; disabling it is the rollback, and removing the call sites is the full one.
-REPORT BACK: the debounce you chose for the during-work push and why, how idempotence is enforced per step, the live offline transcript, each verification command's real result, anything deliberately not done.
