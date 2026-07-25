@@ -309,6 +309,18 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 			return res
 		}
 	}
+	// LOCAL gates before the runner is ever involved: the workspace verify
+	// commands (plus the item's own goal) run here, at done, and a red gate
+	// leaves the pull request a DRAFT — reported as GATE E with the failing
+	// command, CI await skipped. A failure that never reaches a runner costs
+	// zero runner minutes, which is the requirement's core: runners fire only
+	// at finalization, after local gates pass. Passing is said in one record.
+	if gate := s.runGate(it.Goal); gate != "" {
+		res.addf("%s", gate)
+		res.addf("! GATE E %s local gate failed — pr %d stays draft, fix and move to done again", it.ID, pr.Number)
+		return res
+	}
+	res.addf("g local gates passed")
 	if !pr.Draft {
 		res.addf("g pr %d ready (already)", pr.Number)
 	} else if pr, err = f.Ready(pr); err != nil {

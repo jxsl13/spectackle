@@ -429,19 +429,41 @@ func (g *GitHub) Checks(pr PR) (CheckState, error) {
 		return ChecksNone, nil
 	}
 	pending := false
+	realGreen := false
 	for _, r := range out.CheckRuns {
 		if r.Status != "completed" {
 			pending = true
 			continue
 		}
 		switch r.Conclusion {
-		case "success", "neutral", "skipped":
+		case "success", "neutral":
+			realGreen = true
+		case "skipped":
+			// benign, but NOT evidence of green: the draft-skip workflow
+			// concludes every during-work run as skipped, and a head whose
+			// runs are all skipped has never been tested.
 		default:
 			return ChecksFailing, nil
 		}
 	}
 	if pending {
 		return ChecksPending, nil
+	}
+	if !realGreen {
+		// Every run concluded skipped. That is what a draft-phase head looks
+		// like, and reading it as passing would merge untested work on the
+		// strength of runs that deliberately did nothing — the predecessor-
+		// verdict defect (B-01KYDN) in a new costume. With workflows active a
+		// real run is expected once the pull request is ready, so this is
+		// Pending; without any workflow it is the ordinary no-CI case.
+		hasCI, err := g.hasWorkflows()
+		if err != nil {
+			return "", err
+		}
+		if hasCI {
+			return ChecksPending, nil
+		}
+		return ChecksNone, nil
 	}
 	return ChecksPassing, nil
 }
