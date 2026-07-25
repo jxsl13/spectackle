@@ -391,7 +391,14 @@ func (g *GitHub) Merge(pr PR) (MergeResult, error) {
 // repository-without-CI case, which must be distinguishable from Passing
 // because it is the caller's cue that there is nothing to wait FOR.
 func (g *GitHub) Checks(pr PR) (CheckState, error) {
-	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", g.Owner, g.Repo, url.PathEscape(pr.Branch))
+	// The SHA when the caller pinned one, the branch name only as fallback:
+	// see PR.HeadSHA for why the branch ref is the wrong oracle right after a
+	// push.
+	ref := pr.HeadSHA
+	if ref == "" {
+		ref = pr.Branch
+	}
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", g.Owner, g.Repo, url.PathEscape(ref))
 	status, raw, err := g.request(http.MethodGet, path, nil)
 	if err != nil {
 		return "", err

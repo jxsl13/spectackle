@@ -332,7 +332,9 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	// done then WAITS for the head's CI verdict and carries it in this very
 	// result — the blocking-await model (T-01KYDJC): the LLM waits on the
 	// transition while the server polls, and learns about a red head in the
-	// same breath as declaring done, not at archive time.
+	// same breath as declaring done, not at archive time. The verdict is
+	// pinned to the exact local head just pushed (B-01KYDN).
+	s.pinHead(&pr, branch, res)
 	awaitChecksReport(f, pr, mergeWaitBudget, mergePollInterval, res)
 	return res
 }
@@ -404,8 +406,23 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		res.addf("g merge skipped: no open pr for %s (already merged, or never opened)", branch)
 		return res
 	}
+	s.pinHead(&pr, branch, res)
 	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)
 	return res
+}
+
+// pinHead stamps the pull request with the local branch head, so the CI await
+// polls the commit that was actually pushed (B-01KYDN: a branch ref asked
+// seconds after a push can still answer for the predecessor). Failure to
+// resolve is said and the await falls back to the branch ref — degraded, not
+// silent.
+func (s *Server) pinHead(pr *forge.PR, branch string, res *gitFlowResult) {
+	sha, err := wt.HeadSHA(s.ws.Dir, branch)
+	if err != nil {
+		res.addf("! GIT E %s head resolve: %s — awaiting by branch ref instead", branch, err)
+		return
+	}
+	pr.HeadSHA = strings.TrimSpace(sha)
 }
 
 // Budgets for the mechanical merge. The wait budget covers this repository's

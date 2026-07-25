@@ -31,6 +31,15 @@ type PR struct {
 	// mutation, which addresses the pull request by node ID rather than by
 	// number. Empty for Offline, which has no such namespace.
 	NodeID string `json:",omitempty"`
+
+	// HeadSHA is the exact commit the caller wants a CI verdict FOR. Checks
+	// polls it in preference to the branch name, because a branch ref asked
+	// seconds after a push can still resolve to the previous head — whose
+	// concluded green then merges work that was never tested (observed live:
+	// a nine-second "verdict" on a branch whose CI takes two minutes). The
+	// pusher knows the SHA it pushed; a caller that fills this cannot be
+	// answered about any other commit.
+	HeadSHA string `json:",omitempty"`
 }
 
 // ReasonNoPermission is the MergeResult.Reason set when Merge is blocked by
