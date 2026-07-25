@@ -54,7 +54,7 @@ Scope is disjoint by package and file: registry invariants in internal/langspec 
 
 ## T-0128 registry invariants for parsers and Specs, plus the B-0008 kind-gate fix
 kind: task
-state: approved
+state: done
 created: 2026-07-25
 parent: P-0087
 refs: B-0007, B-0008
