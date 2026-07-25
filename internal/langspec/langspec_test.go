@@ -125,16 +125,22 @@ func TestJavascriptSpecNodes(t *testing.T) {
 	}
 	byID := nodesByID(pr)
 
+	// EndLine differs from Line wherever a brace-delimited body spans lines:
+	// javascriptSpec sets CallRe (T-0120), which is what makes SpecParser
+	// compute a real body span instead of collapsing it onto the def line.
+	// js:app.greet is the class method that minted no node at all before
+	// T-0120 — the [high] finding this test now guards.
 	want := map[graph.NodeID]struct {
-		Kind graph.NodeKind
-		Line int
+		Kind          graph.NodeKind
+		Line, EndLine int
 	}{
-		"js:app.run":       {graph.KFunc, 1},
-		"js:app.Foo":       {graph.KType, 5},
-		"js:app.add":       {graph.KFunc, 9},
-		"js:app.fetchData": {graph.KFunc, 11},
-		"js:app.mul":       {graph.KFunc, 15},
-		"js:app.square":    {graph.KFunc, 17},
+		"js:app.run":       {graph.KFunc, 1, 3},
+		"js:app.Foo":       {graph.KType, 5, 5},
+		"js:app.greet":     {graph.KFunc, 6, 6},
+		"js:app.add":       {graph.KFunc, 9, 9},
+		"js:app.fetchData": {graph.KFunc, 11, 13},
+		"js:app.mul":       {graph.KFunc, 15, 15},
+		"js:app.square":    {graph.KFunc, 17, 17},
 	}
 	if len(pr.Nodes) != len(want) {
 		t.Fatalf("got %d nodes, want %d: %+v", len(pr.Nodes), len(want), pr.Nodes)
@@ -147,8 +153,8 @@ func TestJavascriptSpecNodes(t *testing.T) {
 		if n.Kind != w.Kind {
 			t.Errorf("%s Kind = %v, want %v", id, n.Kind, w.Kind)
 		}
-		if n.Line != w.Line || n.EndLine != w.Line {
-			t.Errorf("%s Line/EndLine = %d/%d, want %d", id, n.Line, n.EndLine, w.Line)
+		if n.Line != w.Line || n.EndLine != w.EndLine {
+			t.Errorf("%s Line/EndLine = %d/%d, want %d/%d", id, n.Line, n.EndLine, w.Line, w.EndLine)
 		}
 		if n.Lang != graph.LangJS {
 			t.Errorf("%s Lang = %v, want js", id, n.Lang)
@@ -419,5 +425,58 @@ func TestIndexAllPyAndJS(t *testing.T) {
 	}
 	if jsNode.Kind != graph.KFunc || jsNode.Lang != graph.LangJS {
 		t.Errorf("js:app.run = %+v, want Kind=KFunc Lang=js", jsNode)
+	}
+}
+
+// TestSpecParserCacheVersionTracksSpec: a langspec language is its data, so
+// the cache discriminator must move when the data moves and stay put when it
+// does not — otherwise a regex fix stays invisible in an already-indexed
+// workspace (B-0007), or every language re-parses on every run.
+func TestSpecParserCacheVersionTracksSpec(t *testing.T) {
+	base := Spec{
+		Lang: graph.LangPy, Exts: []string{".py"}, Qual: QualFileStem,
+		Defs: []Def{{Kind: graph.KFunc, Re: regexp.MustCompile(`^def\s+(\w+)`), Name: 1}},
+	}
+	baseVer := SpecParser{S: base}.CacheVersion()
+
+	if again := (SpecParser{S: base}).CacheVersion(); again != baseVer {
+		t.Fatalf("CacheVersion is not stable for one Spec: %q vs %q", baseVer, again)
+	}
+
+	// one regex changed (the async def fix's shape) -> different version
+	changed := base
+	changed.Defs = []Def{{Kind: graph.KFunc, Re: regexp.MustCompile(`^(?:async\s+)?def\s+(\w+)`), Name: 1}}
+	if v := (SpecParser{S: changed}).CacheVersion(); v == baseVer {
+		t.Fatal("a changed Def regex did not change CacheVersion: cached blobs would survive the fix")
+	}
+
+	// every other field that steers output must count too
+	for name, mutate := range map[string]func(*Spec){
+		"kind":     func(s *Spec) { s.Defs[0].Kind = graph.KType },
+		"name-grp": func(s *Spec) { s.Defs[0].Name = 2 },
+		"sig-grp":  func(s *Spec) { s.Defs[0].Sig = 1 },
+		"qual":     func(s *Spec) { s.Qual = QualFlat },
+		"callre":   func(s *Spec) { s.CallRe = regexp.MustCompile(`(\w+)\(`) },
+		"stop":     func(s *Spec) { s.Stop = []string{"if"} },
+		"endspan": func(s *Spec) {
+			s.EndSpan = &EndSpanSpec{Open: regexp.MustCompile(`\bdef\b`), Close: regexp.MustCompile(`\bend\b`)}
+		},
+		"exts": func(s *Spec) { s.Exts = []string{".py", ".pyi"} },
+	} {
+		mutated := base
+		mutated.Defs = append([]Def(nil), base.Defs...)
+		mutate(&mutated)
+		if v := (SpecParser{S: mutated}).CacheVersion(); v == baseVer {
+			t.Errorf("changing %s left CacheVersion unchanged", name)
+		}
+	}
+}
+
+// TestSpecParserImplementsCacheVersioner keeps the wiring honest: the digest
+// is worthless if the indexer never sees it.
+func TestSpecParserImplementsCacheVersioner(t *testing.T) {
+	var p index.LanguageParser = SpecParser{S: Spec{Lang: graph.LangPy}}
+	if _, ok := p.(index.CacheVersioner); !ok {
+		t.Fatal("SpecParser must implement index.CacheVersioner for the parse cache to see Spec changes")
 	}
 }
