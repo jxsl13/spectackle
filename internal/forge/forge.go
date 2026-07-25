@@ -25,6 +25,12 @@ type PR struct {
 	Base   string // target (base) branch
 	URL    string // human-followable link; Offline gives a synthetic one
 	Draft  bool
+
+	// NodeID is the forge's GraphQL identifier, when it has one. Ready needs
+	// it: un-drafting a pull request is only possible through the GraphQL
+	// mutation, which addresses the pull request by node ID rather than by
+	// number. Empty for Offline, which has no such namespace.
+	NodeID string `json:",omitempty"`
 }
 
 // ReasonNoPermission is the MergeResult.Reason set when Merge is blocked by
