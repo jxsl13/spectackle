@@ -133,3 +133,10 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## P-01KYFZXW8WF7KA50GTREK2511G live lens probe
+kind: proposal
+state: draft
+created: 2026-07-26
+
+A throwaway proposal existing only so a lens-labeled verdict can be recorded live against this repository, proving the round-trip from the lenses parameter through the journal event onto the pack verdict line. It names no targets, changes nothing, and is rejected immediately after the render below is captured for the T-01KYFXDC6 report.
