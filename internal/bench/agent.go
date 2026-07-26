@@ -125,6 +125,7 @@ const meterShim = `#!/bin/sh
 REAL=%q
 METER=%q
 NONCE=%q
+TRANSCRIPT=%q
 if [ "$1" != "call" ]; then
   echo "! SHIM E only the call subcommand is allowed through the meter"
   exit 2
@@ -132,6 +133,7 @@ fi
 OUT=$("$REAL" "$@" 2>&1)
 rc=$?
 printf '%%s\n' "$OUT"
+printf '%%s\n' "$OUT" >> "$TRANSCRIPT"
 if [ -f "$METER" ]; then SEQ=$(($(wc -l < "$METER") + 1)); else SEQ=1; fi
 printf '%%d %%s %%d %%d %%s\n' "$SEQ" "$NONCE" "${#OUT}" "$rc" "$*" >> "$METER"
 exit $rc
@@ -167,7 +169,7 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 		return "", "", "", err
 	}
 	nonce = hex.EncodeToString(nonceBytes)
-	if err := os.WriteFile(shimPath, fmt.Appendf(nil, meterShim, bin, meterLog, nonce), 0o755); err != nil {
+	if err := os.WriteFile(shimPath, fmt.Appendf(nil, meterShim, bin, meterLog, nonce, filepath.Join(dir, "transcript.log")), 0o755); err != nil {
 		return "", "", "", err
 	}
 	// Journal baseline for the scorer's write-event delta (B-01KYE6G): the
@@ -253,7 +255,7 @@ func scoreWorktree(bin, dir string, sc AgentScore, meterRaw string) (AgentScore,
 	}
 	sc.DecideOK = startOK && submitOK // reused column: the flow proof
 
-	sc.Valid = sc.RuleOK && sc.TaskState == "done" && sc.DecideOK && sc.CheckOK && !sc.Disqualified
+	sc.Valid = sc.RuleOK && sc.TaskState == "done" && sc.DecideOK && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
@@ -319,7 +321,26 @@ type AgentScore struct {
 	Disqualified     bool
 	DisqualifyReason string
 
+	// Violations are role-boundary hits (ROLE-BOUNDARY-001): tool-result
+	// text instructing the agent to run git, scanned off transcript.log.
+	// Non-empty kills Valid — a surface that delegates mechanical git back
+	// to the agent fails the run regardless of cost.
+	Violations []string
+
 	writeCalls int // metered exit-0 calls to write-capable tools (journal bound)
+}
+
+// transcriptViolations scans the shim's transcript tee for role-boundary
+// hits (ROLE-BOUNDARY-001). A workspace prepped before the tee existed has
+// no transcript.log and scans clean rather than erroring: absence of
+// evidence here is absence of the surface under test, not tampering (the
+// meter integrity checks own that axis).
+func transcriptViolations(dir string) []string {
+	traw, err := os.ReadFile(filepath.Join(dir, "transcript.log"))
+	if err != nil {
+		return nil
+	}
+	return gitInstructionViolations(string(traw))
 }
 
 func ScoreAgentRun(bin, dir string) (AgentScore, error) {
@@ -395,6 +416,7 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 			}
 		}
 	}
+	sc.Violations = append(sc.Violations, transcriptViolations(dir)...)
 	if raw, err := os.ReadFile(filepath.Join(dir, "manifest.size")); err == nil {
 		if n, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
 			sc.ManifestBytes = n
@@ -434,7 +456,7 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		sc.BugState = "rejected"
 	}
 
-	sc.Valid = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK && !sc.Disqualified
+	sc.Valid = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
@@ -474,7 +496,7 @@ func scoreTricky(bin, dir string, sc AgentScore, meterRaw string) (AgentScore, e
 	}
 	sc.Scenario = "tricky"
 	sc.RuleOK = ruleOK
-	sc.Valid = ruleOK && sc.TaskState == "draft" && sc.DecideOK && sc.CheckOK && !sc.Disqualified
+	sc.Valid = ruleOK && sc.TaskState == "draft" && sc.DecideOK && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
