@@ -25,8 +25,8 @@ choice: committed-only: rebuild from git HEAD, dirty tree never served (recommen
 
 ## B-01KYF7DJATEEDAXXV67GW958AK the committed-only watcher swaps while tool calls are in flight, severing the very edge that moved HEAD
 kind: bug
-state: done
+state: active
 created: 2026-07-26
-rounds: 1
+rounds: 2
 
 Reproduced twice on the resident server within minutes of the committed-only landing: a records-committing edge (done, then archived) moves HEAD; the watcher detects it on the next tick and exec-swaps while the SAME call is still running its CI await; the drain times out at 5s and severs the stream. The archive was cut mid-flight - records said archived, the PR stayed open (recovered via the merge-by-hand escape hatch, PR 114). Every long-running records-committing edge is now self-severing by construction. Expected: the watcher defers the swap while calls are in flight - the server tracks an active-call counter (incremented in the gate, decremented on return) and watchStale skips the swap until it reads zero, retrying next tick; HEAD staleness is not urgent, correctness of in-flight edges is. Verify: a synthetic long call held open across a HEAD move must complete on the old generation, with the swap following within one tick of its return; the E2E exec-swap suite stays green. Landing note: drive this fix through per-call CLI sessions, not the resident - its current generation still severs.
