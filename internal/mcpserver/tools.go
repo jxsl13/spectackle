@@ -1192,7 +1192,14 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 		for _, m := range missing {
 			b.WriteString("need " + m + " " + slotQuestions[m] + "\n")
 		}
-		return text(b.String())
+		// IsError, not plain text (B-01KYE0RCT): no rule was created, and a
+		// shell-driven agent keys on the exit code — a live judge issued
+		// nine junk-pattern retries because this read as success. The need
+		// grammar stays as the text so interactive flows still parse the
+		// slot question. The decide/commands need-decision lines stay plain
+		// successes deliberately: there the ask WAS registered and the
+		// answer legitimately arrives later.
+		return refuse(b.String())
 	}
 	if missing := missingSlots(in); len(missing) > 0 {
 		return refuse("! ARG E - still missing: " + strings.Join(missing, ", "))

@@ -1404,3 +1404,50 @@ func TestGetItemNonADRUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// TestNeedSlotFallbackIsError pins B-01KYE0RCT: rule op=add with missing
+// slots and no elicitation UI performs NO action, so the need response must
+// carry IsError — a shell-driven agent keys on the exit code, and a live
+// judge issued nine junk-pattern retries because this read as success. The
+// need grammar itself stays the text. Contrast deliberately pinned in
+// TestDecideNeedFallbackStaysSuccess: decide's need-decision line IS a
+// performed action (the ask is registered, the answer arrives later).
+func TestNeedSlotFallbackIsError(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "rule", Arguments: map[string]any{"op": "add"},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("need slot fallback without a performed action must carry IsError")
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(tc.Text, "need pattern") {
+		t.Fatalf("need grammar lost from the refusal text: %v", res.Content[0])
+	}
+}
+
+// TestDecideNeedFallbackStaysSuccess: the other half of the B-01KYE0RCT
+// boundary — decide op=ask without an elicitation UI parks the question and
+// mints the decision record; the action WAS performed, so IsError would be
+// wrong and would teach agents to retry an ask that already registered.
+func TestDecideNeedFallbackStaysSuccess(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "decide", Arguments: map[string]any{
+			"op": "ask", "question": "which color?", "options": []string{"red", "blue"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	tc, _ := res.Content[0].(*mcp.TextContent)
+	if res.IsError {
+		t.Fatalf("registered ask wrongly marked IsError: %v", tc)
+	}
+	if tc == nil || !strings.Contains(tc.Text, "need decision") {
+		t.Fatalf("expected the need decision fallback line: %v", res.Content[0])
+	}
+}
