@@ -232,7 +232,15 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 		res.addf("g pr %d %s (already open)", pr.Number, pr.URL)
 		return res
 	}
-	if ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase()); err != nil || !ahead {
+	ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase())
+	if err != nil {
+		// An error is not a deferral: rendering a failed probe as "not ahead
+		// yet" (B-01KYDY's reporting smell) dresses breakage up as a
+		// plausible wait state.
+		res.addf("! GIT E %s ahead probe: %s", it.ID, err)
+		return res
+	}
+	if !ahead {
 		// A forge refuses a pull request with no commits between head and
 		// base, so it opens at the first commit instead — and says so, since a
 		// silently deferred PR is indistinguishable from a broken one.
@@ -408,12 +416,26 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	// refspec does not match any") and stranded the closure. Create the
 	// branch now, at the current head, exactly what the active transition
 	// would have done; the unchanged machinery below then applies.
+	//
+	// B-01KYDY, the second stranding variant: the item branch EXISTS from an
+	// earlier era but is not the current branch. Checking it out would
+	// rewind the working tree to the code of that era, so the closure runs
+	// on a fresh -close branch at the current head instead; the old branch
+	// is never touched. When the item branch IS current (the whole normal
+	// lifecycle), nothing changes.
 	if !wt.BranchExists(s.ws.Dir, branch) {
 		if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
 			res.addf("! GIT E %s branch: %s", it.ID, err)
 			return res
 		}
 		res.addf("g branch %s created: records-only closure of a never-active item", branch)
+	} else if cur, err := wt.CurrentBranch(s.ws.Dir); err == nil && cur != branch {
+		branch += "-close"
+		if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
+			res.addf("! GIT E %s closure branch: %s", it.ID, err)
+			return res
+		}
+		res.addf("g branch %s created: item branch exists but is not checked out — closing on a fresh branch at the current head", branch)
 	}
 	// The archive journal event was written by Move before this runs, so it is
 	// on disk and must ride the branch INTO the merge — committed and pushed
