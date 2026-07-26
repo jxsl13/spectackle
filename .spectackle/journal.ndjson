@@ -431,3 +431,4 @@
 {"t":"2026-07-26T16:15:15Z","eid":"e8621c494d2a6720","ag":"cross-val-88ke","ev":"validate","id":"T-01KYD88KEDEAQ97QKQ46DSGTM4","op":"render","hash":"fba8dbbaf74c0e5b5908a38735648500b18113850d4db55f61fc851023cae69c","open":1,"keys":["nodocs:-"]}
 {"t":"2026-07-26T16:15:38Z","eid":"240abb8c59bd86b2","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD88KEDEAQ97QKQ46DSGTM4","fr":"done","to":"active","note":"nodocs: the evidence section needs its tools.md paragraph","rnd":1}
 {"t":"2026-07-26T16:15:42Z","eid":"72808ce3e0ec1b9d","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD88KEDEAQ97QKQ46DSGTM4","fr":"active","to":"done","note":"round two: the #evidence paragraph and grammar line in docs/tools.md"}
+{"t":"2026-07-26T16:19:04Z","eid":"e76bed821566931f","ag":"cross-val-88ke","ev":"validate","id":"T-01KYD88KEDEAQ97QKQ46DSGTM4","op":"render","hash":"1e4605c6ba141af7e976393e36579b9cda4b0daeaa3a6de3c690d2566cb0b1a8","open":1,"keys":["offscope:docs/tools.md"]}
