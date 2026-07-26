@@ -90,31 +90,30 @@ const (
 	// record would collide with it. The floor is about identity and stability,
 	// not about uniqueness, which ShortenRecordID computes adaptively.
 	//
-	// Six is chosen because:
-	//   - A prefix of p characters pins 5p-2 of the leading 48 timestamp
-	//     bits — NOT 5p: the encoding is a fixed-width big-endian base32
-	//     numeral over the whole 128-bit value, so the first character
-	//     carries only 3 payload bits (RecordIDLen's comment records the
-	//     two leading-zero slack bits). At p=6 that is 28 bits, i.e. the
-	//     mint time to within 2^20 ms ≈ 17.5 minutes (B-01KYD4J: an
-	//     earlier version of this comment claimed 30 bits / 4.4 minutes,
-	//     four times tighter than reality). A ~17.5-minute bucket means
-	//     essentially every pair of records in one working session shares
-	//     the six-character prefix, so the floor states IDENTITY — "this
-	//     is a record ID, minted in this era" — never uniqueness, which
-	//     the adaptive path below decides in practice. The follow-on sharp
-	//     edge is real and documented rather than hidden: a displayed ID
-	//     captured early in a session can turn ambiguous a few mints
-	//     later, exactly like a git short hash. Whether the floor should
-	//     rise to buy same-session stability is an ADR-0013 amendment
-	//     parked as a decision, not silently changed here.
-	//   - It matches the width of the sequential IDs it replaces ("T-0134" is
-	//     6 characters), so the output-diet cost that ADR-0013 measured stays
-	//     at zero for the common case.
-	// It is deliberately NOT a target length: in a same-millisecond batch the
-	// adaptive answer is far longer, which is the whole point of ADR-0013's
-	// caveat about the leading timestamp run.
-	MinRecordPrefixLen = 6
+	// Thirteen is the ADR-0013 amendment the user decided (ADR-01KYEP,
+	// answered 2026-07-26), raising the floor from six:
+	//   - A prefix of p characters pins 5p-2 payload bits — NOT 5p: the
+	//     encoding is a fixed-width big-endian base32 numeral over the
+	//     whole 128-bit value, so the first character carries only 3
+	//     payload bits (RecordIDLen's comment records the two leading-zero
+	//     slack bits). At p=13 that is 63 bits: ALL 48 timestamp bits plus
+	//     the leading 15 random bits. Two IDs minted in different
+	//     milliseconds can NEVER share a 13-character prefix; a
+	//     same-millisecond pair collides only with probability 2^-15.
+	//     Displayed prefixes are therefore stable for the repository
+	//     lifetime — the six-character floor pinned only 28 bits (a
+	//     ~17.5-minute mint window, B-01KYD4J), so a displayed ID captured
+	//     early in a session could turn ambiguous a few mints later,
+	//     observed live twice (an ADR/bug pair and a cross-session test
+	//     collision).
+	//   - The cost, accepted explicitly in the ADR: every rendered record
+	//     ID roughly doubles on the densest output surface. The measured
+	//     per-lifecycle delta is recorded in the docs/bench-curves.md
+	//     ledger per TOKEN-OBJECTIVE-001.
+	// It is deliberately NOT a target length: in a same-millisecond batch
+	// the adaptive answer can still be longer, which is the whole point of
+	// ADR-0013's caveat about the leading timestamp run.
+	MinRecordPrefixLen = 13
 
 	// crockfordAlphabet is Crockford's base32: the digits and the uppercase
 	// letters minus I, L, O and U. Its symbols are in ascending ASCII order,

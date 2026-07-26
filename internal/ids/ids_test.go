@@ -346,8 +346,13 @@ func TestResolveRecordID(t *testing.T) {
 		t.Fatalf("miss returned %v, want ErrNoMatch", err)
 	}
 
-	// Ambiguity: the shared timestamp prefix matches every record, and the
-	// error carries all of them.
+	// Ambiguity: at the raised floor (ADR-01KYEP) same-millisecond mints
+	// no longer share MinRecordPrefixLen characters — the floor pins into
+	// the random tail by design — so ambiguity needs a crafted sibling
+	// diverging only past the shared prefix.
+	sibling := want[:25] + map[bool]string{true: "0", false: "1"}[want[25:] != "0"]
+	known = append(known, sibling)
+	sort.Strings(known)
 	shared := want[:MinRecordPrefixLen]
 	_, err := ResolveRecordID(shared, known)
 	var amb *AmbiguousPrefixError
@@ -357,10 +362,16 @@ func TestResolveRecordID(t *testing.T) {
 	if amb.Prefix != shared {
 		t.Errorf("Prefix = %q, want %q", amb.Prefix, shared)
 	}
-	if !slices.Equal(amb.Candidates, known) {
+	wantCand := []string{}
+	for _, k := range known {
+		if strings.HasPrefix(k, shared) {
+			wantCand = append(wantCand, k)
+		}
+	}
+	if !slices.Equal(amb.Candidates, wantCand) {
 		t.Errorf("Candidates = %v, want all %d known IDs", amb.Candidates, len(known))
 	}
-	for _, k := range known {
+	for _, k := range wantCand {
 		if !strings.Contains(amb.Error(), k) {
 			t.Errorf("error message omits candidate %q: %s", k, amb.Error())
 		}
@@ -399,16 +410,32 @@ func ExampleMintRecordID() {
 // past that boundary do not. The comment once claimed 5p, four times
 // tighter than reality; this test keeps the two from drifting apart again.
 func TestPrefixPinsFivePMinusTwoTimestampBits(t *testing.T) {
-	const p = MinRecordPrefixLen // 6 -> pins 28 bits -> 2^20 ms window
+	const p = MinRecordPrefixLen
 	pinned := 5*p - 2
+	// At the raised floor the pinned bits exceed the 48 timestamp bits
+	// (ADR-01KYEP: p=13 pins 63 = all 48 plus 15 random) — the mint-window
+	// concept collapses and the guarantee becomes: IDs from DIFFERENT
+	// milliseconds can never share a p-char prefix. Keep the arithmetic
+	// honest for any future floor on either side of the 48-bit line.
+	if pinned >= 48 {
+		enc := func(ms int64) string { return MintRecordIDAt(time.UnixMilli(ms)).String()[:p] }
+		base := int64(0x0123_4567_8900)
+		for _, delta := range []int64{1, 1000, 1 << 20, 1 << 40} {
+			if enc(base) == enc(base+delta) {
+				t.Fatalf("IDs %d ms apart share the %d-char prefix — the floor must pin every timestamp bit", delta, p)
+			}
+		}
+		// Same-millisecond mints agree on the full 48 timestamp bits: the
+		// first 9 characters (45 bits) are pure timestamp and must match.
+		a, b := MintRecordIDAt(time.UnixMilli(base)).String(), MintRecordIDAt(time.UnixMilli(base)).String()
+		if a[:9] != b[:9] {
+			t.Fatalf("same-ms mints diverge inside the timestamp run: %s vs %s", a, b)
+		}
+		return
+	}
 	windowMs := int64(1) << (48 - pinned)
-
-	// A base aligned to the window start makes the boundary exact: inside
-	// stays within the same 2^20 ms bucket, outside is the first ms of the
-	// next one.
 	base := (int64(0x0123_4567_8900) >> (48 - pinned)) << (48 - pinned)
 	enc := func(ms int64) string { return MintRecordIDAt(time.UnixMilli(ms)).String()[:p] }
-
 	a := enc(base)
 	inside := enc(base + windowMs - 1)
 	outside := enc(base + windowMs)

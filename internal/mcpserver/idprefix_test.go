@@ -78,23 +78,38 @@ func TestAmbiguousPrefixRefusesAndNamesEveryCandidate(t *testing.T) {
 		}
 		full = append(full, id)
 	}
+	// At the raised floor (ADR-01KYEP) same-millisecond mints no longer
+	// share MinRecordPrefixLen characters — the floor pins into the random
+	// tail. Ambiguity needs a crafted sibling diverging only past the
+	// shared prefix; the second minted item stays as an unrelated peer.
+	sibling := full[0][:len(full[0])-1] + map[bool]string{true: "0", false: "1"}[!strings.HasSuffix(full[0], "0")]
+	if err := item.Upsert(s.ws, item.Item{
+		ID: sibling, Kind: "task", State: item.StateDraft, Title: "crafted sibling",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	full = append(full, sibling)
 	shared := full[0][:2+ids.MinRecordPrefixLen] // "T-" + the floor
-	if !strings.HasPrefix(full[1], shared) {
-		t.Fatalf("fixture broken: %q and %q do not share the floor", full[0], full[1])
+	if !strings.HasPrefix(sibling, shared) {
+		t.Fatalf("fixture broken: %q and %q do not share the floor", full[0], sibling)
 	}
 
 	out := callText(t, sess, "get", map[string]any{"id": shared})
 	if !strings.Contains(out, "ambiguous prefix") {
 		t.Fatalf("ambiguous prefix was not refused: %q", out)
 	}
-	for _, id := range full {
+	// only the prefix-sharers are candidates at the raised floor: the
+	// crafted sibling and its origin — the unrelated same-ms mint diverges
+	// inside its random tail and rightly stays unnamed.
+	candidates := []string{full[0], sibling}
+	for _, id := range candidates {
 		short := shortID(t, s, id)
 		if !strings.Contains(out, short) {
 			t.Fatalf("refusal does not name candidate %s (as %s): %q", id, short, out)
 		}
 	}
 	// and the named candidates are usable as-is: one more call, no guessing.
-	for _, id := range full {
+	for _, id := range candidates {
 		out := callText(t, sess, "get", map[string]any{"id": shortID(t, s, id)})
 		if strings.Contains(out, "ambiguous") || strings.Contains(out, "nf ") {
 			t.Fatalf("a candidate named by the refusal did not resolve: %q", out)
