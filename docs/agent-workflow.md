@@ -350,3 +350,17 @@ document describes the steady state that milestone converges on.
 | where is X defined / what calls X | get id=<node> depth=N | Cross-language call graph, not grep-inferred guesses |
 | sed-style bulk edit | get depth first, then edit | Survey sites via get depth; sed is the edit, never the search |
 | grep or sed .spectackle/ | find/get for reads, tools only for writes | Server-owned files: reads via API, writes via tools |
+
+## Resident server self-restart (committed-only)
+
+A dev build serving its own module may run with `-self-restart`: the server
+polls `git rev-parse HEAD` and, when HEAD moves past the commit stamped into
+the serving binary, rebuilds from a clean `git archive` snapshot of HEAD and
+exec-replaces itself (same PID, same port, swarm identity carried across).
+The dirty working tree is structurally excluded from every rebuild and
+working-tree edits never trigger a swap (ADR-01KYF5): commit — or merge — to
+ship a new serving generation. Foreign trees are refused by an eligibility
+guard at serve start; non-git roots idle with one loud log line. The
+mtime-based `make dev` hint is suppressed while the watcher runs, since its
+advice would be a manual dirty-tree rebuild — the exact hazard this policy
+closes.
