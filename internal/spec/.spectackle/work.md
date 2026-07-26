@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYFSZ7A6FZV9QY6SK88AMJ9V rule composer accepts a trigger already starting with WHEN and emits WHEN WHEN
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 targets: internal/spec/author.go
 
