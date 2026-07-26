@@ -16,7 +16,7 @@ choice: yes bounded
 
 ## T-01KYG90P1EE29RSD89Z0PW8CKN node/edge audit: every state hint offers judgment options, no tool result demands mechanical caller work
 kind: task
-state: active
+state: done
 created: 2026-07-26
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/prompts.go, internal/mcpserver/server.go, internal/mcpserver/tools.go, docs/lifecycle.md
