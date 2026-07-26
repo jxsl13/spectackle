@@ -454,3 +454,4 @@
 {"t":"2026-07-26T20:49:01Z","eid":"934867e4079222ef","ag":"ag-57bd","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-007","node":"go:mcpserver.Server.grill","cls":"healed","oh":"47edb8316c9ffca7","nh":"30e9a4d79d8c5c03"}
 {"t":"2026-07-26T21:02:00Z","eid":"db20b025d293ba26","ag":"ag-fc29","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-007","node":"go:mcpserver.Server.grill","cls":"healed","oh":"30e9a4d79d8c5c03","nh":"7762f42ae072007c"}
 {"t":"2026-07-26T21:02:00Z","eid":"d486fcd177715cc7","ag":"ag-fc29","ev":"drift","dir":"internal/mcpserver","rule":"MCP-005","node":"go:mcpserver.Server.compact","cls":"healed","oh":"207cd742db307bbf","nh":"a70ad293c07022f9"}
+{"t":"2026-07-26T21:27:33Z","eid":"fdfed2c0f3aca353","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYG56YQAFD09C2151VVYQHSV","k":"bug","ti":"archive split the record from the code: closure heuristics discard live work","dir":"internal/mcpserver"}
