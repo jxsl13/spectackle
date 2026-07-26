@@ -91,12 +91,23 @@ const (
 	// not about uniqueness, which ShortenRecordID computes adaptively.
 	//
 	// Six is chosen because:
-	//   - A prefix of p characters pins 5p of the leading 48 timestamp bits.
-	//     At p=6 that is 30 bits, i.e. the mint time to within 2^18 ms ≈ 4.4
-	//     minutes. That is the coarsest granularity at which a prefix still
-	//     states something true and stable about when the record was made;
-	//     anything shorter carries no information at all, since every ID in
-	//     this repository's lifetime shares the same leading characters.
+	//   - A prefix of p characters pins 5p-2 of the leading 48 timestamp
+	//     bits — NOT 5p: the encoding is a fixed-width big-endian base32
+	//     numeral over the whole 128-bit value, so the first character
+	//     carries only 3 payload bits (RecordIDLen's comment records the
+	//     two leading-zero slack bits). At p=6 that is 28 bits, i.e. the
+	//     mint time to within 2^20 ms ≈ 17.5 minutes (B-01KYD4J: an
+	//     earlier version of this comment claimed 30 bits / 4.4 minutes,
+	//     four times tighter than reality). A ~17.5-minute bucket means
+	//     essentially every pair of records in one working session shares
+	//     the six-character prefix, so the floor states IDENTITY — "this
+	//     is a record ID, minted in this era" — never uniqueness, which
+	//     the adaptive path below decides in practice. The follow-on sharp
+	//     edge is real and documented rather than hidden: a displayed ID
+	//     captured early in a session can turn ambiguous a few mints
+	//     later, exactly like a git short hash. Whether the floor should
+	//     rise to buy same-session stability is an ADR-0013 amendment
+	//     parked as a decision, not silently changed here.
 	//   - It matches the width of the sequential IDs it replaces ("T-0134" is
 	//     6 characters), so the output-diet cost that ADR-0013 measured stays
 	//     at zero for the common case.
