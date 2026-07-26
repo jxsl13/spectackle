@@ -7,6 +7,7 @@ kind: task
 state: draft
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
+grilled: 2026-07-26 open=0
 
 User suggestion during the CI-minimization work: git pre-hooks as an MCP-recommended gate.
 

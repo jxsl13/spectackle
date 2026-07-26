@@ -1,1 +1,2 @@
 {"t":"2026-07-25T22:17:35Z","eid":"4e41ea3176344afc","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYDNNVCRFSDVF6ZCXM1XAJB2","k":"task","ti":"the server recommends and scaffolds a pre-push hook running the local gates, so human pushes are gated like automated ones","dir":"internal/workspace"}
+{"t":"2026-07-26T23:21:22Z","eid":"d0f1686b680e5ae2","ag":"dogfeed-orchestrator","ev":"grill","id":"T-01KYDNNVCRFSDVF6ZCXM1XAJB2","dir":"internal/workspace","gr":"2026-07-26 open=0","hash":"5a36c9cb2f339e6dfe4f0ad19830a5796ef1ed661e5ea248746f0351270ac0cf"}
