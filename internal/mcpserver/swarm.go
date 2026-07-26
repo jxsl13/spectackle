@@ -534,13 +534,31 @@ func (s *Server) reattachOwnWorktree(id string) {
 		return
 	}
 	// The caller may hold a display prefix; the worktree ledger is keyed by
-	// the full ID — resolve through the same getter workStart uses.
-	it, ok, err := item.Get(s.main, id)
-	if err != nil || !ok {
+	// the full ID — resolve with the same two legs workStart uses: serving
+	// root first, then main. Serving-only misses main by design; a MAIN
+	// item held by a restarted worktree-homed server misses the serving
+	// root, and a ws-only read here dead-ended exactly that reattach — the
+	// restarted server's status listed the worktree submit then refused
+	// (adversarial round 3). Every worktree-flow item is main-resolvable
+	// by the workStart gate, so the fallback loses nothing.
+	it, ok, err := item.Get(s.ws, id)
+	if err != nil {
 		return
 	}
+	if !ok {
+		if it, ok, err = item.Get(s.main, id); err != nil || !ok {
+			return
+		}
+	}
 	if w, ok, err := s.cd.GetWorktree(it.ID); err == nil && ok && w.Agent == s.agent {
-		if err := s.reroot(w.Root, w.Item); err == nil {
+		// Ledger rows written by pre-canonicalization binaries may carry an
+		// alias spelling; trusting it verbatim defeats rerootBack's rehome
+		// during the migration window (round 4). Canonicalize defensively.
+		root := w.Root
+		if r, rerr := filepath.EvalSymlinks(root); rerr == nil {
+			root = r
+		}
+		if err := s.reroot(root, w.Item); err == nil {
 			s.wtItem = w.Item
 		}
 	}
@@ -583,15 +601,50 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	if !wt.IsRepo(s.main.Dir) {
 		return refuse("! WT E workspace is not a git repository")
 	}
-	it, ok, err := item.Get(s.main, id)
+	// Resolve against the SERVING workspace — where state answers from. A
+	// server homed in a linked worktree carries live records s.main has
+	// never seen; resolving there made an item state showed as active
+	// refuse here as unknown (B-01KYEPC9SJE23V67A9YS9XBZFH, reproduced
+	// live). Resolution is the ONLY serving-root concern in this flow: the
+	// worktree flow forks from, seeds from, and replays into main, so an
+	// item main has never seen is refused TRUTHFULLY below instead of
+	// being started — forking a main-integrated worktree for a
+	// serving-branch-only item corrupts main's records at submit (replay
+	// baselines assume main seeding; adversarial round 1 on this fix).
+	it, ok, err := item.Get(s.ws, id)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !ok {
-		return refuse("! ARG E - unknown item " + id)
+	if ok && s.ws.Dir != s.main.Dir {
+		mainIt, mainOK, err := item.Get(s.main, it.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !mainOK {
+			return refuse("! WT E " + it.ID + " lives only on this serving root — the worktree flow integrates into main, which has never seen it; drive it with move from here, or land the serving branch first")
+		}
+		it = mainIt
+	} else if !ok {
+		// The serving root does not know it; main may (a worktree-homed
+		// server starting a main item — the flow's own record space).
+		it, ok, err = item.Get(s.main, id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !ok {
+			return refuse("! ARG E - unknown item " + id)
+		}
 	}
 	if it.State != item.StateApproved && it.State != item.StateActive {
-		return refuse("! ARG E - item is " + it.State + "; work needs approved|active")
+		// Name WHICH root's state this is: for a worktree-homed server the
+		// gate adopts main's copy, and main can lag the serving branch (the
+		// item approved there but still draft on main) — a bare "item is
+		// draft" would contradict this session's own get (round 2 finding).
+		where := ""
+		if s.ws.Dir != s.main.Dir {
+			where = " on main"
+		}
+		return refuse("! ARG E - item is " + it.State + where + "; work needs approved|active")
 	}
 	// orphaned worktree from a crashed sibling?
 	adoptWarn := ""
@@ -628,8 +681,20 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 		_ = s.cd.ReleaseItem(id)
 		return refuse("! WT E " + err.Error())
 	}
+	// The ledger spelling must be directory identity, not the config's: a
+	// worktrees_dir override that traverses a symlink would store a w.Root
+	// nothing canonical ever matches — the rebind and rerootBack compare
+	// against it (adversarial round 3). Resolvable only now that Add
+	// created the directory.
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
 	// carry main's LIVE .spectackle state into the worktree (main bundles may
-	// be ahead of HEAD — the server never commits them itself)
+	// be ahead of HEAD — the server never commits them itself). Main, not
+	// the serving root: the submit replay baselines against main's committed
+	// journal at the fork point, and seeding from a serving root's live
+	// bundles makes already-integrated sibling events reappear in the next
+	// item's delta (adversarial round 1 on B-01KYEPC9SJE23V67A9YS9XBZFH).
 	if err := copyBundles(s.main, root); err != nil {
 		return nil, nil, err
 	}
@@ -665,8 +730,11 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	if id == "" {
 		id = s.wtItem
-	} else if it, ok, err := item.Get(s.main, id); err == nil && ok {
+	} else if it, ok, err := item.Get(s.ws, id); err == nil && ok {
 		// The caller may hold a display prefix; s.wtItem is the full ID.
+		// The serving workspace resolves (B-01KYEPC9SJE23V67A9YS9XBZFH):
+		// after reattach it is the task worktree, whose bundles carry the
+		// item; s.main may never have seen it.
 		id = it.ID
 	}
 	if id == "" || id != s.wtItem {
@@ -745,9 +813,10 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 	_ = s.cd.Emit("submit", id, it.Title)
 
-	// teardown + back to main (branch kept for audit)
+	// teardown + back to the process's home root (branch kept for audit) —
+	// main only when home IS the dying worktree (B-01KYEPC9SJE23V67A9YS9XBZFH)
 	wtRoot := s.ws.Dir
-	if err := s.reroot(s.main.Dir, ""); err != nil {
+	if err := s.reroot(s.rerootBack(wtRoot), ""); err != nil {
 		return nil, nil, err
 	}
 	_ = wt.Remove(s.main.Dir, wtRoot)
@@ -755,6 +824,13 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	_ = s.cd.ReleaseItem(id)
 
 	var b strings.Builder
+	// A serving root that is not the primary checkout received none of the
+	// replay: the integration landed in main's records, and this root only
+	// sees it after its own fetch/checkout. Saying so beats a state call
+	// that suddenly disagrees with the submit result (nothing is silent).
+	if s.ws.Dir != s.main.Dir {
+		fmt.Fprintf(&b, "! WT W serving root %s shows pre-submit state until it syncs with main\n", s.ws.Dir)
+	}
 	// A detached main checkout means the fast-forward advanced no named
 	// branch (B-01KYEEJKQ): reachable only when vacateBranch found no base
 	// at all, and self-healing at archive (the branch merges into the real
@@ -768,14 +844,25 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	for from, to := range rep.Remap {
 		fmt.Fprintf(&b, "sw 0 %s remap %s replayed as %s\n", s.agent, from, to)
 	}
-	b.WriteString("i " + id + " — now on main; move to=done/archived as appropriate\n")
+	// The follow-up instruction must be one THIS session can execute: a
+	// worktree-homed server's move runs against its serving root, which
+	// does not carry the just-replayed item — "move to=done" here answers
+	// unknown item, the exact tool-disagreement class this fix closes
+	// (adversarial round 2). Point at a root that can see it instead.
+	if s.ws.Dir != s.main.Dir {
+		b.WriteString("i " + id + " — now on main; move to=done/archived from a main-rooted session (this serving root cannot resolve it until it syncs)\n")
+	} else {
+		b.WriteString("i " + id + " — now on main; move to=done/archived as appropriate\n")
+	}
 	return text(b.String())
 }
 
 func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	if id == "" {
 		id = s.wtItem
-	} else if it, ok, err := item.Get(s.main, id); err == nil && ok {
+	} else if it, ok, err := item.Get(s.ws, id); err == nil && ok {
+		// serving-workspace resolution, same as start and submit
+		// (B-01KYEPC9SJE23V67A9YS9XBZFH)
 		id = it.ID
 	}
 	if id == "" {
@@ -791,9 +878,13 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	if w.Agent != s.agent && holderAlive(s, w.Agent) {
 		return refuse("! WT E worktree held by live agent " + w.Agent)
 	}
+	// A server homed in a linked worktree returns to ITS root after the
+	// teardown, not to main — rerootBack also rehomes to main permanently
+	// when home is the very worktree being torn down (the B-0002 per-call
+	// topology), so no later cycle can resolve back to a deleted path.
 	mine := s.wtItem == id
 	if mine {
-		if err := s.reroot(s.main.Dir, ""); err != nil {
+		if err := s.reroot(s.rerootBack(w.Root), ""); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -809,10 +900,12 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	}
 	_ = s.cd.DelWorktree(id)
 	_ = s.cd.ReleaseItem(id)
-	// the item returns to approved on main (its worktree state is discarded);
-	// its context dir is also where the abort event belongs — passing the
-	// item ID here scaffolded a bogus <item-id>/.spectackle dir at the repo
-	// root (B-0003; coord.Worktree carries no Dir, so w.Item was reached for)
+	// the item returns to approved on main (its worktree state is discarded;
+	// worktree-flow items are main-resolvable by the workStart gate, so main
+	// is where the next start looks); its context dir is also where the
+	// abort event belongs — passing the item ID here scaffolded a bogus
+	// <item-id>/.spectackle dir at the repo root (B-0003; coord.Worktree
+	// carries no Dir, so w.Item was reached for)
 	dir := ""
 	if it, ok, _ := item.Get(s.main, id); ok {
 		dir = it.Dir
@@ -832,7 +925,14 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(abortWarn + "ok " + sc.short(id) + " aborted; item back to approved")
+	// Name the root the rollback landed on when it is not the serving one:
+	// a worktree-homed session's own get/state cannot see the item, and a
+	// bare "back to approved" reads as the abort having lost it (round 3).
+	onMain := ""
+	if s.ws.Dir != s.main.Dir {
+		onMain = " on main"
+	}
+	return text(abortWarn + "ok " + sc.short(id) + " aborted; item back to approved" + onMain)
 }
 
 // runGate executes the configured verify commands plus the item goal in the

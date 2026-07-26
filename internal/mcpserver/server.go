@@ -119,8 +119,16 @@ func manifest() string {
 // Server bundles the MCP server with its workspace, cache, graph and swarm
 // coordination.
 type Server struct {
-	main   workspace.Root // the MAIN repo root (immutable after New)
-	ws     workspace.Root // the ACTIVE root — re-rooted to a worktree during `work`
+	main workspace.Root // the MAIN repo root (immutable after New)
+	ws   workspace.Root // the ACTIVE root — re-rooted to a worktree during `work`
+	// home is the root this process was STARTED with (-root), immutable
+	// after New. It is where submit/abort re-root back to: a server homed
+	// in a linked worktree (the resident orchestrator topology) must return
+	// to ITS root, not to s.main — re-rooting to main would silently
+	// migrate the serving workspace to the primary checkout, the third
+	// member of the s.main/s.ws family after BinaryStale and ServedDir
+	// (B-01KYEPC9SJE23V67A9YS9XBZFH).
+	home   string
 	cache  *cache.Cache   // active root's index cache
 	blobs  store.Store    // active root's persistent parse-blob cache
 	scan   *sync.Scanner
@@ -200,6 +208,25 @@ type Server struct {
 // linked worktree resolves to its parent), scaffolds, opens the local index
 // cache and the shared coordination DB, and registers all tools.
 func New(root string) (*Server, error) {
+	// Canonicalize the root BEFORE detection: every identity decision below
+	// (home == removed worktree, serving root == main, the B-0002 rebind)
+	// compares paths, and git hands back symlink-resolved paths while the
+	// caller's -root spelling may go through an alias — stock macOS /tmp
+	// and TMPDIR are symlinks into /private, no crafted setup needed.
+	// Spelling equality instead of directory identity made rerootBack miss
+	// its rehome and left a session serving a deleted directory
+	// (adversarial round 2 on B-01KYEPC9SJE23V67A9YS9XBZFH). Abs FIRST:
+	// EvalSymlinks(".") is a no-op, and the CLI default IS "." — without
+	// Abs the alias re-enters after this point via Detect's own Abs, whose
+	// Getwd prefers the shell's $PWD spelling (adversarial round 3,
+	// reproduced with default flags). Failures fall back to the given
+	// spelling: a root that does not resolve fails Detect right after.
+	if a, err := filepath.Abs(root); err == nil {
+		root = a
+	}
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
 	ws, err := workspace.Detect(root, root)
 	if err != nil {
 		return nil, err
@@ -250,6 +277,7 @@ func New(root string) (*Server, error) {
 	s := &Server{
 		main:  mainWS,
 		ws:    ws,
+		home:  ws.Dir,
 		cache: c,
 		scan:  &sync.Scanner{Root: ws, Cache: c},
 		g:     graph.NewMem(),
@@ -390,6 +418,25 @@ func (s *Server) leaseTTL() time.Duration {
 
 func (s *Server) agentTTL() time.Duration {
 	return time.Duration(s.main.Cfg.Swarm.AgentTTL) * time.Second
+}
+
+// rerootBack answers where submit/abort return the active workspace after
+// tearing down the task worktree at removedRoot: the process's home root —
+// UNLESS home IS the worktree being removed (a per-call CLI process started
+// with -root inside the task worktree, the B-0002 rebind case), where the
+// only surviving root is main (B-01KYEPC9SJE23V67A9YS9XBZFH).
+func (s *Server) rerootBack(removedRoot string) string {
+	if filepath.Clean(s.home) == filepath.Clean(removedRoot) {
+		// The home directory is about to be deleted; main is the only
+		// surviving root and it becomes the new home PERMANENTLY. Returning
+		// main for just this one call left s.home naming a dead path, and
+		// the next cycle's teardown handed that path to reroot, whose
+		// EnsureScaffold silently resurrected it as an empty non-git ghost
+		// workspace the server then served (adversarial round 1 on this
+		// fix; TestWorktreeSubmitEndToEndOffPrimaryBranch caught it).
+		s.home = s.main.Dir
+	}
+	return s.home
 }
 
 // reroot swaps the active workspace (main <-> worktree), swapping the local

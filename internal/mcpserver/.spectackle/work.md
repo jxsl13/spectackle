@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYD88M80EQEAJDW0AB243ZK2 research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HNHEYAB0WF42BTR31CW
@@ -46,3 +46,10 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the 
 SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifecycle.go's state machine, the item model, templates.
 ROLLBACK: revert the commit - one conditional, no stored state, no format change.
 REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
+
+## B-01KYERTFRSFVDTNCT8EB4XGDPK no body-edit path exists for draft-state items, so grill feedback cannot amend the record it critiques
+kind: bug
+state: draft
+created: 2026-07-26
+
+Reproduced during P-01KYER: grill surfaced scope-disjointness and rollback questions; the draft tool always mints (shape has no id property), item bodies are otherwise immutable outside lifecycle moves, and the documented loop (grill, close what it surfaces) therefore cannot close pack findings into the record they criticize without minting a successor and rejecting the original, which pollutes the rejection corpus with non-rejections. The chain (T-01KYD9J) presumes body edits exist: a body edit clears waivers, hash-bound verdicts expire on edit. Expected: a draft-state-only body revision path (draft id=<existing> or an item op=edit) that re-renders the context pack, expires grilled/verdict stamps via the body hash, and journals the revision; forbidden at submitted and later, where the body is the frozen review subject. Verify: grill question answered by a body revision clears from the re-rendered pack; revision on a submitted item refused; verdict stamped on the old hash no longer gates the new body.

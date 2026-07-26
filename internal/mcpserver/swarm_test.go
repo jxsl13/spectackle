@@ -989,3 +989,138 @@ func TestSubmitOnDetachedHeadSaysSo(t *testing.T) {
 		t.Fatalf("deferral not said:\n%s", subOut)
 	}
 }
+
+// A server homed in a LINKED WORKTREE (the resident orchestrator topology)
+// must resolve items from its serving root, not from the primary checkout:
+// an item drafted through such a server lives only in the serving root's
+// bundles, and resolving through s.main made work op=start refuse it as
+// "unknown item" while state listed it as approved — reproduced live on
+// B-01KYEPC9SJE23V67A9YS9XBZFH. The fix is TRUTH, not integration: the
+// worktree flow forks from and replays into main by design (adversarial
+// review killed the fork-from-serving-HEAD draft — replay baselines assume
+// main seeding), so a serving-only item gets a refusal that names where it
+// lives and what to do, while main-resolvable items keep working from a
+// worktree-homed server, which returns to ITS OWN root afterwards.
+func TestWorktreeHomedServerResolvesServingRecords(t *testing.T) {
+	root := gitRoot(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := wt.Add(root, home, "serving/home", "HEAD", "main"); err != nil {
+		t.Skipf("worktree unavailable: %v", err)
+	}
+
+	t.Setenv("SPECTACKLE_AGENT", "homer")
+	sess := connectRoot(t, home)
+	prop := draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "resolved from the serving root", "targets": []string{"main.go"}})
+	callText(t, sess, "move", map[string]any{"id": prop, "to": "submitted"})
+	callText(t, sess, "move", map[string]any{"id": prop, "to": "approved"})
+
+	// Serving-only item: refused with the truthful pointer, never "unknown".
+	out := callText(t, sess, "work", map[string]any{"op": "start", "item": prop})
+	if strings.Contains(out, "unknown item") {
+		t.Fatalf("serving-only item refused as unknown — state and work disagree on existence: %q", out)
+	}
+	if !strings.Contains(out, "lives only on this serving root") {
+		t.Fatalf("serving-only item must be refused with the truthful pointer: %q", out)
+	}
+	// state/get still see it — existence agreement is the fix's criterion.
+	out = callText(t, sess, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, "approved") {
+		t.Fatalf("get lost the serving-only item: %q", out)
+	}
+
+	// Main-resolvable item: the worktree flow works from the same
+	// worktree-homed server, seeded and forked from main as designed.
+	// kind=bug, not proposal: the two sessions shorten display IDs against
+	// their own disjoint record sets, and two same-kind items minted in
+	// the same second can render to prefixes that each resolve to the
+	// OTHER item across sessions (see TestTwoServersMintUniqueIDs) — a
+	// different kind letter keeps the prefix spaces disjoint.
+	mainSess := connectRoot(t, root)
+	task := draftID(t, mainSess, map[string]any{
+		"kind": "bug", "title": "resolved from main", "targets": []string{"main.go"}})
+	callText(t, mainSess, "move", map[string]any{"id": task, "to": "submitted"})
+	callText(t, mainSess, "move", map[string]any{"id": task, "to": "approved"})
+
+	out = callText(t, sess, "work", map[string]any{"op": "start", "item": task})
+	if !strings.Contains(out, "wt "+task+" open ") {
+		t.Fatalf("main-resolvable start from a worktree-homed server refused: %q", out)
+	}
+	out = callText(t, sess, "work", map[string]any{"op": "abort", "item": task})
+	if !strings.Contains(out, "aborted") {
+		t.Fatalf("abort: %q", out)
+	}
+	// The rollback landed on main, where worktree-flow items live.
+	out = callText(t, mainSess, "get", map[string]any{"id": task})
+	if !strings.Contains(out, "approved") {
+		t.Fatalf("post-abort rollback missing on main: %q", out)
+	}
+	// And the server went back to serving ITS root, not main: the
+	// serving-only item is still resolvable through this session.
+	out = callText(t, sess, "get", map[string]any{"id": prop})
+	if !strings.Contains(out, "approved") {
+		t.Fatalf("server migrated off its home root after abort: %q", out)
+	}
+}
+
+// The canonicalization must survive the CLI-default relative -root: with a
+// shell cwd spelled through a symlink alias (stock macOS /tmp), New(".")
+// resolved ws through $PWD's alias while git canonicalized main, splitting
+// one directory into two spellings — false sync warnings on every classic
+// submit, and the round-2 ghost via a missed rehome (adversarial round 3,
+// reproduced with default flags). Abs-then-EvalSymlinks closes it.
+func TestNewCanonicalizesRelativeRootThroughAlias(t *testing.T) {
+	real := gitRoot(t)
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Chdir(alias)
+	t.Setenv("PWD", alias)
+	s, err := New(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	canonical, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ws.Dir != canonical {
+		t.Fatalf("ws not canonical: %q vs %q", s.ws.Dir, canonical)
+	}
+	if s.ws.Dir != s.main.Dir {
+		t.Fatalf("one directory split into two spellings: ws=%q main=%q", s.ws.Dir, s.main.Dir)
+	}
+}
+
+// A RESTARTED worktree-homed server must reattach its own open worktree for
+// a MAIN item: the ws-only reattach resolution dead-ended it (status listed
+// the worktree, submit refused "no open worktree" — adversarial round 3).
+func TestWorktreeHomedRestartReattachesMainItem(t *testing.T) {
+	root := gitRoot(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := wt.Add(root, home, "serving/restart", "HEAD", "main"); err != nil {
+		t.Skipf("worktree unavailable: %v", err)
+	}
+	t.Setenv("SPECTACKLE_AGENT", "restarter")
+	mainSess := connectRoot(t, root)
+	task := draftID(t, mainSess, map[string]any{
+		"kind": "bug", "title": "survives a restart", "targets": []string{"main.go"}})
+	callText(t, mainSess, "move", map[string]any{"id": task, "to": "approved"})
+
+	sess1 := connectRoot(t, home)
+	out := callText(t, sess1, "work", map[string]any{"op": "start", "item": task})
+	if !strings.Contains(out, "wt "+task+" open ") {
+		t.Fatalf("start: %q", out)
+	}
+	// A fresh process (same agent, same home root) simulates the restart.
+	sess2 := connectRoot(t, home)
+	out = callText(t, sess2, "work", map[string]any{"op": "abort", "item": task})
+	if strings.Contains(out, "no worktree") || !strings.Contains(out, "aborted") {
+		t.Fatalf("restarted session failed to reattach its own worktree: %q", out)
+	}
+	if !strings.Contains(out, "on main") {
+		t.Fatalf("abort epilogue must name the root the rollback landed on: %q", out)
+	}
+}

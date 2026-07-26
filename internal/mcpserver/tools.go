@@ -460,10 +460,26 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		if !tombOk {
-			return s.nearest(id)
+		if tombOk {
+			return text(sc.record(tomb) + " (archived; journal tombstone)\n")
 		}
-		return text(sc.record(tomb) + " (archived; journal tombstone)\n")
+		// A worktree-homed server resolves the union of two record spaces;
+		// answering nf for a record that lives on main contradicts the
+		// work tool, which will happily start it (adversarial round 3).
+		// Render main's copy — live or tombstone (the union deliberately
+		// admits main's EvArchive IDs, so a resolvable archived item must
+		// render, round 4) — marked, before falling back to nearest.
+		if s.ws.Dir != s.main.Dir {
+			if mit, mok, merr := item.Get(s.main, id); merr == nil && mok {
+				it = mit
+				b := sc.record(it) + " root=main (this serving root cannot move it — use a main-rooted session)\n"
+				return text(b)
+			}
+			if mtomb, mok, merr := lifecycle.Tombstone(s.main, id); merr == nil && mok {
+				return text(sc.record(mtomb) + " root=main (archived; journal tombstone)\n")
+			}
+		}
+		return s.nearest(id)
 	}
 	var b strings.Builder
 	b.WriteString(sc.record(it) + "\n")
@@ -664,6 +680,19 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			return bad, nil, nil
 		}
 		in.Parent = parent
+		// Resolve-then-deny is the round-3 lie one tool over: the union
+		// scope expands a main item's prefix, then lifecycle.Draft's
+		// ws-scoped parent check refuses the full ID it was handed as
+		// "unknown" (round 4). Cross-root parent semantics are undefined
+		// (the parent's archive gate could never see this child), so the
+		// refusal is truthful instead.
+		if s.ws.Dir != s.main.Dir {
+			if _, ok, err := item.Get(s.ws, parent); err == nil && !ok {
+				if _, mok, merr := item.Get(s.main, parent); merr == nil && mok {
+					return refuse("! ARG E - parent " + sc.short(parent) + " lives on main, not on this serving root — draft from a main-rooted session, or drop parent")
+				}
+			}
+		}
 	}
 	if len(in.Refs) > 0 {
 		refs := make([]string, len(in.Refs))
@@ -682,7 +711,24 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		// selfID is "" — the item being drafted has no ID yet, so
 		// self-reference cannot occur here; UnknownRefs still guards it.
 		if bad := item.UnknownRefs("", in.Refs, known); len(bad) > 0 {
-			return refuse("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+			// Refs carry no lifecycle meaning, so a ref living on main is
+			// citable from a worktree-homed session — refusing an ID the
+			// union scope just resolved is the round-3 lie (round 4).
+			// Unlike parent, nothing gates on a ref's location.
+			if s.ws.Dir != s.main.Dir {
+				still := bad[:0]
+				for _, r := range bad {
+					if _, ok, err := item.Get(s.main, r); err != nil || !ok {
+						if _, tok, terr := lifecycle.Tombstone(s.main, r); terr != nil || !tok {
+							still = append(still, r)
+						}
+					}
+				}
+				bad = still
+			}
+			if len(bad) > 0 {
+				return refuse("! ARG E - unknown refs: " + strings.Join(bad, ", "))
+			}
 		}
 	}
 	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets, in.Refs...)
@@ -910,6 +956,31 @@ func (s *Server) idScope() (idScope, error) {
 	for _, e := range events {
 		if e.Ev == journal.EvReject {
 			known[e.ID] = true
+		}
+	}
+	// A server homed in a linked worktree talks to TWO record spaces: its
+	// serving root and main, where worktree-flow items live. Resolution and
+	// display shortening cover the union, or a main item's prefix is
+	// unresolvable here while work op=start accepts the item, and the two
+	// roots can mint colliding short renderings of distinct IDs
+	// (B-01KYEPC9SJE23V67A9YS9XBZFH). When the roots coincide this adds
+	// nothing and costs nothing.
+	if s.ws.Dir != s.main.Dir {
+		mainItems, err := item.LoadAll(s.main)
+		if err != nil {
+			return idScope{}, err
+		}
+		for _, it := range mainItems {
+			known[it.ID] = true
+		}
+		mainEvents, err := journal.ReadAll(s.main)
+		if err != nil {
+			return idScope{}, err
+		}
+		for _, e := range mainEvents {
+			if e.Ev == journal.EvArchive || e.Ev == journal.EvReject {
+				known[e.ID] = true
+			}
 		}
 	}
 	out := make([]string, 0, len(known))
@@ -1465,6 +1536,18 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 			if open := s.openNeeds(pre); len(open) > 0 {
 				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"
+			}
+		}
+	}
+	// A worktree-homed server's lifecycle writes run against its serving
+	// root, and a worktree-flow item lives on main — declaring "unknown" a
+	// record the union idScope just resolved is the tool-disagreement class
+	// B-01KYEPC9SJE23V67A9YS9XBZFH closes. Say where it lives instead
+	// (adversarial round 3).
+	if s.ws.Dir != s.main.Dir {
+		if _, ok, gerr := item.Get(s.ws, in.ID); gerr == nil && !ok {
+			if _, mok, merr := item.Get(s.main, in.ID); merr == nil && mok {
+				return refuse("! ARG E - " + sc.short(in.ID) + " lives on main, not on this serving root — move it from a main-rooted session")
 			}
 		}
 	}
