@@ -441,6 +441,7 @@ func benchCmd(args []string) int {
 	withManifest := fs.Bool("with-manifest", false, "agent-prep only: prepend the connect-time manifest to the brief (simulates an MCP session) and record its size for the session-cost line")
 	scenario := fs.String("scenario", "basic", "agent-prep only: judge scenario — basic (draft/archive/reject) or tricky (rule slots, reopen loop into blocked, decide exit)")
 	agentScore := fs.String("agent-score", "", "score a completed judge run in DIR: goal states plus metered bytes; exit non-zero when goals were not reached")
+	nonces := fs.String("nonces", "", "agent-score only: comma-separated prep nonces matched positionally to the score dirs — the out-of-band anchor a workspace re-prep cannot forge")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -450,18 +451,35 @@ func benchCmd(args []string) int {
 		return 1
 	}
 	if *agentPrep != "" {
-		brief, shim, err := bench.AgentPrep(self, *agentPrep, *withManifest, *scenario)
+		brief, shim, nonce, err := bench.AgentPrep(self, *agentPrep, *withManifest, *scenario)
 		if err != nil {
 			log.Printf("bench: agent-prep: %v", err)
 			return 1
 		}
-		fmt.Printf("agent brief %s\nagent shim %s\n", brief, shim)
+		// The nonce line is the orchestrator's out-of-band anchor: record it
+		// at prep time and hand it to -agent-score via -nonces — no
+		// in-workspace rewrite can forge a value held outside the workspace.
+		fmt.Printf("agent brief %s\nagent shim %s\nagent nonce %s\n", brief, shim, nonce)
 		return 0
 	}
 	if *agentScore != "" {
 		dirs := strings.Split(*agentScore, ",")
+		// Positional nonce anchors (optional): unmatched positions score
+		// unanchored rather than failing, so a partially recorded batch
+		// still scores — an absent anchor weakens evidence, it does not
+		// invent a violation.
+		anchor := func(i int) string {
+			if *nonces == "" {
+				return ""
+			}
+			ns := strings.Split(*nonces, ",")
+			if i < len(ns) {
+				return strings.TrimSpace(ns[i])
+			}
+			return ""
+		}
 		if len(dirs) == 1 {
-			sc, err := bench.ScoreAgentRun(self, dirs[0])
+			sc, err := bench.ScoreAgentRunAnchored(self, dirs[0], anchor(0))
 			if err != nil {
 				log.Printf("bench: agent-score: %v", err)
 				return 1
@@ -474,8 +492,8 @@ func benchCmd(args []string) int {
 		}
 		var labels []string
 		var scores []bench.AgentScore
-		for _, d := range dirs {
-			sc, err := bench.ScoreAgentRun(self, d)
+		for i, d := range dirs {
+			sc, err := bench.ScoreAgentRunAnchored(self, d, anchor(i))
 			if err != nil {
 				log.Printf("bench: agent-score %s: %v", d, err)
 				return 1

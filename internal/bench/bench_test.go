@@ -144,7 +144,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, err := AgentPrep(bin, dir, false, "basic")
+	brief, shim, _, err := AgentPrep(bin, dir, false, "basic")
 	if err != nil {
 		t.Fatalf("AgentPrep: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	// Short-of-goals workspace: prep only, nothing driven — invalid, and
 	// the missing goals are named as absent.
 	dir2 := t.TempDir()
-	if _, _, err := AgentPrep(bin, dir2, false, "basic"); err != nil {
+	if _, _, _, err := AgentPrep(bin, dir2, false, "basic"); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(filepath.Join(dir2, "meter.sh"), "call", "-root", dir2, "state", "{}").CombinedOutput(); err != nil {
@@ -262,7 +262,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, _, err := AgentPrep(bin, dir, true, "basic")
+	brief, _, _, err := AgentPrep(bin, dir, true, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +303,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 
 	// Plain prep: no sidecar, no session line, brief without preamble.
 	dir2 := t.TempDir()
-	brief2, _, err := AgentPrep(bin, dir2, false, "basic")
+	brief2, _, _, err := AgentPrep(bin, dir2, false, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, err := AgentPrep(bin, dir, false, "tricky")
+	brief, shim, _, err := AgentPrep(bin, dir, false, "tricky")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 
 	// Rule-only workspace: invalid, decide and task goals absent.
 	dir2 := t.TempDir()
-	_, shim2, err := AgentPrep(bin, dir2, false, "tricky")
+	_, shim2, _, err := AgentPrep(bin, dir2, false, "tricky")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestMeterTamperDetection(t *testing.T) {
 
 	prep := func() (dir, shim string) {
 		d := t.TempDir()
-		_, sh, err := AgentPrep(bin, d, false, "basic")
+		_, sh, _, err := AgentPrep(bin, d, false, "basic")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -520,7 +520,7 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, err := AgentPrep(bin, dir, false, "worktree")
+	brief, shim, _, err := AgentPrep(bin, dir, false, "worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +583,7 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 
 	// The cheat: direct edit on main, no work calls — flow must fail it.
 	dir2 := t.TempDir()
-	_, shim2, err := AgentPrep(bin, dir2, false, "worktree")
+	_, shim2, _, err := AgentPrep(bin, dir2, false, "worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,5 +600,74 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 	}
 	if sc2.Valid || sc2.DecideOK {
 		t.Fatalf("direct-edit cheat scored valid / flow=true:\n%s", AgentReport(sc2))
+	}
+}
+
+// TestShimGuardAndNonceAnchor pins B-01KYEA's two halves: the shim refuses
+// every subcommand but call (the live judge reset its evidence by running
+// bench -agent-prep THROUGH the shim), and the out-of-band nonce anchor —
+// the value prep returns to the orchestrator — disqualifies a re-prepped
+// workspace that every in-workspace check would call consistent. Skipped
+// in -short (builds the binary).
+func TestShimGuardAndNonceAnchor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	dir := t.TempDir()
+	_, shim, nonce1, err := AgentPrep(bin, dir, false, "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nonce1 == "" {
+		t.Fatal("prep returned an empty nonce")
+	}
+
+	// The guard: bench and manifest through the shim refuse without
+	// executing — and without metering a line.
+	for _, sub := range []string{"bench", "manifest"} {
+		out, err := exec.Command(shim, sub, "-agent-prep", dir).CombinedOutput()
+		if err == nil || !strings.Contains(string(out), "! SHIM E") {
+			t.Fatalf("shim let %q through: err=%v out=%s", sub, err, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "meter.log")); !os.IsNotExist(err) {
+		t.Fatal("refused shim invocations must not meter")
+	}
+
+	// One legitimate metered call, then the honest anchor passes...
+	if out, err := exec.Command(shim, "call", "-root", dir, "state", "{}").CombinedOutput(); err != nil {
+		t.Fatalf("metered call: %v: %s", err, out)
+	}
+	sc, err := ScoreAgentRunAnchored(bin, dir, nonce1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Disqualified {
+		t.Fatalf("honest anchor disqualified:\n%s", AgentReport(sc))
+	}
+
+	// ...and a re-prep (fresh nonce, consistent workspace) is caught ONLY
+	// by the anchor: every in-workspace check sees a coherent picture.
+	if _, _, nonce2, err := AgentPrep(bin, dir, false, "basic"); err != nil {
+		t.Fatal(err)
+	} else if nonce2 == nonce1 {
+		t.Fatal("re-prep kept the nonce — the anchor would be meaningless")
+	}
+	if out, err := exec.Command(shim, "call", "-root", dir, "state", "{}").CombinedOutput(); err != nil {
+		t.Fatalf("post-reprep call: %v: %s", err, out)
+	}
+	sc2, err := ScoreAgentRunAnchored(bin, dir, nonce1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sc2.Disqualified || !strings.Contains(sc2.DisqualifyReason, "anchor") {
+		t.Fatalf("re-prep not caught by the anchor:\n%s", AgentReport(sc2))
 	}
 }
