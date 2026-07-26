@@ -93,14 +93,26 @@ func TestSeededFixtureRendersMultiDirCleanInventory(t *testing.T) {
 	if err != nil || refused {
 		t.Fatalf("state over seeded fixture: refused=%v err=%v\n%s", refused, err, out)
 	}
-	// 7 seeded rules across 4 dirs, zero findings. The summary line is the
-	// collapse's rendering of a healthy inventory; per-dir listing lines
-	// must be absent because nothing is dirty.
-	if !strings.Contains(out, "ok rules total=7 dirs=4 findings=0") {
+	// 8 seeded rules across 5 dirs (root included, B-01KYE0RCK), zero
+	// findings. The summary line is the collapse's rendering of a healthy
+	// inventory; per-dir listing lines must be absent because nothing is
+	// dirty.
+	if !strings.Contains(out, "ok rules total=8 dirs=5 findings=0") {
 		t.Fatalf("seeded inventory summary missing or wrong (seeds not clean, or seed count drifted):\n%s", out)
 	}
 	if strings.Contains(out, "ok dir ") {
 		t.Fatalf("healthy seeded dirs must collapse into the summary, not list:\n%s", out)
+	}
+
+	// The straight path the judge brief promises must exist (B-01KYE0RCK):
+	// a fresh seeded workspace answers check with plain ok, no gap line for
+	// a diligent agent to rabbit-hole into.
+	checkOut, refused, err := callOnce(bin, dir, "check", "{}")
+	if err != nil || refused {
+		t.Fatalf("check on seeded fixture: refused=%v err=%v\n%s", refused, err, checkOut)
+	}
+	if strings.TrimSpace(checkOut) != "ok" {
+		t.Fatalf("fresh seeded fixture check must be plain ok, got:\n%s", checkOut)
 	}
 }
 
