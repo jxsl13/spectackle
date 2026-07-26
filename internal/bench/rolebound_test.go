@@ -57,7 +57,11 @@ func TestGitInstructionViolationsNegative(t *testing.T) {
 // treats note-prefixed violations as informational, and a role-boundary hit
 // has to flip Valid=false.
 func TestGitInstructionViolationsAreFatalShaped(t *testing.T) {
-	for _, v := range gitInstructionViolations("run `git push` now\n$ git merge x\n") {
+	got := gitInstructionViolations("run `git push` now\n$ git merge x\n")
+	if len(got) != 2 {
+		t.Fatalf("two-hit input must yield exactly 2 violations, got %d: %v", len(got), got)
+	}
+	for _, v := range got {
 		if strings.HasPrefix(v, "note:") {
 			t.Errorf("violation is note-shaped, would not fail validity: %q", v)
 		}
