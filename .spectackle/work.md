@@ -144,3 +144,13 @@ VERIFY: build/test -race/vet/gofmt; lint; check ok; live: run compact dry-run on
 SCOPE: compact keep-list + the two pack renders + docs. No journal.go schema changes (Ln lands in the lens task - coordinate through the lease if concurrent).
 ROLLBACK: revert; retention is strictly additive to todays behavior.
 REPORT: before/after fold of a synthetic journal, each test, the dry-run paste.
+
+## ADR-01KYFYGVSRFX4B9B2YJ44QSBS8 live probe: should the widget cache be bounded
+kind: adr
+state: submitted
+created: 2026-07-26
+status: proposed
+
+kind: radio
+option: yes bounded
+option: no unbounded
