@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -748,5 +749,67 @@ func TestIsDevBuild(t *testing.T) {
 	Version = "v0.3.0"
 	if isDevBuild() {
 		t.Errorf("isDevBuild() = true for a stamped release tag %q", Version)
+	}
+}
+
+// TestWorkSubmitReattachesAcrossProcesses pins B-01KYE8: op=start opens a
+// worktree in one process; a FRESH process rooted at main (a new Server
+// over the same root — exactly what every per-call CLI invocation is) must
+// be able to submit with the explicit item: it re-roots onto its own
+// on-disk worktree instead of refusing "no open worktree" while one exists.
+// Identity still gates the reattach — only this agent's worktree qualifies.
+func TestWorkSubmitReattachesAcrossProcesses(t *testing.T) {
+	// Same agent identity for both "processes": per-call CLI invocations
+	// share SPECTACKLE_AGENT, and the reattach is identity-gated — with
+	// distinct agents the refusal is correct behavior (pinned below).
+	t.Setenv("SPECTACKLE_AGENT", "cross-process-agent")
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s1, sess1 := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s1, sess1, map[string]any{"kind": "task", "title": "cross process submit"})
+	callText(t, sess1, "move", map[string]any{"id": id, "to": "approved"})
+	startOut := callText(t, sess1, "work", map[string]any{"op": "start", "item": id})
+	m := regexp.MustCompile(`(?m)^wt \S+ open (.+)$`).FindStringSubmatch(startOut)
+	if m == nil {
+		t.Fatalf("start did not name the worktree root:\n%s", startOut)
+	}
+	wtRoot := m[1]
+	if err := os.WriteFile(filepath.Join(wtRoot, "main.go"), []byte("package main\n\n// edited in worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The fresh process: a second server over the SAME main root.
+	_, sess2 := connectRootWithServer(t, root)
+	subOut := callText(t, sess2, "work", map[string]any{"op": "submit", "item": id})
+	if strings.Contains(subOut, "no open worktree") {
+		t.Fatalf("fresh process could not reattach to its own worktree:\n%s", subOut)
+	}
+	mainGo, err := os.ReadFile(filepath.Join(root, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), "edited in worktree") {
+		t.Fatalf("worktree edit did not land on main after cross-process submit:\nsubmit said:\n%s", subOut)
+	}
+}
+
+// TestWorkSubmitForeignWorktreeStaysRefused: the identity gate on the
+// reattach — a DIFFERENT agent's open worktree must not be adopted by
+// submit; taking over a sibling's work stays an explicit abort decision.
+func TestWorkSubmitForeignWorktreeStaysRefused(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	t.Setenv("SPECTACKLE_AGENT", "owner-agent")
+	s1, sess1 := connectRootWithServer(t, root)
+	id := draftFullID(t, s1, sess1, map[string]any{"kind": "task", "title": "foreign worktree"})
+	callText(t, sess1, "move", map[string]any{"id": id, "to": "approved"})
+	callText(t, sess1, "work", map[string]any{"op": "start", "item": id})
+
+	t.Setenv("SPECTACKLE_AGENT", "intruder-agent")
+	_, sess2 := connectRootWithServer(t, root)
+	out := callText(t, sess2, "work", map[string]any{"op": "submit", "item": id})
+	if !strings.Contains(out, "no open worktree") {
+		t.Fatalf("foreign agent adopted a sibling's worktree:\n%s", out)
 	}
 }

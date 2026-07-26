@@ -485,13 +485,39 @@ func (s *Server) swarm(swarmIn) (*mcp.CallToolResult, any, error) {
 
 // ---- work tool ----
 
+// reattachOwnWorktree re-roots a fresh process onto its OWN open worktree
+// before submit or abort (B-01KYE8): the open-worktree state lives in
+// process memory, every CLI call is its own process, and the B-0002 startup
+// rebind only fires when the process was started with -root inside the
+// worktree — which nothing taught headless callers to do. Identity gates
+// the reattach exactly like B-0002: only a worktree recorded for THIS agent
+// qualifies; adopting a dead sibling's stays an explicit abort decision.
+func (s *Server) reattachOwnWorktree(id string) {
+	if s.wtItem != "" || id == "" {
+		return
+	}
+	// The caller may hold a display prefix; the worktree ledger is keyed by
+	// the full ID — resolve through the same getter workStart uses.
+	it, ok, err := item.Get(s.main, id)
+	if err != nil || !ok {
+		return
+	}
+	if w, ok, err := s.cd.GetWorktree(it.ID); err == nil && ok && w.Agent == s.agent {
+		if err := s.reroot(w.Root, w.Item); err == nil {
+			s.wtItem = w.Item
+		}
+	}
+}
+
 func (s *Server) work(in workIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
 	case "start":
 		return s.workStart(in.Item)
 	case "submit":
+		s.reattachOwnWorktree(in.Item)
 		return s.workSubmit(in.Item)
 	case "abort":
+		s.reattachOwnWorktree(in.Item)
 		return s.workAbort(in.Item)
 	case "status":
 		wts, err := s.cd.Worktrees()
@@ -590,12 +616,15 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit", sc.short(id), root))
+	return text(fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit item=%s (any process)", sc.short(id), root, sc.short(id)))
 }
 
 func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	if id == "" {
 		id = s.wtItem
+	} else if it, ok, err := item.Get(s.main, id); err == nil && ok {
+		// The caller may hold a display prefix; s.wtItem is the full ID.
+		id = it.ID
 	}
 	if id == "" || id != s.wtItem {
 		return refuse("! ARG E - no open worktree for " + orDash(id))
@@ -694,6 +723,8 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	if id == "" {
 		id = s.wtItem
+	} else if it, ok, err := item.Get(s.main, id); err == nil && ok {
+		id = it.ID
 	}
 	if id == "" {
 		return refuse("! ARG E - abort requires item")
