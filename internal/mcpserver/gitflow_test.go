@@ -436,8 +436,8 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") &&
-		!strings.Contains(string(logOut), "spectackle(archive): "+id) {
+	if !strings.Contains(string(logOut), "spectackle(archived): "+shortDisplayID(id)+" records") &&
+		!strings.Contains(string(logOut), "spectackle(archive): "+shortDisplayID(id)) {
 		t.Fatalf("archival records commit not reachable:\n%s", logOut)
 	}
 }
@@ -621,8 +621,8 @@ func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") &&
-		!strings.Contains(string(logOut), "spectackle(archive): "+id) {
+	if !strings.Contains(string(logOut), "spectackle(archived): "+shortDisplayID(id)+" records") &&
+		!strings.Contains(string(logOut), "spectackle(archive): "+shortDisplayID(id)) {
 		t.Fatalf("archival records commit not reachable from main:\n%s", logOut)
 	}
 }
