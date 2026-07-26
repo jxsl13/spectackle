@@ -190,6 +190,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - ADR-01KYF367A2EAERK9142M53JX8X v0.2.0 release cut: core cut (land addressal PR 105, fix both self-restart bugs, body-edit path, manifest nudge, elicitation gate, release notes and tag - ready in roughly 2-3 days at current pace) or full-chain cut (additionally the seven remaining chain tasks plus outcome benchmarks - roughly 5-7 days)? Pre-1.0 semantics: whatever is cut, the rest ships in v0.3.0.: kind: radio
 - T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons: validated pass by cross-val-t9j diff 5b6474082d21
 - T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events: validated pass by cross-val-94mg diff 615c8f9ea82d
+- T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression: validated pass by cross-val-88ke diff 1e4605c6ba14
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

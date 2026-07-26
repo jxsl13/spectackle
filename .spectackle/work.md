@@ -103,52 +103,6 @@ SCOPE: coverageGaps and the check wiring in tools.go, the state.go rules-section
 ROLLBACK: revert the commit; the config key is additive and ignored by older servers.
 REPORT BACK: the COVERED implementation, both pasted check runs with empty diff, the state section, the eleven-dir worklist, each test's result, anything deliberately not done.
 
-## T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
-refs: R-0007, T-01KYD72H15EPV8KCW6ASSMEFZX
-rounds: 1
-grilled: 2026-07-26 open=0
-targets: internal/evidence, internal/mcpserver/grill.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Supersedes the rejected draft in refs; the one change is the suppression mechanism (its absence let an acknowledged false-positive class gate approval with no escape - anti-ceremony validation finding); everything else is re-recorded intact.
-
-NEEDS: the grill-verdict task (title: grill computes its critique and stamps a verdict) must be MERGED first - this task adds sections to the pack that task restructures, and both touch grill.go. Do not start while it is open.
-
-WHY. Two defect classes from this repository's history are visible statically at review time, scoped to an item's targets: B-0009 (a schema column declared, never written or read) and B-0003 (workAbort passed an item ID where twenty sibling call sites passed a directory - one against twenty). Both sweeps run only over declared targets; a global sweep was considered and rejected for unbounded output.
-
-VERIFIED GROUND (do not re-derive)
-- graph.Edge is {Src, Dst, Kind, File, Line} (graph.go:137-142) - NO argument metadata. Caller-divergence therefore re-parses the call sites' files (go/ast), bounded to files the graph's inbound ECall edges name. Non-Go targets skip with "e skipped <node> non-go".
-- The unconsumed sweep comes from the stored graph: exported symbols under a target path with zero inbound ECall/EUse edges from outside their own file. Known false-positive class: reflection/plugin lookup - which is exactly why suppression exists.
-- grill's sections and budget truncation: per the NEEDS task. New sections render before #rejections, after the computed classes.
-
-WHAT TO BUILD
-1. Package internal/evidence: Unconsumed(g, targets, suppressed) []Record and DivergentCallers(g, targets, load func(path) []byte) []Record. Deterministic order, one line per Record, both capped at 10 + "+<n> more" tail.
-2. SUPPRESSION, the corrected part: an item body may carry lines of the form unconsumed-ok: <symbol> <one-line reason>. The sweep consumes them: a suppressed symbol renders as "e suppressed <symbol> <reason>" (informational, never counted, so the waiver is visible in the pack rather than silent). An unconsumed-ok line naming a symbol the sweep did not flag renders "e stale-suppress <symbol>" - suppressions must not outlive their reason. This mirrors the applies-binding escape in the coverage task: the escape is explicit, recorded in the reviewed artifact, and per-symbol - never a blanket toggle.
-3. Divergence definition: for each callee node under targets with >= 5 inbound call edges, group call sites by (argument count, per-argument shape class: literal-kind, identifier, call-result, selector). Report groups with share <= 20% as "e divergent <callee> <k>/<n> sites differ: <file:line>..." (first 3 sites). Thresholds are consts with one-line rationales; B-0003's 1-of-21 must trip, a 50/50 split must not.
-4. Wire into grill as #evidence, subject to the pack budget. Counting into the verdict's open tally: UNSUPPRESSED unconsumed records count only when the item's kind is task or bug; divergent records are always informational (they may be the point of the change); suppressed and stale-suppress never count.
-5. Cost ceiling, enforced: the AST pass parses only files the graph names as call sites of target callees; a guard refuses more than 50 files and reports "e truncated ast >50 files". SPX-MCP-001 (1 MiB reads, 2s warm) applies - add the evidence pass to the timing test and report measured wall time on this repository with targets internal/mcpserver.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- B-0009 fixture (exported symbol, zero inbound) is reported; adding one consumer removes it; adding unconsumed-ok for it moves it to suppressed and out of the counted tally; removing the symbol while keeping the directive yields stale-suppress.
-- B-0003 fixture (21 sites, 1 divergent) reports exactly the divergent site; a 10/10 split reports nothing.
-- Caps hold: 30 unconsumed / 30 divergent -> 10 + tail each.
-- Determinism: two runs on one fixture are byte-identical.
-- Non-Go targets skip cleanly.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  Run grill on a real item in the worktree with targets internal/mcpserver; paste the #evidence section and its wall time.
-CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the two fixture tests including the suppression arms and the real-item grill from the diff alone; verdict recorded in the archive note.
-
-SCOPE: internal/evidence (new), the grill wiring, tests. Do not modify internal/graph (arg metadata on edges was considered and rejected: it grows every edge for one consumer), the index, or the item model.
-ROLLBACK: remove the #evidence section call; the package is dead code until deleted. No stored state.
-REPORT BACK: measured wall time and bytes on the internal/mcpserver run, both fixtures' outputs including suppression, thresholds as landed, each test's result, anything deliberately not done.
-
 ## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
 kind: task
 state: approved
