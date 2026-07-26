@@ -213,7 +213,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing
 kind: task
-state: approved
+state: active
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007
