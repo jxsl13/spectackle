@@ -105,14 +105,22 @@ func TestSeededFixtureRendersMultiDirCleanInventory(t *testing.T) {
 	}
 
 	// The straight path the judge brief promises must exist (B-01KYE0RCK):
-	// a fresh seeded workspace answers check with plain ok, no gap line for
-	// a diligent agent to rabbit-hole into.
+	// a fresh seeded workspace answers check with no uncovered-gap line for
+	// a diligent agent to rabbit-hole into, and no E finding. Environmental
+	// W degradations are tolerated deliberately — a CI runner whose older
+	// toolchain disables the typed pass answers TYPED W (B-01KYDM taxonomy),
+	// and failing on that would measure the runner, not the fixture; the
+	// first version of this assertion demanded plain ok and went red on
+	// exactly that runner.
 	checkOut, refused, err := callOnce(bin, dir, "check", "{}")
 	if err != nil || refused {
 		t.Fatalf("check on seeded fixture: refused=%v err=%v\n%s", refused, err, checkOut)
 	}
-	if strings.TrimSpace(checkOut) != "ok" {
-		t.Fatalf("fresh seeded fixture check must be plain ok, got:\n%s", checkOut)
+	if strings.Contains(checkOut, "uncovered") {
+		t.Fatalf("seeded fixture still reports an uncovered gap:\n%s", checkOut)
+	}
+	if strings.Contains(checkOut, " E ") {
+		t.Fatalf("seeded fixture check carries an E finding:\n%s", checkOut)
 	}
 }
 
