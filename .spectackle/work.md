@@ -43,7 +43,7 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFXEPW3FD7RYDR1Q0S1R4FF waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts
 kind: task
-state: approved
+state: active
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 grilled: 2026-07-26 open=0
