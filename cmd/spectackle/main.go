@@ -404,7 +404,8 @@ func callStdin(ctx context.Context, sess *mcpclient.Session) int {
 // baseline. Exit non-zero when validity fails, so the harness is scriptable.
 func benchCmd(args []string) int {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
-	against := fs.String("against", "", "candidate binary to A/B against this one")
+	against := fs.String("against", "", "CANDIDATE binary to A/B; this binary (or -baseline) is the baseline")
+	baseline := fs.String("baseline", "", "override the baseline binary (default: this one), so two foreign builds can be A/B'd with the current fixture and script")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -413,8 +414,15 @@ func benchCmd(args []string) int {
 		log.Printf("bench: resolve self: %v", err)
 		return 1
 	}
-	if *against != "" {
-		out, err := bench.AB(self, *against)
+	if *against != "" || *baseline != "" {
+		base, cand := self, self
+		if *baseline != "" {
+			base = *baseline
+		}
+		if *against != "" {
+			cand = *against
+		}
+		out, err := bench.AB(base, cand)
 		if err != nil {
 			log.Printf("bench: %v", err)
 			return 1

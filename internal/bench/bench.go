@@ -94,9 +94,19 @@ func Fixture(dir string) error {
 			return fmt.Errorf("bench fixture: %v: %s", err, out)
 		}
 	}
+	// Fixture v2 (T-01KYDT): a realistic directory topology, not a single
+	// file. v1's one-dir workspace underestimated whole change classes — the
+	// state rules-inventory collapse measured -17B here vs -702B on the real
+	// repository, a 40x gap that made the harness unable to rank exactly the
+	// changes it exists to rank. Each dir below also receives seeded rules
+	// (see Seed) so per-dir surfaces have real breadth.
 	files := map[string]string{
 		"go.mod":                  "module example.com/benchfix\n\ngo 1.26\n",
 		"main.go":                 "package main\n\nfunc main() {}\n",
+		"api/api.go":              "package api\n\n// Serve is the fixture's api entry point.\nfunc Serve() int { return 0 }\n",
+		"api/handlers/echo.go":    "package handlers\n\n// Echo returns its input.\nfunc Echo(s string) string { return s }\n",
+		"store/store.go":          "package store\n\n// Get returns the stored value.\nfunc Get(k string) string { return k }\n",
+		"cli/cli.go":              "package cli\n\n// Parse parses fixture arguments.\nfunc Parse(args []string) int { return len(args) }\n",
 		".spectackle/config.yaml": "schema: v1\ngit:\n  mode: offline\n  base: main\nfeedback:\n  max_rounds: 2\n",
 	}
 	for rel, body := range files {
@@ -114,6 +124,44 @@ func Fixture(dir string) error {
 	out, err := exec.Command("git", "-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@localhost", "commit", "-q", "-m", "fixture").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("bench fixture: commit: %v: %s", err, out)
+	}
+	return nil
+}
+
+// seedRules are the ambient per-dir contracts Seed installs before metering
+// starts. They go in through the real tool surface — the server stays the
+// sole author of record files, so a grammar change can never desynchronize a
+// hand-written fixture — and they are deliberately lint-clean: a finding
+// would put its dir on every state call's listing and mask the very
+// healthy-inventory collapse class the enriched fixture exists to measure.
+// Every response clause names a number the W001 lint accepts as verifiable —
+// a finding-tripping seed would defeat the enrichment (see the doc above).
+var seedRules = []struct{ dir, stem, response string }{
+	{"api", "API-STATUS", "terminate with exit code 0"},
+	{"api", "API-EMPTY", "return HTTP status 204"},
+	{"api/handlers", "HND-ECHO", "return the input with HTTP status 200"},
+	{"store", "STO-HIT", "return the value for the key within 50 milliseconds"},
+	{"store", "STO-MISS", "return error code 404"},
+	{"cli", "CLI-COUNT", "terminate with exit code 2"},
+	{"cli", "CLI-ZERO", "terminate with exit code 0"},
+}
+
+// Seed installs the ambient rules over the fixture, unmetered: this is the
+// workspace's pre-existing history, not part of the scripted session under
+// measurement. A seed refusal is a hard error — a fixture that failed to
+// take shape would silently bench a thinner workspace than reported.
+func Seed(bin, dir string) error {
+	for _, r := range seedRules {
+		args := fmt.Sprintf(
+			`{"op":"add","dir":%q,"stem":%q,"pattern":"U","system":"fixture %s","response":%q}`,
+			r.dir, r.stem, r.dir, r.response)
+		out, refused, err := callOnce(bin, dir, "rule", args)
+		if err != nil {
+			return fmt.Errorf("bench seed %s/%s: %w", r.dir, r.stem, err)
+		}
+		if refused {
+			return fmt.Errorf("bench seed %s/%s refused: %s", r.dir, r.stem, out)
+		}
 	}
 	return nil
 }
@@ -166,6 +214,9 @@ func Run(bin string) (Result, error) {
 	}
 	defer os.RemoveAll(dir)
 	if err := Fixture(dir); err != nil {
+		return Result{}, err
+	}
+	if err := Seed(bin, dir); err != nil {
 		return Result{}, err
 	}
 
@@ -311,7 +362,10 @@ func Report(r Result) string {
 	for _, s := range steps {
 		fmt.Fprintf(&b, "bench %6dB %s\n", s.Bytes, s.Label)
 	}
-	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v\n", r.Bytes, r.Tokens, r.Valid)
+	// fixture=v2 marks the enriched multi-dir workspace (T-01KYDT): absolute
+	// totals are not comparable to v1 numbers, and the label is how a reader
+	// of two reports knows whether they may compare them at all.
+	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v fixture=v2\n", r.Bytes, r.Tokens, r.Valid)
 	for _, v := range r.Violations {
 		fmt.Fprintf(&b, "bench ! %s\n", v)
 	}
@@ -331,18 +385,28 @@ func AB(baseline, candidate string) (string, error) {
 		return "", err
 	}
 	var out strings.Builder
-	out.WriteString("== baseline ==\n" + Report(a))
-	out.WriteString("== candidate ==\n" + Report(b))
-	fmt.Fprintf(&out, "bench delta %+dB ~%+d tokens\n", b.Bytes-a.Bytes, b.Tokens-a.Tokens)
+	// The section headers NAME the binaries: an A/B whose reader cannot tell
+	// which binary sat in which slot invites inverted conclusions — exactly
+	// the failure that misrecorded one merge's delta with the sign flipped
+	// (found during T-01KYDT, corrected in its record).
+	out.WriteString("== baseline " + baseline + " ==\n" + Report(a))
+	out.WriteString("== candidate " + candidate + " ==\n" + Report(b))
+	fmt.Fprintf(&out, "bench delta %+dB ~%+d tokens (candidate minus baseline)\n", b.Bytes-a.Bytes, b.Tokens-a.Tokens)
+	d := b.Bytes - a.Bytes
 	switch {
 	case a.Valid && !b.Valid:
 		out.WriteString("bench verdict: CANDIDATE LOSES — validity regressed, tokens irrelevant\n")
 	case !a.Valid && b.Valid:
 		out.WriteString("bench verdict: candidate wins — validity restored\n")
-	case b.Bytes < a.Bytes:
+	// Time-ordered IDs give adaptive display prefixes whose length can
+	// differ by a character between two runs minted in different moments —
+	// a ±2B floor of run-to-run noise measured on self-vs-self A/Bs. A
+	// delta inside the floor is indistinguishable from jitter in a single
+	// run, and claiming a win on it would be measuring the clock.
+	case d >= -2 && d <= 2:
+		out.WriteString("bench verdict: tie within the ±2B run-noise floor — rerun to confirm any real delta\n")
+	case d < 0:
 		out.WriteString("bench verdict: candidate wins — fewer tokens at equal validity\n")
-	case b.Bytes == a.Bytes:
-		out.WriteString("bench verdict: tie\n")
 	default:
 		out.WriteString("bench verdict: candidate loses — more tokens at equal validity\n")
 	}
