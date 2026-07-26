@@ -29,3 +29,10 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## B-01KYG6FQ32F8DANQWDWJRKAV7E orphan record closure: stale-binary hint incident B-01KYD1G9SGEKYR7WCGEHX2TW80
+kind: bug
+state: draft
+created: 2026-07-26
+
+Recovery re-draft for an orphaned journal create event (B-01KYG56Y orphan sweep); rejected immediately for the record - see the note.
