@@ -436,13 +436,33 @@ func benchCmd(args []string) int {
 		return 0
 	}
 	if *agentScore != "" {
-		sc, err := bench.ScoreAgentRun(self, *agentScore)
-		if err != nil {
-			log.Printf("bench: agent-score: %v", err)
-			return 1
+		dirs := strings.Split(*agentScore, ",")
+		if len(dirs) == 1 {
+			sc, err := bench.ScoreAgentRun(self, dirs[0])
+			if err != nil {
+				log.Printf("bench: agent-score: %v", err)
+				return 1
+			}
+			fmt.Print(bench.AgentReport(sc))
+			if !sc.Valid {
+				return 1
+			}
+			return 0
 		}
-		fmt.Print(bench.AgentReport(sc))
-		if !sc.Valid {
+		var labels []string
+		var scores []bench.AgentScore
+		for _, d := range dirs {
+			sc, err := bench.ScoreAgentRun(self, d)
+			if err != nil {
+				log.Printf("bench: agent-score %s: %v", d, err)
+				return 1
+			}
+			labels = append(labels, filepath.Base(d))
+			scores = append(scores, sc)
+		}
+		out, allValid := bench.AggregateReport(labels, scores)
+		fmt.Print(out)
+		if !allValid {
 			return 1
 		}
 		return 0
