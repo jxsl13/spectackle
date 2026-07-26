@@ -112,3 +112,6 @@ Rationale: Additive-only keeps a fleet rollout safe to re-run; routing through e
 WHEN a tool call arrives and the server executable is older than the newest source file under its root, the server SHALL append one debounced hint record naming the `make dev` rebuild-and-restart command, at most once per crossing.
 
 Rationale: This repo develops itself with itself, so a stale binary answers plausibly from code that no longer exists. Two instances this cycle: a shipped feature investigated as a defect against a 41-minute-old binary, and a resident graph that produced false drift heals. Same debounced shape as the compact hint.
+
+## MCP-011 {applies: go:mcpserver.Server.registerTools}
+The server instructions manifest SHALL carry a BACKPROP paragraph naming the three durable stores, the archive-note training signal, and the post-merge make dev rebuild.
