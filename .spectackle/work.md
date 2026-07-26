@@ -258,7 +258,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
 kind: task
-state: approved
+state: active
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007, T-01KYD8M8RXEXPVTCWTMY962PQQ
