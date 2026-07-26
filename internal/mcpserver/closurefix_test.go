@@ -108,3 +108,82 @@ func TestOrphanedItemsSweep(t *testing.T) {
 		t.Fatalf("check must never carry the orphan sweep: %q", checkOut)
 	}
 }
+
+// Atomic archive edge (B-01KYGADQ): a stranded closure refuses the WHOLE
+// transition — the item compensates back to done and a plain retry after
+// the head is green completes archive + merge.
+func TestArchiveRefusesWholeOnStrandedClosure(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	id := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "atomic archive fixture", "body": ambFixturePad})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	full := fullIDOf(t, root, id)
+	if err := os.WriteFile(filepath.Join(root, "conflict.go"),
+		[]byte("package main\n\n// branch side of the rigged conflict.\nfunc branchSide() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAs(t, root, full, "branch side")
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// rig: a CONFLICTING commit on main touching the same file
+	closureGit(t, root, "checkout", "-q", "main")
+	if err := os.WriteFile(filepath.Join(root, "conflict.go"),
+		[]byte("package main\n\n// main side of the rigged conflict.\nfunc mainSide() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "main side")
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "rigged"})
+	if !strings.Contains(out, "archive refused whole") {
+		t.Fatalf("stranded closure must refuse the whole transition: %q", out)
+	}
+	// the item is retryable done, not tombstoned
+	stateOut := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(stateOut, "atomic archive fixture") || !strings.Contains(stateOut, " done ") {
+		t.Fatalf("item must stay done after the refusal: %q", stateOut)
+	}
+
+	// unrig: build the resolved merge commit with PLUMBING ONLY — no
+	// working tree is ever danced, exactly like production where nobody
+	// checks branches out under the resident (the uncommitted archived->
+	// done compensation on the serving checkout must survive untouched).
+	branch := "spectackle/" + shortDisplayID(full)
+	branchTip := strings.TrimSpace(closureGit(t, root, "rev-parse", branch))
+	mainTip := strings.TrimSpace(closureGit(t, root, "rev-parse", "main"))
+	resolved := filepath.Join(t.TempDir(), "conflict.go")
+	if err := os.WriteFile(resolved,
+		[]byte("package main\n\n// resolved.\nfunc mainSide() {}\nfunc branchSide() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := strings.TrimSpace(closureGit(t, root, "hash-object", "-w", resolved))
+	idx := filepath.Join(t.TempDir(), "idx")
+	plumb := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root,
+			"-c", "user.name=closure", "-c", "user.email=closure@localhost"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+idx)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+		return string(out)
+	}
+	plumb("read-tree", branch)
+	plumb("update-index", "--cacheinfo", "100644,"+blob+",conflict.go")
+	tree := strings.TrimSpace(plumb("write-tree"))
+	commit := strings.TrimSpace(plumb("commit-tree", tree, "-p", branchTip, "-p", mainTip, "-m", "resolve rigged conflict"))
+	closureGit(t, root, "update-ref", "refs/heads/"+branch, commit)
+
+	stateOut = callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(stateOut, "atomic archive fixture") {
+		t.Fatalf("item lost across the unrig dance: %q", stateOut)
+	}
+	out = callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "retry after resolve"})
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("retry after resolve must complete the closure: %q", out)
+	}
+	_ = s
+}

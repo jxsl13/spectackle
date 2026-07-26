@@ -50,6 +50,11 @@ import (
 // unreachable forge produces a visible note, never silence.
 type gitFlowResult struct {
 	lines []string
+	// closureComplete: an archive closure either merged, legitimately had
+	// nothing to merge, or runs without a remote. Anything else strands a
+	// tombstoned item with an open PR (B-01KYGADQ, PRs 142/149) — the move
+	// handler compensates archived->done so a retry re-drives the edge.
+	closureComplete bool
 }
 
 // errNoRemote marks "this workspace has no remote to talk to", which is a
@@ -219,6 +224,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
@@ -349,6 +355,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
@@ -446,6 +453,23 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
+	// Edge atomicity includes the WORKING TREE (B-01KYGADQ): a stranded
+	// closure must leave the serving checkout on the branch it found, or
+	// the archived->done compensation lands on the item branch and the
+	// retry inherits a stale tree. Restore on every incomplete exit.
+	startCur, _ := wt.CurrentBranch(s.ws.Dir)
+	defer func() {
+		if res.closureComplete || startCur == "" {
+			return
+		}
+		if cur, err := wt.CurrentBranch(s.ws.Dir); err == nil && cur != startCur {
+			if err := wt.EnsureBranch(s.ws.Dir, startCur, ""); err != nil {
+				res.addf("! GIT E %s restore checkout %s: %s", it.ID, startCur, err)
+				return
+			}
+			res.addf("g checkout restored to %s (stranded closure leaves the tree where it found it)", startCur)
+		}
+	}()
 	branch := s.itemBranch(it.ID)
 	// B-01KYDS: an item archived without ever entering active has no feature
 	// branch — the old code committed the records onto whatever branch
@@ -517,6 +541,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
 			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
 		}
@@ -535,6 +560,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
 		if pr, ok, err = f.Find(branch); err != nil || !ok {
 			res.addf("g merge skipped: no open pr for %s (already merged, or nothing to review)", branch)
+			res.closureComplete = true
 			return res
 		}
 	}
@@ -701,6 +727,7 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 		}
 		if mr.Merged {
 			res.addf("g pr %d merged %s", pr.Number, mr.SHA)
+			res.closureComplete = true
 			return
 		}
 		if mr.Reason != forge.ReasonNotReady {
