@@ -172,7 +172,7 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 	if scErr != nil {
 		return nil, nil, scErr
 	}
-	return text(fmt.Sprintf("need decision %s %s | %s", sc.short(d.ID), in.Question, strings.Join(opts, ", ")))
+	return text(fmt.Sprintf("need decision %s %s | %s — surface this through your harness interactive ask; a parked record is not an ask", sc.short(d.ID), in.Question, strings.Join(opts, ", ")))
 }
 
 // decideChoiceString normalizes an elicitation result's "choice" value to

@@ -253,6 +253,22 @@ brief and delegate it to a fresh, cheap subagent, exactly like any other
 task — never ad hoc exploration in its own context, never a question the
 pack could have answered.
 
+### Elicitation: ambiguity is computed, never guessed around
+
+A vague requirement must not survive to implementation on a guess. Grill
+computes three ambiguity classes from post-deletion signals — `amb-thin`
+(a task/proposal draft under the calibrated 400-byte body floor),
+`amb-novel` (every target in an uncovered package with zero prior art in
+the journal corpus), `amb-incoherent` (three-plus targets spanning
+unlinked subtrees of the graph) — never from word presence, which is
+padding-gameable. An open ambiguity finding closes one of two ways: **ask**
+— the item cites a decide-minted ADR and that decision lands (done or
+archived); while it is open the finding renders `awaiting ADR-x` — or
+**waive** with a recorded reason through the ordinary per-finding
+machinery. Ask at draft time so the user's answer latency overlaps other
+work; a fully-gated queue waiting on an away user is correct behavior,
+not a stall to engineer around.
+
 ### Grill before you approve
 
 Before `move to=approved` on a proposal (or before delegating its child

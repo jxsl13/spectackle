@@ -16,7 +16,7 @@ func TestVerdictWaiverWithReasonPasses(t *testing.T) {
 	author := connectRoot(t, root)
 	prop := draftID(t, author, map[string]any{
 		"kind": "proposal", "title": "carries a deliberate missing path",
-		"body": "will later add internal/planned/new.go as part of the work"})
+		"body": "will later add internal/planned/new.go as part of the work. The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
 	callText(t, author, "grill", map[string]any{"id": prop})
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)
@@ -42,7 +42,7 @@ func TestVerdictUnaddressedKeyRefusedByName(t *testing.T) {
 	author := connectRoot(t, root)
 	prop := draftID(t, author, map[string]any{
 		"kind": "proposal", "title": "two missing paths",
-		"body": "touches internal/gone/a.go and internal/gone/b.go"})
+		"body": "touches internal/gone/a.go and internal/gone/b.go. The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
 	callText(t, author, "grill", map[string]any{"id": prop})
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)
