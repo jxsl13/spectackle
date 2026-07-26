@@ -315,7 +315,7 @@ REPORT BACK: the capture mechanism chosen and why, the exact git invocation form
 
 ## T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007
@@ -519,3 +519,15 @@ TOKEN BOUNDS, measured not asserted: chain at one lens takes per-item cost from 
 CHILD TASKS (ordered): key-truncation exemption first (finding KEYS enumerate compactly and are exempt from budget truncation, BODIES truncate - blocks the chains addressal semantics); ambiguity findings + ask-addressal; lens label + per-item panel config with the single-reviewer sequential default in guide texts; validation-gate risk inputs from landed diff; waiver-rate tripwire; token diet (findings rendered only pre-archive, verdict-event compaction survival per ADR-01KYES0TT documented and tested).
 
 EXIT CRITERION on this repository: a thin-briefed draft receives an ambiguity finding; a decide round-trip answered from a second session closes it mechanically; a reviewer walking three lenses in one context produces one verdict event whose per-lens findings all require addressal; the gate refuses a verdict on a stale body hash; bench curves show the per-item review cost within the stated bounds.
+
+## ADR-01KYF367A2EAERK9142M53JX8X v0.2.0 release cut: core cut (land addressal PR 105, fix both self-restart bugs, body-edit path, manifest nudge, elicitation gate, release notes and tag - ready in roughly 2-3 days at current pace) or full-chain cut (additionally the seven remaining chain tasks plus outcome benchmarks - roughly 5-7 days)? Pre-1.0 semantics: whatever is cut, the rest ships in v0.3.0.
+kind: adr
+state: done
+created: 2026-07-26
+decision: full chain, ~5-7 days
+status: accepted
+
+kind: radio
+option: core cut, ~2-3 days (recommended)
+option: full chain, ~5-7 days
+choice: full chain, ~5-7 days

@@ -11,8 +11,6 @@ compact:
   journal_max: 500
   done_max: 8
 feedback:
-  # require per ADR-01KYES0TM; parked at warn until T-01KYD9J lands
-  # per-finding waivers - the first armed landing hit four TRUE
-  # target-divergence findings with no waiver path and no target-amendment
-  # tool (B-01KYER). Re-arming require is T-01KYD9J's exit criterion.
-  validate: warn
+  # require per ADR-01KYES0TM, re-armed by T-01KYD9J: per-finding waivers
+  # give residuals an honest recorded path through the gate.
+  validate: require
