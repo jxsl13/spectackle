@@ -667,21 +667,6 @@ SCOPE: the two named markdown files. No Go code, no templates (the backward-path
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
 
-## ADR-01KYDBQGMRFBN9SAHCWWNSAKX4 Who merges a task's pull request, and by what method?
-kind: adr
-state: done
-created: 2026-07-25
-context: The repository contradicted itself: CONTRIBUTING.md on main mandates auto-merge with squash, while the submitted task T-01KYDA9 (PR policy v2) reverses it to a human judgment step with no auto-merge. The automation being built has to implement one of them, and cannot implement both.
-decision: server-merges-nosquash: the server merges automatically after task verification, always a merge commit, never squash; where the agent lacks repository permission it stops after opening the pull request
-consequences: The whole task lifecycle becomes mechanical in server code: commit, push, draft pull request at start of work, ready at done, merge after verification. The LLM spends tokens on judgment and specification, not on driving git. Never squash is kept from the sibling merge-policy task, so the per-edge decision trail survives into the default branch. Degrading to open-pull-request-only under insufficient permission means the automation is safe to run as any identity, and the difference is visible rather than silent. Supersedes CONTRIBUTING.md's current auto-merge-with-squash section, which T-01KYDA9 must be reconciled with rather than contradicted. It also means the merge gate is task verification rather than green CI alone, so verification has to be a real gate before this is armed.
-status: accepted
-
-kind: radio
-option: server-merges-nosquash: the server merges automatically after task verification, always a merge commit, never squash; where the agent lacks repository permission it stops after opening the pull request
-option: human-only: the server opens and readies the pull request and drives CI, the user merges by hand
-option: auto-merge-squash: keep CONTRIBUTING.md as written today
-choice: server-merges-nosquash: the server merges automatically after task verification, always a merge commit, never squash; where the agent lacks repository permission it stops after opening the pull request
-
 ## P-01KYDF59RYEVYRDADEP65GF2ME total decoupling: the LLM issues no git or forge command, and every one is mechanical in the server
 kind: proposal
 state: active
