@@ -258,7 +258,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief
 kind: task
-state: approved
+state: active
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007, T-01KYD87ZA6F83AKH7THFKBBFZA
