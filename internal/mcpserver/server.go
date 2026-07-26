@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	stdsync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -121,6 +122,12 @@ func manifest() string {
 type Server struct {
 	main workspace.Root // the MAIN repo root (immutable after New)
 	ws   workspace.Root // the ACTIVE root — re-rooted to a worktree during `work`
+	// inFlight counts tool calls between gate entry and return — the
+	// self-restart watcher defers its exec swap while it is nonzero
+	// (B-01KYF7: a swap severed the archive edge that had itself moved
+	// HEAD, twice, live).
+	inFlight atomic.Int64
+
 	// selfRestartOn records that the committed-only self-restart watcher is
 	// active for this process: the mtime-based make-dev stale hint is then
 	// suppressed — its advice would be a manual dirty-tree rebuild, the
@@ -428,6 +435,10 @@ func (s *Server) agentTTL() time.Duration {
 
 // SetSelfRestart marks the committed-only watcher active (see selfRestartOn).
 func (s *Server) SetSelfRestart() { s.selfRestartOn = true }
+
+// Busy reports whether any tool call is currently in flight — the
+// self-restart watcher defers swaps until quiet (B-01KYF7).
+func (s *Server) Busy() bool { return s.inFlight.Load() > 0 }
 
 // rerootBack answers where submit/abort return the active workspace after
 // tearing down the task worktree at removedRoot: the process's home root —

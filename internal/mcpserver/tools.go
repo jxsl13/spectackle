@@ -201,6 +201,12 @@ func resultText(res *mcp.CallToolResult) string {
 // sibling learnings (sw records) onto the result.
 func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(context.Context, *mcp.CallToolRequest, T) (*mcp.CallToolResult, any, error) {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in T) (*mcp.CallToolResult, any, error) {
+		// The in-flight counter guards the self-restart swap: a swap while
+		// a records-committing edge awaits CI severed that very edge twice
+		// on the resident (B-01KYF7). Counted OUTSIDE the mutex so the
+		// watcher reads a truthful value while a long call holds the lock.
+		s.inFlight.Add(1)
+		defer s.inFlight.Add(-1)
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if err := s.preCall(); err != nil {
