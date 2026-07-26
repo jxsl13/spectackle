@@ -46,6 +46,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYEVSK7BEEZBE7GGS4HSD5SV
+grilled: 2026-07-26 open=3
 targets: internal/bench/agent.go, internal/bench/bench.go, cmd/spectackle/main.go, docs/bench-curves.md
 
 IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
