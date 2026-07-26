@@ -2,38 +2,6 @@
 schema: v1
 ---
 
-## P-01KYD87FJREJ5SD0G2RDCMZ32Y turn review from assertion into evidence: run the gate that exists, then make grill and validation compute what they cannot fake
-kind: proposal
-state: approved
-created: 2026-07-25
-refs: R-0007, P-01KYD47GZ7FAMAGM4NEF0BQS8T
-grilled: 2026-07-25
-targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/evidence
-
-Supersedes the draft it cites in refs, which carried two errors its own validation round caught; corrected here, everything else re-recorded intact.
-
-R-0007 completed: six lenses planned, four reported before the session limit killed the rest, 40 mechanisms proposed, 34 naming a real failure from this repository's history. The second pass verified its predecessors against the live server and the code, and it overturned the first synthesis on its top-ranked detector.
-
-FINDINGS VERIFIED INDEPENDENTLY BY THE ORCHESTRATOR, not taken on report:
-- The submit gate executed ZERO commands in this repository's entire history: config.yaml carried no verify key and no goal field was ever added to any item, so runGate built its command list from two empty sources and returned success on all seven submits. Fixed first (verify commands armed, proven to bite in a scratch workspace before enabling; measured cost about fifteen seconds per run).
-- The mechanism the first synthesis ranked second - a monoculture scan over the target package's test files - would NOT have caught B-0004: the literal main lives in internal/wt/wt.go:298 inside InitTestRepo, production code in a different package; naive literal frequency is noise (op 102 hits, id 84, main not in the top 50). Four lenses converged on a mechanism that does not work as specified. Convergence across lenses is not verification.
-- grill is ceremony in practice: twelve grill events, every one 0-91s after its item's create event, three within the same second, zero bodies ever revised in response. P-0088 was grilled 3m25s BEFORE its child briefs existed.
-- check cannot report a contract gap here: the root bundle is unscoped with sixteen rules, so ForPath never returns empty and the coverage branch is unreachable. ELEVEN of twenty-four packages under internal/ carry no bundle (thirteen do) while SPX-REPO-002 mandates one - the prior draft said twelve, recounted by the independence validator at eleven. Six of the ten dogfooded defects landed in uncovered packages.
-
-RANKED REMAINDER, by verified failures per unit of cost (1 = the armed gate, done):
-2. Server-computed environment differential at grill: live values of a fixed axis list beside what the item's tests construct. Four of ten defects in one section, roughly thirty lines.
-3. grill stamps a verdict bound to what it read; move gates on the verdict, not a non-empty date. P-0060's adjudicated principle applied to the reviewer.
-4. Package-local contract coverage with the applies-binding mitigation (a lazily written root sentence with no applies binding silences nothing). Eleven violations visible today.
-5. Blast radius and irreversibility. CORRECTED SCOPE from the anti-ceremony validation: at grill time, on declared targets, this is a TRIPWIRE only - T-0137 gamed the word-check with a well-formed paragraph and a heading check is gameable the same way, and T-0135's 4-declared/15-landed divergence is invisible pre-implementation by construction. Declared-vs-landed belongs to the post-implementation validation phase's diff computation, where it is computable exactly.
-6. Declared-but-unconsumed sweep (B-0009's title is the finding).
-7. Caller-divergence sweep, minority argument shapes (B-0003 was one against twenty).
-8. Server-executed mutant-kill gate at submit - strongest evidence generator after the first, deferred on its measured eighty-second tax until the anti-ceremony lens re-runs against real measured costs of 2-7.
-9. Independent-oracle recall for recognizers, as a ratchet - would have caught R-0005 wholesale; the only mechanism with a maintenance tail; deferred with 8.
-
-TO DELETE RATHER THAN ADD: grill's word-presence questions and the brief substring heuristics - including the substring half of the deliberation check itself (strings.Contains on the word rejected, found by this set's own validation round). They cannot fail for a determined author, they train bodies to grow padding, and they occupy the slot where a computed check belongs.
-
-CHILD TASKS: the grill-verdict and validation-phase tasks live under the review-and-validation proposal (verdict machinery, identity binding); under THIS proposal: package-local coverage and the evidence sweeps. Scope is disjoint by file; rollback for each is the removal of one section or one predicate.
-
 ## P-01KYD87FX0F6YRX49R3A8TB6E4 backpropagation: every loop result flows back into the workspace, and the server names the next step so no step can be silently skipped
 kind: proposal
 state: approved
