@@ -43,7 +43,11 @@ mixed-vendor ones; the table above is the definition, this note is not.)*
 Only the orchestrator has git write access. Implementers edit files and run
 tests inside their leased scope; landing the result (commit, PR, merge) is
 always the orchestrator's job, whether it drives `work op=submit` itself or
-reviews and commits an implementer's diff.
+reviews and commits an implementer's diff. The merge method is a merge
+commit, never squash — the per-edge decision trail on the branch must
+survive into `main` intact (see CONTRIBUTING.md for the policy and the
+repository settings enforcing it). The edge commits themselves are
+server-made; the orchestrator neither replicates nor batches them.
 
 ## Sequence of one task
 

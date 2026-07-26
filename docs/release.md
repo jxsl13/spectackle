@@ -27,7 +27,14 @@ For each tag, goreleaser produces:
   each containing the binary.
 - `checksums.txt` covering all archives.
 - A GitHub Release with an auto-generated changelog (commits prefixed
-  `docs:`, `spec:`, or `chore:` are excluded).
+  `docs:`, `spec:`, or `chore:` are excluded). The never-squash merge policy
+  (CONTRIBUTING.md) means `main` also carries the server's process commits —
+  subjects shaped `spectackle(<ev>): …` — which narrate workflow decisions,
+  not shipped change, and are excluded from the changelog exactly like
+  `docs:`/`spec:`/`chore:`. The `.goreleaser.yaml` `changelog.filters`
+  addition (`^spectackle\(`) is the enforcement point; that file is outside
+  this document's scope, so if the filter is missing there, adding it is the
+  named follow-up, not an implicit side effect of this paragraph.
 - A Homebrew formula pushed to `jxsl13/homebrew-tap`, installable on macOS
   and Linux with `brew install jxsl13/tap/spectackle`.
 
