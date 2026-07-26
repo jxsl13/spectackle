@@ -120,3 +120,10 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
+
+## T-01KYE8783JF4ET24W2YG53TP9X the items summary renders only non-zero buckets and includes the side states: blocked was invisible in the one line agents read first
+kind: task
+state: active
+created: 2026-07-26
+
+Dissecting the state surface after a full lifecycle: the items summary renders ok items total=3 active=0 approved=0 draft=2 submitted=0 done=0 — five zero buckets spend bytes on nothing while blocked and rejected are missing entirely, so the single most actionable state in the machine (a blocked item awaiting its decide) is invisible in the summary line, discoverable only by scanning the i listing. Rejected shares the gap. Change: the summary names total plus every NON-zero bucket, lifecycle order first then the side states — ok items total=3 draft=2 blocked=1 — which is simultaneously smaller on typical workspaces (zero buckets dominate) and complete on the workspaces where completeness matters most. Tests: a workspace with a blocked item renders blocked=1 in the summary and no zero buckets; an all-draft workspace renders exactly total and draft; grep for tests pinning the old fixed-bucket format and update them to the new claim. VERIFY: go test ./internal/mcpserver/ -count=1 green; scripted A/B against main — expect a small candidate win on both state calls at equal validity; judge rerun unnecessary and stated: the tricky judges read the i listing for the blocked item, the summary change only ADDS visibility.
