@@ -247,7 +247,12 @@ func (s *Server) staleHint() string {
 		return "" // already surfaced this crossing
 	}
 	s.staleHinted = true
-	return "h . binary stale — rebuild+restart: make dev"
+	// NODE-EDGE-001: the restart is the SERVER's mechanical step — the
+	// committed-only watcher self-restarts the resident. The hint exists
+	// for the one honest exception (no watcher: a dying binary cannot
+	// replace itself), where the operator runs make dev; the caller's only
+	// judgment here is whether to keep working on the stale surface.
+	return "h . binary stale — self-restart pending (committed-only watcher); no watcher? the operator runs make dev — your call is only whether to trust this stale surface"
 }
 
 // staleEligible reports whether staleHint's "make dev" advice could

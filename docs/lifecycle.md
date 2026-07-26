@@ -185,6 +185,19 @@ guards:
 
 Architecture decisions live in the lifecycle as first-class `adr` items (ID letter `ADR`, e.g. `ADR-0042`), queryable via `find scope=adr` and drift-anchored like any other record. Each ADR captures four structured fields following the classic ADR template: **Context** (the forces and constraints behind the decision), **Decision** (the chosen option), **Consequences** (trade-offs and follow-on effects), and **Status** (proposed/accepted/superseded/deprecated — the status field survives from decision proposal through acceptance and eventual supersession). ADRs are never loose markdown — they are persisted as lifecycle items in work.md, journaled on every state transition, and fully subject to the lifecycle's audit trail and search. This keeps architecture rationale discoverable, versioned with the code, and part of the shared knowledge base for all agents in the swarm.
 
+### Nodes are judgment, edges are mechanics (NODE-EDGE-001)
+
+Every lifecycle STATE is an LLM interaction: the caller reads the hints
+(`nextAction`, the packs) and decides direction and work — implement,
+document, review, test, decide — with the legal alternatives rendered as
+an or-tail, never a single rail. Every TRANSITION is a fully mechanical
+server step (branch, commit, push, PR, merge, sweep — `gitFlowFor`), and
+no tool result may demand mechanical work of the caller. The one honest
+exception is a resident without the self-restart watcher: a dying binary
+cannot replace itself, so the stale hint names `make dev` as the
+operator's step — the caller's judgment there is only whether to trust a
+stale surface.
+
 ### Compacting — hybrid, and why
 
 1. **Event-driven at archive** (primary): archive is the only moment with

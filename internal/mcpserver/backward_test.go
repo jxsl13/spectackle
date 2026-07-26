@@ -70,21 +70,21 @@ func TestNextActionPerState(t *testing.T) {
 		want string
 	}{
 		{"draft ungrilled", item.Item{ID: "T-1", State: item.StateDraft},
-			"next grill id=T-1 — render the critique, then an independent verdict"},
+			"next grill id=T-1 — render the critique, then an independent verdict | or: draft id= body= (revise) · move to=rejected note="},
 		{"draft grilled open gaps", item.Item{ID: "T-1", State: item.StateDraft, Grilled: "2026-07-26 open=3"},
-			"next close the 3 open findings, then grill id=T-1 op=verdict"},
+			"next close the 3 open findings, then grill id=T-1 op=verdict | or: waive per key in the verdict · draft id= body= (revise)"},
 		{"draft grilled clean", item.Item{ID: "T-1", State: item.StateDraft, Grilled: "2026-07-26 open=0"},
-			"next move id=T-1 to=submitted"},
+			"next move id=T-1 to=submitted | or: draft id= body= (revise, expires the verdict) · move to=rejected note="},
 		{"submitted", item.Item{ID: "T-1", State: item.StateSubmitted},
-			"next move id=T-1 to=approved — or to=rejected with a note"},
+			"next move id=T-1 to=approved — or to=rejected with a note | or: draft id= body= (back to revision)"},
 		{"approved", item.Item{ID: "T-1", State: item.StateApproved},
-			"next work op=start item=T-1"},
+			"next work op=start item=T-1 | or: move to=active (direct, no worktree) · move to=rejected note="},
 		{"active", item.Item{ID: "T-1", State: item.StateActive},
-			"next implement + test, then work op=submit"},
+			"next implement + test, then work op=submit | or: work op=abort (back to approved) · move to=rejected note="},
 		{"done", item.Item{ID: "T-1", State: item.StateDone},
-			"next check until ok, then move id=T-1 to=archived with a substance note"},
+			"next check until ok, then move id=T-1 to=archived with a substance note | or: move to=active (reopen) · move to=rejected note="},
 		{"blocked", item.Item{ID: "T-1", State: item.StateBlocked, Needs: []string{"A-9"}},
-			"next decide op=answer id=A-9 — the linked decision is the only exit"},
+			"next decide op=answer id=A-9 — the linked decision is the only exit (rescope|reject|override-once)"},
 	}
 	for _, c := range cases {
 		if got := nextAction(c.it, short); got != c.want {
