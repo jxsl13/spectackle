@@ -105,10 +105,11 @@ REPORT BACK: the COVERED implementation, both pasted check runs with empty diff,
 
 ## T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression
 kind: task
-state: done
+state: active
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72H15EPV8KCW6ASSMEFZX
+rounds: 1
 grilled: 2026-07-26 open=0
 targets: internal/evidence, internal/mcpserver/grill.go
 
