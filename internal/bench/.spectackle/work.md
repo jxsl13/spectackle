@@ -28,6 +28,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYEVSK7BEEZBE7GGS4HSD5SV
+grilled: 2026-07-26 open=0
 targets: internal/bench/bench.go, internal/bench/agent.go
 
 IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Small, self-contained; lands before the outcome-fixture sibling (both edit agent.go - the lease serializes).
