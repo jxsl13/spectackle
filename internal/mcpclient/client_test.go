@@ -345,3 +345,30 @@ func TestRefusalErrorCarriesNoTransportPaths(t *testing.T) {
 		t.Fatal("refusal text must still be rendered")
 	}
 }
+
+// TestShapeLineFromLiveSchema pins B-01KYE69's renderer against the real
+// server schema over stdio: required props starred and first, enum-shaped
+// descriptions inlined, prose descriptions omitted — the line teaches
+// vocabulary (a judge burned fourteen refusals because `choose` was never
+// named anywhere it could see), not the manual.
+func TestShapeLineFromLiveSchema(t *testing.T) {
+	bin := requireBinary(t)
+	sess := dialStdio(t, bin, t.TempDir())
+
+	line, err := sess.ShapeLine(context.Background(), "decide")
+	if err != nil {
+		t.Fatalf("ShapeLine: %v", err)
+	}
+	if !strings.HasPrefix(line, "shape: decide {op*:ask|answer|ls") {
+		t.Fatalf("required-first with enum inline lost: %q", line)
+	}
+	if !strings.Contains(line, "choose") {
+		t.Fatalf("the vocabulary word the judge could not guess is missing: %q", line)
+	}
+	if strings.Contains(line, "ADR context") {
+		t.Fatalf("prose description leaked into the shape line: %q", line)
+	}
+	if _, err := sess.ShapeLine(context.Background(), "no-such-tool"); err == nil {
+		t.Fatal("unknown tool must error, not fabricate a shape")
+	}
+}
