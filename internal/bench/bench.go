@@ -3,6 +3,11 @@
 // REAL tool surface and meters every result byte, then verifies the workspace
 // actually reached the states the workflow promises.
 //
+// The agent-judge reference curves and the operating discipline (n=3
+// batches, the all-valid gate, nonce anchors, DISQUALIFIED vs INVALID)
+// live in docs/bench-curves.md — read it before comparing any judge batch
+// against history.
+//
 // It exists because token cost and outcome quality pull against each other,
 // and both sides of that trade have bitten this repository in the same week —
 // texts trimmed for the output diet hid real ambiguity, and texts grown for
