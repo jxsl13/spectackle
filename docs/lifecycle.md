@@ -140,6 +140,16 @@ guards:
   into `draft`, `submitted`, `approved` or `active` (never `done`/`archived`)
   — and reject events survive every compaction;
 - `done → active` (reopen) is the one backward hop kept outside rejection;
+- validation gates `done → archived` for tasks and bugs: the `validate`
+  tool renders a computed pack over the item's real diff and an independent
+  verdict (`validate op=verdict`, a second deliberate `SPECTACKLE_AGENT`,
+  never the implementer) must pass with a current ATTRIBUTED-diff hash
+  (the branch merge plus commits citing the item — uncited commits are
+  invisible to attribution, a stated residual) —
+  `feedback.validate: require` hard-refuses, the default warns. A failing
+  verdict reopens `done → active` through the existing hop with the
+  findings as the implementer's next brief; each reopen counts a round and
+  exhaustion escalates to `blocked` exactly as before;
 - `archived` requires no open children (proposals: no open child items); a
   skip straight to `archived` (e.g. from `active`) **implies `done`** and
   runs the archive effects exactly once — merges the outcome into `##

@@ -84,3 +84,13 @@ scorer catching a main-edit shortcut on its first live outing).
   answers per-call byte deltas cheaply; judges answer whether guidance
   changed navigation. A change outside the metered surface states so
   explicitly instead of skipping measurement silently.
+
+## Text-change A/B ledger (TOKEN-OBJECTIVE-001)
+
+Every machine-facing text change ships with its scripted A/B delta here;
+justification required when the delta is positive.
+
+| change | delta/lifecycle | manifest | justification |
+|---|---|---|---|
+| T-01KYD94K grill verdict machinery (deleted word-checks, open= stamp) | −95B | +0B | strictly cheaper at equal validity |
+| T-01KYD94M3 validate archive gate (warn nudge on unvalidated task/bug archives) | +94B | +0B | the warn IS the validation nudge; it buys prevented correction rounds the scripted bench cannot see — user-approved machinery (ADR-01KYES0TM risk-gated require), catch-rate to be measured by the outcome benchmarks (P-01KYEV) |

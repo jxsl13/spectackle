@@ -268,6 +268,10 @@ func (s *Server) registerTools() {
 		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. Fix computed findings, then have a fresh identity judge."},
 		gate(s, s.grill))
 
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "validate",
+		Description: "Post-implementation judge: default op renders the computed pack over the item's REAL diff (#diff declared-vs-landed, #computed v-findings: untouched targets, offscope files, untested symbols, vacuous tests, fake benchmarks, missing docs, #verify). op=verdict pass=<bool> findings=<text> records the INDEPENDENT validation — a second deliberate SPECTACKLE_AGENT, never the implementer; archive gates on a passing verdict bound to the current attributed diff (commits citing the item), and a failing verdict REOPENS done→active with the findings as the next brief (rounds count)."},
+		gate(s, s.validate))
+
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
 		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the ADR-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
@@ -483,6 +487,11 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	}
 	var b strings.Builder
 	b.WriteString(sc.record(it) + "\n")
+	// A reopened item's validation findings render FIRST — the feedback IS
+	// the implementer's next brief (T-01KYD94M3).
+	if _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && !v.Pass && v.Note != "" {
+		b.WriteString("validate fail " + v.Ag + " :: " + v.Note + "\n")
+	}
 	if it.Parent != "" {
 		b.WriteString("parent " + sc.short(it.Parent) + "\n")
 	}
@@ -1571,6 +1580,22 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 			if open := s.openNeeds(pre); len(open) > 0 {
 				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"
+			}
+			// The validation gate guards archive for implemented kinds
+			// (T-01KYD94M3): a passing, current-diff, independent verdict —
+			// or the gap named, hard under feedback.validate=require. The
+			// archive note derives from the verdict either way it passes.
+			if in.To == item.StateArchived && (pre.Kind == "task" || pre.Kind == "bug") {
+				if gap, err := s.validateGateGap(pre); err != nil {
+					return nil, nil, err
+				} else if gap != "" {
+					if s.ws.Cfg.Feedback.Validate == "require" {
+						return refuse("! VALIDATE E " + short + " " + gap + " (feedback.validate=require)")
+					}
+					warns += "! VALIDATE W " + short + " " + gap + "\n"
+				} else {
+					in.Note = s.derivedArchiveNote(pre, in.Note)
+				}
 			}
 		}
 	}

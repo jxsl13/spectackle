@@ -256,59 +256,6 @@ EXIT CRITERION. On this repository: a draft receives an independent review verdi
 
 ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (require|warn); removing the key returns to warn, reverting the commits returns to today. Verdict events in journals are inert history for a reverted server.
 
-## T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-01KYD9466KEPWBV2RBK7EQM202
-refs: R-0007, T-01KYD87ZA6F83AKH7THFKBBFZA
-grilled: 2026-07-25
-targets: internal/mcpserver/validate.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/workspace/workspace.go, internal/wt/wt.go, docs/lifecycle.md
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-NEEDS: the grill-verdict task (grill computes its critique and stamps a verdict) must be MERGED first - this task mirrors its verdict/identity/hash machinery and shares the move path in tools.go. Do not start while it is open.
-
-WHY. After implementation the loop has no judge. The submit gate runs commands (pass/fail, no judgment), check scans workspace consistency, and done rolls into archived on the orchestrator's say-so. Nobody is charged with: is the implementation correct against its brief, do the new tests actually test the change, are benchmark claims honest, is the work complete. And when the orchestrator does notice something, the feedback reaches the implementer as chat - unrecorded, unsearchable, not binding on the next round. This task builds the validation phase: a computed pack over the item's real diff, an independent recorded verdict gating done -> archived, and findings that reopen the item through the EXISTING done -> active hop (docs/lifecycle.md:142) so the feedback IS the next brief and rounds count toward the existing feedback.max_rounds escalation (SPX-SWM-007). No new lifecycle states.
-
-VERIFIED GROUND (do not re-derive)
-- done -> active is the sanctioned backward hop with a reopen counter and escalate-to-blocked at max_rounds; lifecycle keeps Grilled on reopen (lifecycle.go:380). Rounds already replay.
-- Journal events stamp ag; the implementer's identity is the item's start/submit events' ag; EvGrill is the pattern for a feedback event kind. The grill-verdict task (NEEDS) lands EvReview and the identity/hash refusal pattern - MIRROR it, do not reinvent it.
-- The item's diff is recoverable: the submit path merges a worktree branch; the merge commit and the branch (spectackle/<item-id>) name the change. git diff against the pre-merge parent bounds the reviewed surface. For items implemented without a worktree, fall back to the diff of the commits whose messages cite the item ID; when neither exists, the pack says so and the verdict proceeds on pack-absent evidence - validation must not be skippable just because attribution is hard, but it must say what it could not see.
-- workspace config feedback block exists (FeedbackCfg, workspace.go ~:53) with Grill string knob - add Validate string knob beside it, same semantics (require|warn, default warn).
-
-WHAT TO BUILD
-1. A validate TOOL (new file internal/mcpserver/validate.go), read-computed like grill, budget-truncated (default 1500), sections all computed:
-   #diff - files changed with +/- counts, SPLIT into: declared targets touched, declared targets NEVER touched (finding "v untouched <target>"), files changed OUTSIDE targets (finding "v offscope <file>"). Bounded 20 lines + tail. This is where declared-vs-landed divergence is caught - T-0135 declared four files and landed fifteen, and no pre-implementation check can see that; this computation is the mechanism that would have.
-   #tests - test honesty, computed, each a finding line: (a) production symbols added/changed in the diff with zero references from any test in the diff or existing tests -> "v untested <symbol>" (graph + diff parse, cap 10); (b) anti-vacuity over CHANGED test files only: a subtest loop body containing no assertion call, a range-over-collection whose assertions sit only inside the range with no emptiness guard -> "v vacuous <file:line>" (AST, cap 10); (c) a test file changed with zero production files changed and the item is kind=bug -> "v testonly - bug fix with no production change" (the fix-in-test smell).
-   #bench - only when the diff touches Benchmark funcs or *_bench_test.go: (a) a Benchmark whose loop does not consume b.N or b.Loop -> "v fakebench <func>" (AST); (b) benchmark numbers claimed in the item's report/notes with no matching Benchmark func in the diff -> "v benchclaim <name>". Both classes capped at 10 + tail like #tests (the validation round flagged the missing per-section cap). The validator agent re-runs ONLY the named benchmarks with -benchtime=1x as an execution proof; performance regressions are its judgment, not a server computation.
-   #verify - the declared gate/verify commands and their last recorded result from the submit gate journal trail, so the validator sees what was proven versus asserted.
-2. DIFF BINDING BY SHA: the validation pack and verdict bind to the git commit range (merge-base of the item's branch to its merge commit; fallback below), recorded as SHAs in the EvValidate event - a SHA range is content-addressed by git itself, so the stale-verdict check is a SHA comparison, no bespoke hashing. CITATION RULE for the no-worktree fallback, exact (the independence validation flagged the prior vagueness): a commit cites the item iff its message carries the FULL item ID as a word-delimited token in the subject (the submit path's existing "spectackle <item-id>: ..." convention) or a Spectackle-Item trailer equal to the full ID (the edge-commit engine's format, sibling proposal). Short prefixes never match - a prefix is unambiguous only at the instant it was rendered. When neither worktree nor citing commits exist, the pack states pack-absent evidence and the verdict proceeds on it - validation must not be skippable because attribution is hard, but it must say what it could not see.
-COMMIT CHECKPOINTS ARE NOT THIS TASK: the per-edge commit of .spectackle writes (including verdict events) is owned by the edge-commit engine task under the commit-log-is-the-decision-log proposal (title: edge-commit engine in gate). Do not implement any git committing here; this task only READS git for the diff and the SHA binding.
-3. VERDICT: validate op=verdict id=<item> pass=<bool> findings=<text>. Journal kind EvValidate. FINDINGS RULES mirror EvReview exactly: pass=false with empty findings refused (the findings are the reopened item's next brief); under 80 chars draws a warn tripwire; stored findings are capped at 2000 bytes with a truncation marker (the validation round found the prior draft left this field unbounded - an LLM-written field replayed on every future get must have a ceiling). Ephemeral-identity refusal mirrors EvReview: verdicts from a generated (env-unset) agent identity are refused; review and validation are per-call stdio operations with a deliberate SPECTACKLE_AGENT. NOTE AUTO-FILL, closing the two-rounds-open empty-note defect: when move to=archived on a task or bug carries no note, the server writes the note FROM the passing EvValidate verdict (pass, findings summary, validator identity, SHA range) - the archive note stops being fakeable prose because it is derived from the recorded verdict, with zero agent effort. An explicit note, when given, is appended after the derived part, never instead of it. Other refusals mirror EvReview: same-agent (verdict ag equals any start/submit ag of the item, OR the create ag when no start exists) -> "! VALIDATE E <id> validator implemented this - use a fresh agent identity"; pass=true while the pack's computed findings > 0 -> refused (computed findings are not waivable; the validator judges ON TOP of them, never instead of them); diffHash mismatch (diff changed since last pack render) -> refused, re-render first.
-3. GATE + FEEDBACK LOOP: move to=archived (and the shortcut that implies it) for kind=task and kind=bug requires, under feedback.validate=require, a passing EvValidate with matching diffHash and independent ag; warn mode warns. A verdict with pass=false REOPENS the item: server performs done -> active, increments the existing round counter, and writes the findings into the journal; get on the reopened item renders the findings as the FIRST section - the feedback is the brief. max_rounds exhaustion escalates to blocked exactly as today - no new escalation path.
-4. Documentation: docs/lifecycle.md gains the validation hop in its state diagram prose (done -> archived gated; done -> active on findings), one short section. The workflow template is OWNED by the backward-path task under the backpropagation proposal - do not edit it here; note the dependency in your report instead.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- Implementer-verdict refusal: start+submit as agent A (worktree e2e path exists in worktree_e2e_test.go to crib), verdict as A refused; as B accepted.
-- Waiver refusal: plant an untouched target, pass=true refused while findings>0.
-- Reopen loop: verdict pass=false moves done -> active, rounds increments, get renders the findings first, and a second implementation round followed by clean re-validation archives.
-- Diff binding: verdict, then one more commit citing the item, then move to=archived under require -> refused stale; re-render + re-verdict -> succeeds.
-- Each computed finding class fires on a fixture built to trip exactly it (vacuous subtest, fake bench without b.N, untouched target, offscope file) and stays silent on clean fixtures.
-- Escalation unchanged: exhausting max_rounds through repeated failing verdicts lands in blocked with the ADR-item exactly as SPX-SWM-007 specifies (existing tests untouched).
-- Cost: one validate call on a real merged item in this repository - report wall time and output bytes; must satisfy SPX-MCP-001 (2s warm, 1 MiB reads).
-- Red-run: the archive-gate test written first, shown failing against current code; paste the failing output.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a different agent identity performs one real validation on a merged item in the worktree - renders the pack, records a verdict, confirms the gate honors it and a false verdict reopens - from the diff alone. Verdict recorded in the archive note.
-
-SCOPE: validate.go (new), the move-gate addition in tools.go, EvValidate in journal.go, the FeedbackCfg knob in workspace.go, docs/lifecycle.md, tests. Do not touch grill.go (the NEEDS task owns it), the state-order table, templates, or prompts. tools.go is shared with sibling tasks - the lease serializes.
-ROLLBACK: revert the commit; feedback.validate absent means warn, so removing the key alone already disarms the gate. EvValidate events are inert history for a reverted server - verify replay of a pre-revert journal and state it in the report.
-REPORT BACK: where the diff is recovered from and the fallback used, each refusal's implementation, the reopen wiring into the existing rounds machinery, wall time and bytes on the real-item run, each test's real result including the red-run, anything deliberately not done.
-
 ## T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
 kind: task
 state: approved

@@ -182,6 +182,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYD1G9J5EHBBT823EK0MGT3T indexer walks gitignored paths, so vendored and virtualenv copies inflate the graph and steal the unsuffixed node ID: fixed: workspace walks prune gitignored and vendored trees via SkipDir — probed live, a gitignored vendor dir with three functions leaves the graph at nodes=1 for the single real file
 - B-01KYD1G9KQF87REB16T0AXRDYP workspace resolution walks past .git files, so a nested worktree can never be the root and writes land in the parent checkout: fixed in the ws/main split era: the served root is the workspace it was started in — this entire dogfeeding session runs from a linked git worktree whose records, work.md and journal all land IN the worktree, and the ServedDir distinction (T-01KYEH) made the remaining main-vs-served divergence explicit where it matters
 - T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted: IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task supersedes the rejected draft it cites in refs; everything that draft specified remains in force here and is restated - nothing is inherited by pointer.
+- T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief: IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
@@ -271,3 +272,9 @@ WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestra
 
 ## ROLE-BOUNDARY-001
 The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.
+
+## COMPLETE-DIMS-001
+WHEN WHEN rendering review or validation evidence for an item, the spectackle server SHALL compute finding classes spanning tests, targets, scope, benchmarks, and documentation (validate.go v nodocs), so no completeness dimension goes silently unexamined.
+
+## GROUND-LADDER-001
+WHEN WHEN information needed for a decision is missing, the orchestrating agent SHALL call the research tool first (or draft an R-item); only without a grounded answer ask via decide op=ask (internal/mcpserver/decide.go), the last resort.
