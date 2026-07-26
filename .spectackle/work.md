@@ -66,7 +66,7 @@ REPORT: calibration distribution, banned-pattern grep, live round-trip transcrip
 
 ## T-01KYFXDC6KFNCB66W8JVHTZZNK lens-labeled verdicts under the single-reviewer sequential default, with per-item panel opt-in capped by config
 kind: task
-state: draft
+state: approved
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 grilled: 2026-07-26 open=0
