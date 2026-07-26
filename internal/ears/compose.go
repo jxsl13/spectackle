@@ -65,7 +65,18 @@ func Compose(p Pattern, s Slots) (string, error) {
 	response := strings.TrimSuffix(strings.TrimSpace(s.Response), ".")
 	core := "the " + system + " SHALL " + response + "."
 
-	clause := func(kw, v string) string { return kw + " " + strings.TrimSpace(v) + ", " }
+	// A slot value that already leads with its own keyword ("WHEN x
+	// happens") would compose a doubled keyword — seven live rules carried
+	// WHEN WHEN before this normalization (B-01KYFSZ7). Strip the clause's
+	// own keyword case-insensitively; other keywords are left alone (a
+	// trigger legitimately containing "if" mid-sentence must survive).
+	clause := func(kw, v string) string {
+		v = strings.TrimSpace(v)
+		if len(v) > len(kw) && strings.EqualFold(v[:len(kw)], kw) && v[len(kw)] == ' ' {
+			v = strings.TrimSpace(v[len(kw):])
+		}
+		return kw + " " + v + ", "
+	}
 	switch p {
 	case PUbiquitous:
 		return "The " + system + " SHALL " + response + ".", nil
