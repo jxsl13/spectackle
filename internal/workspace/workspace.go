@@ -70,7 +70,8 @@ type SwarmCfg struct {
 // internal/lifecycle: Move's done->active reopen counter and Escalate).
 type FeedbackCfg struct {
 	MaxRounds int    `yaml:"max_rounds"` // reopen attempts before an item escalates to blocked
-	Grill     string `yaml:"grill"`      // optional shell command that produces grill feedback on reopen
+	Grill     string `yaml:"grill"`      // "require" hard-gates approval on a passing review verdict; else warn
+	Validate  string `yaml:"validate"`   // "require" hard-gates archive on a passing validation verdict; else warn (T-01KYD94M3)
 }
 
 // GitCfg tunes the git integration between task worktrees and the shared

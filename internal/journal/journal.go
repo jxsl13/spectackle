@@ -45,6 +45,7 @@ const (
 	EvDecide   = "decide"   // a blocked item's linked decision was resolved
 	EvEscalate = "escalate" // an item exhausted its feedback rounds and was blocked
 	EvReview   = "review"   // independent review verdict, identity- and body-hash-bound (T-01KYD94KP4)
+	EvValidate = "validate" // post-implementation validation: Op=render (pack, diff hash) or Op=verdict (T-01KYD94M3)
 )
 
 // Event is the single flat record type for all journal lines; unused fields
