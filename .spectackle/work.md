@@ -64,7 +64,7 @@ SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 t
 
 ## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HB0FHX9G80DQGS9YBB1

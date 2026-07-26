@@ -12,7 +12,7 @@ LCY-001	go:item.Get	internal/item/item.go	301-312	37437d90711a7fd0	5d9979347e506
 MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	59-176	a7739a8ff0c3cbba	5275aa7e2829542b
 LCY-001	go:mcpserver.Server.getItem	internal/mcpserver/tools.go	479-569	eb86c5dea77e9e16	5d9979347e50633c
 LCY-002	go:mcpserver.Server.openNeeds	internal/mcpserver/tools.go	1779-1794	3c1960be3d038fd9	6dc63df43e762566
-LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	313-327	57a8b3258a54c016	6dc63df43e762566
+LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	316-330	57a8b3258a54c016	6dc63df43e762566
 SPX-LSP-001	go:langspec.All	internal/langspec/langspec.go	370-376	69ca8c863ade4c01	fb88dafbdb30ed78
 IDX-001	go:index.LangOf	internal/index/langs.go	73-83	8f923cb26649366a	530bf13e00e370d1
 STO-001	go:store.Store	internal/store/store.go	31-36	2f964b8a592b286b	e331c32f774b585a
@@ -36,3 +36,4 @@ RSV-002	go:resolve.GpuPipeResolver.Resolve	internal/resolve/gpupipe.go	66-80	c1e
 LSP-002	go:langspec.SpecParser.callEdges	internal/langspec/langspec.go	317-338	55b2a954ca598924	b43e489d49084037
 MTC-API-004	objc:Renderer.buildPipeline	examples/metalcompute/Renderer.m	12-15	860a8f45c90b6f15	fc12af87c35b21f4
 MTC-API-006	msl:add_arrays	examples/metalcompute/shaders.metal	4-6	894657ad7bcbe04e	41ca46660e86a63f
+MCP-011	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-336	dd6be8188f0b8306	081060ff3535ad7c
