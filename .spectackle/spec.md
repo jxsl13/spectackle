@@ -181,6 +181,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYD1G9PSEH5AQHAV7N4ZQ4BT a degraded index is invisible through the MCP surface: state answers ok graph after the typed-call pass fails: fixed by TypedPassState: the typed-pass verdict is carried on the server and rendered by typedPassFinding in BOTH the state graph section and check as a TYPED W naming the cause and the under-reporting consequence — the exact degradation surfaced live on the CI runner whose older toolchain disabled the pass, proving the visibility end to end
 - B-01KYD1G9J5EHBBT823EK0MGT3T indexer walks gitignored paths, so vendored and virtualenv copies inflate the graph and steal the unsuffixed node ID: fixed: workspace walks prune gitignored and vendored trees via SkipDir — probed live, a gitignored vendor dir with three functions leaves the graph at nodes=1 for the single real file
 - B-01KYD1G9KQF87REB16T0AXRDYP workspace resolution walks past .git files, so a nested worktree can never be the root and writes land in the parent checkout: fixed in the ws/main split era: the served root is the workspace it was started in — this entire dogfeeding session runs from a linked git worktree whose records, work.md and journal all land IN the worktree, and the ServedDir distinction (T-01KYEH) made the remaining main-vs-served divergence explicit where it matters
+- T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted: IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task supersedes the rejected draft it cites in refs; everything that draft specified remains in force here and is restated - nothing is inherited by pointer.
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
@@ -252,3 +253,21 @@ Rationale: A linked worktree has its own git dir and therefore its own index (.g
 
 ## TOKEN-OBJECTIVE-001
 The spectackle server SHALL minimize total tokens to a complete, valid, defect-free result including correction rounds when composing machine-facing text; per-call bytes are subordinate, and hint lines ship only with a docs/bench-curves.md A/B entry showing non-increasing total cost.
+
+## ORCH-GITQUEUE-001
+The orchestrating agent SHALL merge every open pull request before activating new work, checking the forge PR list first, because parallel agents leave WIP branches that may already implement the next item.
+
+## ORCH-PROOF-001
+WHEN WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
+
+## REVIEW-MODE-001
+The review workflow SHALL default to 1 reviewer walking all lenses sequentially in one context, reserving multi-agent panels for recorded risk signals: at 3 lenses a panel pays 3x context ingestion for marginal judgment gain.
+
+## ASK-SURFACE-001
+WHEN WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
+
+## AGENT-ISOLATION-001
+WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
+
+## ROLE-BOUNDARY-001
+The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.

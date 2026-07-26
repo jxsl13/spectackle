@@ -129,8 +129,8 @@ type Server struct {
 	// member of the s.main/s.ws family after BinaryStale and ServedDir
 	// (B-01KYEPC9SJE23V67A9YS9XBZFH).
 	home   string
-	cache  *cache.Cache   // active root's index cache
-	blobs  store.Store    // active root's persistent parse-blob cache
+	cache  *cache.Cache // active root's index cache
+	blobs  store.Store  // active root's persistent parse-blob cache
 	scan   *sync.Scanner
 	g      graph.Graph
 	cd     *coord.DB // shared swarm coordination (main repo's cache dir)

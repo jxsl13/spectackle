@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -59,92 +58,24 @@ func TestGrillTargetsAndContracts(t *testing.T) {
 	}
 }
 
-// TestGrillBriefsHeuristicsMatrix exercises all three brief heuristics
-// (short-body, no-path, no-verify) independently, plus a clean brief that
-// must trigger none of them — the heuristic matrix the task item asks for.
-func TestGrillBriefsHeuristicsMatrix(t *testing.T) {
+// TestGrillBriefHeuristicsDeleted pins the DELETION (T-01KYD94KP4): the
+// short-body/no-path/no-verify heuristics were word-presence checks, and a
+// thin child brief must no longer produce a #briefs section or b-lines —
+// brief quality is the independent reviewer's judgment now.
+func TestGrillBriefHeuristicsDeleted(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
 	parent := serverDraftID(t, s, draftIn{Kind: "proposal", Title: "parent"})
-
-	clean := "internal/mcpserver/grill.go implements the grill tool. " +
-		"Run `go test ./internal/mcpserver/...` to verify. " + strings.Repeat("detail ", 40)
-	shortBody := "too short"
-	noPath := strings.Repeat("word ", 80) + "run go test to verify"
-	noVerify := strings.Repeat("x/y/z path segment ", 40)
-
-	byTitle := map[string]string{}
-	for _, c := range []struct{ title, body string }{
-		{"clean brief", clean},
-		{"short only", shortBody},
-		{"no path", noPath},
-		{"no verify", noVerify},
-	} {
-		byTitle[c.title] = fullID(t, s, serverDraftID(t, s, draftIn{Kind: "task", Title: c.title, Body: c.body, Parent: parent}))
-	}
+	serverDraftID(t, s, draftIn{Kind: "task", Title: "thin child", Body: "too short", Parent: parent})
 
 	res, _, err := s.grill(grillIn{ID: parent})
 	out := resText(t, res, err)
-
-	if !strings.Contains(out, "#briefs") {
-		t.Fatalf("missing #briefs: %q", out)
-	}
-	// Parse the b-lines into per-item flag sets instead of substring-matching
-	// them. The displayed IDs of four tasks minted in the same millisecond
-	// differ only in their last character or two, so one task's rendered ID is
-	// routinely a prefix of another's and strings.Contains would attribute a
-	// heuristic to the wrong task.
-	flags := briefFlags(t, s, out)
-	want := map[string][]string{
-		"clean brief": nil,
-		"short only":  {"short-body", "no-path", "no-verify"},
-		"no path":     {"no-path"},
-		"no verify":   {"no-verify"},
-	}
-	for title, heuristics := range want {
-		got := flags[byTitle[title]]
-		if len(got) != len(heuristics) {
-			t.Fatalf("%q flagged %v, want %v: %q", title, keysOf(got), heuristics, out)
-		}
-		for _, h := range heuristics {
-			if !got[h] {
-				t.Fatalf("%q missing %s (got %v): %q", title, h, keysOf(got), out)
-			}
-		}
+	if strings.Contains(out, "#briefs") || strings.Contains(out, "\nb ") {
+		t.Fatalf("deleted brief heuristics resurfaced: %q", out)
 	}
 }
 
-// briefFlags parses grill's #briefs section into stored-ID -> heuristic set.
-func briefFlags(t *testing.T, s *Server, out string) map[string]map[string]bool {
-	t.Helper()
-	flags := map[string]map[string]bool{}
-	for _, l := range strings.Split(out, "\n") {
-		f := strings.Fields(l)
-		if len(f) != 3 || f[0] != "b" {
-			continue
-		}
-		id := fullID(t, s, f[1])
-		if flags[id] == nil {
-			flags[id] = map[string]bool{}
-		}
-		flags[id][f[2]] = true
-	}
-	return flags
-}
-
-func keysOf(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// TestGrillTestsGap: a target package under internal/ with no *_test.go file
-// surfaces a g notest line; once the test file exists, the section (and the
-// line) disappears — omit-if-empty.
 func TestGrillTestsGap(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "internal", "widget"), 0o755); err != nil {
@@ -211,14 +142,16 @@ func TestGrillRejectionsAndQuestions(t *testing.T) {
 	if !strings.Contains(out, "#questions") {
 		t.Fatalf("missing #questions: %q", out)
 	}
-	if strings.Contains(out, "q rollback not addressed") {
-		t.Fatalf("rollback question should be answered: %q", out)
+	// The substring questions (scope/rollback/exit criterion) are DELETED
+	// word-presence checks (T-01KYD94KP4); only the refs-only deliberation
+	// question may render.
+	for _, dead := range []string{"q scope", "q rollback", "q exit"} {
+		if strings.Contains(out, dead) {
+			t.Fatalf("deleted substring question resurfaced (%s): %q", dead, out)
+		}
 	}
-	if !strings.Contains(out, "q scope disjointness not addressed") {
-		t.Fatalf("missing scope question: %q", out)
-	}
-	if !strings.Contains(out, "q exit criterion not addressed") {
-		t.Fatalf("missing exit criterion question: %q", out)
+	if !strings.Contains(out, "q no deliberation recorded") {
+		t.Fatalf("missing refs-only deliberation question: %q", out)
 	}
 }
 
@@ -227,7 +160,7 @@ func TestGrillRejectionsAndQuestions(t *testing.T) {
 // rejected-alternative prose, stays silent once either shows up, and never
 // asks it at all for a non-proposal kind.
 func TestGrillQuestionsDeliberation(t *testing.T) {
-	const want = "q no deliberation recorded: no ADR/research ref and no rejected alternative"
+	const want = "q no deliberation recorded: no ADR or research ref"
 	body := "Body text that satisfies scope, rollback and exit criterion, and done when verified."
 
 	cases := []struct {
@@ -251,9 +184,11 @@ func TestGrillQuestionsDeliberation(t *testing.T) {
 			ask:  false,
 		},
 		{
-			name: "proposal whose body mentions a rejected alternative stays silent",
+			// prose NEVER counts now — the "rejected" substring path was a
+			// word-presence check of exactly the deleted species.
+			name: "proposal whose body mentions a rejected alternative still asks",
 			it:   item.Item{Kind: "proposal", Body: body + " Considered X; rejected: too slow."},
-			ask:  false,
+			ask:  true,
 		},
 		{
 			name: "task kind never asks, even with no refs and no rejected prose",
@@ -300,7 +235,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	res, _, err := s.grill(grillIn{ID: prop})
 	out := resText(t, res, err)
 	today := time.Now().UTC().Format("2006-01-02")
-	if !strings.Contains(out, "ok grilled "+prop+" "+today) {
+	if !strings.Contains(out, "ok grilled "+prop+" "+today+" open=") {
 		t.Fatalf("grill did not confirm the stamp: %q", out)
 	}
 
@@ -311,8 +246,8 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	if !ok {
 		t.Fatal("item vanished after grill")
 	}
-	if after.Grilled != today {
-		t.Fatalf("Grilled = %q, want %q", after.Grilled, today)
+	if !strings.HasPrefix(after.Grilled, today+" open=") {
+		t.Fatalf("Grilled = %q, want %q open=<n>", after.Grilled, today)
 	}
 
 	// grilled: header set after call — asserted against the persisted
@@ -321,7 +256,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "grilled: "+today) {
+	if !strings.Contains(string(raw), "grilled: "+today+" open=") {
 		t.Fatalf("work.md missing grilled header: %s", raw)
 	}
 
@@ -332,7 +267,7 @@ func TestGrillStampsGrilledAndJournal(t *testing.T) {
 	found := false
 	full := fullID(t, s, prop)
 	for _, e := range events {
-		if e.Ev == journal.EvGrill && e.ID == full && e.Gr == today {
+		if e.Ev == journal.EvGrill && e.ID == full && strings.HasPrefix(e.Gr, today+" open=") && e.Hash != "" {
 			found = true
 		}
 	}

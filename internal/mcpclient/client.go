@@ -51,7 +51,7 @@ var ErrToolRefused = errors.New("tool refused")
 // transport Dial picked.
 type Session struct {
 	cs    *mcp.ClientSession
-	desc  string // transport description, for error context
+	desc  string               // transport description, for error context
 	tools map[string]*mcp.Tool // lazy tool-list cache for ShapeLine
 }
 
