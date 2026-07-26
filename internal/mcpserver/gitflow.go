@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -465,12 +467,43 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		}
 		res.addf("g branch %s created: records-only closure of a never-active item", branch)
 	} else if cur, err := wt.CurrentBranch(s.ws.Dir); err == nil && cur != branch {
-		branch += "-close"
-		if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
-			res.addf("! GIT E %s closure branch: %s", it.ID, err)
+		// B-01KYG56Y: the -close sidestep is legal ONLY for a stale-era
+		// branch. A live branch ahead of base carries validated unmerged
+		// code — closing records-only splits the record from the code
+		// (PR 142/143 incident, user-caught). Ahead -> check the item
+		// branch out and run the normal closure on it, exactly what the
+		// lifecycle does when it is current; the rewind concern only ever
+		// applied to already-merged eras.
+		ahead, aerr := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase())
+		if aerr != nil {
+			res.addf("! GIT E %s ahead check: %s — refusing the records-only sidestep on unknown branch state", it.ID, aerr)
 			return res
 		}
-		res.addf("g branch %s created: item branch exists but is not checked out — closing on a fresh branch at the current head", branch)
+		if ahead {
+			if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
+				res.addf("! GIT E %s checkout live item branch: %s", it.ID, err)
+				return res
+			}
+			res.addf("g branch %s checked out: live item branch ahead of %s — closing on it, never records-only", branch, s.gitBase())
+			// The Move's edge commits (archive event, work.md tombstone)
+			// landed on the PREVIOUS checkout before this switch — without
+			// reconciling, the forge merge conflicts on work.md (the exact
+			// PR 142 incident mechanics). Merge base in, resolving
+			// .spectackle conflicts to base's side (the post-archive
+			// tombstone is authoritative — the same resolution the manual
+			// repair applied); any conflict OUTSIDE .spectackle aborts and
+			// refuses by name, never auto-resolved.
+			if err := s.reconcileClosureBranch(res, it.ID); err != nil {
+				return res
+			}
+		} else {
+			branch += "-close"
+			if err := wt.EnsureBranch(s.ws.Dir, branch, ""); err != nil {
+				res.addf("! GIT E %s closure branch: %s", it.ID, err)
+				return res
+			}
+			res.addf("g branch %s created: stale-era item branch (fully merged) — closing on a fresh branch at the current head", branch)
+		}
 	}
 	// The archive journal event was written by Move before this runs, so it is
 	// on disk and must ride the branch INTO the merge — committed and pushed
@@ -526,7 +559,69 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	}
 	s.pinHead(&pr, branch, res)
 	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)
+	// Post-condition (B-01KYG56Y, the meta-lesson made mechanical):
+	// per-diff review cannot see cross-feature interaction bugs, so the
+	// flow checks its own invariant — after an archive closure no open PR
+	// may still reference the item. Covers both naming eras: the short
+	// branch form is a prefix of the legacy full form.
+	itemRef := taskBranch(it.ID)
+	if spr, ok, ferr := f.Find(itemRef); ferr == nil && ok && spr.Number != pr.Number {
+		res.addf("! GIT E %s stranded pr %d — validated code left unmerged on %s", it.ID, spr.Number, itemRef)
+	}
 	return res
+}
+
+// reconcileClosureBranch merges base into the checked-out live item branch
+// so the closure merge is conflict-free (B-01KYG56Y). .spectackle conflicts
+// resolve to base's side — the post-archive records on base are
+// authoritative; journal.ndjson is union-merged by attribute anyway. A
+// conflict outside .spectackle aborts the merge and refuses by name: code
+// conflicts are a human judgment, never auto-resolved.
+func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
+	git := func(args ...string) (string, error) {
+		cmd := exec.Command("git", append([]string{"-C", s.ws.Dir}, args...)...)
+		cmd.Env = append(os.Environ(), "LC_ALL=C")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	base := s.gitBase()
+	if _, err := git("merge", "--no-ff", "-m", "spectackle(reconcile): "+shortDisplayID(id)+" base into live closure branch", base); err == nil {
+		return nil
+	}
+	conflicted, _ := git("diff", "--name-only", "--diff-filter=U")
+	var outside []string
+	var inside []string
+	for _, f := range strings.Fields(conflicted) {
+		if strings.Contains(f, workspace.Dot+"/") || strings.HasPrefix(f, workspace.Dot) {
+			inside = append(inside, f)
+		} else {
+			outside = append(outside, f)
+		}
+	}
+	if len(outside) > 0 {
+		_, _ = git("merge", "--abort")
+		res.addf("! GIT E %s closure reconcile: code conflicts with %s in %s — resolve by hand, then re-archive", id, base, strings.Join(outside, " "))
+		return errors.New("closure reconcile conflict")
+	}
+	for _, f := range inside {
+		if _, err := git("checkout", "--theirs", "--", f); err != nil {
+			_, _ = git("merge", "--abort")
+			res.addf("! GIT E %s closure reconcile: %s", id, err)
+			return errors.New("closure reconcile failed")
+		}
+	}
+	if _, err := git("add", "-A", "--", workspace.Dot); err != nil {
+		_, _ = git("merge", "--abort")
+		res.addf("! GIT E %s closure reconcile add: %s", id, err)
+		return errors.New("closure reconcile failed")
+	}
+	if _, err := git("commit", "--no-edit"); err != nil {
+		_, _ = git("merge", "--abort")
+		res.addf("! GIT E %s closure reconcile commit: %s", id, err)
+		return errors.New("closure reconcile failed")
+	}
+	res.addf("g reconciled %s into the live closure branch (.spectackle resolved to base)", base)
+	return nil
 }
 
 // pinHead stamps the pull request with the local branch head, so the CI await

@@ -610,7 +610,7 @@ func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 	}
 
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "closed from elsewhere"})
-	if !strings.Contains(out, "-close created: item branch exists but is not checked out") {
+	if !strings.Contains(out, "-close created: stale-era item branch (fully merged)") {
 		t.Fatalf("stale-branch archive did not use a closure branch:\n%s", out)
 	}
 	if !strings.Contains(out, "merged") {

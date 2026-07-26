@@ -1903,7 +1903,6 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		}
 		seen[it.ID] = it.Dir
 	}
-
 	// drift
 	anchors, err := drift.Load(s.ws)
 	if err != nil {
