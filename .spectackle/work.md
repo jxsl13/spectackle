@@ -118,6 +118,7 @@ choice: yes bounded
 kind: task
 state: draft
 created: 2026-07-26
+grilled: 2026-07-26 open=2
 targets: internal/mcpserver/gitflow.go, internal/mcpserver/edgecommit.go, internal/wt/wt.go, docs/lifecycle.md
 
 IMPLEMENTER IN OWN WORKTREE. USER REQUIREMENT (2026-07-27): IDs on human-facing surfaces use the SHORT display form everywhere in git and GitHub - full 26-char ULIDs in branch names, PR titles, and commit subjects are unreadable noise for humans scanning a log or PR list.
