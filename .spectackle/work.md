@@ -43,7 +43,7 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFXDCHHFV3SQDA5CEHAA4AQ validation require is risk-gated from the landed diff: file count and dangerous-path membership, never declared targets
 kind: task
-state: active
+state: done
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 grilled: 2026-07-26 open=1
