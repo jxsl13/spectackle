@@ -262,7 +262,7 @@ state: done
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007, T-01KYD87ZA6F83AKH7THFKBBFZA
-rounds: 1
+rounds: 2
 grilled: 2026-07-25
 targets: internal/mcpserver/validate.go, internal/mcpserver/tools.go, internal/journal/journal.go, internal/workspace/workspace.go, internal/wt/wt.go, docs/lifecycle.md
 
