@@ -10,11 +10,17 @@ package mcpserver
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 )
+
+// reOrphanCite matches a full record ID cited in a terminal note — the
+// orphan-closure citation shape.
+var reOrphanCite = regexp.MustCompile(`^(?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]{10,}$`)
 
 const (
 	// waiverRateWindow is how many qualifying verdicts (newest first,
@@ -130,6 +136,16 @@ func (s *Server) orphanedItems() []string {
 			}
 		case journal.EvArchive, journal.EvReject:
 			terminal[e.ID] = true
+			// A terminal note explicitly citing another ID closes that
+			// orphan for the record — the recovery path the sweep's own
+			// hint prescribes ("reject it for the record") mints a NEW
+			// item whose note names the orphan; without this, closure
+			// records could never clear the line (rider on T-01KYFPNCX).
+			for _, tok := range strings.Fields(e.Note) {
+				if reOrphanCite.MatchString(tok) {
+					terminal[tok] = true
+				}
+			}
 		}
 	}
 	var out []string

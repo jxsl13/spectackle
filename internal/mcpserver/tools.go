@@ -2063,14 +2063,9 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	return text(budget.Render(kept, cur))
 }
 
-// short8 truncates a hex hash to its first 8 characters for compact display
-// in `d healed` records; hashes shorter than that pass through unchanged.
-func short8(h string) string {
-	if len(h) > 8 {
-		return h[:8]
-	}
-	return h
-}
+// short8 renders the compact `d healed` hash form via the one shared
+// truncation helper (T-01KYFPNCX retired its fingerprint twin).
+func short8(h string) string { return hashPrefix(h, 8) }
 
 // coverageGaps is the per-file walk research/knowledge/state reuse: a source
 // file with zero applicable rules marks its dir uncovered. In a workspace
