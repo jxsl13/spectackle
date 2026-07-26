@@ -12,7 +12,7 @@ LCY-001	go:item.Get	internal/item/item.go	301-312	37437d90711a7fd0	5d9979347e506
 MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	59-176	a7739a8ff0c3cbba	5275aa7e2829542b
 LCY-001	go:mcpserver.Server.getItem	internal/mcpserver/tools.go	445-498	f3684333a47914ea	5d9979347e50633c
 LCY-002	go:mcpserver.Server.openNeeds	internal/mcpserver/tools.go	1561-1576	3c1960be3d038fd9	6dc63df43e762566
-LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	289-303	57a8b3258a54c016	6dc63df43e762566
+LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	298-312	57a8b3258a54c016	6dc63df43e762566
 SPX-LSP-001	go:langspec.All	internal/langspec/langspec.go	370-376	69ca8c863ade4c01	fb88dafbdb30ed78
 IDX-001	go:index.LangOf	internal/index/langs.go	73-83	8f923cb26649366a	530bf13e00e370d1
 STO-001	go:store.Store	internal/store/store.go	31-36	2f964b8a592b286b	e331c32f774b585a
