@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## T-01KYE30QAHF0095GTCB2VV07QR manifest diet: situational guidance moves to an on-demand guide prompt, and bench meters the manifest as its own once-per-session line
 kind: task
-state: active
+state: done
 created: 2026-07-26
 rounds: 1
 
