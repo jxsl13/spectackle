@@ -73,7 +73,7 @@ func TestVerdictLifecycleHashBinding(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "author-a")
 	author := connectRoot(t, root)
 	prop := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "hash binding end to end", "body": "The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
+		"kind": "proposal", "title": "hash binding end to end", "body": ambFixturePad})
 	callText(t, author, "grill", map[string]any{"id": prop})
 
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
@@ -90,7 +90,7 @@ func TestVerdictLifecycleHashBinding(t *testing.T) {
 	// body-edit tool (B-01KYER), so the test writes through item.Upsert
 	// the way lifecycle-internal code does.
 	prop2 := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "second proposal for stale check", "body": "The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
+		"kind": "proposal", "title": "second proposal for stale check", "body": ambFixturePad})
 	callText(t, author, "grill", map[string]any{"id": prop2})
 	callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop2, "pass": true})
 	s2, _ := connectRootWithServer(t, root)
@@ -285,7 +285,7 @@ func TestTargetsEditExpiresVerdict(t *testing.T) {
 	prop := draftID(t, author, map[string]any{
 		"kind": "proposal", "title": "targets are judged substance",
 		"targets": []string{"main.go"}, "refs": []string{study},
-		"body": "The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
+		"body": ambFixturePad})
 	callText(t, author, "grill", map[string]any{"id": prop})
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)

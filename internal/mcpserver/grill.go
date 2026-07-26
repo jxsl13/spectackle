@@ -879,7 +879,13 @@ func (s *Server) grillAmbiguity(it item.Item, c *spec.Cascade, historyHits int) 
 	if n := len([]byte(strings.Join(strings.Fields(it.Body), " "))); n < ambThinFloor {
 		out = append(out, fmt.Sprintf("g amb-thin body %dB < %dB floor", n, ambThinFloor))
 	}
-	if paths := targetPaths(it.Targets); len(paths) > 0 && historyHits == 0 {
+	var paths []string
+	for _, t := range it.Targets {
+		if p, ok := targetPath(t); ok {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) > 0 && historyHits == 0 {
 		uncovered := s.uncoveredPackages(c, "")
 		isUncovered := func(p string) bool {
 			for _, u := range uncovered {
@@ -900,7 +906,7 @@ func (s *Server) grillAmbiguity(it item.Item, c *spec.Cascade, historyHits int) 
 			out = append(out, "g amb-novel all targets uncovered, zero prior art")
 		}
 	}
-	if incoherentTargets(s.g, targetPaths(it.Targets)) {
+	if incoherentTargets(s.g, paths) {
 		out = append(out, "g amb-incoherent targets span unlinked subtrees")
 	}
 	if len(out) == 0 {
@@ -921,33 +927,12 @@ func (s *Server) grillAmbiguity(it item.Item, c *spec.Cascade, historyHits int) 
 				return nil // decision landed — ambiguity resolved
 			}
 			for i := range out {
-				out[i] += " awaiting " + shortRef(r)
+				out[i] += " awaiting " + r[:min(13, len(r))]
 			}
 			return out
 		}
 		if s.archivedInJournal(r) {
 			return nil
-		}
-	}
-	return out
-}
-
-// shortRef renders a stored full ref in its compact display prefix — refs
-// are persisted full-length (draft expands them), and the finding line only
-// needs enough to type back.
-func shortRef(id string) string {
-	if len(id) > 13 {
-		return id[:13]
-	}
-	return id
-}
-
-// targetPaths filters an item's targets down to path-shaped ones.
-func targetPaths(targets []string) []string {
-	var out []string
-	for _, t := range targets {
-		if p, ok := targetPath(t); ok {
-			out = append(out, p)
 		}
 	}
 	return out

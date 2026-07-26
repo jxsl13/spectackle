@@ -52,7 +52,7 @@ func TestDraftRevisionExpiresVerdict(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "author-a")
 	author := connectRoot(t, root)
 	prop := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "reviewed then revised", "body": "The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
+		"kind": "proposal", "title": "reviewed then revised", "body": ambFixturePad})
 	callText(t, author, "grill", map[string]any{"id": prop})
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)

@@ -16,6 +16,11 @@ import (
 	"github.com/jxsl13/spectackle/internal/spec"
 )
 
+// ambFixturePad keeps OTHER tests' fixture drafts above the calibrated
+// thin floor without duplicating a 400-byte literal at every site (the
+// dup detector rightly flagged the copies).
+const ambFixturePad = "The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."
+
 func TestAmbThinFiresAndClears(t *testing.T) {
 	s := newTestServer(t, t.TempDir())
 	c := loadCascadeFor(t, s)
