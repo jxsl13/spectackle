@@ -123,10 +123,10 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## T-01KYDKNR8KF66BSZ9W7ZPTX9BC a reopened task flips its pull request back to draft: the PR draft state mirrors the item state in both directions
 kind: task
-state: done
+state: active
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
-rounds: 1
+rounds: 2
 
 User requirement: a pull request that is open but no longer final must return to draft. Today the mapping is one-way — done flips draft to ready, but a reopen (done back to active, or a rescope out of blocked) leaves the pull request marked ready for review while the work has been declared not-finished, which misstates the review surface.
 
