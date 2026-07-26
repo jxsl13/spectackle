@@ -443,19 +443,6 @@ SCOPE: the two named markdown files. No Go code, no templates (the backward-path
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
 
-## ADR-01KYES0TTVERW92GN8R86TCG6W Do review/validation verdict events survive journal compaction forever (~5KB per item, permanent audit corpus) or fold after archive?
-kind: adr
-state: done
-created: 2026-07-26
-decision: keep forever (recommended)
-status: accepted
-
-kind: radio
-option: keep forever (recommended)
-option: fold after archive
-blocks: P-01KYERRMHSFYH8CY01A624ZZBV
-choice: keep forever (recommended)
-
 ## P-01KYESGDWFFMH80ENHNFXMVZE8 requirement elicitation, lens-labeled verdicts under a single-reviewer default, and the panel amendments: closing the vague-requirement gap at minimum token cost (re-record)
 kind: proposal
 state: approved
