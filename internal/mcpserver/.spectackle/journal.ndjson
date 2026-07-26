@@ -416,3 +416,4 @@
 {"t":"2026-07-26T13:55:45Z","eid":"4b02a9cfd90882d8","ag":"ag-11f6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-003","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"930a7725deb070a5","nh":"dd6be8188f0b8306"}
 {"t":"2026-07-26T13:55:45Z","eid":"2962b46c73bbf2e3","ag":"ag-11f6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-006","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"930a7725deb070a5","nh":"dd6be8188f0b8306"}
 {"t":"2026-07-26T15:12:44Z","eid":"c1040b2c8939c90b","ag":"cross-val-ew","ev":"validate","id":"T-01KYEWT8GMFAQAQP46DEK5FJ35","dir":"internal/mcpserver","op":"render","hash":"84007fc60886177879fe12b48510fe410d224e3dbc5afffddb237798b23f9eb9"}
+{"t":"2026-07-26T15:12:45Z","eid":"615546d60fcb298d","ag":"cross-val-ew","ev":"validate","id":"T-01KYEWT8GMFAQAQP46DEK5FJ35","dir":"internal/mcpserver","op":"verdict","hash":"84007fc60886177879fe12b48510fe410d224e3dbc5afffddb237798b23f9eb9","pass":true}
