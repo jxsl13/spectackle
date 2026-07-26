@@ -18,6 +18,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/evidence"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/lifecycle"
@@ -153,6 +154,32 @@ func validateHash(it item.Item, diff string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// diffHunks parses the +side line ranges per file out of a unified diff —
+// the changed-node detector intersects function spans with them (T-01KYD9R).
+func diffHunks(diff string) map[string][][2]int {
+	out := map[string][][2]int{}
+	cur := ""
+	for _, l := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(l, "diff --git a/") {
+			f := strings.TrimPrefix(l, "diff --git a/")
+			if i := strings.Index(f, " b/"); i >= 0 {
+				cur = f[i+3:]
+			}
+			continue
+		}
+		if strings.HasPrefix(l, "@@") && cur != "" {
+			var aStart, aLen, bStart, bLen int
+			if n, _ := fmt.Sscanf(l, "@@ -%d,%d +%d,%d @@", &aStart, &aLen, &bStart, &bLen); n >= 3 {
+				if bLen == 0 {
+					bLen = 1
+				}
+				out[cur] = append(out[cur], [2]int{bStart, bStart + bLen - 1})
+			}
+		}
+	}
+	return out
+}
+
 // diffFiles parses changed paths with +/- counts out of a unified diff.
 func diffFiles(diff string) (files []string, adds, dels map[string]int) {
 	adds, dels = map[string]int{}, map[string]int{}
@@ -260,6 +287,11 @@ func (s *Server) validateComputed(it item.Item, diff string) []string {
 	if it.Kind == "bug" && testChanged > 0 && prodChanged == 0 && diff != "" {
 		out = append(out, "v testonly - bug fix with no production change")
 	}
+	// redundancy (T-01KYD9R): each function node the diff added or changed
+	// compared against the fingerprint index; a >= 0.85 match is a
+	// finding the validator judges — deliberate duplication (a fixture, a
+	// fork-on-purpose) is a waiver with a reason, never the server's guess.
+	out = append(out, s.validateDups(diff)...)
 	// documentation completeness (user directive 2026-07-26: the solution
 	// is complete from ALL aspects — docs included): a diff that adds
 	// exported symbols or touches machine-facing text surfaces with zero
@@ -866,4 +898,47 @@ func rangesOverLiteral(body *ast.BlockStmt, rng *ast.RangeStmt) bool {
 		return !literal
 	})
 	return literal
+}
+
+// validateDups builds the lazy fingerprint index and reports duplicates of
+// the diff's changed function nodes (T-01KYD9R). Changed = the node's span
+// intersects a +side hunk of the attributed diff.
+func (s *Server) validateDups(diff string) []string {
+	if diff == "" {
+		return nil
+	}
+	hunks := diffHunks(diff)
+	if len(hunks) == 0 {
+		return nil
+	}
+	load := func(rel string) []byte {
+		data, err := s.readWorkspaceFile(rel)
+		if err != nil {
+			return nil
+		}
+		return data
+	}
+	index, truncated := evidence.BuildDupIndex(s.g, load)
+	var changed []evidence.IndexedNode
+	for _, n := range index {
+		ranges, ok := hunks[n.File]
+		if !ok {
+			continue
+		}
+		nd, found := s.g.Node(n.ID)
+		if !found {
+			continue
+		}
+		for _, r := range ranges {
+			if nd.Line <= r[1] && nd.EndLine >= r[0] {
+				changed = append(changed, n)
+				break
+			}
+		}
+	}
+	out := evidence.Duplicates(changed, index)
+	if truncated {
+		out = append(out, "v dup-index truncated")
+	}
+	return out
 }

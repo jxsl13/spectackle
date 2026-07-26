@@ -191,6 +191,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons: validated pass by cross-val-t9j diff 5b6474082d21
 - T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events: validated pass by cross-val-94mg diff 615c8f9ea82d
 - T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression: validated pass by cross-val-88ke diff 1e4605c6ba14
+- T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing: validated pass by cross-val-9r diff 3c29d3acee92 :: detector calibrated on the real twin, isolation and caps pinned, index tested directly, 1.43s cold inside budget; the deferred persistent cache is measured-justified and stated
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

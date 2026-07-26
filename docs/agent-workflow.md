@@ -102,6 +102,9 @@ next `swarm` or `find scope=rejection` call, so the same dead end is never
 retried blind.
 
 ## Anatomy of a thorough task body
+Name the existing helpers the implementer must reuse — `find scope=code`
+before writing; a redundancy finding at validation means the brief failed
+to name a reusable helper, so fix the brief pattern, not just the code.
 
 A task body is the implementer's *entire* context. If it has to explore to
 fill a gap, the body was insufficient — that's an orchestrator bug, not an
