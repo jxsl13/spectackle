@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYGADQPKEZT80J3Y5K977Z7C archive tombstones the item before the closure merge succeeds; a transient-red CI strands a green PR with no flow actor
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/tools.go, internal/mcpserver/gitflow.go
