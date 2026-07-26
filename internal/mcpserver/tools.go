@@ -1192,6 +1192,13 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 		for _, m := range missing {
 			b.WriteString("need " + m + " " + slotQuestions[m] + "\n")
 		}
+		// One shape line so the FIRST refusal carries everything the second
+		// call needs (T-01KYE5): the tricky judge meters showed rule leading
+		// every refusal table — three to five groping attempts through op
+		// variants and invented fields — because the slot questions name
+		// pieces, never the assembled call. ~100 bytes on a surface read
+		// only after a failure, against 2-4 saved round trips.
+		b.WriteString(`shape: rule {"op":"add","dir":"<dir>","stem":"<TOPIC-NAME>","pattern":"U|E|S|N|O|C","system":"<who acts>","response":"<verifiable outcome, name a number>"}` + "\n")
 		// IsError, not plain text (B-01KYE0RCT): no rule was created, and a
 		// shell-driven agent keys on the exit code — a live judge issued
 		// nine junk-pattern retries because this read as success. The need
