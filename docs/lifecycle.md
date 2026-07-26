@@ -150,6 +150,10 @@ guards:
   verdict reopens `done → active` through the existing hop with the
   findings as the implementer's next brief; each reopen counts a round and
   exhaustion escalates to `blocked` exactly as before;
+- research items archive only consumed (a live or archived item citing
+  them, or a rule rationale naming them) or explicitly closed with a
+  substantive note — hard, no loose mode: research that changes nothing
+  and says nothing is pure token cost (`! BACKPROP E`);
 - `archived` requires no open children (proposals: no open child items); a
   skip straight to `archived` (e.g. from `active`) **implies `done`** and
   runs the archive effects exactly once — merges the outcome into `##

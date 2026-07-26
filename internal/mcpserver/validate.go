@@ -267,7 +267,21 @@ func (s *Server) validateComputed(it item.Item, diff string) []string {
 	// quality judgment — whether the docs are RIGHT is the validator's
 	// call; this only makes forgetting them impossible to miss.
 	docChanged := false
-	exportedAdded := len(reAddedFunc.FindAllString(diff, -1)) > 0
+	// exported-production scan only: Test functions are exported by Go
+	// convention and flagged nodocs on a test-heavy diff (first live
+	// false-positive of this class after the literal-range and
+	// test-sibling shapes)
+	exportedAdded := false
+	inTestFile := false
+	for _, l := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(l, "diff --git") {
+			inTestFile = strings.Contains(l, "_test.go")
+			continue
+		}
+		if !inTestFile && reAddedFunc.MatchString(l) {
+			exportedAdded = true
+		}
+	}
 	for _, f := range files {
 		if strings.HasSuffix(f, ".md") && !strings.Contains(f, ".spectackle/") {
 			docChanged = true

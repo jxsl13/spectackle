@@ -1620,6 +1620,22 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			if open := s.openNeeds(pre); len(open) > 0 {
 				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"
 			}
+			// The research return path (T-01KYD88M): an R-item archives
+			// only consumed — a live or archived item citing it, or a rule
+			// rationale naming it — or explicitly closed with a note of at
+			// least 80 characters. HARD regardless of feedback config: an
+			// unconsumed-and-unexplained archive has no legitimate loose
+			// mode, unlike the grill/validate knobs whose warn modes serve
+			// migration — research that changes nothing and says nothing
+			// is pure token cost by construction. The 80-char floor is a
+			// TRIPWIRE against accidental emptiness, padding-gameable and
+			// stated as such; substance lives in the consumer path and
+			// human review, never in the floor.
+			if pre.Kind == "research" && in.To == item.StateArchived {
+				if !s.researchConsumed(pre.ID) && len(strings.TrimSpace(in.Note)) < 80 {
+					return refuse("! BACKPROP E " + short + " unconsumed research - cite it from a rule/item or close with a no-action note")
+				}
+			}
 			// The validation gate guards archive for implemented kinds
 			// (T-01KYD94M3): a passing, current-diff, independent verdict —
 			// or the gap named, hard under feedback.validate=require. The
@@ -2495,4 +2511,52 @@ func (s *Server) reviseDraft(in draftIn) (*mcp.CallToolResult, any, error) {
 	b.WriteString(sc.record(it) + "\n")
 	b.WriteString("ok revised " + strings.Join(changed, "+") + " — stamps and verdicts on the old substance are expired; re-grill before promoting\n")
 	return text(b.String())
+}
+
+// researchConsumed answers whether any live or archived item cites the
+// R-item in its Refs, or any rule rationale names it — the backprop return
+// path (T-01KYD88M). Operates entirely on already-loaded state: items via
+// LoadAll (the move path loaded them), tombstone refs via the journal pass,
+// rules via the in-memory cascade.
+func (s *Server) researchConsumed(rID string) bool {
+	items, _ := item.LoadAll(s.ws)
+	events, _ := journal.ReadAll(s.ws)
+	c, _ := spec.Load(s.ws.Dir)
+	return researchConsumedIn(items, events, c, rID)
+}
+
+// researchConsumedIn is the PURE gate decision — zero filesystem reads by
+// construction, provable by exercising it after the tree is gone (the
+// cost-flatness test). The gathering above rides reads the serving call
+// performs anyway; the decision itself never touches disk.
+func researchConsumedIn(items []item.Item, events []journal.Event, c *spec.Cascade, rID string) bool {
+	for _, it := range items {
+		for _, ref := range it.Refs {
+			if ref == rID {
+				return true
+			}
+		}
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvReject || e.Ev == journal.EvArchive {
+			for _, ref := range e.Refs {
+				if ref == rID {
+					return true
+				}
+			}
+			if strings.Contains(e.Sum, rID) || strings.Contains(e.Body, rID) {
+				return true
+			}
+		}
+	}
+	if c != nil {
+		for _, f := range c.All() {
+			for _, r := range f.Rules {
+				if strings.Contains(r.Rationale, rID) || strings.Contains(r.Text, rID) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
