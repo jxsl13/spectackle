@@ -25,7 +25,7 @@ EXIT CRITERION on this repository: one outcome fixture with >=5 planted edge cas
 
 ## T-01KYFSN48KEK88SNR9MSJRFWA4 role-boundary contract: the server owns every mechanical git step and the bench fails any transcript instructing the agent to run git
 kind: task
-state: draft
+state: active
 created: 2026-07-26
 parent: P-01KYEVSK7BEEZBE7GGS4HSD5SV
 grilled: 2026-07-26 open=0
