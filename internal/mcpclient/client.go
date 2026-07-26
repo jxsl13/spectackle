@@ -8,6 +8,7 @@ package mcpclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,6 +38,12 @@ type Call struct {
 	Name      string
 	Arguments map[string]any
 }
+
+// ErrToolRefused marks a tool result that carried IsError: the rendered
+// text holds the refusal itself, and callers that already surfaced the text
+// (the CLI prints it to stdout) need only the exit-code signal, not a
+// second prose rendition of the failure.
+var ErrToolRefused = errors.New("tool refused")
 
 // Session is a live connection to a spectackle MCP server, over whichever
 // transport Dial picked.
@@ -122,7 +129,13 @@ func (s *Session) Call(ctx context.Context, c Call) (string, error) {
 	rendered := strings.Join(parts, "\n")
 
 	if res.IsError {
-		return rendered, fmt.Errorf("mcpclient: tool %q reported an error via %s", c.Name, s.desc)
+		// Refusals carry their whole reason in the rendered text; the
+		// transport description here was ~430 bytes of absolute paths
+		// repeated on EVERY refusal a CLI-driven agent read — 68-78% of the
+		// first live judges' entire tool-output diet (T-01KYE0). Transport
+		// context stays on transport errors above, where no result text
+		// exists to explain anything.
+		return rendered, fmt.Errorf("mcpclient: tool %q: %w", c.Name, ErrToolRefused)
 	}
 	return rendered, nil
 }
