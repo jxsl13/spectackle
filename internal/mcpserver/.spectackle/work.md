@@ -6,6 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-26
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/tools.go, internal/mcpserver/gitflow.go
 
 OBSERVED (T-01KYG90P closure, 2026-07-27): the archive move journaled the tombstone and removed the item from work.md, THEN gitFlowMerge refused the merge on a transiently red head (a t.TempDir cleanup flake, rerun green minutes later). Result: the item was archived and unknown to every tool, PR 149 sat open and green, and no flow actor could complete the merge - manual gh pr merge was the only path (second escape-hatch merge after PR 142). The B-01KYG56Y stranded-PR post-condition detects this shape but cannot heal it: the merge refusal is DELIBERATE on red, and after the red clears the item is already tombstoned.
