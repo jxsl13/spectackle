@@ -443,19 +443,6 @@ SCOPE: the two named markdown files. No Go code, no templates (the backward-path
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
 
-## ADR-01KYES0TR8FP78R6CGSXM9MQ01 May a reviewer waive an ambiguity finding without a user round-trip? Recommended: waivable with recorded reason plus computed waive-rate tripwire (ask-only would make automation authoritative over judgment, inverting the steps-are-judgments contract).
-kind: adr
-state: done
-created: 2026-07-26
-decision: waivable with reason + tripwire (recommended)
-status: accepted
-
-kind: radio
-option: waivable with reason + tripwire (recommended)
-option: ask-only: ambiguity always goes to the user
-blocks: P-01KYERRMHSFYH8CY01A624ZZBV
-choice: waivable with reason + tripwire (recommended)
-
 ## ADR-01KYES0TTVERW92GN8R86TCG6W Do review/validation verdict events survive journal compaction forever (~5KB per item, permanent audit corpus) or fold after archive?
 kind: adr
 state: done
