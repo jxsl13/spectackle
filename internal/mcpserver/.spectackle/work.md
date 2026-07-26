@@ -120,10 +120,3 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
-
-## B-01KYE8SQHWFFMTD26GEXSZYKAN work op=submit cannot reattach to an on-disk worktree from a fresh process, and its refusal denies the worktree exists
-kind: bug
-state: done
-created: 2026-07-26
-
-Probed headlessly on the judge fixture while designing a worktree judge scenario: work op=start opens the worktree and a SECOND fresh process calling op=start reattaches idempotently to the same on-disk root — but op=submit from a fresh process refuses with no open worktree for <item> even when given the explicit item, because the open-worktree state lives in process memory (s.wtItem) and only the start path knows how to re-root from disk. Every CLI call is its own process, so the entire work flow — the swarm core — is impossible headlessly per-call: start in process one, edit, and submit has no process to run in. The stdin batch mode technically allows a reattach-then-submit pair in one process, but that is undiscoverable and undocumented. The refusal text is also false: an open worktree for that item DOES exist on disk, the process just never looked. Fix: op=submit (and op=abort) with an explicit item — or with exactly one open worktree on disk — re-roots through the same mechanism start uses, then proceeds; the refusal, when the worktree truly is absent, stays as is. VERIFY: a three-process sequence — start, a shell edit under the reported root, submit item=<id> from a fresh process — gates, merges to the fixture default branch, and lands the edit (asserted on the main file) with the item at done; op=abort from a fresh process releases likewise; e2e test drives it exactly that way since every callOnce in bench is its own process by construction.
