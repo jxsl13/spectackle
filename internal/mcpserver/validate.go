@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -810,6 +811,50 @@ func (s *Server) validateGateGap(it item.Item) (string, error) {
 		return "anonymous validation — verdicts need a deliberate SPECTACKLE_AGENT", nil
 	}
 	return "", nil
+}
+
+// validateRisk names the landed-diff input that flips a warn-mode archive
+// gate to require (T-01KYFXDCH): distinct file count at or over
+// feedback.risk_files, or any landed file inside a feedback.dangerous_paths
+// glob. Computed STRICTLY from the attributed diff — declared targets are
+// gameable and never consulted. Empty string = no risk tripped.
+func (s *Server) validateRisk(id string) string {
+	diff, _ := s.itemDiff(id)
+	if diff == "" {
+		return ""
+	}
+	files, _, _ := diffFiles(diff)
+	return riskTrip(files, s.ws.Cfg.Feedback.RiskFiles, s.ws.Cfg.Feedback.DangerousPaths)
+}
+
+// riskTrip is the pure decision: file count at/over the threshold (0 means
+// the default 8), or any file inside a dangerous glob. Returns the tripped
+// input spelled out for the refusal line, or "".
+func riskTrip(files []string, threshold int, dangerous []string) string {
+	if threshold <= 0 {
+		threshold = 8
+	}
+	if len(files) >= threshold {
+		return fmt.Sprintf("landed %d files >= risk_files %d", len(files), threshold)
+	}
+	for _, f := range files {
+		for _, pat := range dangerous {
+			if dangerousMatch(f, pat) {
+				return "landed " + f + " matches dangerous_paths " + pat
+			}
+		}
+	}
+	return ""
+}
+
+// dangerousMatch supports the two shapes users write: "dir/**" (subtree
+// prefix) and plain path.Match globs.
+func dangerousMatch(file, pattern string) bool {
+	if rest, ok := strings.CutSuffix(pattern, "/**"); ok {
+		return file == rest || strings.HasPrefix(file, rest+"/")
+	}
+	ok, err := path.Match(pattern, file)
+	return err == nil && ok
 }
 
 // derivedArchiveNote composes the archive note FROM the passing verdict —

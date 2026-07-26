@@ -668,7 +668,7 @@ func TestEnsureScaffoldGeneratesSelfDocumentingConfig(t *testing.T) {
 	for _, key := range []string{
 		"schema:", "langs:", "ignore:", "ignore_regex:", "budget_default:",
 		"journal_max:", "done_max:", "lease_ttl:", "agent_ttl:",
-		"max_rounds:", "grill:", "worktrees_dir:", "coverage_gate:",
+		"max_rounds:", "grill:", "risk_files:", "dangerous_paths:", "worktrees_dir:", "coverage_gate:",
 	} {
 		idx := strings.Index(text, key)
 		if idx < 0 {
@@ -721,7 +721,12 @@ func TestEnsureScaffoldGeneratesSelfDocumentingConfig(t *testing.T) {
 	if got.WorktreesDir != want.WorktreesDir {
 		t.Errorf("WorktreesDir = %q, want %q", got.WorktreesDir, want.WorktreesDir)
 	}
-	if got.Feedback != want.Feedback {
+	// FeedbackCfg carries a slice since T-01KYFXDCH — compare fields.
+	if got.Feedback.MaxRounds != want.Feedback.MaxRounds ||
+		got.Feedback.Grill != want.Feedback.Grill ||
+		got.Feedback.Validate != want.Feedback.Validate ||
+		got.Feedback.RiskFiles != want.Feedback.RiskFiles ||
+		!slices.Equal(got.Feedback.DangerousPaths, want.Feedback.DangerousPaths) {
 		t.Errorf("Feedback = %+v, want %+v", got.Feedback, want.Feedback)
 	}
 }

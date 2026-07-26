@@ -41,26 +41,6 @@ targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcps
 
 OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.shortHash 100% fired although BOTH functions predate the diff - short8 sat in hunk CONTEXT lines adjacent to inserted code, so the hunk-scoped extraction treated it as touched. RULE: a dup finding must implicate only functions with at least one ADDED line in the attributed diff; context-line-only functions are preexisting code the task never wrote. IMPLEMENTATION: when mapping diffHunks to functions in validateDups, track added-line ranges (+ lines only, not context) and intersect with function spans before lookup in the dup index. PROOF: unify short8 (tools.go, 8 chars) and shortHash (validate.go, 12 chars) into one parameterized helper as the cleanup this false positive pointed at, and add a regression test where a diff INSERTS code adjacent to one twin of a preexisting dup pair and validateDups stays silent, plus one where the diff ADDS a twin and it fires. Byte-budget neutral: no output-format change.
 
-## T-01KYFXDCHHFV3SQDA5CEHAA4AQ validation require is risk-gated from the landed diff: file count and dangerous-path membership, never declared targets
-kind: task
-state: approved
-created: 2026-07-26
-parent: P-01KYESGDWFFMH80ENHNFXMVZE8
-grilled: 2026-07-26 open=1
-targets: internal/mcpserver/validate.go, internal/workspace/workspace.go, docs/lifecycle.md
-
-IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH: break-even for the validation gate is a ~30-50 percent catch rate, so feedback.validate stays warn GLOBALLY and require flips per item from RISK computed off the LANDED diff - never declared targets (T-0135 landed 15 files against 4 declared; gaming kill). This repo keeps blanket require in its own config - the risk gate is for everyone else; nothing here may weaken an explicit require.
-
-WHAT TO BUILD:
-1. RISK INPUTS, computed in validateGateGap from itemDiff (already attributed): landedFiles = count of distinct files in the diff; dangerous = any file under a dangerous path. Dangerous list: config feedback.dangerous_paths ([]string, glob per SkipDir conventions); DEFAULT when key absent: internal/lifecycle/**, internal/journal/**, internal/workspace/**, .github/** on this repos vocabulary is WRONG for other repos - so the shipped default is empty plus a scaffold comment documenting the knob; risk from paths fires only when the user configured it. File-count threshold: feedback.risk_files (int, default 8, scaffold-documented).
-2. GATE SEMANTICS: validate=require behaves as today. validate=warn (or absent): the archive gate REQUIRES a passing verdict IFF landedFiles >= risk_files OR dangerous matched; otherwise warns as today. The refusal names the tripped input: validation required: landed 12 files >= 8. An explicit require is never downgraded.
-3. Scaffold config.yaml documents both knobs (workspace_test key list grows by two).
-NON-NEGOTIABLE, tested: warn-mode item with a 9-file landed diff refuses archive without verdict naming the count; same item at 7 files archives with warning; dangerous-path hit at 1 file refuses; require-mode unchanged (existing tests); knobs parse, absent means default 8 and empty list; scaffold lists both keys.
-VERIFY: build/test -race/vet/gofmt; lint; check ok; live proof deferred to the bench A/B (measuring catch rates needs the outcome fixture, noted as the follow-up in the parent).
-SCOPE: validateGateGap + config + scaffold + docs/lifecycle.md gate paragraph. No grill.go.
-ROLLBACK: revert; knobs additive.
-REPORT: refusal line verbatim, each test, knob defaults rationale.
-
 ## T-01KYFXEPW3FD7RYDR1Q0S1R4FF waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts
 kind: task
 state: approved
@@ -113,3 +93,27 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## T-01KYG0ZX2XERAS022A42JNAV75 human-facing git surfaces carry the short display ID: branches, PR titles, commit subjects; machine trailers stay full
+kind: task
+state: approved
+created: 2026-07-26
+grilled: 2026-07-26 open=2
+targets: internal/mcpserver/gitflow.go, internal/mcpserver/edgecommit.go, internal/wt/wt.go, docs/lifecycle.md
+
+IMPLEMENTER IN OWN WORKTREE. USER REQUIREMENT (2026-07-27): IDs on human-facing surfaces use the SHORT display form everywhere in git and GitHub - full 26-char ULIDs in branch names, PR titles, and commit subjects are unreadable noise for humans scanning a log or PR list.
+
+DESIGN CONSTRAINTS, verified against the ID machinery: the display form is the adaptive shortest-unique prefix with floor MinRecordPrefixLen=13 (pins all 48 timestamp bits + 15 random - practically collision-proof at this repos mint rate, and the floor exists exactly so a pinned prefix stays unambiguous as siblings mint later, T-0134/ADR-0013). Git branch names need uniqueness AT CREATION and stable traceability afterward, which the 13-char floor provides; they are never resolved by prefix expansion, so later ambiguity cannot break an existing branch. MACHINE surfaces keep the FULL ID: the Spectackle-Item/Spectackle-Eid trailers are the journal-to-git audit join and replay backbone - shortening them would force prefix resolution at read time against a moving corpus. The commit SUBJECT is human-facing (short); the trailer block is machine-facing (full). That split is the whole design.
+
+WHAT TO CHANGE
+1. BRANCH NAMES: spectackle/<full-id> becomes spectackle/<short13> at creation (gitflow branch mint site; find it via the g branch record). Existing full-length branches stay valid - nothing renames; only NEW branches shorten.
+2. PR TITLES: the server-composed pull request title carries the short ID + the item title (find the title compose site in gitflow.go); the PR BODY keeps the full ID once so search by full ID still hits.
+3. COMMIT SUBJECTS: edge commits (edgecommit.go subject composer) and gitflow sweep/checkpoint subjects render the short form; the Spectackle-Item trailer stays FULL (assert in a test that subject is short while trailer is full in the same commit).
+4. The one-task-one-PR policy section (CONTRIBUTING) says the title carries the full task ID - update to the short display ID with the full ID in the body, one sentence, and note the machine-trailer split in docs/lifecycle.md.
+5. SHORT FORM SOURCE: use the same idScope short rendering the tool surface uses when available; where gitflow runs without a scope, truncate to ids.MinRecordPrefixLen chars of the ID body (state which sites use which and why in the report).
+
+NON-NEGOTIABLE, tested: a new branch name ends with the 13-floor short form, never the full ULID; an edge commit in a test workspace has short subject + full trailer; PR title compose renders short + title, body carries full; existing tests over branch parsing (TouchedFiles, unpushed-commit checks, citing() attribution) still pass - the subject filter spectackle( must keep matching (it is prefix-based, ID-form-agnostic - verify, state).
+VERIFY: go build/test -race/vet/gofmt; lint; check ok; live on this repo: activate-and-abort a throwaway (or let the next real task prove it) and paste the g branch and pr lines showing short forms.
+SCOPE: the named files + CONTRIBUTING sentence + tests. No ids package changes, no journal schema changes, no renames of existing branches.
+ROLLBACK: revert; new branches revert to full form, old ones were never touched.
+REPORT: each surface before/after, the trailer-split test, the live lines.

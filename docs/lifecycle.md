@@ -147,7 +147,13 @@ guards:
   never the implementer) must pass with a current ATTRIBUTED-diff hash
   (the branch merge plus commits citing the item — uncited commits are
   invisible to attribution, a stated residual) —
-  `feedback.validate: require` hard-refuses, the default warns. A failing
+  `feedback.validate: require` hard-refuses, the default warns — except
+  when the LANDED diff trips a risk input (distinct file count at or over
+  `feedback.risk_files`, default 8, or a file inside a
+  `feedback.dangerous_paths` glob, default empty): then warn mode still
+  requires the verdict and the refusal names the tripped input. Risk is
+  computed from the attributed diff, never from declared targets (which
+  are gameable); an explicit `require` is never downgraded. A failing
   verdict reopens `done → active` through the existing hop with the
   findings as the implementer's next brief; each reopen counts a round and
   exhaustion escalates to `blocked` exactly as before;

@@ -81,6 +81,13 @@ type FeedbackCfg struct {
 	MaxRounds int    `yaml:"max_rounds"` // reopen attempts before an item escalates to blocked
 	Grill     string `yaml:"grill"`      // "require" hard-gates approval on a passing review verdict; else warn
 	Validate  string `yaml:"validate"`   // "require" hard-gates archive on a passing validation verdict; else warn (T-01KYD94M3)
+	// Risk-gated require (T-01KYFXDCH): when Validate is NOT "require",
+	// the archive gate still demands a verdict for items whose LANDED diff
+	// (never declared targets — gameable, T-0135 landed 15 files against 4
+	// declared) trips either input below. An explicit require is never
+	// downgraded by these.
+	RiskFiles      int      `yaml:"risk_files"`      // landed-file count that trips require; 0 = default 8
+	DangerousPaths []string `yaml:"dangerous_paths"` // repo-relative globs ("dir/**" prefix or path.Match); default EMPTY — this repo's vocabulary is wrong for yours
 }
 
 // GitCfg tunes the git integration between task worktrees and the shared
@@ -145,7 +152,7 @@ func defaultConfig() Config {
 		BudgetDefault: 2000,
 		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900, PanelMax: 3},
-		Feedback:      FeedbackCfg{MaxRounds: 3},
+		Feedback:      FeedbackCfg{MaxRounds: 3, RiskFiles: 8},
 		Git:           GitCfg{Mode: "online", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
 	}
 }
@@ -705,6 +712,8 @@ func scaffoldConfigYAML() []byte {
 	b.WriteString("feedback:\n")
 	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
 	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)
+	fmt.Fprintf(&b, "  risk_files: %d  # landed-diff file count that requires a validation verdict even when validate is warn\n", d.Feedback.RiskFiles)
+	b.WriteString("  dangerous_paths: []  # repo-relative globs whose landed changes require a validation verdict (empty by default)\n")
 	fmt.Fprintf(&b, "worktrees_dir: %q  # override for .spectackle/wt (abs or root-relative); empty = default location\n", d.WorktreesDir)
 	fmt.Fprintf(&b, "coverage_gate: %q  # \"package\": check counts internal/ and cmd/ packages without a binding contract as findings; empty = silent (visibility stays in state)\n", d.CoverageGate)
 	return []byte(b.String())
