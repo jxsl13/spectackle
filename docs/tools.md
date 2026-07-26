@@ -69,7 +69,7 @@ cur <token>                                      more results; pass back as cur
 ok [<msg>]                                       success / nothing to report
 #impact #contracts #rejections                   context-pack sections (draft)
 #impact #contracts #rejections #history #docs #gaps #open  research pack sections
-#targets #contracts #briefs #tests #rejections #questions  grill pack sections
+#targets #contracts #tests #rejections #questions #computed #evidence  grill pack sections
 #version #items #rules #graph #swarm #drift #health  snapshot sections (state)
 ```
 
@@ -154,6 +154,12 @@ targets, refs replace when given. Grill stamps and review verdicts bind the
 substance hash and expire with the revision; the review loop's feedback can
 finally amend the record it critiques (B-01KYER). From `submitted` on the
 body is the frozen review subject and revision is refused.
+
+`#evidence` (task/bug targets): the unconsumed sweep (exported symbols
+nothing outside their file calls — B-0009's class) and caller-divergence
+(minority argument shapes among 5+ sites — B-0003's class). Suppress a
+known-false unconsumed finding per symbol with an `unconsumed-ok: <symbol>
+<reason>` body line — visible in the pack, flagged stale when obsolete.
 
 ### 4. `rule` — author EARS contracts (the only rule write path)
 
