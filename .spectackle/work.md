@@ -46,6 +46,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/grill.go, internal/mcpserver/decide.go, internal/mcpserver/tools.go, docs/agent-workflow.md
 
 IMPLEMENTER IN OWN WORKTREE. Read the parent P-01KYESGDWFFMH first - it carries the user-approved design (ADR-01KYES0TR: waivable with reason plus tripwire) and the rejected alternatives; do not re-litigate.
