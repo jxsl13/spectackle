@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -132,6 +133,13 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	computed := s.grillComputed(it, c, len(rej))
+	// Ambiguity classes (T-01KYFXBY): novelty needs a history signal — the
+	// journal corpus, searched once here, not inside the pure computation.
+	hist, err := s.cache.Search(it.Title, []string{"journal"}, packHits)
+	if err != nil {
+		return nil, nil, err
+	}
+	computed = append(computed, s.grillAmbiguity(it, c, len(hist))...)
 	addSection("#computed", computed)
 	// #evidence (T-01KYD88KE): the B-0009 unconsumed sweep and the B-0003
 	// caller-divergence sweep over declared targets. Unsuppressed
@@ -842,4 +850,152 @@ func (s *Server) grillEvidence(it item.Item) []string {
 		return data
 	})...)
 	return out
+}
+
+// --- Ambiguity classes (T-01KYFXBY, P-01KYES / ADR-01KYES0TR) ---
+//
+// A vague requirement must force an interactive user round-trip or an
+// accountable waiver, never a silent guess. All three classes compute from
+// post-deletion signals — body size, coverage novelty, graph incoherence —
+// never word presence, which T-01KYD94KP4 deleted as padding-gameable.
+
+// ambThinFloor is the flattened-body byte floor for task/proposal drafts.
+// Calibrated 2026-07-27 against the 22 task/proposal bodies in this repo's
+// reject corpus: minimum 418 bytes, median ~4.4KB — the floor fires on
+// none of them.
+const ambThinFloor = 400
+
+// grillAmbiguity computes the amb-* findings and resolves their ask
+// closure: any cited decide-minted ADR- ref that is done or archived
+// closes ALL ambiguity findings mechanically (the structural-ref
+// precedent of class e); a cited but still-open ADR renders the findings
+// as awaiting that decision. Waiver closure is the ordinary per-finding
+// machinery and needs nothing here.
+func (s *Server) grillAmbiguity(it item.Item, c *spec.Cascade, historyHits int) []string {
+	if it.State != item.StateDraft || (it.Kind != "task" && it.Kind != "proposal") {
+		return nil
+	}
+	var out []string
+	if n := len([]byte(strings.Join(strings.Fields(it.Body), " "))); n < ambThinFloor {
+		out = append(out, fmt.Sprintf("g amb-thin body %dB < %dB floor", n, ambThinFloor))
+	}
+	var paths []string
+	for _, t := range it.Targets {
+		if p, ok := targetPath(t); ok {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) > 0 && historyHits == 0 {
+		uncovered := s.uncoveredPackages(c, "")
+		isUncovered := func(p string) bool {
+			for _, u := range uncovered {
+				if p == u || strings.HasPrefix(p, u+"/") {
+					return true
+				}
+			}
+			return false
+		}
+		all := true
+		for _, p := range paths {
+			if !isUncovered(p) {
+				all = false
+				break
+			}
+		}
+		if all {
+			out = append(out, "g amb-novel all targets uncovered, zero prior art")
+		}
+	}
+	if incoherentTargets(s.g, paths) {
+		out = append(out, "g amb-incoherent targets span unlinked subtrees")
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	// Ask closure: resolve cited ADRs. Done/archived closes; open renders
+	// awaiting. Archived ADRs tombstone out of work.md, so absence after a
+	// lookup miss means archived-or-unknown — the tombstone check is the
+	// history search the caller already ran for novelty; treat a cited but
+	// unloadable ADR as closed only when the journal knows its archive.
+	for _, r := range it.Refs {
+		if !strings.HasPrefix(r, "ADR-") {
+			continue
+		}
+		adr, ok, err := item.Get(s.ws, r)
+		if err == nil && ok {
+			if adr.State == item.StateDone || adr.State == item.StateArchived {
+				return nil // decision landed — ambiguity resolved
+			}
+			for i := range out {
+				out[i] += " awaiting " + r[:min(13, len(r))]
+			}
+			return out
+		}
+		if s.archivedInJournal(r) {
+			return nil
+		}
+	}
+	return out
+}
+
+// incoherentTargets: three or more target paths spanning three or more
+// top-level dirs where no pair is connected in the graph (bounded BFS,
+// depth 2, both directions). Two targets never fire it.
+func incoherentTargets(g graph.Graph, paths []string) bool {
+	if len(paths) < 3 {
+		return false
+	}
+	tops := map[string]bool{}
+	for _, p := range paths {
+		tops[strings.SplitN(p, "/", 2)[0]] = true
+	}
+	if len(tops) < 3 {
+		return false
+	}
+	under := func(file, p string) bool {
+		return file == p || strings.HasPrefix(file, p+"/") || strings.HasPrefix(file, p+".")
+	}
+	seedsFor := func(p string) []graph.NodeID {
+		base := path.Base(strings.TrimSuffix(p, ".go"))
+		var ids []graph.NodeID
+		for _, n := range g.Find(base, 25, graph.KUnknown) {
+			if under(n.File, p) || under(n.File, path.Dir(p)) {
+				ids = append(ids, n.ID)
+			}
+		}
+		return ids
+	}
+	for i := 0; i < len(paths); i++ {
+		seeds := seedsFor(paths[i])
+		if len(seeds) == 0 {
+			continue
+		}
+		nodes, _ := g.Impact(seeds, 2, graph.Both, nil)
+		for j := 0; j < len(paths); j++ {
+			if i == j {
+				continue
+			}
+			for _, n := range nodes {
+				if under(n.File, paths[j]) || under(n.File, path.Dir(paths[j])) {
+					return false // one connected pair = coherent
+				}
+			}
+		}
+	}
+	return true
+}
+
+// archivedInJournal reports whether the journal carries an archive event
+// for id — the tombstone lookup for ADRs that left work.md.
+func (s *Server) archivedInJournal(id string) bool {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return false
+	}
+	for _, e := range events {
+		if e.Ev == journal.EvArchive && e.ID == id {
+			return true
+		}
+	}
+	return false
 }

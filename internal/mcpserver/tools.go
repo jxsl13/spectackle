@@ -230,7 +230,7 @@ func (s *Server) registerTools() {
 		gate(s, s.get))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "draft",
-		Description: "Create a lifecycle item (state=draft) in the correct .spectackle/work.md — server assigns ID+scope. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Never edit .spectackle files yourself."},
+		Description: "Create a lifecycle item (state=draft) in the correct .spectackle/work.md — server assigns ID+scope. With targets the response is a CONTEXT PACK: #impact, #contracts, #rejections — read it before writing code. Ask open user questions at DRAFT time (decide op=ask) so their latency overlaps other work. Never edit .spectackle files yourself."},
 		gate(s, s.draft))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",

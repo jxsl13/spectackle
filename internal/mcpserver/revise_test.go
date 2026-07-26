@@ -14,13 +14,13 @@ func TestDraftRevisionAmendsBody(t *testing.T) {
 	sess := connectRoot(t, root)
 	prop := draftID(t, sess, map[string]any{
 		"kind": "proposal", "title": "first cut",
-		"body": "names internal/missing/path.go which does not exist"})
+		"body": "names internal/missing/path.go which does not exist. The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
 	out := callText(t, sess, "grill", map[string]any{"id": prop})
 	if !strings.Contains(out, "g nopath internal/missing/path.go") {
 		t.Fatalf("fixture finding missing: %q", out)
 	}
 	out = callText(t, sess, "draft", map[string]any{
-		"id": prop, "body": "the path concern is resolved: no file references remain"})
+		"id": prop, "body": "the path concern is resolved: no file references remain. The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
 	if !strings.Contains(out, "i ") || strings.Contains(out, "! ") {
 		t.Fatalf("revision refused: %q", out)
 	}
@@ -52,12 +52,12 @@ func TestDraftRevisionExpiresVerdict(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "author-a")
 	author := connectRoot(t, root)
 	prop := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "reviewed then revised"})
+		"kind": "proposal", "title": "reviewed then revised", "body": ambFixturePad})
 	callText(t, author, "grill", map[string]any{"id": prop})
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)
 	callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop, "pass": true})
-	callText(t, author, "draft", map[string]any{"id": prop, "body": "materially different plan after review"})
+	callText(t, author, "draft", map[string]any{"id": prop, "body": "materially different plan after review. The remainder of this brief restates scope, constraints, verification commands, and rollback in enough real sentences that the calibrated ambiguity floor does not fire on a fixture that exists to probe a different class entirely. It names its files, states its exit criterion, records what is deliberately out of scope for the probe at hand, and notes which sibling machinery the assertions below actually exercise."})
 	out := callText(t, author, "move", map[string]any{"id": prop, "to": "approved"})
 	if !strings.Contains(out, "stale review") {
 		t.Fatalf("revision did not expire the verdict: %q", out)
