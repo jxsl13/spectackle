@@ -34,12 +34,13 @@ import (
 // this repository's history changed zero bodies.
 
 type grillIn struct {
-	ID       string `json:"id" jsonschema:"item ID, e.g. P-0007"`
-	Op       string `json:"op,omitempty" jsonschema:"pack (default) renders the critique; verdict records the independent review"`
-	Pass     *bool  `json:"pass,omitempty" jsonschema:"verdict: true = approved by the reviewer"`
-	Findings string `json:"findings,omitempty" jsonschema:"verdict: the review findings — required on pass=false, they become the author's next brief"`
-	Budget   int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
-	Cur      string `json:"cur,omitempty" jsonschema:"resume cursor"`
+	ID       string            `json:"id" jsonschema:"item ID, e.g. P-0007"`
+	Op       string            `json:"op,omitempty" jsonschema:"pack (default) renders the critique; verdict records the independent review"`
+	Pass     *bool             `json:"pass,omitempty" jsonschema:"verdict: true = approved by the reviewer"`
+	Findings string            `json:"findings,omitempty" jsonschema:"verdict: the review findings — required on pass=false, they become the author's next brief"`
+	Waivers  map[string]string `json:"waivers,omitempty" jsonschema:"verdict: per-finding waivers, key (class:subject from the pack) to reason — every open finding must be fixed or waived (T-01KYD9J)"`
+	Budget   int               `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur      string            `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
@@ -95,7 +96,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	// The verdict line renders FIRST and is exempt from budget truncation
 	// (it and the record line survive any cut): the reviewer's state is the
 	// single highest-value line in the pack.
-	_, _, _, rev, rerr := s.reviewState(it.ID)
+	_, _, _, _, rev, rerr := s.reviewState(it.ID)
 	if rerr != nil {
 		return nil, nil, rerr
 	}
@@ -131,6 +132,13 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 	computed := s.grillComputed(it, c, len(rej))
 	addSection("#computed", computed)
+	// standing waivers render beside the findings they judged — visible
+	// judgment, hash-bound like the verdict (T-01KYD9J)
+	if rev != nil && rev.Hash == reviewHash(it) {
+		for _, w := range rev.Wv {
+			lines = append(lines, "g waived "+w)
+		}
+	}
 	addSection("#targets", grillTargets(s.g, it.Targets, anchored))
 	addSection("#contracts", grillContracts(c, it.Targets))
 	addSection("#tests", s.grillTests(it.Targets))
@@ -148,7 +156,7 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvGrill, ID: it.ID, Dir: it.Dir, Gr: it.Grilled,
-		Hash: reviewHash(it), Open: open,
+		Hash: reviewHash(it), Open: open, Keys: findingKeys(computed),
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -157,9 +165,19 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 
 	lines = append(lines, fmt.Sprintf("ok grilled %s %s", sc.short(it.ID), it.Grilled))
 
+	// The record line, verdict line, and the ENTIRE #computed section are
+	// exempt from budget truncation: finding keys must be enumerable or
+	// verdict addressal is impossible against keys the reviewer cannot see
+	// (T-01KYD9J, absorbing the key-truncation-exemption dependency).
 	keep := 1
 	if rev != nil {
 		keep = 2
+	}
+	if len(computed) > 0 {
+		keep += 1 + len(computed)
+	}
+	if keep > len(lines) {
+		keep = len(lines)
 	}
 	kept, cur := budget.TruncateRecords(lines[keep:], budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(append(lines[:keep:keep], kept...), cur))
@@ -535,13 +553,96 @@ func (s *Server) rejectSnapshot(id string) (item.Item, bool) {
 	}, true
 }
 
+// findingKey derives the stable key (class:subject) of one computed
+// finding line — the unit of addressal (T-01KYD9J). The marker letter
+// (g/v/e) is dropped; env-axis lines key as env:<axis>.
+func findingKey(line string) string {
+	f := strings.Fields(line)
+	if len(f) < 2 {
+		return line
+	}
+	if f[0] == "e" {
+		return "env:" + f[1]
+	}
+	if len(f) < 3 {
+		return f[1]
+	}
+	return f[1] + ":" + f[2]
+}
+
+func findingKeys(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, findingKey(l))
+	}
+	return out
+}
+
+// addressalGap answers whether a verdict addresses every open finding key:
+// on pass every key needs a non-empty waiver reason; on fail every key's
+// subject must appear in the findings text — the machine can verify only
+// that the judge SAW everything, never that the judgment is right. Returns
+// the refusal text or "" plus the journaled waiver lines.
+func addressalGap(openN int, openKeys []string, pass bool, findings string, waivers map[string]string) (string, []string, []string) {
+	// Legacy renders (pre-addressal binary: open count, no keys) must not
+	// bypass the invariant — a bare pass cleared the gate over open
+	// findings in exactly that shape (cross-verification, live repro
+	// against this repo's own journal). Re-render first.
+	if openN > 0 && len(openKeys) == 0 {
+		return "legacy render (open findings, no keys) - re-render first", nil, nil
+	}
+	var missing []string
+	var wv []string
+	var ignored []string
+	seen := map[string]bool{}
+	for _, k := range openKeys {
+		seen[k] = true
+		if reason, ok := waivers[k]; ok {
+			if strings.TrimSpace(reason) == "" {
+				return "waiver without a reason: " + k, nil, nil
+			}
+			// Reasons render verbatim into the record stream: flatten
+			// whitespace so a crafted reason cannot forge computed or
+			// verdict lines in the next pack (cross-verification injection
+			// repro), and cap it — an LLM-written field replayed forever
+			// needs a ceiling.
+			reason = strings.Join(strings.Fields(reason), " ")
+			if len(reason) > 300 {
+				reason = reason[:300] + "…"
+			}
+			wv = append(wv, k+" "+reason)
+			continue
+		}
+		if !pass {
+			subject := k
+			if i := strings.Index(k, ":"); i >= 0 {
+				subject = k[i+1:]
+			}
+			if strings.Contains(findings, subject) {
+				continue
+			}
+		}
+		missing = append(missing, k)
+	}
+	for k := range waivers {
+		if !seen[k] {
+			ignored = append(ignored, k)
+		}
+	}
+	sort.Strings(ignored)
+	if len(missing) > 0 {
+		return "unaddressed findings: " + strings.Join(missing, " "), nil, nil
+	}
+	return "", wv, ignored
+}
+
 // reviewState scans the item's journal trail once: the author (create
 // event's ag), the latest pack render (hash + open count), and the latest
 // review verdict.
-func (s *Server) reviewState(id string) (author, renderHash string, open int, rev *journal.Event, err error) {
+func (s *Server) reviewState(id string) (author, renderHash string, openN int, openKeys []string, rev *journal.Event, err error) {
 	events, err := journal.ReadAll(s.ws)
 	if err != nil {
-		return "", "", 0, nil, err
+		return "", "", 0, nil, nil, err
 	}
 	for i := range events {
 		e := events[i]
@@ -554,12 +655,12 @@ func (s *Server) reviewState(id string) (author, renderHash string, open int, re
 				author = e.Ag
 			}
 		case journal.EvGrill:
-			renderHash, open = e.Hash, e.Open
+			renderHash, openN, openKeys = e.Hash, e.Open, e.Keys
 		case journal.EvReview:
 			rev = &events[i]
 		}
 	}
-	return author, renderHash, open, rev, nil
+	return author, renderHash, openN, openKeys, rev, nil
 }
 
 // crossesApproval reports whether a move crosses the approval boundary —
@@ -584,7 +685,7 @@ func (s *Server) reviewGateGap(it item.Item) (string, error) {
 	if it.Grilled == "" {
 		return "ungrilled — grill first", nil
 	}
-	author, _, _, rev, err := s.reviewState(it.ID)
+	author, _, _, _, rev, err := s.reviewState(it.ID)
 	if err != nil {
 		return "", err
 	}
@@ -639,7 +740,7 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	if in.Pass == nil {
 		return refuse("! ARG E - verdict requires pass")
 	}
-	author, renderHash, open, _, err := s.reviewState(it.ID)
+	author, renderHash, openN, openKeys, _, err := s.reviewState(it.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -650,8 +751,24 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	if renderHash != cur {
 		return refuse("! REVIEW E " + short + " no pack rendered for the current body - grill it first")
 	}
-	if *in.Pass && open > 0 {
-		return refuse(fmt.Sprintf("! REVIEW E %s %d computed findings open - fix them or fail with findings; they are not the reviewer's to waive", short, open))
+	// A failing verdict must say why BEFORE addressal is judged — the
+	// findings are the author's next brief, and an empty brief is its own
+	// refusal, clearer than an unaddressed-keys list.
+	if !*in.Pass && strings.TrimSpace(in.Findings) == "" {
+		return refuse("! REVIEW E " + short + " a failing verdict must say why - the findings become the author's next brief")
+	}
+	// Per-finding addressal (T-01KYD9J): the verdict is authoritative, the
+	// computed findings are evidence requiring addressal — fixed (absent
+	// from the current render) or waived with a recorded reason; on fail,
+	// naming the subject in the findings counts (the machine guarantees
+	// the reviewer SAW everything; it never overrules).
+	gap, wv, ignored := addressalGap(openN, openKeys, *in.Pass, in.Findings, in.Waivers)
+	if gap != "" {
+		return refuse("! REVIEW E " + short + " " + gap)
+	}
+	warnIgnored := ""
+	for _, k := range ignored {
+		warnIgnored += "! REVIEW W waiver for absent key " + k + " ignored (not in the current render)\n"
 	}
 	// The findings floor is deliberately ASYMMETRIC (stated per the
 	// cross-verification): a fail must say why — the findings are the
@@ -662,16 +779,13 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	// comment, not by prose quotas.
 	warn := ""
 	if !*in.Pass {
-		if strings.TrimSpace(in.Findings) == "" {
-			return refuse("! REVIEW E " + short + " a failing verdict must say why - the findings become the author's next brief")
-		}
 		if len(in.Findings) < 80 {
 			warn = "! REVIEW W findings under 80 chars - token-thin reviews are a known tell (tripwire, padding-gameable)\n"
 		}
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvReview, ID: it.ID, Dir: it.Dir,
-		Pass: *in.Pass, Hash: cur, Note: in.Findings,
+		Pass: *in.Pass, Hash: cur, Note: in.Findings, Wv: wv,
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -681,5 +795,5 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 	_ = s.cd.Emit("review", it.ID, verdict+" by "+s.agent)
 	s.markDirty()
-	return text(warn + "ok review " + short + " " + verdict + " by " + s.agent)
+	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + s.agent)
 }

@@ -265,11 +265,11 @@ func (s *Server) registerTools() {
 		gate(s, s.research))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "grill",
-		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. Fix computed findings, then have a fresh identity judge."},
+		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. The reviewer judges ON the evidence: every open finding is addressed — fixed, or waived per key with a recorded reason — then a fresh identity's verdict opens the gate; the pack never passes or fails anything itself."},
 		gate(s, s.grill))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "validate",
-		Description: "Post-implementation judge: default op renders the computed pack over the item's REAL diff (#diff declared-vs-landed, #computed v-findings: untouched targets, offscope files, untested symbols, vacuous tests, fake benchmarks, missing docs, #verify). op=verdict pass=<bool> findings=<text> records the INDEPENDENT validation — a second deliberate SPECTACKLE_AGENT, never the implementer; archive gates on a passing verdict bound to the current attributed diff (commits citing the item), and a failing verdict REOPENS done→active with the findings as the next brief (rounds count)."},
+		Description: "Post-implementation judge: default op renders the computed pack over the item's REAL diff (#diff declared-vs-landed, #computed v-findings: untouched targets, offscope files, untested symbols, vacuous tests, fake benchmarks, missing docs, #verify). op=verdict pass=<bool> findings=<text> records the INDEPENDENT validation — a second deliberate SPECTACKLE_AGENT, never the implementer; archive gates on a passing verdict bound to the current attributed diff (commits citing the item); open findings are addressed per key — fixed or waived with a reason — and a failing verdict REOPENS done→active with the findings as the next brief (rounds count)."},
 		gate(s, s.validate))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
@@ -489,7 +489,7 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	b.WriteString(sc.record(it) + "\n")
 	// A reopened item's validation findings render FIRST — the feedback IS
 	// the implementer's next brief (T-01KYD94M3).
-	if _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && !v.Pass && v.Note != "" {
+	if _, _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && !v.Pass && v.Note != "" {
 		b.WriteString("validate fail " + v.Ag + " :: " + v.Note + "\n")
 	}
 	if it.Parent != "" {
@@ -521,7 +521,7 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	}
 	// The latest review verdict renders with the item so the author's next
 	// revision sees the findings it must answer (T-01KYD94KP4).
-	if _, _, _, rev, err := s.reviewState(it.ID); err == nil && rev != nil {
+	if _, _, _, _, rev, err := s.reviewState(it.ID); err == nil && rev != nil {
 		verdict := "fail"
 		if rev.Pass {
 			verdict = "pass"

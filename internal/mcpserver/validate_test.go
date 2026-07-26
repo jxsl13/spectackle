@@ -203,8 +203,13 @@ func TestValidateWaiverRefusal(t *testing.T) {
 		t.Fatalf("untouched target not computed: %q", out)
 	}
 	out = callText(t, val, "validate", map[string]any{"op": "verdict", "id": task, "pass": true})
-	if !strings.Contains(out, "computed findings open") {
-		t.Fatalf("open findings waived by pass=true: %q", out)
+	if !strings.Contains(out, "unaddressed findings") || !strings.Contains(out, "untouched:ghost.go") {
+		t.Fatalf("open findings passed without addressal naming the key: %q", out)
+	}
+	out = callText(t, val, "validate", map[string]any{"op": "verdict", "id": task, "pass": true,
+		"waivers": map[string]string{"untouched:ghost.go": "ghost.go was descoped in review; the declared target set predates the narrowing"}})
+	if !strings.Contains(out, "ok validate") {
+		t.Fatalf("waived validation pass refused: %q", out)
 	}
 }
 

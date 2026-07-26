@@ -33,12 +33,13 @@ import (
 // judges — mirror of grill's review machinery, one phase later.
 
 type validateIn struct {
-	ID       string `json:"id" jsonschema:"item ID, e.g. T-0007"`
-	Op       string `json:"op,omitempty" jsonschema:"pack (default) renders the diff evidence; verdict records the independent validation"`
-	Pass     *bool  `json:"pass,omitempty" jsonschema:"verdict: true = the implementation is judged complete and honest"`
-	Findings string `json:"findings,omitempty" jsonschema:"verdict: required on pass=false — they reopen the item as the implementer's next brief"`
-	Budget   int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
-	Cur      string `json:"cur,omitempty" jsonschema:"resume cursor"`
+	ID       string            `json:"id" jsonschema:"item ID, e.g. T-0007"`
+	Op       string            `json:"op,omitempty" jsonschema:"pack (default) renders the diff evidence; verdict records the independent validation"`
+	Pass     *bool             `json:"pass,omitempty" jsonschema:"verdict: true = the implementation is judged complete and honest"`
+	Findings string            `json:"findings,omitempty" jsonschema:"verdict: required on pass=false — they reopen the item as the implementer's next brief"`
+	Waivers  map[string]string `json:"waivers,omitempty" jsonschema:"verdict: per-finding waivers, key (class:subject from the pack) to reason — every open finding must be fixed or waived (T-01KYD9J)"`
+	Budget   int               `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur      string            `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 // maxFindingsBytes caps the journaled findings: an LLM-written field
@@ -117,6 +118,21 @@ func diffHash(diff string) string {
 	}
 	h := sha256.Sum256([]byte(diff))
 	return hex.EncodeToString(h[:])
+}
+
+// validateHash binds the verdict to the judged substance: the attributed
+// diff AND the declared targets — the untouched/offscope classes are
+// functions of the target set, and a post-verdict target edit reached
+// archive with a brand-new unaddressed finding when only the diff was
+// bound (cross-verification of T-01KYD9J).
+func validateHash(it item.Item, diff string) string {
+	h := sha256.New()
+	h.Write([]byte(diffHash(diff)))
+	for _, t := range it.Targets {
+		h.Write([]byte{0})
+		h.Write([]byte(t))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // diffFiles parses changed paths with +/- counts out of a unified diff.
@@ -467,10 +483,10 @@ func (s *Server) readWorkspaceFile(rel string) ([]byte, error) {
 // validateState scans the journal once: the implementer identities (every
 // start/submit ag, else the create ag), the latest pack render (Op=render:
 // diff hash + open count) and the latest verdict (Op=verdict).
-func (s *Server) validateState(id string) (implementers map[string]bool, renderHash string, open int, verdict *journal.Event, err error) {
+func (s *Server) validateState(id string) (implementers map[string]bool, renderHash string, openN int, openKeys []string, verdict *journal.Event, err error) {
 	events, err := journal.ReadAll(s.ws)
 	if err != nil {
-		return nil, "", 0, nil, err
+		return nil, "", 0, nil, nil, err
 	}
 	implementers = map[string]bool{}
 	creator := ""
@@ -489,7 +505,7 @@ func (s *Server) validateState(id string) (implementers map[string]bool, renderH
 		case journal.EvValidate:
 			switch e.Op {
 			case "render":
-				renderHash, open = e.Hash, e.Open
+				renderHash, openN, openKeys = e.Hash, e.Open, e.Keys
 			case "verdict":
 				verdict = &events[i]
 			}
@@ -498,7 +514,7 @@ func (s *Server) validateState(id string) (implementers map[string]bool, renderH
 	if len(implementers) == 0 && creator != "" {
 		implementers[creator] = true
 	}
-	return implementers, renderHash, open, verdict, nil
+	return implementers, renderHash, openN, openKeys, verdict, nil
 }
 
 func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
@@ -530,7 +546,7 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 	diff, source := s.itemDiff(it.ID)
 	var lines []string
 	lines = append(lines, sc.record(it))
-	if v := s.latestValidateLine(it.ID, diff); v != "" {
+	if v := s.latestValidateLine(it, diff); v != "" {
 		lines = append(lines, v)
 	}
 	files, adds, dels := diffFiles(diff)
@@ -554,6 +570,11 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 		lines = append(lines, "#computed")
 		lines = append(lines, computed...)
 	}
+	if _, _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && v.Hash == validateHash(it, diff) {
+		for _, w := range v.Wv {
+			lines = append(lines, "v waived "+w)
+		}
+	}
 	var verifySec []string
 	for _, c := range s.main.Cfg.Verify {
 		verifySec = append(verifySec, "g verify "+c)
@@ -572,7 +593,7 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 	open := len(computed)
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvValidate, ID: it.ID, Dir: it.Dir, Op: "render",
-		Hash: diffHash(diff), Open: open,
+		Hash: validateHash(it, diff), Open: open, Keys: findingKeys(computed),
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -585,8 +606,8 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 
 // latestValidateLine renders the standing verdict beside the pack — the
 // single highest-value line, exempt from truncation via its position.
-func (s *Server) latestValidateLine(id, curDiff string) string {
-	_, _, _, v, err := s.validateState(id)
+func (s *Server) latestValidateLine(it item.Item, curDiff string) string {
+	_, _, _, _, v, err := s.validateState(it.ID)
 	if err != nil || v == nil {
 		return ""
 	}
@@ -595,8 +616,8 @@ func (s *Server) latestValidateLine(id, curDiff string) string {
 		verdict = "pass"
 	}
 	line := "validate " + verdict + " " + v.Ag
-	if v.Hash != diffHash(curDiff) {
-		line += " (stale — diff changed since)"
+	if v.Hash != validateHash(it, curDiff) {
+		line += " (stale — diff or targets changed since)"
 	}
 	if v.Note != "" {
 		line += " :: " + v.Note
@@ -634,7 +655,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 	if in.Pass == nil {
 		return refuse("! ARG E - verdict requires pass")
 	}
-	implementers, renderHash, open, _, err := s.validateState(it.ID)
+	implementers, renderHash, openN, openKeys, _, err := s.validateState(it.ID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -642,18 +663,27 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 		return refuse("! VALIDATE E " + short + " validator implemented this - use a fresh agent identity")
 	}
 	diff, _ := s.itemDiff(it.ID)
-	if renderHash != diffHash(diff) {
-		return refuse("! VALIDATE E " + short + " no pack rendered for the current diff - validate it first")
+	if renderHash != validateHash(it, diff) {
+		return refuse("! VALIDATE E " + short + " no pack rendered for the current diff and targets - validate it first")
 	}
-	if *in.Pass && open > 0 {
-		return refuse(fmt.Sprintf("! VALIDATE E %s %d computed findings open - the validator judges on top of them, never instead of them", short, open))
+	if !*in.Pass && strings.TrimSpace(in.Findings) == "" {
+		return refuse("! VALIDATE E " + short + " a failing verdict must say why - the findings reopen the item as its next brief")
+	}
+	// Per-finding addressal (T-01KYD9J), mirroring the review verdict: the
+	// validator's judgment is authoritative, per finding, with recorded
+	// reasons — a residuals-pass no longer burns a round the way the first
+	// armed landing did.
+	gap, wv, ignored := addressalGap(openN, openKeys, *in.Pass, in.Findings, in.Waivers)
+	if gap != "" {
+		return refuse("! VALIDATE E " + short + " " + gap)
+	}
+	warnIgnored := ""
+	for _, k := range ignored {
+		warnIgnored += "! VALIDATE W waiver for absent key " + k + " ignored (not in the current render)\n"
 	}
 	warn := ""
 	findings := in.Findings
 	if !*in.Pass {
-		if strings.TrimSpace(findings) == "" {
-			return refuse("! VALIDATE E " + short + " a failing verdict must say why - the findings reopen the item as its next brief")
-		}
 		if len(findings) < 80 {
 			warn = "! VALIDATE W findings under 80 chars - token-thin validations are a known tell (tripwire, padding-gameable)\n"
 		}
@@ -663,7 +693,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvValidate, ID: it.ID, Dir: it.Dir, Op: "verdict",
-		Pass: *in.Pass, Hash: diffHash(diff), Note: findings,
+		Pass: *in.Pass, Hash: validateHash(it, diff), Note: findings, Wv: wv,
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -690,15 +720,15 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 			}
 			return nil, nil, err
 		}
-		return text(warn + fmt.Sprintf("ok validate %s fail by %s — reopened done→active; the findings are the next brief", short, s.agent))
+		return text(warnIgnored + warn + fmt.Sprintf("ok validate %s fail by %s — reopened done→active; the findings are the next brief", short, s.agent))
 	}
-	return text(warn + "ok validate " + short + " " + verdict + " by " + s.agent)
+	return text(warnIgnored + warn + "ok validate " + short + " " + verdict + " by " + s.agent)
 }
 
 // validateGateGap answers what stands between a task/bug and archive:
 // "" when a passing, identity-valid, current-diff validation exists.
 func (s *Server) validateGateGap(it item.Item) (string, error) {
-	implementers, _, _, v, err := s.validateState(it.ID)
+	implementers, _, _, _, v, err := s.validateState(it.ID)
 	if err != nil {
 		return "", err
 	}
@@ -706,7 +736,7 @@ func (s *Server) validateGateGap(it item.Item) (string, error) {
 	switch {
 	case v == nil:
 		return "no validation verdict — validate op=verdict from a second identity", nil
-	case v.Hash != diffHash(diff):
+	case v.Hash != validateHash(it, diff):
 		return "stale validation (diff changed since) — re-render, then re-verdict", nil
 	case !v.Pass:
 		return "failing validation — address its findings, re-validate", nil
@@ -722,7 +752,7 @@ func (s *Server) validateGateGap(it item.Item) (string, error) {
 // derived, not fakeable prose, at zero agent effort. An explicit note
 // appends after the derived part, never instead of it.
 func (s *Server) derivedArchiveNote(it item.Item, explicit string) string {
-	_, _, _, v, err := s.validateState(it.ID)
+	_, _, _, _, v, err := s.validateState(it.ID)
 	if err != nil || v == nil || !v.Pass {
 		return explicit
 	}
