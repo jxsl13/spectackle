@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYDKNQRWF719MBA8Y234KF88 automation commits carry a hardcoded spectackle@localhost identity, so they are unverifiable and misattributed
 kind: bug
-state: draft
+state: active
 created: 2026-07-25
 
 Field report: commits are unverified and the committer email looks wrong. Verified in the log: every commit the automation makes — code, checkpoint, records — carries author and committer spectackle <spectackle@localhost>, because the git exec helper (internal/wt/wt.go line 23) injects -c user.name and -c user.email into EVERY command it runs, and the offline forge merge duplicates the same override.
