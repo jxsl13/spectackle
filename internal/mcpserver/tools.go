@@ -52,8 +52,9 @@ type getIn struct {
 }
 
 type draftIn struct {
-	Kind    string   `json:"kind" jsonschema:"proposal|task|research|bug"`
-	Title   string   `json:"title" jsonschema:"one-line title"`
+	ID      string   `json:"id,omitempty" jsonschema:"REVISE an existing draft-state item in place: body/title/targets/refs replace when given; stamps and verdicts expire via the substance hash (B-01KYER)"`
+	Kind    string   `json:"kind,omitempty" jsonschema:"proposal|task|research|bug (mint only)"`
+	Title   string   `json:"title,omitempty" jsonschema:"one-line title (required to mint)"`
 	Body    string   `json:"body,omitempty" jsonschema:"intent/delta-spec prose"`
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
 	Parent  string   `json:"parent,omitempty" jsonschema:"parent item ID (tasks under a proposal)"`
@@ -706,6 +707,15 @@ func (s *Server) nearest(id string) (*mcp.CallToolResult, any, error) {
 // ---- draft ----
 
 func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
+	if in.ID != "" {
+		return s.reviseDraft(in)
+	}
+	if in.Kind == "" {
+		return refuse("! ARG E - draft requires kind (or id to revise)")
+	}
+	if in.Title == "" {
+		return refuse("! ARG E - draft requires title")
+	}
 	targets := normalizeTargets(in.Targets)
 	if s.wtItem == "" { // inside a worktree the scope is already leased
 		if res, out, err := s.blockedByLease(targets); res != nil || err != nil {
@@ -2393,4 +2403,85 @@ func leaseLeft(exp time.Time) string {
 		m = 0
 	}
 	return fmt.Sprintf("%dm", m)
+}
+
+// reviseDraft amends a DRAFT-state item in place (B-01KYER): the one window
+// where the record is the author's to rewrite — from submitted on, the body
+// is the frozen review subject and revision is refused. Grill stamps and
+// review verdicts expire automatically: they bind the substance hash, and
+// the revision changes it. The response is the fresh context pack, so the
+// next grill round starts from what is now actually written.
+func (s *Server) reviseDraft(in draftIn) (*mcp.CallToolResult, any, error) {
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	id, bad := sc.expand(in.ID)
+	if bad != nil {
+		return bad, nil, nil
+	}
+	it, ok, err := item.Get(s.ws, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return s.nearest(id)
+	}
+	short := sc.short(it.ID)
+	if it.State != item.StateDraft {
+		return refuse("! ARG E - " + short + " is " + it.State + "; revision is draft-state only — the body is the frozen review subject from submitted on")
+	}
+	if in.Kind != "" && in.Kind != it.Kind {
+		return refuse("! ARG E - kind is immutable; reject and re-draft to change it")
+	}
+	changed := []string{}
+	if in.Title != "" && in.Title != it.Title {
+		it.Title = in.Title
+		changed = append(changed, "title")
+	}
+	if in.Body != "" && in.Body != it.Body {
+		it.Body = in.Body
+		changed = append(changed, "body")
+	}
+	if in.Targets != nil {
+		it.Targets = in.Targets
+		changed = append(changed, "targets")
+	}
+	if in.Refs != nil {
+		known, err := s.knownRefIDs()
+		if err != nil {
+			return nil, nil, err
+		}
+		refs := make([]string, len(in.Refs))
+		for i, r := range in.Refs {
+			full, bad := sc.expand(r)
+			if bad != nil {
+				return bad, nil, nil
+			}
+			refs[i] = full
+		}
+		if badRefs := item.UnknownRefs(it.ID, refs, known); len(badRefs) > 0 {
+			return refuse("! ARG E - unknown refs: " + strings.Join(badRefs, ", "))
+		}
+		it.Refs = refs
+		changed = append(changed, "refs")
+	}
+	if len(changed) == 0 {
+		return refuse("! ARG E - revision changes nothing; pass body, title, targets, or refs")
+	}
+	if err := item.Upsert(s.ws, it); err != nil {
+		return nil, nil, err
+	}
+	if err := journal.Append(s.ws, it.Dir, journal.Event{
+		Ev: journal.EvRevise, ID: it.ID, Dir: it.Dir,
+		Note: strings.Join(changed, "+") + " revised",
+	}); err != nil {
+		return nil, nil, err
+	}
+	_ = s.cd.Emit("revise", it.ID, strings.Join(changed, "+"))
+	s.markDirty()
+	var b strings.Builder
+	b.WriteString(sc.record(it) + "\n")
+	b.WriteString("ok revised " + strings.Join(changed, "+") + " — stamps and verdicts on the old substance are expired; re-grill before promoting\n")
+	return text(b.String())
 }

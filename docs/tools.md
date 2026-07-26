@@ -149,6 +149,12 @@ with no `ADR-`/`R-` ref and no rejected-alternative prose in its body asks
 `q no deliberation recorded: no ADR/research ref and no rejected
 alternative`.
 
+`draft id=<item>` revises a DRAFT-state item in place — body, title,
+targets, refs replace when given. Grill stamps and review verdicts bind the
+substance hash and expire with the revision; the review loop's feedback can
+finally amend the record it critiques (B-01KYER). From `submitted` on the
+body is the frozen review subject and revision is refused.
+
 ### 4. `rule` — author EARS contracts (the only rule write path)
 
 ```json

@@ -46,6 +46,7 @@ const (
 	EvEscalate = "escalate" // an item exhausted its feedback rounds and was blocked
 	EvReview   = "review"   // independent review verdict, identity- and body-hash-bound (T-01KYD94KP4)
 	EvValidate = "validate" // post-implementation validation: Op=render (pack, diff hash) or Op=verdict (T-01KYD94M3)
+	EvRevise   = "revise"   // draft-state body/targets revision through the draft tool (B-01KYER)
 )
 
 // Event is the single flat record type for all journal lines; unused fields
