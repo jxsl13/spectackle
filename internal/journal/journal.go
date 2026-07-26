@@ -97,6 +97,7 @@ type Event struct {
 	Pass bool     `json:"pass,omitempty"` // review/validate: the verdict
 	Keys []string `json:"keys,omitempty"` // grill/validate render: the open finding keys (class:subject)
 	Wv   []string `json:"wv,omitempty"`   // review/validate verdict: per-finding waivers, "key reason" (T-01KYD9J)
+	Ln   []string `json:"ln,omitempty"`   // review verdict: lens labels the reviewer walked sequentially (T-01KYFXDC6)
 }
 
 // Append writes one event to the journal of a context dir, creating the

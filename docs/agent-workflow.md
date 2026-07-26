@@ -269,6 +269,19 @@ machinery. Ask at draft time so the user's answer latency overlaps other
 work; a fully-gated queue waiting on an away user is correct behavior,
 not a stall to engineer around.
 
+### Multi-perspective review: one reviewer, sequential lenses
+
+The dominant cost of a review panel is N-times context ingestion; the
+judgment tokens are marginal. The default is therefore ONE reviewer
+walking the configured lenses sequentially in one context — explicit
+perspective reset between lenses, per-lens output prefixed `[lens]` (or an
+explicit `[lens] none`, never silence), refutation lens last — recorded on
+the verdict as `lenses=a,b,c`. True multi-agent panels are per-item
+opt-in (`grill op=verdict panel=n`), legal only on a live risk signal
+(an open irreversible/blast finding, or override-once spent) and capped
+by `swarm.panel_max`; config can cap a panel, never raise one. A panel is
+evidence breadth — the gate still needs exactly one passing verdict.
+
 ### Grill before you approve
 
 Before `move to=approved` on a proposal (or before delegating its child
