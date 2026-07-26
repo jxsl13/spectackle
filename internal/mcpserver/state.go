@@ -154,9 +154,15 @@ func (s *Server) stateText(path string) (string, error) {
 		b.WriteString(sec)
 	}
 
-	if sec := s.stateHealthSection(c, path); sec != "" {
+	health := s.stateHealthSection(c, path)
+	// The waiver-rate tripwire (T-01KYFXEP) rides #health: computed,
+	// visible, never vetoing — and never in check (CI string-matches ok).
+	if wr := s.waiverRate(); wr != "" {
+		health += wr + "\n"
+	}
+	if health != "" {
 		b.WriteString("#health\n")
-		b.WriteString(sec)
+		b.WriteString(health)
 	}
 
 	return b.String(), nil
