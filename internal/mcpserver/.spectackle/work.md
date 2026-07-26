@@ -120,21 +120,3 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
-
-## T-01KYDKNR8KF66BSZ9W7ZPTX9BC a reopened task flips its pull request back to draft: the PR draft state mirrors the item state in both directions
-kind: task
-state: draft
-created: 2026-07-25
-refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
-
-User requirement: a pull request that is open but no longer final must return to draft. Today the mapping is one-way — done flips draft to ready, but a reopen (done back to active, or a rescope out of blocked) leaves the pull request marked ready for review while the work has been declared not-finished, which misstates the review surface.
-
-WHAT TO BUILD: the transition into active, when the pull request for the task branch exists and is not a draft, converts it back to draft, with one g record saying so. GitHub's REST endpoint cannot un-ready just as it cannot un-draft — it is the convertPullRequestToDraft GraphQL mutation, the exact mirror of markPullRequestReadyForReview that Ready already uses, addressed by the same node ID and verified the same way: a response still showing isDraft false is an error, never a claimed success (that lesson cost a live defect once already, B-01KYDE).
-
-FORGE SURFACE: one new interface method Draft(pr) alongside Ready(pr), implemented for GitHub via GraphQL and for Offline by flipping the tracked record. Callers: gitFlowStart's existing-pull-request path checks pr.Draft and converts when the item is ENTERING active from a later state — a fresh start where the pull request is already a draft is a no-op said in the already-open record.
-
-TESTS: scripted and httptest — reopen flips ready back to draft and the record says so; a still-draft pull request is untouched; the mutation-refused-but-200 case errors rather than claims; offline mirrors the flip; the full offline lifecycle with a reopen in the middle ends drafted, readied, drafted, readied, merged in that order in the tracked history.
-
-VERIFY: go build ./... ; go test ./internal/forge/... ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty). Live: reopen a done task and show the pull request back in draft on the forge.
-SCOPE: internal/forge (interface + both implementations), internal/mcpserver/gitflow.go, docs/tools.md.
-ROLLBACK: additive method and one call site.

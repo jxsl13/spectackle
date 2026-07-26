@@ -437,3 +437,54 @@ func TestGitHubChecksPollsPinnedSHA(t *testing.T) {
 		t.Fatalf("branch fallback lost: %s", gotPath)
 	}
 }
+
+// TestGitHubDraftUsesGraphQLMutation pins the reopen mirror (T-01KYDKNR8):
+// convertPullRequestToDraft, addressed by node ID — REST cannot un-ready a
+// pull request any more than it can un-draft one, and the Ready lesson
+// (B-01KYDE: a stubbed PATCH tested the hope, not the API) applies verbatim
+// in this direction.
+func TestGitHubDraftUsesGraphQLMutation(t *testing.T) {
+	var gotQuery string
+	var gotVars map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		gotQuery, gotVars = body.Query, body.Variables
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"convertPullRequestToDraft":{"pullRequest":{"number":42,"isDraft":true,"url":"https://github.com/jxsl13/spectackle/pull/42"}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	g := &GitHub{Owner: "jxsl13", Repo: "spectackle", Token: "t", GraphQLURL: srv.URL}
+	pr, err := g.Draft(PR{Number: 42, Branch: "b", NodeID: "PR_node_42"})
+	if err != nil {
+		t.Fatalf("Draft: %v", err)
+	}
+	if !pr.Draft {
+		t.Fatalf("Draft did not set draft: %+v", pr)
+	}
+	if !strings.Contains(gotQuery, "convertPullRequestToDraft") {
+		t.Fatalf("Draft did not use the mutation: %q", gotQuery)
+	}
+	if gotVars["id"] != "PR_node_42" {
+		t.Fatalf("Draft addressed the wrong node: %v", gotVars)
+	}
+}
+
+// TestGitHubDraftRefusesToClaimSuccessWhileStillReady: a 200 whose payload
+// still shows isDraft false is an error, never a claimed success.
+func TestGitHubDraftRefusesToClaimSuccessWhileStillReady(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":{"convertPullRequestToDraft":{"pullRequest":{"number":42,"isDraft":false,"url":"u"}}}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	g := &GitHub{Owner: "jxsl13", Repo: "spectackle", Token: "t", GraphQLURL: srv.URL}
+	if _, err := g.Draft(PR{Number: 42, Branch: "b", NodeID: "n"}); err == nil {
+		t.Fatal("Draft reported success while the PR was still ready")
+	}
+}

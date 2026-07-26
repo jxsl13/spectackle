@@ -214,7 +214,11 @@ type scriptedForge struct {
 func (f *scriptedForge) Open(branch, base, title, body string) (forge.PR, error) {
 	return forge.PR{}, nil
 }
-func (f *scriptedForge) Ready(pr forge.PR) (forge.PR, error)        { return pr, nil }
+func (f *scriptedForge) Ready(pr forge.PR) (forge.PR, error) { return pr, nil }
+func (f *scriptedForge) Draft(pr forge.PR) (forge.PR, error) {
+	pr.Draft = true
+	return pr, nil
+}
 func (f *scriptedForge) Find(branch string) (forge.PR, bool, error) { return forge.PR{}, false, nil }
 func (f *scriptedForge) Checks(pr forge.PR) (forge.CheckState, error) {
 	i := f.nChecks
@@ -505,5 +509,62 @@ func TestIdentityFallbackIsSaidOnTransition(t *testing.T) {
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if !strings.Contains(out, "g identity fallback spectackle@localhost") {
 		t.Fatalf("bare-host transition did not report the identity fallback:\n%s", out)
+	}
+}
+
+// TestReopenFlipsPullRequestBackToDraft pins T-01KYDKNR8 end to end over
+// the offline lifecycle double: done readies the pull request, the reopen
+// (done -> active) converts it BACK to draft and says so, the second done
+// readies it again, and the archive merges. The draft state mirrors the
+// item state in both directions — before this, a reopened task left its
+// pull request marked ready while the work was declared not-finished.
+func TestReopenFlipsPullRequestBackToDraft(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "reopen mirror"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	firstDone := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	if !strings.Contains(firstDone, "ready") {
+		t.Fatalf("first done did not ready the pull request:\n%s", firstDone)
+	}
+
+	reopen := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if !strings.Contains(reopen, "back to draft") {
+		t.Fatalf("reopen did not flip the pull request back to draft:\n%s", reopen)
+	}
+
+	// A second activation-shaped pass while already drafted must NOT claim
+	// another flip — checked via the second done, whose ready line proves
+	// the draft state was real, then the archive merges.
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n\n// v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	secondDone := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	if !strings.Contains(secondDone, "ready") {
+		t.Fatalf("second done did not re-ready the drafted pull request:\n%s", secondDone)
+	}
+	archived := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "mirror closed"})
+	if !strings.Contains(archived, "merged") {
+		t.Fatalf("archive after reopen cycle did not merge:\n%s", archived)
+	}
+}
+
+// TestFreshActivationDoesNotClaimDraftFlip: a first activation opens a
+// draft pull request (or none yet); the reopen flip must not fire and must
+// not be claimed on that path.
+func TestFreshActivationDoesNotClaimDraftFlip(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "fresh start"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if strings.Contains(out, "back to draft") {
+		t.Fatalf("fresh activation claimed a reopen draft flip:\n%s", out)
 	}
 }

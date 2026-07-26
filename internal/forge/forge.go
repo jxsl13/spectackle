@@ -73,6 +73,9 @@ type Forge interface {
 	Open(branch, base, title, body string) (PR, error)
 	// Ready flips a draft PR to ready for review.
 	Ready(pr PR) (PR, error)
+	// Draft converts a ready PR back to draft — the reopen direction: the
+	// PR draft state mirrors the item state in BOTH directions.
+	Draft(pr PR) (PR, error)
 	// Merge merges pr with a merge commit — never squash, never a bare
 	// fast-forward (see package doc and MergeResult).
 	Merge(pr PR) (MergeResult, error)

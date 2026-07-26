@@ -298,6 +298,63 @@ func (g *GitHub) Ready(pr PR) (PR, error) {
 	return pr, nil
 }
 
+// Draft converts a ready pull request back to draft — the exact mirror of
+// Ready, for the reopen direction (T-01KYDKNR8): an item re-entering active
+// declares its work not-finished, and a pull request still marked ready
+// would misstate the review surface. Same GraphQL-only constraint as Ready
+// (REST cannot un-ready), same node-ID addressing, and the same
+// verify-don't-claim discipline: a 200 whose payload still shows isDraft
+// false is an error, never a success (B-01KYDE).
+func (g *GitHub) Draft(pr PR) (PR, error) {
+	nodeID := pr.NodeID
+	if nodeID == "" {
+		p, err := g.pull(pr.Number)
+		if err != nil {
+			return PR{}, err
+		}
+		nodeID = p.NodeID
+	}
+	body := map[string]any{
+		"query":     "mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){pullRequest{number isDraft url}}}",
+		"variables": map[string]any{"id": nodeID},
+	}
+	status, raw, err := g.graphql(body)
+	if err != nil {
+		return PR{}, err
+	}
+	if status != http.StatusOK {
+		return PR{}, fmt.Errorf("forge: convert PR #%d to draft: %s: %s", pr.Number, http.StatusText(status), strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		Data struct {
+			Convert struct {
+				PullRequest struct {
+					Number  int    `json:"number"`
+					IsDraft bool   `json:"isDraft"`
+					URL     string `json:"url"`
+				} `json:"pullRequest"`
+			} `json:"convertPullRequestToDraft"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return PR{}, fmt.Errorf("forge: decode convert-to-draft response: %w", err)
+	}
+	if len(out.Errors) > 0 {
+		return PR{}, fmt.Errorf("forge: convert PR #%d to draft: %s", pr.Number, out.Errors[0].Message)
+	}
+	if !out.Data.Convert.PullRequest.IsDraft {
+		return PR{}, fmt.Errorf("forge: PR #%d is still ready after convertPullRequestToDraft", pr.Number)
+	}
+	pr.Draft = true
+	if u := out.Data.Convert.PullRequest.URL; u != "" {
+		pr.URL = u
+	}
+	return pr, nil
+}
+
 // hasWorkflows reports whether the repository has any active workflow, cached
 // after the first answer (see Checks for why and for the staleness argument).
 func (g *GitHub) hasWorkflows() (bool, error) {
