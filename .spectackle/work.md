@@ -119,3 +119,23 @@ VERIFY: build/test -race/vet/gofmt; lint; check ok; live: state on this repo pas
 SCOPE: new waiverrate.go + one render line in three files + docs. No gate logic anywhere.
 ROLLBACK: revert.
 REPORT: the live state line or its absence with the computed rate, each test.
+
+## T-01KYFXEQ71F8X9C2028Q3B4WBX verdict events survive compaction and findings render only pre-archive: the token diet closes the loop
+kind: task
+state: draft
+created: 2026-07-26
+parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+targets: internal/mcpserver/tools.go, internal/mcpserver/grill.go, docs/lifecycle.md
+
+IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TT: verdict events survive compaction. VERIFIED GROUND: they do NOT today - compact()s keep-list (tools.go ~2416) retains reject/archive/compact/escalate/decide and DROPS EvReview and EvValidate, so a compaction erases the identity-bound evidence the gates rest on; a re-validation after compact would find no verdict and refuse an already-validated archive... except archived items are past the gate - the REAL loss is the audit trail and reviewState/lastGateResult on still-live items whose verdicts predate the fold.
+
+WHAT TO BUILD:
+1. KEEP-LIST: add journal.EvReview and journal.EvValidate to the retained cases with a comment citing ADR-01KYES0TT and the loss shape above.
+2. PRUNE THE DEAD WEIGHT: retained verdicts of items already archived or rejected at compact time MAY drop their Keys and Wv slices (the addressal detail) while keeping ev/id/ag/hash/pass/ln - the verdict identity survives forever, the per-key forensics only while the item lives. Implement as part of the same fold pass; comment the byte rationale.
+3. FINDINGS PRE-ARCHIVE ONLY: the grill and validate PACK renders skip the #computed findings section for items in archived state (tombstone readers want the verdict trail, not a re-critique; the classes recompute against a tree that has moved on and mislead). One sentence in each tool description; render a single line computed: suppressed (archived) instead of the section.
+4. DOCS: lifecycle.md compaction paragraph gains the retention vocabulary (verdicts retained, addressal detail pruned post-terminal).
+NON-NEGOTIABLE, tested: a compact fold over a journal with live-item verdicts keeps them byte-complete; over archived-item verdicts keeps ev/hash/pass and drops Keys/Wv; reviewState still resolves a retained verdict after compact (integration: grill render -> verdict -> compact -> reviewState finds it); archived-item pack renders the suppressed line and no v/g classes; live-item pack unchanged (golden).
+VERIFY: build/test -race/vet/gofmt; lint; check ok; live: run compact dry-run on this repo, paste the c candidates, do NOT apply (the resident owns its own compaction cadence).
+SCOPE: compact keep-list + the two pack renders + docs. No journal.go schema changes (Ln lands in the lens task - coordinate through the lease if concurrent).
+ROLLBACK: revert; retention is strictly additive to todays behavior.
+REPORT: before/after fold of a synthetic journal, each test, the dry-run paste.
