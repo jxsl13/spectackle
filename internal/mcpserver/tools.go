@@ -1647,6 +1647,14 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 					if s.ws.Cfg.Feedback.Validate == "require" {
 						return refuse("! VALIDATE E " + short + " " + gap + " (feedback.validate=require)")
 					}
+					// Risk-gated require (T-01KYFXDCH): warn mode still
+					// demands the verdict when the LANDED diff trips a
+					// risk input; the refusal names it so the operator
+					// learns which knob fired. Explicit require above is
+					// never downgraded by this branch.
+					if trip := s.validateRisk(pre.ID); trip != "" {
+						return refuse("! VALIDATE E " + short + " " + gap + " (validation required: " + trip + ")")
+					}
 					warns += "! VALIDATE W " + short + " " + gap + "\n"
 				} else {
 					in.Note = s.derivedArchiveNote(pre, in.Note)
