@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## B-01KYED3DRAEBX83YMJEMZQW4K1 gitflow and worktree flows collide on the branch name: an item that entered active can never work-start
 kind: bug
-state: draft
+state: active
 created: 2026-07-26
 
 Root cause of live judge X2s dead end, reproduced exactly: move to=active runs gitFlowStart, whose EnsureBranch creates spectackle/<id> in the main checkout; a later work op=start on the same item runs git worktree add -b spectackle/<id>, which dies with a-branch-named-already-exists — the single-agent gitflow automation and the swarm worktree flow were built in different eras, both claim the identical branch name, and they first crossed when an agent legally forward-skipped draft to active before starting work. Every item that has been active is permanently locked out of the worktree flow. workStart already accepts approved|active, so the state gate is not the issue. Fix: when the branch already exists at work op=start, the worktree attaches to it instead of minting it — git worktree add WITHOUT -b onto the existing branch — since both mechanisms mean the same thing by it (this items line of work); the B-0006 invariant is unaffected because worktree record commits still never git-merge between branches. VERIFY: e2e — draft, move active (gitflow creates the branch, offline mode), work op=start succeeds and reports the worktree root, edit, submit merges; the X2 reproduction sequence lands green; TestWorkLifecycleE2E and the gitflow suites stay green.
