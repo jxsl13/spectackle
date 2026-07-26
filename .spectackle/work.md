@@ -129,6 +129,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/tools.go, internal/mcpserver/grill.go, docs/lifecycle.md
 
 IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TT: verdict events survive compaction. VERIFIED GROUND: they do NOT today - compact()s keep-list (tools.go ~2416) retains reject/archive/compact/escalate/decide and DROPS EvReview and EvValidate, so a compaction erases the identity-bound evidence the gates rest on; a re-validation after compact would find no verdict and refuse an already-validated archive... except archived items are past the gate - the REAL loss is the audit trail and reviewState/lastGateResult on still-live items whose verdicts predate the fold.
