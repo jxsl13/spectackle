@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYE0RCKEFGBVT4GQ06GAR3FD judge fixture leaves root files uncovered, so the brief goal check-reports-ok is not literally reachable
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 rounds: 1
 
