@@ -43,7 +43,7 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFSQQ7MFBHSXYC505XEJYF5 planted-completeness outcome fixture: hidden acceptance tests score first-iteration completeness per token and the A/B refuses unequal validity
 kind: task
-state: active
+state: done
 created: 2026-07-26
 parent: P-01KYEVSK7BEEZBE7GGS4HSD5SV
 grilled: 2026-07-26 open=3
