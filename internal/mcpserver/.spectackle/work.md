@@ -49,7 +49,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## B-01KYERTFRSFVDTNCT8EB4XGDPK no body-edit path exists for draft-state items, so grill feedback cannot amend the record it critiques
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 rounds: 1
 
