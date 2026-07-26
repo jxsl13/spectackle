@@ -310,3 +310,6 @@ WHEN a lifecycle gate evaluates an item, the spectackle server SHALL treat recor
 
 ## ORCH-SYNC-001
 WHEN a lifecycle transition call is refused or severed, the orchestrating agent SHALL stop the block before any git sync: the checkout runs only after a confirmed merged line - raw checkout over live records discarded a verdict (B-01KYFG1KEEF1S).
+
+## NODE-EDGE-001
+The spectackle server SHALL render at every lifecycle state the callers judgment options per nextAction while executing every transition edge mechanically per gitFlowFor.
