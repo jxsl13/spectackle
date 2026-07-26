@@ -109,6 +109,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/state.go, internal/mcpserver/grill.go, internal/mcpserver/validate.go, docs/agent-workflow.md
 
 IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TR: ambiguity (and every) finding is waivable with a reason, and the counterweight is a TRIPWIRE - computed, visible, never vetoing. A gate that vetoes on waiver rate would just teach padding the findings; visibility teaches judgment.
