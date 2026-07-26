@@ -29,10 +29,3 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
-
-## B-01KYG6FPE6FN3V7K0K3TCGQZDA orphan record closure: prefix-ambiguity incident B-01KYD1G8T8E8RV2CCC2QDEKEDF
-kind: bug
-state: draft
-created: 2026-07-26
-
-Recovery re-draft for an orphaned journal create event (B-01KYG56Y orphan sweep); rejected immediately for the record - see the note.
