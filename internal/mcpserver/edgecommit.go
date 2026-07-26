@@ -238,7 +238,9 @@ func edgeCommitMessage(events []journal.Event) string {
 	var sub strings.Builder
 	sub.WriteString("spectackle(" + p.Ev + "):")
 	if p.ID != "" {
-		sub.WriteString(" " + p.ID)
+		// Subject = human surface (short display form); the
+		// Spectackle-Item trailer below stays FULL — the audit join.
+		sub.WriteString(" " + shortDisplayID(p.ID))
 	} else if p.Rule != "" {
 		sub.WriteString(" " + p.Rule)
 	}

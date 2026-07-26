@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jxsl13/spectackle/internal/forge"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
@@ -110,7 +111,41 @@ func (s *Server) gitEnabled() bool {
 // taskBranch is the branch a task's work lives on. It mirrors the name the
 // swarm's worktrees already use, so the PR boundary follows the branch
 // boundary that exists rather than inventing a second naming scheme.
-func taskBranch(id string) string { return "spectackle/" + id }
+// shortDisplayID renders an ID for HUMAN-facing git surfaces — branch
+// names, PR titles, commit subjects (user requirement 2026-07-27): the
+// kind prefix plus the first ids.MinRecordPrefixLen characters of the
+// body, which pin all 48 timestamp bits and stay unambiguous for the
+// repository lifetime. Machine surfaces (Spectackle-Item/Eid trailers,
+// PR body first line, every .spectackle record) keep the FULL ID — the
+// audit join and replay resolve exact IDs, never prefixes. Legacy or
+// short-shaped IDs pass through unchanged.
+func shortDisplayID(id string) string {
+	kind, body, ok := strings.Cut(id, "-")
+	if !ok || len(body) <= ids.MinRecordPrefixLen {
+		return id
+	}
+	return kind + "-" + body[:ids.MinRecordPrefixLen]
+}
+
+// taskBranch names the item's branch with the SHORT display form: branches
+// need uniqueness at creation (the 13-char floor provides it) and are never
+// prefix-resolved afterward, so later mints cannot break them. Existing
+// full-length branches stay valid — only new branches shorten.
+func taskBranch(id string) string { return "spectackle/" + shortDisplayID(id) }
+
+// itemBranch resolves the branch an item actually lives on: the short form
+// for everything created after the display change, falling back to the
+// full-length name for in-flight items whose branch predates it — without
+// this, an item activated under the old naming would strand on its own
+// later transitions.
+func (s *Server) itemBranch(id string) string {
+	short := taskBranch(id)
+	if legacy := "spectackle/" + id; legacy != short &&
+		!wt.BranchExists(s.main.Dir, short) && wt.BranchExists(s.main.Dir, legacy) {
+		return legacy
+	}
+	return short
+}
 
 // forgeFor builds the client for the configured mode.
 //
@@ -157,14 +192,14 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	branch := taskBranch(it.ID)
+	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
 
 	if err := wt.EnsureBranch(dir, branch, ""); err != nil {
 		res.addf("! GIT E %s branch: %s", it.ID, err)
 		return res
 	}
-	if _, err := wt.CommitCode(dir, "spectackle "+it.ID+": "+it.Title); err != nil {
+	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+it.Title); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 	}
 	s.gitCommitRecords(res, it, item.StateActive)
@@ -247,7 +282,7 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 		res.addf("g pr deferred: %s not ahead of %s yet", branch, s.gitBase())
 		return res
 	}
-	pr, err := f.Open(branch, s.gitBase(), it.ID+" "+it.Title, gitPRBody(it))
+	pr, err := f.Open(branch, s.gitBase(), shortDisplayID(it.ID)+" "+it.Title, gitPRBody(it))
 	if err != nil {
 		res.addf("! GIT E %s pr open: %s", it.ID, err)
 		return res
@@ -270,9 +305,9 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	branch := taskBranch(it.ID)
+	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
-	if _, err := wt.CommitCode(dir, "spectackle "+it.ID+": checkpoint"); err != nil {
+	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": checkpoint"); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 		return res
 	}
@@ -304,7 +339,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	branch := taskBranch(it.ID)
+	branch := s.itemBranch(it.ID)
 	if r := s.gitFlowSync(it); r.String() != "" {
 		res.lines = append(res.lines, r.lines...)
 	}
@@ -386,7 +421,7 @@ func (s *Server) gitCommitRecords(res *gitFlowResult, it item.Item, to string) {
 	if !wt.IdentityConfigured(s.ws.Dir) {
 		res.addf("g identity fallback spectackle@localhost — set git user.name and user.email to attribute and sign commits")
 	}
-	committed, err := wt.CommitRecords(s.ws.Dir, "spectackle("+to+"): "+it.ID+" records")
+	committed, err := wt.CommitRecords(s.ws.Dir, "spectackle("+to+"): "+shortDisplayID(it.ID)+" records")
 	if err != nil {
 		res.addf("! GIT E %s records: %s", it.ID, err)
 		return
@@ -409,7 +444,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	branch := taskBranch(it.ID)
+	branch := s.itemBranch(it.ID)
 	// B-01KYDS: an item archived without ever entering active has no feature
 	// branch — the old code committed the records onto whatever branch
 	// happened to be checked out, then pushed the nonexistent item ref ("src

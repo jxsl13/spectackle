@@ -78,6 +78,19 @@ frontmatter; an unknown stamp is a tool error ("regenerate"). **There is no
 schema migration** — pre-1.0, formats may break freely; the stamp rotates and
 the cache rebuilds.
 
+### 1.5 ID forms on git surfaces
+
+Human-facing git surfaces — branch names (`spectackle/<short>`), pull
+request titles, commit subjects — render the SHORT display ID (kind prefix
+plus the first `ids.MinRecordPrefixLen` body characters, which pin all 48
+timestamp bits and stay unambiguous for the repository lifetime). Machine
+surfaces keep the FULL ID: the `Spectackle-Item`/`Spectackle-Eid` commit
+trailers are the journal-to-git audit join, the PR body's first line
+carries it for exact search, and every record inside `.spectackle/` files
+is full-length (inside git-managed files the form does not matter for
+humans, so the resolvable full form wins). Branches created before this
+convention keep their full-length names; the flow falls back to them.
+
 ## 2. Unified high-performance search (the persisted cache)
 
 One SQLite file (`.spectackle/cache/index.db`, `modernc.org/sqlite` — pure Go,

@@ -81,7 +81,9 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 		}
 		return shas
 	}
-	branch := "spectackle/" + id
+	// The SHORT branch form is a strict prefix of the legacy full form, so
+	// one --grep matches merges from both naming eras (T-01KYG0ZX).
+	branch := "spectackle/" + shortDisplayID(id)
 	if m := strings.TrimSpace(git("log", "--merges", "--format=%H", "-n", "1", "--grep", branch, "HEAD")); m != "" {
 		if d := git("diff", m+"^1", m); d != "" {
 			// Post-merge commits citing the item are part of its attributed

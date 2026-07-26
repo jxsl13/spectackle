@@ -348,7 +348,10 @@ func TestValidateMergeModeDiffBinding(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "val-b")
 	val := connectRoot(t, root)
 	out := callText(t, val, "validate", map[string]any{"id": task})
-	if !strings.Contains(out, "d source merge of "+branch) {
+	// The render names the SHORT branch form it grepped with (T-01KYG0ZX);
+	// the short form is a prefix of this fixture's full-length branch, so
+	// the merge is still found across naming eras.
+	if !strings.Contains(out, "d source merge of spectackle/"+shortDisplayID(full)) {
 		t.Fatalf("merge source not recovered: %q", out)
 	}
 	callText(t, val, "validate", map[string]any{"op": "verdict", "id": task, "pass": true})

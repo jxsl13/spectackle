@@ -117,7 +117,12 @@ The mechanics, exact:
   first commit. When the task reaches done — checked, validated — the PR
   flips to ready **immediately**, before the next task starts, never at
   end of session.
-- **One task per PR; the title carries the full task ID.**
+- **One task per PR; the title carries the short display ID** (the
+  13-character floor form — stable for the repository lifetime); the PR
+  body's first line carries the full ID once, so exact-ID search still
+  hits. Branch names and commit subjects use the same short form; the
+  machine-facing commit trailers (`Spectackle-Item`, `Spectackle-Eid`)
+  always keep the full ID — they are the journal-to-git audit join.
 - **Who merges:** the user, by hand or by their standing instruction, with
   a merge commit — never squash (previous section).
 - **Always pushed, always covered.** At no point may changes exist that
