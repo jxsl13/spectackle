@@ -43,9 +43,10 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFXDC6KFNCB66W8JVHTZZNK lens-labeled verdicts under the single-reviewer sequential default, with per-item panel opt-in capped by config
 kind: task
-state: done
+state: active
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+rounds: 1
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/grill.go, internal/journal/journal.go, internal/mcpserver/server.go, docs/agent-workflow.md
 
