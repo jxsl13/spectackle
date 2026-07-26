@@ -43,6 +43,7 @@ type grillIn struct {
 	Waivers  map[string]string `json:"waivers,omitempty" jsonschema:"verdict: per-finding waivers, key (class:subject from the pack) to reason — every open finding must be fixed or waived (T-01KYD9J)"`
 	Lenses   string            `json:"lenses,omitempty" jsonschema:"verdict: comma-separated lens labels the reviewer walked sequentially (e.g. correctness,security,refute); prefix per-lens findings with [lens]"`
 	Panel    int               `json:"panel,omitempty" jsonschema:"verdict: declare an n-agent review panel for THIS item — legal only on a live risk signal (open irreversible/blast finding, or override-once spent); capped by swarm.panel_max"`
+	Agent    string            `json:"agent,omitempty" jsonschema:"verdict only: reviewer identity when the session cannot carry SPECTACKLE_AGENT (a shared -http resident stamps ITS name otherwise, B-01KYFPNCK); every identity refusal applies to this name"`
 	Budget   int               `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
 	Cur      string            `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
@@ -772,8 +773,17 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 		return s.nearest(id)
 	}
 	short := sc.short(it.ID)
-	if reEphemeralAgent.MatchString(s.agent) {
-		return refuse("! REVIEW E " + short + " anonymous reviewer - set SPECTACKLE_AGENT to a deliberate name")
+	// Reviewer identity (B-01KYFPNCK): a shared -http resident would stamp
+	// ITS OWN name on every verdict, silently fabricating independence.
+	// The per-call agent field carries the real reviewer; every identity
+	// refusal below applies to the overridden name, so the field changes
+	// which surface carries the name, never what a caller could do.
+	reviewer := s.agent
+	if in.Agent != "" {
+		reviewer = in.Agent
+	}
+	if reEphemeralAgent.MatchString(reviewer) {
+		return refuse("! REVIEW E " + short + " anonymous reviewer - set SPECTACKLE_AGENT (or the agent field) to a deliberate name")
 	}
 	if in.Pass == nil {
 		return refuse("! ARG E - verdict requires pass")
@@ -782,7 +792,7 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if author != "" && author == s.agent {
+	if author != "" && author == reviewer {
 		return refuse("! REVIEW E " + short + " reviewer is the author - use a fresh agent identity")
 	}
 	cur := reviewHash(it)
@@ -862,7 +872,7 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
-		Ev: journal.EvReview, ID: it.ID, Dir: it.Dir,
+		Ev: journal.EvReview, ID: it.ID, Dir: it.Dir, Ag: reviewer,
 		Pass: *in.Pass, Hash: cur, Note: in.Findings, Wv: wv, Ln: lenses,
 	}); err != nil {
 		return nil, nil, err
@@ -871,13 +881,13 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	if *in.Pass {
 		verdict = "pass"
 	}
-	_ = s.cd.Emit("review", it.ID, verdict+" by "+s.agent)
+	_ = s.cd.Emit("review", it.ID, verdict+" by "+reviewer)
 	s.markDirty()
 	lensNote := ""
 	if len(lenses) > 0 {
 		lensNote = " lenses=" + strings.Join(lenses, ",")
 	}
-	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + s.agent + lensNote)
+	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + reviewer + lensNote)
 }
 
 // grillEvidence runs the target-scoped sweeps with the item's unconsumed-ok
