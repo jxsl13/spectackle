@@ -82,6 +82,9 @@ func run(args []string) int {
 		return reindex(args[1:])
 	case "bench":
 		return benchCmd(args[1:])
+	case "manifest":
+		fmt.Println(mcpserver.Manifest())
+		return 0
 	case "version":
 		fmt.Println("spectackle " + mcpserver.Version)
 		return 0

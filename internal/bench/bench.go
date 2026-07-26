@@ -51,6 +51,12 @@ type Result struct {
 	Valid      bool
 	Violations []string // why Valid is false, or informational notes
 	Coverage   map[string]bool
+	// ManifestBytes is the initialize-handshake manifest's size, metered
+	// SEPARATELY from the per-call total: its cost multiplier is sessions,
+	// not calls, and folding it into Bytes would corrupt both figures
+	// (T-01KYE3 — 7238 bytes stayed invisible through eleven benchmarked
+	// landings for lack of this line).
+	ManifestBytes int
 }
 
 // StepResult is one call's metering.
@@ -238,6 +244,9 @@ func Run(bin string) (Result, error) {
 	}
 
 	res := Result{Coverage: map[string]bool{}}
+	if out, err := exec.Command(bin, "manifest").Output(); err == nil {
+		res.ManifestBytes = len(out)
+	}
 	captured := map[string]string{}
 	var all strings.Builder
 
@@ -384,6 +393,9 @@ func Report(r Result) string {
 	// not comparable across generations, and the label is how a reader of
 	// two reports knows whether they may compare them at all.
 	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v fixture=v3\n", r.Bytes, r.Tokens, r.Valid)
+	if r.ManifestBytes > 0 {
+		fmt.Fprintf(&b, "bench manifest %dB ~%d tokens (once per session, excluded from total)\n", r.ManifestBytes, r.ManifestBytes/4)
+	}
 	for _, v := range r.Violations {
 		fmt.Fprintf(&b, "bench ! %s\n", v)
 	}
@@ -410,6 +422,15 @@ func AB(baseline, candidate string) (string, error) {
 	out.WriteString("== baseline " + baseline + " ==\n" + Report(a))
 	out.WriteString("== candidate " + candidate + " ==\n" + Report(b))
 	fmt.Fprintf(&out, "bench delta %+dB ~%+d tokens (candidate minus baseline)\n", b.Bytes-a.Bytes, b.Tokens-a.Tokens)
+	// The delta is only honest when BOTH sides metered: a binary predating
+	// the manifest subcommand answers 0, and 3473 minus an unmeterable 0
+	// would read as the manifest having grown by its own size.
+	switch {
+	case a.ManifestBytes > 0 && b.ManifestBytes > 0:
+		fmt.Fprintf(&out, "bench manifest delta %+dB (once per session, separate multiplier)\n", b.ManifestBytes-a.ManifestBytes)
+	case a.ManifestBytes > 0 || b.ManifestBytes > 0:
+		out.WriteString("bench manifest delta n/a — one side predates the manifest subcommand; compare the per-side manifest lines by hand\n")
+	}
 	d := b.Bytes - a.Bytes
 	switch {
 	case a.Valid && !b.Valid:

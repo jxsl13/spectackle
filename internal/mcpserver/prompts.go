@@ -49,6 +49,15 @@ func (s *Server) registerPrompts() {
 	}, s.promptNext)
 
 	s.mcp.AddPrompt(&mcp.Prompt{
+		Name:        "guide",
+		Title:       "situational playbook",
+		Description: "On-demand playbooks the manifest only points to: topic=swarm (multi-agent sessions), orchestration (the orchestrator role), brownfield (onboarding an existing repo). Fetch when the mode applies — every session paying for all three at connect time is what this replaces.",
+		Arguments: []*mcp.PromptArgument{
+			{Name: "topic", Description: "swarm | orchestration | brownfield"},
+		},
+	}, s.promptGuide)
+
+	s.mcp.AddPrompt(&mcp.Prompt{
 		Name:        "state",
 		Title:       "spectackle state",
 		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing.",
@@ -300,6 +309,21 @@ func hasOpenNeeds(ws workspace.Root, cand item.Item, byID map[string]item.Item) 
 		}
 	}
 	return false
+}
+
+// promptGuide serves one situational playbook (T-01KYE3). An unknown or
+// missing topic answers the topic list rather than an error: the caller is
+// one prompt call away from the right text either way, and a refusal would
+// just cost a second round trip to learn the same three words.
+func (s *Server) promptGuide(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	topic := ""
+	if req != nil && req.Params != nil {
+		topic = strings.TrimSpace(req.Params.Arguments["topic"])
+	}
+	if body, ok := guideTopics[topic]; ok {
+		return textPrompt(body), nil
+	}
+	return textPrompt("need topic one of: swarm, orchestration, brownfield"), nil
 }
 
 func textPrompt(s string) *mcp.GetPromptResult {
