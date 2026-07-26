@@ -48,9 +48,14 @@ merge red.
 
 ## Every change lands through a pull request that merges on green CI — with a merge commit, never a squash
 
-Nothing is pushed straight to `main`. Work goes onto a branch, opens a pull
-request, and merges the moment CI is green, with no one waiting on a button.
-A red CI simply means it never merges.
+Nothing is pushed straight to `main`. Work goes onto a branch and opens a
+pull request; a red CI simply means it never merges. Merging itself is a
+human judgment step: the agent drives CI to green on the open pull request
+(diagnosing and pushing fixes on red) but never decides to merge and never
+arms auto-merge. A merge happens only on the user's instruction — one-off,
+or standing: this repository's owner has given a standing instruction that
+finished, validated tasks merge on green, which the server's archive flow
+executes. Absent such an instruction, a green PR waits for its human.
 
 The merge method is a **merge commit — never squash**. Every state-machine
 edge and every distinct change is its own commit on the branch, and each
@@ -69,8 +74,9 @@ merge time, which is the exact operation this policy forbids.
 Three repository settings make the policy real, and without them the intent
 is silently a no-op:
 
-1. **Settings → General → Pull Requests → Allow auto-merge.** Without it,
-   arming auto-merge is refused outright.
+1. **Settings → General → Pull Requests → Allow auto-merge.** The owner's
+   convenience for their own standing instruction; agents never arm it —
+   merging stays the human judgment step above.
 2. **A branch protection rule (or ruleset) on `main` requiring the CI check.**
    This is the part that is easy to miss: with no required check, GitHub
    considers a fresh pull request immediately mergeable and there is nothing
@@ -88,6 +94,45 @@ A merged pull request is finished and is never reused. Follow-up work
 restarts the branch from the current `main` and opens a new pull request;
 stacking commits onto already-merged history is what produces the "why is
 this diff enormous" pull requests nobody can review.
+
+## One task, one branch, one pull request
+
+The decision-trail principle has three granularities, and all three must
+hold: edge commits make every state transition visible **inside** a task;
+never-squash merges keep those commits readable on `main`; and one pull
+request per task makes the task itself the unit of review, merge, revert
+and bisect. Batching several finished tasks into one pull request
+re-creates at the PR level exactly what squashing creates at the commit
+level — N decisions flattened into one reviewable blob, reviewers
+approving work they cannot attribute, and a revert that cannot take one
+task back without taking its neighbors. The anti-pattern to never repeat:
+a session-accumulation branch that collects finished work items and ships
+them in combined pull requests, where no single task can be reverted,
+bisected, or re-reviewed in isolation.
+
+The mechanics, exact:
+
+- **Draft PR at first push.** Work in progress lives on its pushed task
+  branch (`spectackle/<item-id>`) under a draft pull request from the
+  first commit. When the task reaches done — checked, validated — the PR
+  flips to ready **immediately**, before the next task starts, never at
+  end of session.
+- **One task per PR; the title carries the full task ID.**
+- **Who merges:** the user, by hand or by their standing instruction, with
+  a merge commit — never squash (previous section).
+- **Always pushed, always covered.** At no point may changes exist that
+  are unpushed, or pushed without an open (or draft) pull request. An
+  unpushed local change is invisible to every other agent and survives no
+  container; a pushed branch without a PR is work nobody can find from
+  the review surface. Both states are forbidden at any time, not just at
+  task end.
+
+Follow-up commits to an **open, unmerged** PR for the same task are fine —
+that is the task still landing. A merged PR is finished; follow-ups are a
+new task (the branch rule above already says this for branches). Work that
+never was a task — a typo fix in passing — rides with the task that
+touched it, or becomes a task if it stands alone; nothing merges outside
+a pull request either way.
 
 ## The resident server must be rebuilt and restarted after every merge
 
