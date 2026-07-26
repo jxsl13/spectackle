@@ -6,6 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-26
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/gitflow.go
 
 ROOT CAUSE CONFIRMED (gitflow.go gitFlowMerge, the B-01KYDY guard): when the item branch exists but is not the current branch, the flow unconditionally closes on a fresh -close branch at the current head and never touches the item branch. That guard was designed for STALE-ERA branches (checking one out would rewind the tree), but it cannot tell a stale branch from a LIVE one carrying validated unmerged code - and after a refusal sequence left the residents checkout elsewhere, it fired on T-01KYFXEQs live branch: PR 143 merged records only, PR 142 with the implementation stayed open, main lacked the code until a manual escape-hatch merge. The user flagged the two open PRs; the meta-lesson they drew is part of this record: per-diff computed classes cannot see cross-feature interaction bugs - the flow must check its own post-conditions mechanically instead of relying on reviewer completeness.

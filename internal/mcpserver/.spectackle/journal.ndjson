@@ -455,3 +455,4 @@
 {"t":"2026-07-26T21:02:00Z","eid":"db20b025d293ba26","ag":"ag-fc29","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-007","node":"go:mcpserver.Server.grill","cls":"healed","oh":"30e9a4d79d8c5c03","nh":"7762f42ae072007c"}
 {"t":"2026-07-26T21:02:00Z","eid":"d486fcd177715cc7","ag":"ag-fc29","ev":"drift","dir":"internal/mcpserver","rule":"MCP-005","node":"go:mcpserver.Server.compact","cls":"healed","oh":"207cd742db307bbf","nh":"a70ad293c07022f9"}
 {"t":"2026-07-26T21:27:33Z","eid":"fdfed2c0f3aca353","ag":"dogfeed-orchestrator","ev":"create","id":"B-01KYG56YQAFD09C2151VVYQHSV","k":"bug","ti":"archive split the record from the code: closure heuristics discard live work","dir":"internal/mcpserver"}
+{"t":"2026-07-26T21:27:51Z","eid":"04afbbe4e4db966c","ag":"dogfeed-orchestrator","ev":"grill","id":"B-01KYG56YQAFD09C2151VVYQHSV","dir":"internal/mcpserver","gr":"2026-07-26 open=0","hash":"4589171c483ecd2fb7e0a29580ea1797e8da316494582706869403cff5337896"}
