@@ -1,1 +1,2 @@
 {"t":"2026-07-25T17:18:25Z","eid":"0966542b21ba63d1","ag":"ag-c0a7","ev":"create","id":"B-01KYD4J1Q8FSGTT9G7QJD8N8T8","k":"bug","ti":"MinRecordPrefixLen's rationale miscounts the encoding, so the six-character floor pins 28 timestamp bits, not 30","dir":"internal/ids"}
+{"t":"2026-07-26T07:33:46Z","eid":"e438dd76ae266f4c","ag":"dogfeed-orchestrator","ev":"move","id":"B-01KYD4J254FK5BE486GKFNMN39","dir":"internal/ids","fr":"draft","to":"active"}
