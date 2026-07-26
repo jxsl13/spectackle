@@ -41,26 +41,6 @@ targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcps
 
 OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.shortHash 100% fired although BOTH functions predate the diff - short8 sat in hunk CONTEXT lines adjacent to inserted code, so the hunk-scoped extraction treated it as touched. RULE: a dup finding must implicate only functions with at least one ADDED line in the attributed diff; context-line-only functions are preexisting code the task never wrote. IMPLEMENTATION: when mapping diffHunks to functions in validateDups, track added-line ranges (+ lines only, not context) and intersect with function spans before lookup in the dup index. PROOF: unify short8 (tools.go, 8 chars) and shortHash (validate.go, 12 chars) into one parameterized helper as the cleanup this false positive pointed at, and add a regression test where a diff INSERTS code adjacent to one twin of a preexisting dup pair and validateDups stays silent, plus one where the diff ADDS a twin and it fires. Byte-budget neutral: no output-format change.
 
-## T-01KYFXDCHHFV3SQDA5CEHAA4AQ validation require is risk-gated from the landed diff: file count and dangerous-path membership, never declared targets
-kind: task
-state: done
-created: 2026-07-26
-parent: P-01KYESGDWFFMH80ENHNFXMVZE8
-grilled: 2026-07-26 open=1
-targets: internal/mcpserver/validate.go, internal/workspace/workspace.go, docs/lifecycle.md
-
-IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH: break-even for the validation gate is a ~30-50 percent catch rate, so feedback.validate stays warn GLOBALLY and require flips per item from RISK computed off the LANDED diff - never declared targets (T-0135 landed 15 files against 4 declared; gaming kill). This repo keeps blanket require in its own config - the risk gate is for everyone else; nothing here may weaken an explicit require.
-
-WHAT TO BUILD:
-1. RISK INPUTS, computed in validateGateGap from itemDiff (already attributed): landedFiles = count of distinct files in the diff; dangerous = any file under a dangerous path. Dangerous list: config feedback.dangerous_paths ([]string, glob per SkipDir conventions); DEFAULT when key absent: internal/lifecycle/**, internal/journal/**, internal/workspace/**, .github/** on this repos vocabulary is WRONG for other repos - so the shipped default is empty plus a scaffold comment documenting the knob; risk from paths fires only when the user configured it. File-count threshold: feedback.risk_files (int, default 8, scaffold-documented).
-2. GATE SEMANTICS: validate=require behaves as today. validate=warn (or absent): the archive gate REQUIRES a passing verdict IFF landedFiles >= risk_files OR dangerous matched; otherwise warns as today. The refusal names the tripped input: validation required: landed 12 files >= 8. An explicit require is never downgraded.
-3. Scaffold config.yaml documents both knobs (workspace_test key list grows by two).
-NON-NEGOTIABLE, tested: warn-mode item with a 9-file landed diff refuses archive without verdict naming the count; same item at 7 files archives with warning; dangerous-path hit at 1 file refuses; require-mode unchanged (existing tests); knobs parse, absent means default 8 and empty list; scaffold lists both keys.
-VERIFY: build/test -race/vet/gofmt; lint; check ok; live proof deferred to the bench A/B (measuring catch rates needs the outcome fixture, noted as the follow-up in the parent).
-SCOPE: validateGateGap + config + scaffold + docs/lifecycle.md gate paragraph. No grill.go.
-ROLLBACK: revert; knobs additive.
-REPORT: refusal line verbatim, each test, knob defaults rationale.
-
 ## T-01KYFXEPW3FD7RYDR1Q0S1R4FF waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts
 kind: task
 state: approved
