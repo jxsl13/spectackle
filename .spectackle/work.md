@@ -43,7 +43,7 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFXDC6KFNCB66W8JVHTZZNK lens-labeled verdicts under the single-reviewer sequential default, with per-item panel opt-in capped by config
 kind: task
-state: active
+state: done
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 rounds: 1
