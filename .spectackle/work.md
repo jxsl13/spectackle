@@ -133,3 +133,10 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## P-01KYFZZ4TCFCMBBFY87ACPQQQ5 live lens probe second attempt
+kind: proposal
+state: draft
+created: 2026-07-26
+
+A throwaway proposal existing only so a lens-labeled verdict can be recorded live against this repository, proving the round-trip from the lenses parameter through the journal event onto the pack verdict line and the ok line. It names no targets and changes nothing; it is rejected immediately after the renders below are captured for the T-01KYFXDC6 report. This second attempt exists because the first probe body sat under the calibrated 400-byte ambiguity floor and was refused by the amb-thin finding the sibling task landed yesterday - the elicitation machinery catching the very probe meant to bypass it quickly, which is itself evidence both landings compose correctly and gate exactly as designed.
