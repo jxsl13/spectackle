@@ -1744,7 +1744,42 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	if s.edgeFlush != nil {
 		s.edgeFlush(false)
 	}
-	return text(warns + sc.record(it) + "\n" + next + s.gitFlowFor(it, in.To).String())
+	flow := s.gitFlowFor(it, in.To)
+	// Atomic archive edge (B-01KYGADQ, NODE-EDGE-001): a transition either
+	// completes with its closure merge or refuses whole. On a stranded
+	// closure (red checks, conflict, push/forge error) the tombstone is
+	// compensated archived->done — final-state-wins replay lands on done —
+	// and a plain retry re-drives the entire mechanical edge once green.
+	// The compensation keeps the records-ride-the-branch invariant: the
+	// archive event was on disk for the attempt and the compensating move
+	// records the refusal truthfully.
+	if in.To == item.StateArchived && s.gitEnabled() && !flow.closureComplete && flowAttemptedMerge(flow) {
+		it.State = item.StateDone
+		if uerr := item.Upsert(s.ws, it); uerr != nil {
+			return nil, nil, uerr
+		}
+		if jerr := journal.Append(s.ws, it.Dir, journal.Event{
+			Ev: journal.EvMove, ID: it.ID, Dir: it.Dir, Fr: item.StateArchived, To: item.StateDone,
+			Note: "closure merge did not complete - archive compensated; retry move to=archived once the head is green",
+		}); jerr != nil {
+			return nil, nil, jerr
+		}
+		s.markDirty()
+		return refuse("! GIT E " + sc.short(it.ID) + " archive refused whole: closure merge did not complete - item stays done, retry once green\n" + flow.String())
+	}
+	return text(warns + sc.record(it) + "\n" + next + flow.String())
+}
+
+// flowAttemptedMerge reports whether the closure actually reached the merge
+// machinery — a gate-suppressed flow ("g git <reason>") emits no merge
+// attempt and must not trigger compensation.
+func flowAttemptedMerge(res *gitFlowResult) bool {
+	for _, l := range res.lines {
+		if strings.Contains(l, " pr ") || strings.Contains(l, "! GIT E") || strings.Contains(l, "records") {
+			return true
+		}
+	}
+	return false
 }
 
 // auditGateOpts loads the spec cascade and, if that succeeds, returns a
