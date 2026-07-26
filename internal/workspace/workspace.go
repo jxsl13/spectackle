@@ -57,7 +57,12 @@ type Config struct {
 	Swarm         SwarmCfg    `yaml:"swarm"`
 	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectackle/wt (abs or root-relative)
 	Feedback      FeedbackCfg `yaml:"feedback"`
-	Git           GitCfg      `yaml:"git"`
+	// CoverageGate: "package" makes check COUNT uncovered packages as
+	// findings (CI red until backfilled) — explicit opt-in only. Top-level
+	// rather than a FeedbackCfg sibling: it gates check's repository
+	// hygiene, not the review loop's rounds (T-01KYD87ZN).
+	CoverageGate string `yaml:"coverage_gate"`
+	Git          GitCfg `yaml:"git"`
 }
 
 // SwarmCfg tunes multi-agent coordination.
@@ -696,6 +701,7 @@ func scaffoldConfigYAML() []byte {
 	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
 	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)
 	fmt.Fprintf(&b, "worktrees_dir: %q  # override for .spectackle/wt (abs or root-relative); empty = default location\n", d.WorktreesDir)
+	fmt.Fprintf(&b, "coverage_gate: %q  # \"package\": check counts internal/ and cmd/ packages without a binding contract as findings; empty = silent (visibility stays in state)\n", d.CoverageGate)
 	return []byte(b.String())
 }
 

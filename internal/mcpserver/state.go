@@ -130,7 +130,7 @@ func (s *Server) stateText(path string) (string, error) {
 		b.WriteString(sec)
 	}
 
-	if sec := stateRulesSection(c, path); sec != "" {
+	if sec := s.stateRulesSection(c, path); sec != "" {
 		b.WriteString("#rules\n")
 		b.WriteString(sec)
 	}
@@ -217,7 +217,7 @@ func (s *Server) stateItemsSection(path string) (string, error) {
 // stateRulesSection: per-dir rule counts + a global findings count, scoped
 // to path. Findings themselves are not path-filtered, mirroring check()'s
 // spec-lint pass (SPX-MCP consistency: same lint surface everywhere).
-func stateRulesSection(c *spec.Cascade, path string) string {
+func (s *Server) stateRulesSection(c *spec.Cascade, path string) string {
 	var files []spec.SpecFile
 	for _, sf := range c.All() {
 		if within(path, sf.Dir) {
@@ -225,7 +225,10 @@ func stateRulesSection(c *spec.Cascade, path string) string {
 		}
 	}
 	findings := c.Findings()
-	if len(files) == 0 && len(findings) == 0 {
+	// Coverage visibility must survive the zero-rules workspace — that is
+	// the workspace MOST in need of the signal (T-01KYD87ZN).
+	uncovered := s.uncoveredPackages(c, path)
+	if len(files) == 0 && len(findings) == 0 && len(uncovered) == 0 {
 		return ""
 	}
 	total := 0
@@ -254,6 +257,13 @@ func stateRulesSection(c *spec.Cascade, path string) string {
 		if dirty[sf.Dir] {
 			fmt.Fprintf(&b, "ok dir %s rules=%d\n", orDot(sf.Dir), len(sf.Rules))
 		}
+	}
+	// Default coverage visibility (T-01KYD87ZN): one line per uncovered
+	// package dir — state is not string-matched by CI (only check's output
+	// is compared to ok), so visibility lives here and gating is check's
+	// explicit opt-in.
+	for _, d := range uncovered {
+		fmt.Fprintf(&b, "ok dir %s rules=0 uncovered\n", d)
 	}
 	for _, f := range findings {
 		b.WriteString(f.String() + "\n")

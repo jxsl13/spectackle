@@ -668,7 +668,7 @@ func TestEnsureScaffoldGeneratesSelfDocumentingConfig(t *testing.T) {
 	for _, key := range []string{
 		"schema:", "langs:", "ignore:", "ignore_regex:", "budget_default:",
 		"journal_max:", "done_max:", "lease_ttl:", "agent_ttl:",
-		"max_rounds:", "grill:", "worktrees_dir:",
+		"max_rounds:", "grill:", "worktrees_dir:", "coverage_gate:",
 	} {
 		idx := strings.Index(text, key)
 		if idx < 0 {

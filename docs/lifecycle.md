@@ -60,7 +60,8 @@ context dir > root. Scaffolding (`.gitignore`, `.gitattributes`,
 created `config.yaml` is fully self-documenting: every setting (`schema`,
 `langs`, `ignore`, `ignore_regex`, `budget_default`, `compact.journal_max`,
 `compact.done_max`, `swarm.lease_ttl`, `swarm.agent_ttl`,
-`feedback.max_rounds`, `feedback.grill`, `worktrees_dir`) is written with its
+`feedback.max_rounds`, `feedback.grill`, `worktrees_dir`, `coverage_gate`) is
+written with its
 default value and a short trailing comment, so the file doubles as reference
 docs and an editable template (`workspace.scaffoldConfigYAML`,
 `internal/workspace/workspace.go`). An **existing** `config.yaml` is never

@@ -236,11 +236,19 @@ tightens it to a hard block); `next` and fanout skip items with open
   "budget":{"type":"integer","default":1500},
   "cur":   {"type":"string","default":""}}}
 ```
-Emits `!` lint findings, `g` coverage gaps (`g uncovered <dir>` — source
-files with zero applicable rules; `g orphan <rule> <node>` — a live rule's
-applies target with no anchors.tsv row, MCP-004), `d` drift records (anchor
-classification; position-only moves are silently refreshed), `E101`
-duplicate item IDs (branch-merge backstop), `c` compact-due signals.
+Emits `!` lint findings, `g` coverage gaps (`g orphan <rule> <node>` — a
+live rule's applies target with no anchors.tsv row, MCP-004; and, ONLY
+under `coverage_gate: package` in config.yaml, `g nocontract <dir>` for
+each `internal/`/`cmd/` package failing COVERED — no bundle at the dir or
+an ancestor below root, and no root rule whose non-empty `applies` binds an
+anchored node in its subtree; sorted, capped at 20 plus a `+<n> more` tail),
+`d` drift records (anchor classification; position-only moves are silently
+refreshed), `E101` duplicate item IDs (branch-merge backstop), `c`
+compact-due signals. Without the gate key, check emits nothing for package
+coverage — its single `ok` path is full-string-compared by CI self-hosting
+gates, so visibility lives in `state` (`ok dir <d> rules=0 uncovered` per
+uncovered package), and turning coverage into CI-red findings is an
+explicit opt-in.
 `fix=true` drafts one backprop proposal per drifted rule (gone, tightened,
 diverged) and re-stamps anchors. Run until `ok` before `move to=done`.
 

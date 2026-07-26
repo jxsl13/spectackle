@@ -1871,7 +1871,14 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}
 
 	// coverage: source dirs with zero applicable rules
-	lines = append(lines, s.coverageGaps(c, in.Path)...)
+	// Coverage counts as findings ONLY under coverage_gate: package —
+	// check has exactly one ok path (len(lines)==0) and CI string-matches
+	// it, so any unconditional coverage output would turn this
+	// repository's own CI red (the impossibility the superseded draft
+	// rediscovered, T-01KYD87ZN). Default visibility lives in state.
+	if s.ws.Cfg.CoverageGate == "package" {
+		lines = append(lines, s.nocontractRecords(c, in.Path)...)
+	}
 
 	// duplicate item IDs (branch-merge backstop)
 	items, err := item.LoadAll(s.ws)
@@ -2058,6 +2065,10 @@ func short8(h string) string {
 	return h
 }
 
+// coverageGaps is the per-file walk research/knowledge/state reuse: a source
+// file with zero applicable rules marks its dir uncovered. In a workspace
+// with an unscoped root bundle it never fires (ForPath is never empty) —
+// package-level contract coverage is nocontractRecords/uncoveredPackages.
 func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 	root := filepath.Join(s.ws.Dir, filepath.FromSlash(sub))
 	uncovered := map[string]bool{}
@@ -2087,6 +2098,102 @@ func (s *Server) coverageGaps(c *spec.Cascade, sub string) []string {
 	var out []string
 	for d := range uncovered {
 		out = append(out, "g uncovered "+d+" source files with zero applicable rules")
+	}
+	sort.Strings(out)
+	return out
+}
+
+// nocontractRecords renders check's gated coverage findings (T-01KYD87ZN):
+// sorted, capped at 20 with a "+<n> more" tail, emitted ONLY under
+// coverage_gate: package.
+func (s *Server) nocontractRecords(c *spec.Cascade, sub string) []string {
+	uncovered := s.uncoveredPackages(c, sub)
+	var out []string
+	for i, d := range uncovered {
+		if i >= 20 {
+			out = append(out, fmt.Sprintf("g nocontract +%d more", len(uncovered)-20))
+			break
+		}
+		out = append(out, "g nocontract "+d)
+	}
+	return out
+}
+
+// uncoveredPackages lists source package dirs under internal/ and cmd/
+// failing COVERED (T-01KYD87ZN): covered iff a non-root bundle sits at the
+// dir or an ancestor below root, or a root rule with a NON-EMPTY applies
+// binds an anchored node inside it — a lazily written root sentence with
+// no applies binding silences nothing. Cost is O(rules x anchor rows) over
+// state already in memory plus one dir walk; no new file reads.
+func (s *Server) uncoveredPackages(c *spec.Cascade, sub string) []string {
+	bundled := map[string]bool{}
+	for _, f := range c.All() {
+		if f.Dir != "" {
+			bundled[f.Dir] = true
+		}
+	}
+	appliesCovered := map[string]bool{}
+	anchors, _ := drift.Load(s.ws)
+	anchorFile := map[string]string{}
+	for _, a := range anchors {
+		anchorFile[string(a.Node)] = a.File
+	}
+	for _, f := range c.All() {
+		if f.Dir != "" {
+			continue
+		}
+		for _, r := range f.Rules {
+			for _, ap := range r.Applies {
+				if file, ok := anchorFile[ap]; ok {
+					appliesCovered[filepath.ToSlash(filepath.Dir(file))] = true
+				}
+			}
+		}
+	}
+	root := filepath.Join(s.ws.Dir, filepath.FromSlash(sub))
+	pkgDirs := map[string]bool{}
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(s.ws.Dir, p)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if d.IsDir() {
+			if s.ws.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if index.LangOf(p) == "" {
+			return nil
+		}
+		dir := filepath.ToSlash(filepath.Dir(rel))
+		if strings.HasPrefix(dir, "internal/") || strings.HasPrefix(dir, "cmd/") {
+			pkgDirs[dir] = true
+		}
+		return nil
+	})
+	var out []string
+	for d := range pkgDirs {
+		cov := false
+		for b := range bundled {
+			if d == b || strings.HasPrefix(d, b+"/") {
+				cov = true
+				break
+			}
+		}
+		for a := range appliesCovered {
+			if d == a || strings.HasPrefix(a, d+"/") {
+				cov = true
+				break
+			}
+		}
+		if !cov {
+			out = append(out, d)
+		}
 	}
 	sort.Strings(out)
 	return out
