@@ -284,7 +284,7 @@ The review workflow SHALL default to 1 reviewer walking all lenses sequentially 
 WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
 
 ## AGENT-ISOLATION-001
-WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
+WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
 
 ## ROLE-BOUNDARY-001 {applies: go:mcpserver.Server.gitFlowFor}
 The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.
