@@ -65,28 +65,6 @@ SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifec
 ROLLBACK: revert the commit - one conditional, no stored state, no format change.
 REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
 
-## B-01KYDDR98HEXE80DJ3JJCY9A8M the draft pull request cannot be opened on entry to active: the branch has no commits yet
-kind: bug
-state: done
-created: 2026-07-25
-targets: internal/mcpserver/gitflow.go
-
-DEFECT, found by the automation running against a real forge on its first live transition after merge.
-
-OBSERVED: move to=active on a task emitted the branch record and then
-  ! GIT W <id> pr open: 422 Validation Failed - No commits between main and spectackle/<id>
-The branch was created and pushed correctly; only the pull request failed.
-
-CAUSE: the transition mapping opens the draft pull request at the moment the item enters active, but at that instant the task branch is identical to base — the work has not happened yet, so CommitCode has nothing to commit. GitHub refuses to open a pull request with no commits between head and base, and it is right to: an empty pull request describes nothing.
-
-WHY THE OFFLINE TEST DID NOT CATCH IT: the offline forge tracks pull requests itself and has no such precondition, so the same sequence succeeds locally. The live run against GitHub is what exposed it. That asymmetry is worth keeping in mind for every future step of this mapping — the offline implementation is a lifecycle double, not a fidelity double.
-
-WHY IT MATTERS: it is the first step of the workflow, so the whole always-covered invariant fails at the point it is supposed to start. The branch exists and is pushed, which is the state the policy explicitly forbids: a pushed branch with no pull request is work nobody can find from the review surface.
-
-FIX DIRECTION: the pull request is opened as soon as the branch HAS a commit, not at a fixed transition. On entry to active, open it only when the branch is already ahead of base; otherwise skip silently and let the next sync — the checkpoint push that happens while the task is active, and the flip on done — open it. The requirement is that a draft exists while work is ongoing, which is satisfied by opening at the first commit rather than at the first transition. Do not seed an empty commit to force the pull request open: it pollutes the per-edge trail the never-squash policy exists to protect.
-
-VERIFY: against a real remote, a task entering active with no changes yet emits the branch record and NO pull-request warning; after the first code change the draft pull request exists; and the flip on done finds it. Offline keeps behaving as it does today.
-
 ## T-01KYDEJ4QHEZR9BKYQ16SJSGBA a task's referenced GitHub issues close when its work merges
 kind: task
 state: done
