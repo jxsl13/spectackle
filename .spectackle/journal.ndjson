@@ -507,3 +507,4 @@
 {"t":"2026-07-26T19:11:58Z","eid":"4c3f2e006019e4d5","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYFXEPW3FD7RYDR1Q0S1R4FF","k":"task","ti":"waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts"}
 {"t":"2026-07-26T19:11:59Z","eid":"3c14f2e6b8004cd9","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYFXEQ71F8X9C2028Q3B4WBX","k":"task","ti":"verdict events survive compaction and findings render only pre-archive: the token diet closes the loop"}
 {"t":"2026-07-26T19:12:08Z","eid":"7e2e3dbf3630974c","ag":"dogfeed-orchestrator","ev":"grill","id":"T-01KYFXBYMZFH7BC4Z1JQT8FV73","gr":"2026-07-26 open=0","hash":"9bf9ef6b742030bbcf56bf2999db397ffe1d5b3451ba7593fde90070c46271c6"}
+{"t":"2026-07-26T19:12:09Z","eid":"b436928aa79f2dfb","ag":"dogfeed-orchestrator","ev":"grill","id":"T-01KYFXDC6KFNCB66W8JVHTZZNK","gr":"2026-07-26 open=0","hash":"21aa86986e3f03f0627f6351885389ce6281f7cd5d15bd162452c638dd5d5b14"}

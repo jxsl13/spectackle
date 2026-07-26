@@ -69,6 +69,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/grill.go, internal/journal/journal.go, internal/mcpserver/server.go, docs/agent-workflow.md
 
 IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH carries the settled review-mode economics (REVIEW-MODE-001, one reviewer walks lenses sequentially; panel sizing by computed risk REJECTED with three kills) - implement, do not re-argue.
