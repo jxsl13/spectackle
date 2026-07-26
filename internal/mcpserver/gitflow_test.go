@@ -568,3 +568,56 @@ func TestFreshActivationDoesNotClaimDraftFlip(t *testing.T) {
 		t.Fatalf("fresh activation claimed a reopen draft flip:\n%s", out)
 	}
 }
+
+// TestArchiveWithStaleItemBranchUsesClosureBranch pins B-01KYDY: an item
+// whose feature branch exists from an earlier era but is NOT the current
+// branch must close on a fresh -close branch at the current head — never by
+// checking out the old branch (which would rewind the working tree), and
+// never by stranding the records commit on whatever branch happens to be
+// checked out, which is how B-01KYDE7's closure records ended up riding a
+// sibling item's pull request.
+func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "stale branch closure"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// Simulate the stale-era situation the live B-01KYDE7 closure hit: the
+	// item's work (records included) reached the default branch through an
+	// earlier merge, the feature branch was left behind, and the checkout
+	// now sits on the default branch. A bare checkout would not do — it
+	// would rewind the records and the item would become invisible.
+	branch, err := exec.Command("git", "-C", root, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", root, "checkout", "-q", "main").CombinedOutput(); err != nil {
+		t.Fatalf("checkout main: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@l",
+		"merge", "--no-ff", "-m", "earlier era merge", strings.TrimSpace(string(branch))).CombinedOutput(); err != nil {
+		t.Fatalf("merge stale branch: %v: %s", err, out)
+	}
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "closed from elsewhere"})
+	if !strings.Contains(out, "-close created: item branch exists but is not checked out") {
+		t.Fatalf("stale-branch archive did not use a closure branch:\n%s", out)
+	}
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("closure branch did not merge:\n%s", out)
+	}
+
+	logOut, err := exec.Command("git", "-C", root, "log", "--format=%s", "main").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") {
+		t.Fatalf("archival records commit not reachable from main:\n%s", logOut)
+	}
+}
