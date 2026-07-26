@@ -61,6 +61,24 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 		}
 		return string(out)
 	}
+	// Citation scans EXCLUDE records-only commits: the edge-commit engine
+	// (T-01KYD94MG) stamps every records write with the item ID, and
+	// attributing those to the diff made each render invalidate itself
+	// (the render's own edge commit cited the item). Server records
+	// commits are recognizable by construction: their subjects start
+	// "spectackle(" — code checkpoints ("spectackle <id>: …") do not.
+	citing := func(rangeSpec string) []string {
+		out := git("log", "--format=%H %s", "--grep", id, rangeSpec)
+		var shas []string
+		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+			h, subj, ok := strings.Cut(l, " ")
+			if !ok || strings.HasPrefix(subj, "spectackle(") {
+				continue
+			}
+			shas = append(shas, h)
+		}
+		return shas
+	}
 	branch := "spectackle/" + id
 	if m := strings.TrimSpace(git("log", "--merges", "--format=%H", "-n", "1", "--grep", branch, "HEAD")); m != "" {
 		if d := git("diff", m+"^1", m); d != "" {
@@ -72,7 +90,7 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 			// RESIDUAL: a post-verdict commit NOT citing the item is
 			// invisible to attribution in every mode — this binds the
 			// current ATTRIBUTED diff, never the whole tree.
-			post := strings.Fields(git("log", "--format=%H", "--grep", id, m+"..HEAD"))
+			post := citing(m + "..HEAD")
 			var b strings.Builder
 			b.WriteString(d)
 			for i := len(post) - 1; i >= 0; i-- {
@@ -88,7 +106,7 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 			return capBytes(b.String(), 400_000), src
 		}
 	}
-	shas := strings.Fields(git("log", "--format=%H", "--grep", id, "HEAD"))
+	shas := citing("HEAD")
 	if len(shas) > 0 {
 		var b strings.Builder
 		// oldest first so the concatenated patches read in order

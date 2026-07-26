@@ -84,7 +84,11 @@ var recordFamilies = map[string]string{
 	"pr draft":          " draft offline://",
 	"pr ready":          " ready offline://",
 	"pr merged":         " merged ",
-	"records commit":    "g records committed",
+	// "g records " matches both "committed" and "clean": under the
+	// edge-commit engine (T-01KYD94MG) the structured edge commit lands
+	// first and the transition sweep finds the records clean — either way
+	// the family spoke, which is what never-silent asserts.
+	"records commit":    "g records ",
 	"refusal":           "! ARG E",
 	"rounds escalation": "! ROUNDS E",
 }

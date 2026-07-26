@@ -58,7 +58,13 @@ func gitFails(dir string, args ...string) bool {
 func commitPrimary(t *testing.T, root, msg string) string {
 	t.Helper()
 	gitAt(t, root, "add", "-A")
-	gitAt(t, root, "commit", "-m", msg)
+	// The edge-commit engine (T-01KYD94MG) usually committed the records
+	// already at the tool call — a clean tree here is success, not error.
+	cmd := exec.Command("git", "commit", "-m", msg)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil && !strings.Contains(string(out), "nothing to commit") {
+		t.Fatalf("git commit -m %s: %v\n%s", msg, err, out)
+	}
 	return gitAt(t, root, "rev-parse", "HEAD")
 }
 
@@ -248,8 +254,16 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	if !strings.Contains(out, "merged to main") {
 		t.Fatalf("record-only submit failed: %q", out)
 	}
+	// The edge-commit engine may advance develop with RECORDS commits
+	// (spectackle(...) subjects, .spectackle paths only); the invariant is
+	// that no CODE moved.
 	if got := gitAt(t, root, "rev-parse", "develop"); got != tipBefore {
-		t.Fatalf("record-only submit created a code commit: develop %s -> %s", tipBefore, got)
+		changed := gitAt(t, root, "diff", "--name-only", tipBefore, got)
+		for _, f := range strings.Fields(changed) {
+			if !strings.Contains(f, ".spectackle/") {
+				t.Fatalf("record-only submit moved code file %q: develop %s -> %s", f, tipBefore, got)
+			}
+		}
 	}
 	out = callText(t, fresh, "get", map[string]any{"id": recOnly})
 	wantItemRecord(t, out, recOnly, "proposal active")
