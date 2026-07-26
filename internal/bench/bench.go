@@ -88,7 +88,13 @@ var reDecideID = regexp.MustCompile(`decide ((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+
 func Fixture(dir string) error {
 	for _, cmd := range [][]string{
 		{"git", "-C", dir, "init", "-q", "-b", "main"},
-		{"git", "-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@localhost", "commit", "-q", "--allow-empty", "-m", "init"},
+		// Repo-local identity: the server inherits git config (B-01KYDK), so
+		// the fixture declares its own — measurements must not depend on the
+		// host being configured, nor pay the fallback line's bytes on bare
+		// CI runners while a configured laptop measures without them.
+		{"git", "-C", dir, "config", "user.name", "bench"},
+		{"git", "-C", dir, "config", "user.email", "bench@localhost"},
+		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
 	} {
 		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 			return fmt.Errorf("bench fixture: %v: %s", err, out)
