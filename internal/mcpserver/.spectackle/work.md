@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYD88M80EQEAJDW0AB243ZK2 research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HNHEYAB0WF42BTR31CW
@@ -49,7 +49,14 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## B-01KYEPC9SJE23V67A9YS9XBZFH work op=start resolves items against the primary checkout while state reads the serving worktree, so an item active only on an unmerged branch is visible yet unstartable
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 
 Reproduced live: B-01KYD4J254FK5BE486GKFNMN39 active with records in internal/ids/.spectackle on branch spectackle/B-01KYD4J254FK5BE486GKFNMN39, server rooted in that worktree. state listed the item as active; work op=start item=B-01KYD4J refused with unknown item. Cause: workStart calls item.Get(s.main, id) (swarm.go:586) and s.main resolves via CommonRoot to the PRIMARY checkout, which was on main without the activation; state resolves via s.ws. Third instance of the s.main/s.ws split after BinaryStale and ServedDir (T-01KYEH). Expected: item RESOLUTION uses the serving workspace s.ws everywhere a read answers about lifecycle state; git worktree OPERATIONS (wt.Add, branch bookkeeping) stay on s.main.Dir since linked worktrees share the repo. Audit the other work ops and lease scoping for the same split before fixing only workStart. Verify: with a server rooted in a linked worktree on a branch carrying an active item absent from the primary checkout, work op=start must attach instead of refusing unknown item; state and work must never disagree on item existence.
+
+## B-01KYERTFRSFVDTNCT8EB4XGDPK no body-edit path exists for draft-state items, so grill feedback cannot amend the record it critiques
+kind: bug
+state: draft
+created: 2026-07-26
+
+Reproduced during P-01KYER: grill surfaced scope-disjointness and rollback questions; the draft tool always mints (shape has no id property), item bodies are otherwise immutable outside lifecycle moves, and the documented loop (grill, close what it surfaces) therefore cannot close pack findings into the record they criticize without minting a successor and rejecting the original, which pollutes the rejection corpus with non-rejections. The chain (T-01KYD9J) presumes body edits exist: a body edit clears waivers, hash-bound verdicts expire on edit. Expected: a draft-state-only body revision path (draft id=<existing> or an item op=edit) that re-renders the context pack, expires grilled/verdict stamps via the body hash, and journals the revision; forbidden at submitted and later, where the body is the frozen review subject. Verify: grill question answered by a body revision clears from the re-rendered pack; revision on a submitted item refused; verdict stamped on the old hash no longer gates the new body.

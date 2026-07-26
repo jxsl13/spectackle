@@ -4,7 +4,7 @@ schema: v1
 
 ## P-01KYD87FJREJ5SD0G2RDCMZ32Y turn review from assertion into evidence: run the gate that exists, then make grill and validation compute what they cannot fake
 kind: proposal
-state: submitted
+state: approved
 created: 2026-07-25
 refs: R-0007, P-01KYD47GZ7FAMAGM4NEF0BQS8T
 grilled: 2026-07-25
@@ -36,7 +36,7 @@ CHILD TASKS: the grill-verdict and validation-phase tasks live under the review-
 
 ## P-01KYD87FX0F6YRX49R3A8TB6E4 backpropagation: every loop result flows back into the workspace, and the server names the next step so no step can be silently skipped
 kind: proposal
-state: submitted
+state: approved
 created: 2026-07-25
 refs: R-0007, P-01KYD6VP6VE2Z8A517AT3RP39T
 grilled: 2026-07-25
@@ -64,7 +64,7 @@ SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 t
 
 ## T-01KYD87ZN7EJ49CMSEQE9XGGWS package-local contract coverage: silent by default with visibility in state, counted by check only under coverage_gate
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72GQ6E2ZV0HX8S443NPY6
@@ -105,7 +105,7 @@ REPORT BACK: the COVERED implementation, both pasted check runs with empty diff,
 
 ## T-01KYD88KEDEAQ97QKQ46DSGTM4 evidence sweeps scoped to an item's targets: declared-but-unconsumed symbols and minority call shapes, with explicit per-symbol suppression
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72H15EPV8KCW6ASSMEFZX
@@ -150,7 +150,7 @@ REPORT BACK: measured wall time and bytes on the internal/mcpserver run, both fi
 
 ## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD87FX0F6YRX49R3A8TB6E4
 refs: R-0007, T-01KYD72HB0FHX9G80DQGS9YBB1
@@ -197,7 +197,7 @@ REPORT BACK: manifest base and final sizes, template base and final line counts,
 
 ## P-01KYD8HSZ0ERTBFBBEVQD68M4R the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail
 kind: proposal
-state: submitted
+state: approved
 created: 2026-07-25
 refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4
 grilled: 2026-07-25
@@ -229,7 +229,7 @@ CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch acr
 
 ## P-01KYD9466KEPWBV2RBK7EQM202 review and validation are recorded independent verdicts: grill reviews the draft with feedback and a research path, a validation phase judges the implementation, both bound to reviewer identity
 kind: proposal
-state: submitted
+state: approved
 created: 2026-07-25
 refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4, R-0005
 grilled: 2026-07-25
@@ -258,7 +258,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007, T-01KYD87YYZFSJVGX74JG2HD4V3
@@ -312,7 +312,7 @@ REPORT BACK: where each class and refusal is computed, the per-axis scoping cond
 
 ## T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007, T-01KYD87ZA6F83AKH7THFKBBFZA
@@ -365,7 +365,7 @@ REPORT BACK: where the diff is recovered from and the fallback used, each refusa
 
 ## T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007, T-01KYD8M8RXEXPVTCWTMY962PQQ
@@ -422,7 +422,7 @@ REPORT BACK: the capture mechanism chosen and why, the exact git invocation form
 
 ## T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007
@@ -464,7 +464,7 @@ REPORT BACK: the finding-key scheme as landed, each adjusted fixture, the real w
 
 ## T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007
@@ -514,7 +514,7 @@ REPORT BACK: threshold and shingle consts as landed with rationales, calibration
 
 ## T-01KYDA92TGF3FT994TEE6EDVN6 one task, one branch, one pull request: every finished task opens its own PR immediately, never batched
 kind: task
-state: submitted
+state: approved
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007, T-01KYDA17KBFV3SBCEV79KXW7Z3
@@ -549,3 +549,80 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier reads both s
 SCOPE: the two named markdown files. No Go code, no templates (the backward-path task owns them - if its workflow step 8 wording conflicts once both land, the LATER merger reconciles and says so in its report).
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
+
+## ADR-01KYES0TJ0E33RRP1JERC62DCA Approve the review-machinery work? The 14 submitted chain items (P-01KYD9 family: grill as recorded independent verdict gating approved, validate phase gating archived, per-finding addressal) plus P-01KYER (elicitation gate, single-reviewer sequential lens default, panel amendments) form one coherent design; P-01KYER child tasks are sequenced after the chain ones they amend.
+kind: adr
+state: done
+created: 2026-07-26
+decision: approve chain + P-01KYER (recommended)
+status: accepted
+
+kind: radio
+option: approve chain + P-01KYER (recommended)
+option: approve P-01KYER only, chain stays parked
+option: hold everything, discuss first
+blocks: P-01KYERRMHSFYH8CY01A624ZZBV
+choice: approve chain + P-01KYER (recommended)
+
+## ADR-01KYES0TMSETQSBYHCZF3X66CJ Where should validation be a HARD gate (feedback.validate=require)? Token analysis: break-even at ~30-50 percent defect-catch rate; always-on require does not pay for small items.
+kind: adr
+state: done
+created: 2026-07-26
+decision: risk-gated require + always-require on this repo (recommended)
+status: accepted
+
+kind: radio
+option: risk-gated require + always-require on this repo (recommended)
+option: warn everywhere, never require
+option: require everywhere
+blocks: P-01KYERRMHSFYH8CY01A624ZZBV
+choice: risk-gated require + always-require on this repo (recommended)
+
+## ADR-01KYES0TR8FP78R6CGSXM9MQ01 May a reviewer waive an ambiguity finding without a user round-trip? Recommended: waivable with recorded reason plus computed waive-rate tripwire (ask-only would make automation authoritative over judgment, inverting the steps-are-judgments contract).
+kind: adr
+state: done
+created: 2026-07-26
+decision: waivable with reason + tripwire (recommended)
+status: accepted
+
+kind: radio
+option: waivable with reason + tripwire (recommended)
+option: ask-only: ambiguity always goes to the user
+blocks: P-01KYERRMHSFYH8CY01A624ZZBV
+choice: waivable with reason + tripwire (recommended)
+
+## ADR-01KYES0TTVERW92GN8R86TCG6W Do review/validation verdict events survive journal compaction forever (~5KB per item, permanent audit corpus) or fold after archive?
+kind: adr
+state: done
+created: 2026-07-26
+decision: keep forever (recommended)
+status: accepted
+
+kind: radio
+option: keep forever (recommended)
+option: fold after archive
+blocks: P-01KYERRMHSFYH8CY01A624ZZBV
+choice: keep forever (recommended)
+
+## P-01KYESGDWFFMH80ENHNFXMVZE8 requirement elicitation, lens-labeled verdicts under a single-reviewer default, and the panel amendments: closing the vague-requirement gap at minimum token cost (re-record)
+kind: proposal
+state: approved
+created: 2026-07-26
+refs: P-01KYD9466KEPWBV2RBK7EQM202, R-0007
+targets: internal/mcpserver/grill.go, internal/mcpserver/tools.go, internal/mcpserver/decide.go, internal/journal/journal.go, docs/agent-workflow.md
+
+RE-RECORD of P-01KYERRMHSFYH8CY01A624ZZBV, whose body was lost when an adversarial-review subagent reverted live work.md writes with git checkout (see the stub note there and the isolation bug this incident minted). Design unchanged, user-approved via ADR-01KYES0TJ with knobs set by ADR-01KYES0TM (risk-gated require, always-require on this repo), ADR-01KYES0TR (ambiguity findings waivable with reason plus tripwire), ADR-01KYES0TT (verdict events survive compaction).
+
+AMENDS the review chain in refs; changes nothing that chain already decided; adds the elicitation loop and the review-mode economics a three-lens design review (minimality, token accounting, anti-ceremony) plus a user directive settled.
+
+STATE MACHINE VERDICT, recorded first because the requirement demanded it: 6+2 is optimal, no change. Every pairwise merge fails on a live code path: approved-into-active deletes queue semantics that must survive cache deletion and breaks workAborts return path; active-into-done deletes the only rounds-incrementing edge, collapsing max_rounds/escalation; done-into-archived runs spec intent merge before validation. rejected stays virtual (journal snapshot), blocked stays materialized (escalation must be an event a config change cannot retroactively undo). The chains no-new-states decision is upheld with one rationale restatement: the cost of a new state is NOT replay (final-state-wins, vocabulary-agnostic) but the order-comparison sites, abort/demotion rules, and frozen journal vocabulary. A verdict bound to a body hash expresses staleness; a state cannot - that is why every phase the user named is a verdict-gated edge, not a state.
+
+REVIEW MODE - THE USER DIRECTIVE, now the default by design: multi-perspective review is ONE reviewer walking the configured lenses SEQUENTIALLY in one context, not one agent per lens. The dominant panel cost is N-times context ingestion; judgment tokens are marginal. Lens discipline moves into the review instruction: explicit perspective resets between lenses, a per-lens output quota (findings or an explicit empty declaration - never silent), refutation lens last. One verdict event carries per-lens findings under lens labels. What is lost is inter-reviewer independence, which the chains honest-limit paragraph already concedes the server cannot verify; reviewer-not-author holds unchanged. True multi-agent panels are per-item opt-in only, reserved for risk signals: irreversibility findings, verdict-contradicts-evidence, override-once in play. REJECTED with three kills: risk-COMPUTED panel sizing (automation dictating how much judgment is required - inverts steps-are-judgments; gameable via declared targets, T-0135 landed 15 files against 4 declared; same-driver lenses converge, R-0007 proved convergence is not verification) and global per-gate lens config (silently converts per-risky-item cost into per-every-item cost; config may CAP N, never raise it).
+
+ELICITATION - the genuinely new piece: when the requirement is vague, the server must drive an interactive user round-trip, not a guess. Ambiguity findings computed ONLY from post-deletion signals (thin-brief length, zero-history/uncovered-path novelty, target-set incoherence - never word-presence checks, which the chain deletes as padding-gameable). Under per-finding addressal an ambiguity finding closes one of two ways: ASK - the item cites a decide-minted ADR and that ADR is done (mechanical closure, verbatim-token precedent from research-demand), rendered as awaiting ADR-x while open; or WAIVE with a recorded reason plus the computed non-vetoing waive-rate tripwire line in state and pack. The need-decision fallback line additionally hints that the orchestrator surface the question through its harnesss interactive ask - a parked record is not an ask (user directive). Ask-at-draft-time guidance overlaps ask latency with other work; a fully-gated queue stalling while the user is away is correct behavior, accepted and stated.
+
+TOKEN BOUNDS, measured not asserted: chain at one lens takes per-item cost from ~3-4K to ~9-14K tokens; validation-gate break-even is a ~30-50 percent defect-catch rate, so feedback.validate stays warn globally and require is risk-gated from the LANDED diff (file count, dangerous-path membership - never declared targets); this dogfooding repo sets require on itself. Elicitation findings cost ~0.5KB each and pay at a 2-5 percent catch rate. Lens label field costs 10-20 bytes. One pack render per bodyHash shared across all lens verdicts.
+
+CHILD TASKS (ordered): key-truncation exemption first (finding KEYS enumerate compactly and are exempt from budget truncation, BODIES truncate - blocks the chains addressal semantics); ambiguity findings + ask-addressal; lens label + per-item panel config with the single-reviewer sequential default in guide texts; validation-gate risk inputs from landed diff; waiver-rate tripwire; token diet (findings rendered only pre-archive, verdict-event compaction survival per ADR-01KYES0TT documented and tested).
+
+EXIT CRITERION on this repository: a thin-briefed draft receives an ambiguity finding; a decide round-trip answered from a second session closes it mechanically; a reviewer walking three lenses in one context produces one verdict event whose per-lens findings all require addressal; the gate refuses a verdict on a stale body hash; bench curves show the per-item review cost within the stated bounds.

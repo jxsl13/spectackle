@@ -249,3 +249,6 @@ WHEN a tool receives a cur argument, the server SHALL resume output at the recor
 WHEN an agent begins work on an item while another agent is active, the server SHALL root that agent at a git worktree carrying its own .git/worktrees/<name>/index, so no two agents share one index.
 
 Rationale: A linked worktree has its own git dir and therefore its own index (.git/worktrees/<name>/index), while sharing the object store and refs. That is what makes parallel agents safe to let commit at all: they cannot corrupt each other's staging area, and git's own ref locks serialize the only state they do share. Agents sharing one checkout would race the index exactly as they race work.md, which is why the edge-commit engine's cross-process serialization is scoped to same-checkout concurrency rather than to the multi-agent case this rule eliminates.
+
+## TOKEN-OBJECTIVE-001
+The spectackle server SHALL compose every machine-facing text to minimize the TOTAL token cost to a complete, valid, defect-free result including correction rounds, with per-call bytes subordinate: a hint line ships only with outcome-bench evidence of non-increasing total cost, and text stays compact, precise, American English.
