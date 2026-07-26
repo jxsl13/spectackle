@@ -8,10 +8,12 @@ package mcpclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -48,8 +50,9 @@ var ErrToolRefused = errors.New("tool refused")
 // Session is a live connection to a spectackle MCP server, over whichever
 // transport Dial picked.
 type Session struct {
-	cs   *mcp.ClientSession
-	desc string // transport description, for error context
+	cs    *mcp.ClientSession
+	desc  string // transport description, for error context
+	tools map[string]*mcp.Tool // lazy tool-list cache for ShapeLine
 }
 
 // Dial connects to a spectackle server: Streamable HTTP when cfg.Endpoint is
@@ -138,6 +141,78 @@ func (s *Session) Call(ctx context.Context, c Call) (string, error) {
 		return rendered, fmt.Errorf("mcpclient: tool %q: %w", c.Name, ErrToolRefused)
 	}
 	return rendered, nil
+}
+
+// ShapeLine renders one dense argument-shape line for a tool, from the
+// live session's own tool list (cached after the first fetch): property
+// names with required ones starred and enum-shaped descriptions inlined.
+// Built for the CLI's schema-refusal path (B-01KYE69): the SDK validation
+// message names only the REJECTED property, and a live judge burned
+// fourteen refusals cycling invented decide arguments because nothing ever
+// named the accepted vocabulary — `choose` cannot be guessed, it has to be
+// said once.
+func (s *Session) ShapeLine(ctx context.Context, name string) (string, error) {
+	if s.tools == nil {
+		lt, err := s.cs.ListTools(ctx, nil)
+		if err != nil {
+			return "", fmt.Errorf("mcpclient: list tools for shape: %w", err)
+		}
+		s.tools = map[string]*mcp.Tool{}
+		for _, t := range lt.Tools {
+			s.tools[t.Name] = t
+		}
+	}
+	t, ok := s.tools[name]
+	if !ok || t.InputSchema == nil {
+		return "", fmt.Errorf("mcpclient: no schema for tool %q", name)
+	}
+	// The SDK types InputSchema as any; a JSON round trip into the two
+	// fields this line needs keeps us independent of its concrete type.
+	rawSchema, err := json.Marshal(t.InputSchema)
+	if err != nil {
+		return "", fmt.Errorf("mcpclient: marshal schema for %q: %w", name, err)
+	}
+	var sch struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(rawSchema, &sch); err != nil {
+		return "", fmt.Errorf("mcpclient: decode schema for %q: %w", name, err)
+	}
+	req := map[string]bool{}
+	for _, r := range sch.Required {
+		req[r] = true
+	}
+	var names []string
+	for p := range sch.Properties {
+		names = append(names, p)
+	}
+	// Required first (schema order), then the rest alphabetically: the
+	// star and the enum belong at the front of the reader's eye.
+	sort.Slice(names, func(i, j int) bool {
+		ri, rj := req[names[i]], req[names[j]]
+		if ri != rj {
+			return ri
+		}
+		return names[i] < names[j]
+	})
+	var parts []string
+	for _, p := range names {
+		part := p
+		if req[p] {
+			part += "*"
+			// Enum-shaped descriptions (a|b|c, short) are the value grammar
+			// the caller cannot guess; prose descriptions stay out — the
+			// line teaches vocabulary, not the manual.
+			if d := sch.Properties[p].Description; strings.Contains(d, "|") && len(d) <= 32 && !strings.Contains(d, " ") {
+				part += ":" + d
+			}
+		}
+		parts = append(parts, part)
+	}
+	return "shape: " + name + " {" + strings.Join(parts, ", ") + "}", nil
 }
 
 // Instructions returns the server's instructions string, captured from the

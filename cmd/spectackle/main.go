@@ -345,12 +345,29 @@ func call(args []string) int {
 			if !errors.Is(callErr, mcpclient.ErrToolRefused) {
 				log.Printf("call: %s: %v", c.Name, callErr)
 			}
+			printShapeOnSchemaRefusal(ctx, sess, c.Name, out, callErr)
 			return 1
 		}
 		return 0
 	}
 
 	return callStdin(ctx, sess)
+}
+
+// printShapeOnSchemaRefusal appends one shape line when a refusal came
+// from the SDK's input-schema validation (B-01KYE69): that message names
+// only the REJECTED property, and a live judge burned fourteen refusals
+// cycling invented decide arguments because nothing ever named the
+// accepted vocabulary. Only schema refusals qualify — server-composed
+// refusals (`! ... E`) already carry their own guidance, and taxing every
+// refusal with a schema dump would undo the T-01KYE0 diet.
+func printShapeOnSchemaRefusal(ctx context.Context, sess *mcpclient.Session, tool, out string, callErr error) {
+	if !errors.Is(callErr, mcpclient.ErrToolRefused) || !strings.HasPrefix(out, `validating "arguments"`) {
+		return
+	}
+	if line, err := sess.ShapeLine(ctx, tool); err == nil {
+		fmt.Println(line)
+	}
 }
 
 // httpEndpoint normalizes the -http flag's address (e.g. "127.0.0.1:7331",
@@ -398,6 +415,7 @@ func callStdin(ctx context.Context, sess *mcpclient.Session) int {
 			if !errors.Is(err, mcpclient.ErrToolRefused) {
 				log.Printf("call: line %d (%s): %v", line, req.Name, err)
 			}
+			printShapeOnSchemaRefusal(ctx, sess, req.Name, out, err)
 			failed = true
 		}
 	}
