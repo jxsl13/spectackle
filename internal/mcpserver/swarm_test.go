@@ -435,7 +435,7 @@ func TestCompactHintFiresOncePerCrossing(t *testing.T) {
 
 // ---- stale-binary hint (MCP-010) ----
 
-const staleHintText = "h . binary stale — rebuild+restart: make dev"
+const staleHintText = "h . binary stale — self-restart pending"
 
 // currentExecutableModTime resolves the running test binary's mtime the same
 // way binaryStale does (os.Executable, symlinks resolved, Stat) — the

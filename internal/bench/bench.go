@@ -366,6 +366,13 @@ var reGitCommandLine = regexp.MustCompile(`(?m)^\s*(?:\$\s*)?git\s+(?:add|commit
 
 // gitInstructionViolations scans a transcript (concatenated tool results)
 // for text instructing the caller to run git, one violation per match line.
+// GitInstructionViolations is the exported form for other packages'
+// compliance tests (NODE-EDGE-001: rendered hints and protocols must never
+// instruct mechanical git work) — same detector, same calibration.
+func GitInstructionViolations(transcript string) []string {
+	return gitInstructionViolations(transcript)
+}
+
 func gitInstructionViolations(transcript string) []string {
 	var out []string
 	for _, m := range reGitImperative.FindAllString(transcript, -1) {

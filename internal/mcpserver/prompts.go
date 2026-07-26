@@ -357,27 +357,31 @@ func textPrompt(s string) *mcp.GetPromptResult {
 // a rendered hint, never a gate: the gates that enforce these edges live
 // in move/grill/validate. Empty for archived/rejected (terminal here).
 func nextAction(it item.Item, short func(string) string) string {
+	// NODE-EDGE-001: a state is a judgment node — the hint renders the
+	// primary action FIRST plus the legal alternatives in a compact
+	// or-tail, so the caller decides direction instead of following one
+	// rail. Edges stay mechanical; nothing here instructs git.
 	id := short(it.ID)
 	switch it.State {
 	case item.StateDraft:
 		if it.Grilled == "" {
-			return "next grill id=" + id + " — render the critique, then an independent verdict"
+			return "next grill id=" + id + " — render the critique, then an independent verdict | or: draft id= body= (revise) · move to=rejected note="
 		}
 		if n := grilledOpen(it.Grilled); n > 0 {
-			return fmt.Sprintf("next close the %d open findings, then grill id=%s op=verdict", n, id)
+			return fmt.Sprintf("next close the %d open findings, then grill id=%s op=verdict | or: waive per key in the verdict · draft id= body= (revise)", n, id)
 		}
-		return "next move id=" + id + " to=submitted"
+		return "next move id=" + id + " to=submitted | or: draft id= body= (revise, expires the verdict) · move to=rejected note="
 	case item.StateSubmitted:
-		return "next move id=" + id + " to=approved — or to=rejected with a note"
+		return "next move id=" + id + " to=approved — or to=rejected with a note | or: draft id= body= (back to revision)"
 	case item.StateApproved:
-		return "next work op=start item=" + id
+		return "next work op=start item=" + id + " | or: move to=active (direct, no worktree) · move to=rejected note="
 	case item.StateActive:
-		return "next implement + test, then work op=submit"
+		return "next implement + test, then work op=submit | or: work op=abort (back to approved) · move to=rejected note="
 	case item.StateDone:
-		return "next check until ok, then move id=" + id + " to=archived with a substance note"
+		return "next check until ok, then move id=" + id + " to=archived with a substance note | or: move to=active (reopen) · move to=rejected note="
 	case item.StateBlocked:
 		if len(it.Needs) > 0 {
-			return "next decide op=answer id=" + short(it.Needs[0]) + " — the linked decision is the only exit"
+			return "next decide op=answer id=" + short(it.Needs[0]) + " — the linked decision is the only exit (rescope|reject|override-once)"
 		}
 		return "next decide — resolve the linked decision, the only exit from blocked"
 	}

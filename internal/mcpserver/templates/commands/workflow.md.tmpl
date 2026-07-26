@@ -43,9 +43,10 @@ spec-driven-development lifecycle to completion:
    archive note becomes the journal tombstone every later session
    searches: state what changed, what was measured, what was deliberately
    not done, and where the learning landed (rule, ADR, doc).
-9. **Restart** — the repo ships the resident {{.Tool}} server itself?
-   Rebuild it after every merge (`make dev`): a stale binary silently
-   serves yesterday's logic to every later call.
+9. **Restart** — the resident {{.Tool}} server self-restarts after each
+   merge (committed-only watcher); only a setup without the watcher needs
+   the operator's `make dev`. Your judgment at this node is solely whether
+   to trust a stale surface — the restart itself is the server's edge.
 10. **Research capture** — every R-item ends consumed (rules, ADRs, or
     tasks citing it) or explicitly closed with a no-action note; the
     server enforces this at the archive gate.
