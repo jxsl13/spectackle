@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 )
 
@@ -94,4 +95,52 @@ func (s *Server) waiverRate() string {
 		return ""
 	}
 	return waiverRateLine(events)
+}
+
+// orphanedItems (B-01KYG56Y): items the journal created that never reached
+// a terminal event yet are absent from work.md — the observed shape was a
+// live draft block dropped in concurrent work.md merges across an
+// escape-hatch merge and a closure branch. Renders in state's #health as
+// visibility (the journal is the source of truth; recovery is a re-draft
+// citing the create event) and NEVER in check: the historical journal
+// carries irreducible orphans from the ID-collision era, and any
+// unconditional check output turns this repository's own CI red.
+func (s *Server) orphanedItems() []string {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return nil
+	}
+	live, err := item.LoadAll(s.ws)
+	if err != nil {
+		return nil
+	}
+	present := map[string]bool{}
+	for _, it := range live {
+		present[it.ID] = true
+	}
+	terminal := map[string]bool{}
+	var created []string
+	seen := map[string]bool{}
+	for _, e := range events {
+		switch e.Ev {
+		case journal.EvCreate:
+			if !seen[e.ID] {
+				seen[e.ID] = true
+				created = append(created, e.ID)
+			}
+		case journal.EvArchive, journal.EvReject:
+			terminal[e.ID] = true
+		}
+	}
+	var out []string
+	for _, id := range created {
+		if !terminal[id] && !present[id] {
+			out = append(out, "w orphaned "+id+" — created in the journal, no terminal event, missing from work.md (re-draft citing the create event, or reject it for the record)")
+		}
+	}
+	sort.Strings(out)
+	if len(out) > 10 {
+		out = append(out[:10], fmt.Sprintf("w orphaned +%d more", len(out)-10))
+	}
+	return out
 }
