@@ -1488,3 +1488,22 @@ func TestNeedRefusalCarriesCallShape(t *testing.T) {
 		t.Fatalf("slot questions lost:\n%s", txt)
 	}
 }
+
+// TestApprovedTransitionNamesWorkFlow pins T-01KYEBT: the approved result
+// carries the one next-step line pointing at the work flow — two of four
+// live worktree judges edited main directly because nothing in the
+// per-call surface named it — and every other transition stays clean of
+// the line.
+func TestApprovedTransitionNamesWorkFlow(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	id := draftID(t, sess, map[string]any{"kind": "task", "title": "flow pointer"})
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+	if !strings.Contains(out, "next: work op=start item=") {
+		t.Fatalf("approved result missing the work-flow pointer:\n%s", out)
+	}
+	out = callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if strings.Contains(out, "next: work op=start") {
+		t.Fatalf("non-approved transition carries the pointer:\n%s", out)
+	}
+}
