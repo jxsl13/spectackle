@@ -113,3 +113,26 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## T-01KYG0ZX2XERAS022A42JNAV75 human-facing git surfaces carry the short display ID: branches, PR titles, commit subjects; machine trailers stay full
+kind: task
+state: draft
+created: 2026-07-26
+targets: internal/mcpserver/gitflow.go, internal/mcpserver/edgecommit.go, internal/wt/wt.go, docs/lifecycle.md
+
+IMPLEMENTER IN OWN WORKTREE. USER REQUIREMENT (2026-07-27): IDs on human-facing surfaces use the SHORT display form everywhere in git and GitHub - full 26-char ULIDs in branch names, PR titles, and commit subjects are unreadable noise for humans scanning a log or PR list.
+
+DESIGN CONSTRAINTS, verified against the ID machinery: the display form is the adaptive shortest-unique prefix with floor MinRecordPrefixLen=13 (pins all 48 timestamp bits + 15 random - practically collision-proof at this repos mint rate, and the floor exists exactly so a pinned prefix stays unambiguous as siblings mint later, T-0134/ADR-0013). Git branch names need uniqueness AT CREATION and stable traceability afterward, which the 13-char floor provides; they are never resolved by prefix expansion, so later ambiguity cannot break an existing branch. MACHINE surfaces keep the FULL ID: the Spectackle-Item/Spectackle-Eid trailers are the journal-to-git audit join and replay backbone - shortening them would force prefix resolution at read time against a moving corpus. The commit SUBJECT is human-facing (short); the trailer block is machine-facing (full). That split is the whole design.
+
+WHAT TO CHANGE
+1. BRANCH NAMES: spectackle/<full-id> becomes spectackle/<short13> at creation (gitflow branch mint site; find it via the g branch record). Existing full-length branches stay valid - nothing renames; only NEW branches shorten.
+2. PR TITLES: the server-composed pull request title carries the short ID + the item title (find the title compose site in gitflow.go); the PR BODY keeps the full ID once so search by full ID still hits.
+3. COMMIT SUBJECTS: edge commits (edgecommit.go subject composer) and gitflow sweep/checkpoint subjects render the short form; the Spectackle-Item trailer stays FULL (assert in a test that subject is short while trailer is full in the same commit).
+4. The one-task-one-PR policy section (CONTRIBUTING) says the title carries the full task ID - update to the short display ID with the full ID in the body, one sentence, and note the machine-trailer split in docs/lifecycle.md.
+5. SHORT FORM SOURCE: use the same idScope short rendering the tool surface uses when available; where gitflow runs without a scope, truncate to ids.MinRecordPrefixLen chars of the ID body (state which sites use which and why in the report).
+
+NON-NEGOTIABLE, tested: a new branch name ends with the 13-floor short form, never the full ULID; an edge commit in a test workspace has short subject + full trailer; PR title compose renders short + title, body carries full; existing tests over branch parsing (TouchedFiles, unpushed-commit checks, citing() attribution) still pass - the subject filter spectackle( must keep matching (it is prefix-based, ID-form-agnostic - verify, state).
+VERIFY: go build/test -race/vet/gofmt; lint; check ok; live on this repo: activate-and-abort a throwaway (or let the next real task prove it) and paste the g branch and pr lines showing short forms.
+SCOPE: the named files + CONTRIBUTING sentence + tests. No ids package changes, no journal schema changes, no renames of existing branches.
+ROLLBACK: revert; new branches revert to full form, old ones were never touched.
+REPORT: each surface before/after, the trailer-split test, the live lines.
