@@ -121,9 +121,16 @@ VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpse
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
 
-## T-01KYEBTE1PFR38C585EKQDZDZ6 the approved-transition result names the work flow: half the worktree judges shortcut past a flow nothing pointed at
-kind: task
-state: done
+## B-01KYED3DRAEBX83YMJEMZQW4K1 gitflow and worktree flows collide on the branch name: an item that entered active can never work-start
+kind: bug
+state: draft
 created: 2026-07-26
 
-Data from the worktree scenario across two batches: two of four live judges delivered the file change by editing main directly instead of discovering work op=start — the flow column caught both, and at that rate the shortcut is a guidance gap, not variance (docs/bench-curves.md records it as a finding, not a baseline). Nothing in the per-call surface points an agent holding an approved item at the work flow: the manifest MODES pointer names the swarm guide prompt, which CLI-driven agents never fetch, and the start hint is only visible AFTER start. Change: the move-to-approved success result appends one line — next: work op=start item=<id> leases the scope and opens a worktree — so the pointer sits exactly where the decision is made, on the transition every implementer passes. Costs one line only on approved transitions; the scripted bench pays it on move/T1-approved (~55B step, expect roughly +50B total) and the judged worktree scenario is the beneficiary. VERIFY: unit test pins the line on the approved result and its absence on other transitions; scripted A/B quantifies the cost; a worktree judge batch n=3 measures the effect on the shortcut rate — target zero flow-invalids, recorded whichever way it lands.
+Root cause of live judge X2s dead end, reproduced exactly: move to=active runs gitFlowStart, whose EnsureBranch creates spectackle/<id> in the main checkout; a later work op=start on the same item runs git worktree add -b spectackle/<id>, which dies with a-branch-named-already-exists — the single-agent gitflow automation and the swarm worktree flow were built in different eras, both claim the identical branch name, and they first crossed when an agent legally forward-skipped draft to active before starting work. Every item that has been active is permanently locked out of the worktree flow. workStart already accepts approved|active, so the state gate is not the issue. Fix: when the branch already exists at work op=start, the worktree attaches to it instead of minting it — git worktree add WITHOUT -b onto the existing branch — since both mechanisms mean the same thing by it (this items line of work); the B-0006 invariant is unaffected because worktree record commits still never git-merge between branches. VERIFY: e2e — draft, move active (gitflow creates the branch, offline mode), work op=start succeeds and reports the worktree root, edit, submit merges; the X2 reproduction sequence lands green; TestWorkLifecycleE2E and the gitflow suites stay green.
+
+## B-01KYED3E0VEF3B5REHMWB0J1PD worktree-add failures answer as WT E text with exit zero over the CLI
+kind: bug
+state: draft
+created: 2026-07-26
+
+Found in the same probe: the work op=start failure path for a git worktree add error prints the WT E record but the CLI exits ZERO — the same class the B-01KYD4H sweep and B-01KYE0RCT closed elsewhere: a shell-driven agent keys on the exit code, reads success, and walks on into confusion (live judge X2 retried and then rationally abandoned the flow). Locate the return site for the worktree-add error in workStart — it evidently bypasses refuse() — and route it, plus any sibling error paths in start, submit and abort that return plain text, through the IsError constructor. VERIFY: the exact reproduction (active item with an existing gitflow branch, then work op=start) exits non-zero; a sweep test asserts every WT E and LEASE E emission in the work tool carries IsError.
