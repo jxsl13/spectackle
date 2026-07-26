@@ -390,3 +390,34 @@ func ExampleMintRecordID() {
 	fmt.Println(len(id.String()), id.Time().UTC().Format(time.RFC3339Nano))
 	// Output: 26 2023-11-14T22:13:20.123Z
 }
+
+// TestPrefixPinsFivePMinusTwoTimestampBits pins the arithmetic the
+// MinRecordPrefixLen comment argues from (B-01KYD4J): a p-character prefix
+// of the fixed-width base32 encoding pins 5p-2 leading bits — the first
+// character carries only 3 payload bits — so two IDs minted 2^(48-(5p-2))
+// milliseconds apart share the p-character prefix, and two minted just
+// past that boundary do not. The comment once claimed 5p, four times
+// tighter than reality; this test keeps the two from drifting apart again.
+func TestPrefixPinsFivePMinusTwoTimestampBits(t *testing.T) {
+	const p = MinRecordPrefixLen // 6 -> pins 28 bits -> 2^20 ms window
+	pinned := 5*p - 2
+	windowMs := int64(1) << (48 - pinned)
+
+	// A base aligned to the window start makes the boundary exact: inside
+	// stays within the same 2^20 ms bucket, outside is the first ms of the
+	// next one.
+	base := (int64(0x0123_4567_8900) >> (48 - pinned)) << (48 - pinned)
+	enc := func(ms int64) string { return MintRecordIDAt(time.UnixMilli(ms)).String()[:p] }
+
+	a := enc(base)
+	inside := enc(base + windowMs - 1)
+	outside := enc(base + windowMs)
+	if a != inside {
+		t.Fatalf("IDs %d ms apart (inside the 2^%d ms window) differ at %d chars: %s vs %s",
+			windowMs-1, 48-pinned, p, a, inside)
+	}
+	if a == outside {
+		t.Fatalf("IDs %d ms apart (outside the window) still share %d chars: %s vs %s",
+			windowMs, p, a, outside)
+	}
+}
