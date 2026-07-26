@@ -654,7 +654,7 @@ EXIT CRITERION: a full task lifecycle — draft through archived, with a sibling
 
 ## T-01KYDYSK4TE5R9JABNM5YJHBXT goreleaser changelog filter excludes spectackle process-commit subjects
 kind: task
-state: draft
+state: active
 created: 2026-07-26
 
 Follow-up named by T-01KYD8M9, whose file scope excluded .goreleaser.yaml: the never-squash policy carries server process commits (subjects shaped spectackle(<ev>): ...) onto main, and docs/release.md documents them as changelog-excluded like docs:/spec:/chore: — but the enforcement is missing. Change: add ^spectackle\( to changelog.filters.exclude in .goreleaser.yaml (currently only ^docs: ^spec: ^chore: at lines 76-79). VERIFY: goreleaser check passes (respecting the pinned ~> v2.17 note in docs/release.md); a dry-run changelog over recent main history contains no spectackle( subject.
