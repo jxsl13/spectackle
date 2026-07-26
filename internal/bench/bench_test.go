@@ -403,3 +403,98 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 		t.Fatal("rule-only tricky run scored valid")
 	}
 }
+
+// TestMeterTamperDetection pins B-01KYE6G's three checks against a real
+// prepped workspace: a straight shim-driven run stays valid; a mid-file
+// deletion breaks sequence contiguity; a regenerated log fails the nonce;
+// a tail truncation — invisible to both, since remaining lines stay
+// contiguous and carry the true nonce — is caught by the journal
+// write-event delta, because the erased calls still wrote their events.
+// Each yields DISQUALIFIED, which is never counted valid and is labeled
+// apart from invalid in the aggregate. Skipped in -short (builds).
+func TestMeterTamperDetection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	prep := func() (dir, shim string) {
+		d := t.TempDir()
+		_, sh, err := AgentPrep(bin, d, false, "basic")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d, sh
+	}
+	drive := func(dir, shim string) {
+		taskOut, _ := exec.Command(shim, "call", "-root", dir, "draft", `{"kind":"task","title":"`+judgeTaskTitle+`"}`).CombinedOutput()
+		m := reItemID.FindStringSubmatch(string(taskOut))
+		if m == nil {
+			t.Fatalf("no task ID: %s", taskOut)
+		}
+		exec.Command(shim, "call", "-root", dir, "move", `{"id":"`+m[1]+`","to":"archived","note":"x"}`).Run()
+		bugOut, _ := exec.Command(shim, "call", "-root", dir, "draft", `{"kind":"bug","title":"`+judgeBugTitle+`"}`).CombinedOutput()
+		if m = reItemID.FindStringSubmatch(string(bugOut)); m == nil {
+			t.Fatalf("no bug ID: %s", bugOut)
+		}
+		exec.Command(shim, "call", "-root", dir, "move", `{"id":"`+m[1]+`","to":"rejected","note":"y"}`).Run()
+	}
+
+	// Straight run: valid, not disqualified.
+	dir, shim := prep()
+	drive(dir, shim)
+	sc, err := ScoreAgentRun(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Disqualified || !sc.Valid {
+		t.Fatalf("straight run misjudged:\n%s", AgentReport(sc))
+	}
+
+	meterPath := filepath.Join(dir, "meter.log")
+	pristine, err := os.ReadFile(meterPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(string(pristine), "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("need at least 3 metered lines, have %d", len(lines))
+	}
+
+	// Mid-file deletion: drop line 2 — sequence gap.
+	tampered := append([]string{lines[0]}, lines[2:]...)
+	os.WriteFile(meterPath, []byte(strings.Join(tampered, "\n")+"\n"), 0o644)
+	if sc, _ = ScoreAgentRun(bin, dir); !sc.Disqualified || !strings.Contains(sc.DisqualifyReason, "sequence gap") {
+		t.Fatalf("mid-file deletion not caught:\n%s", AgentReport(sc))
+	}
+
+	// Regenerated log: right shape, wrong nonce.
+	fake := make([]string, len(lines))
+	for i := range lines {
+		f := strings.Fields(lines[i])
+		f[1] = "deadbeefdeadbeef"
+		fake[i] = strings.Join(f, " ")
+	}
+	os.WriteFile(meterPath, []byte(strings.Join(fake, "\n")+"\n"), 0o644)
+	if sc, _ = ScoreAgentRun(bin, dir); !sc.Disqualified || !strings.Contains(sc.DisqualifyReason, "nonce") {
+		t.Fatalf("nonce mismatch not caught:\n%s", AgentReport(sc))
+	}
+
+	// Tail truncation: keep only line 1 — contiguous, true nonce, but the
+	// journal knows how many writes happened.
+	os.WriteFile(meterPath, []byte(lines[0]+"\n"), 0o644)
+	if sc, _ = ScoreAgentRun(bin, dir); !sc.Disqualified || !strings.Contains(sc.DisqualifyReason, "journal") {
+		t.Fatalf("tail truncation not caught:\n%s", AgentReport(sc))
+	}
+
+	// The aggregate labels disqualified apart and fails the gate.
+	out, ok := AggregateReport([]string{"x"}, []AgentScore{sc})
+	if ok || !strings.Contains(out, "disqualified=1") {
+		t.Fatalf("aggregate labeling wrong:\n%s", out)
+	}
+}
