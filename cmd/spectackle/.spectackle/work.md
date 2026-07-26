@@ -11,8 +11,9 @@ Observed live on the resident server (serve.log): exec-replacing count went 4 to
 
 ## B-01KYES20Y0E9FRQ8DGPC4YD9NK self-restart builds and execs the dirty working tree, so the resident server runs unreviewed in-flight code mid-fix
 kind: bug
-state: done
+state: active
 created: 2026-07-26
+rounds: 1
 
 Observed live: while B-01KYEP repairs were mid-flight and adversarial round 2 was still running, the watcher rebuilt from the uncommitted working tree and exec-replaced the resident server with unreviewed code (swap 10:31, changes under active refutation). The lifecycle then depends on exactly the code it is currently judging - the inverse of the bootstrap-lag hazard already recorded for live proofs. A worktree-homed dev server ping-pongs between reviewed and unreviewed behavior with nothing said about which binary answered. Candidate policies for a decide: build from HEAD only (committed state, worktree export, dirty tree never served); gate the swap on a clean tree plus passing package tests; or keep dirty builds but stamp every tool result with the built-from SHA plus -dirty marker so nothing is silent. Verify: with a dirty tree, the chosen policy either refuses the swap or marks every result; with a clean committed change, exactly one swap serves the new SHA.
 
