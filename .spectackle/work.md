@@ -693,20 +693,6 @@ REJECTED: having each agent commit records opportunistically without a lock (the
 
 EXIT CRITERION: a full task lifecycle — draft through archived, with a sibling agent landing a conflicting change midway — completes with the LLM issuing zero git and zero forge commands, and the resulting main branch carries one merge commit per task whose pull request body names the task, the change and the trigger.
 
-## ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ May the git automation ever suppress an action silently?
-kind: adr
-state: done
-created: 2026-07-25
-context: The first gitflow design stayed quiet when the feature was disabled, the workspace was not a repository, no remote existed, or a step had nothing to do — citing the output diet. Two real defects then hid in exactly that ambiguity: a pull request silently still-draft after a claimed ready, and a config file silently never committed across a whole lifecycle. A quiet non-action is indistinguishable from a broken one.
-decision: never-silent: every suppressed or deferred git action emits one dense record naming the reason
-consequences: Every gate refusal, deferral and no-op in the git automation names itself in one record: off-by-config, swarm-worktree deferral, not-a-repository, no-remote, pr-deferred-until-first-commit, up-to-date, records-clean, merge-skipped. The output diet still governs everything else on the surface; the exception is scoped to the automation's own actions, where this session showed the ambiguity between off and broken hides real defects. Costs a handful of short g records per transition.
-status: accepted
-
-kind: radio
-option: never-silent: every suppressed or deferred git action emits one dense record naming the reason
-option: diet-first: keep omit-if-empty; suppressed actions stay silent
-choice: never-silent: every suppressed or deferred git action emits one dense record naming the reason
-
 ## P-01KYDPRXQSF8XAP1HCHY7390T8 every MCP text earns its tokens: a benchmark harness scores hint and record variants by tokens against validity, judged by independent agents over tricky fixture repos covering all eight states
 kind: proposal
 state: active
