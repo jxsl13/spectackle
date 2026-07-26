@@ -651,10 +651,3 @@ PARALLEL FLOWS AS A FIRST-CLASS CONSTRAINT, not a caveat. Every mechanism here m
 REJECTED: having each agent commit records opportunistically without a lock (the race above); a single shared branch that agents append to (it is the batching anti-pattern the PR policy already forbids, at branch granularity); and making the LLM poll CI (that is the command we are removing, not relocating).
 
 EXIT CRITERION: a full task lifecycle — draft through archived, with a sibling agent landing a conflicting change midway — completes with the LLM issuing zero git and zero forge commands, and the resulting main branch carries one merge commit per task whose pull request body names the task, the change and the trigger.
-
-## T-01KYDYSK4TE5R9JABNM5YJHBXT goreleaser changelog filter excludes spectackle process-commit subjects
-kind: task
-state: done
-created: 2026-07-26
-
-Follow-up named by T-01KYD8M9, whose file scope excluded .goreleaser.yaml: the never-squash policy carries server process commits (subjects shaped spectackle(<ev>): ...) onto main, and docs/release.md documents them as changelog-excluded like docs:/spec:/chore: — but the enforcement is missing. Change: add ^spectackle\( to changelog.filters.exclude in .goreleaser.yaml (currently only ^docs: ^spec: ^chore: at lines 76-79). VERIFY: goreleaser check passes (respecting the pinned ~> v2.17 note in docs/release.md); a dry-run changelog over recent main history contains no spectackle( subject.
