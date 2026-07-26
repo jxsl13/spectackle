@@ -41,26 +41,6 @@ targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcps
 
 OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.shortHash 100% fired although BOTH functions predate the diff - short8 sat in hunk CONTEXT lines adjacent to inserted code, so the hunk-scoped extraction treated it as touched. RULE: a dup finding must implicate only functions with at least one ADDED line in the attributed diff; context-line-only functions are preexisting code the task never wrote. IMPLEMENTATION: when mapping diffHunks to functions in validateDups, track added-line ranges (+ lines only, not context) and intersect with function spans before lookup in the dup index. PROOF: unify short8 (tools.go, 8 chars) and shortHash (validate.go, 12 chars) into one parameterized helper as the cleanup this false positive pointed at, and add a regression test where a diff INSERTS code adjacent to one twin of a preexisting dup pair and validateDups stays silent, plus one where the diff ADDS a twin and it fires. Byte-budget neutral: no output-format change.
 
-## T-01KYFXEPW3FD7RYDR1Q0S1R4FF waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts
-kind: task
-state: done
-created: 2026-07-26
-parent: P-01KYESGDWFFMH80ENHNFXMVZE8
-grilled: 2026-07-26 open=0
-targets: internal/mcpserver/state.go, internal/mcpserver/grill.go, internal/mcpserver/validate.go, docs/agent-workflow.md
-
-IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TR: ambiguity (and every) finding is waivable with a reason, and the counterweight is a TRIPWIRE - computed, visible, never vetoing. A gate that vetoes on waiver rate would just teach padding the findings; visibility teaches judgment.
-
-WHAT TO BUILD:
-1. COMPUTATION, one pure function (own file waiverrate.go, mcpserver package): over the TRAILING 20 verdict events (EvReview + EvValidate, both kinds pooled, newest first across all context journals), rate = waived keys / (waived keys + addressed-open keys); events whose renders had zero open findings are excluded from the denominator entirely (a clean streak must not dilute the signal). Threshold 0.5. Below: silence. At or above: one line - w waiver-rate 62% over last 13 verdicts (waived=8 addressed=5) - counts shown so the reader can judge the base size; fewer than 5 qualifying verdicts: silence (sample too small, state in a comment).
-2. SURFACES: state (#health section) and the grill/validate PACK renders (one line, after the verdict line). Never in check (CI string-matches ok - the coverage-gate lesson, T-01KYD87ZN).
-3. DOCS: three sentences in agent-workflow.md - what it measures, why it never vetoes, what a high rate suggests (briefs too thin, classes too eager, or reviewers rubber-stamping - all three are human calls).
-NON-NEGOTIABLE, tested: synthetic journals - 10 verdicts with 6 waived/4 addressed renders the line with those counts; 4 qualifying verdicts renders nothing; zero-open verdicts excluded from the denominator (test pins it); rate below threshold silent; check output byte-identical with a tripping journal present (golden).
-VERIFY: build/test -race/vet/gofmt; lint; check ok; live: state on this repo pasted (whatever it shows - this session waived heavily, the line may well fire; that is signal, not embarrassment).
-SCOPE: new waiverrate.go + one render line in three files + docs. No gate logic anywhere.
-ROLLBACK: revert.
-REPORT: the live state line or its absence with the computed rate, each test.
-
 ## T-01KYFXEQ71F8X9C2028Q3B4WBX verdict events survive compaction and findings render only pre-archive: the token diet closes the loop
 kind: task
 state: approved
