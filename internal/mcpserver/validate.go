@@ -632,10 +632,19 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 	lines = append(lines, "#diff")
 	lines = append(lines, diffSec...)
 
-	computed := s.validateComputed(it, diff)
-	if len(computed) > 0 {
-		lines = append(lines, "#computed")
-		lines = append(lines, computed...)
+	// Findings render pre-archive only (T-01KYFXEQ): the classes
+	// recompute against a tree that has moved on past the tombstone and
+	// mislead — the verdict trail below is what an archived-item reader
+	// needs.
+	var computed []string
+	if it.State == item.StateArchived {
+		lines = append(lines, "computed: suppressed (archived)")
+	} else {
+		computed = s.validateComputed(it, diff)
+		if len(computed) > 0 {
+			lines = append(lines, "#computed")
+			lines = append(lines, computed...)
+		}
 	}
 	if _, _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && v.Hash == validateHash(it, diff) {
 		for _, w := range v.Wv {
