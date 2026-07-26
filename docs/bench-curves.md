@@ -34,26 +34,26 @@ spreads, never single runs.
      this document landed; update whenever a text change moves a curve,
      with the batch's aggregate line and date. -->
 
-| Scenario | Calls | Tool bytes | Valid | Batch |
+| Scenario | Calls (min/med/max) | Tool bytes (min/med/max) | Valid | Batch |
 |---|---|---|---|---|
-| basic | 11 | 1016 | valid | anchored regression batch, 2026-07-26 (n=1 per scenario) |
-| tricky | 22 | 2810 | valid | anchored regression batch, 2026-07-26 |
-| worktree | 37 | 5709 | **INVALID (flow)** | anchored regression batch, 2026-07-26 |
+| basic | 11 | 1016 | valid | anchored regression batch, 2026-07-26 (n=1) |
+| tricky | 22 | 2810 | valid | anchored regression batch, 2026-07-26 (n=1) |
+| worktree | 15/17/19 | 1742/1799/2023 | **valid 3/3** | anchored batch, 2026-07-26 |
 
-The worktree row is a finding, not a baseline: across four live worktree
-judges to date, TWO delivered the file change by editing main directly
-instead of discovering the `work` flow — the flow column caught both, and
-at that rate the shortcut is a guidance gap, not judge variance. The
-provisional cost curve for agents that DO find the flow is 16-19 calls /
-1823-2369B (first batch). Until a text change makes the flow reliably
-discoverable — the natural candidate: the approved-transition result
-naming `work op=start item=<id>` as the next step — worktree batches are
-expected to carry shortcut invalids and their aggregate exit codes must be
-read with that in mind.
+The worktree row graduated from a finding to this baseline. History of the
+graduation, because it is the judge program's best argument for itself:
+across the first four live worktree judges, two delivered the file change
+by editing main directly — the flow column caught both. The first fix (the
+approved-transition result naming `work op=start item=<id>` as the next
+step, T-01KYEBT) cut the shortcut rate; the remaining invalid then turned
+out to be a REAL product bug, not guidance: the gitflow branch created at
+activation collided with the worktree branch name, permanently locking
+ever-active items out of the work flow (B-01KYED3D, fixed as attach-not-
+create through three adversarial review rounds). With both landed, the
+anchored rerun scored 3/3 with zero shortcuts and every edit under its
+worktree root — the tightest worktree spread measured.
 
-All three runs passed the nonce anchor on its first live outing: prep's
-printed nonces, held outside the workspaces, matched at scoring with no
-DISQUALIFIED.
+Nonce anchors have been clean on every anchored batch to date.
 
 Historic context (stitched from archive notes, superseded by the table
 above): basic fell from 4677/3846B at 17 calls (zero-doc baseline) to
