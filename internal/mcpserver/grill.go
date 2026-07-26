@@ -1,8 +1,13 @@
 package mcpserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -15,24 +20,35 @@ import (
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
-// grill is the critique pack: close an item's gaps before promoting it (the
-// ORCHESTRATION paragraph in server.go's instructions: "Before move
-// to=approved on a proposal: grill id=<P-id> and close its gaps — a clean
-// grill stamps grilled: <date>, the evidence move checks for"). Unlike
-// research and state, grill is NOT read-only: after rendering the pack it
-// performs exactly one write — it stamps it.Grilled with today's date
-// (item.Upsert), journals an EvGrill event, and emits a swarm learning — so
-// siblings and a later move op=approved can see the item was just reviewed.
+// grill is review evidence plus the review verdict (T-01KYD94KP4). The
+// default op renders the computed critique — the classes the author cannot
+// fake — and stamps it.Grilled with "<date> open=<n>", journaling the
+// render's body hash. op=verdict records the INDEPENDENT review: a journal
+// event bound to the reviewing identity and the judged body, refused for
+// authors, anonymous (generated) identities, unrendered or edited bodies.
+// The approval gate keys on that verdict, not the stamp: a date records
+// that a pack rendered, never that anyone judged it — twelve stamps in
+// this repository's history changed zero bodies.
 
 type grillIn struct {
-	ID     string `json:"id" jsonschema:"item ID, e.g. P-0007"`
-	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
-	Cur    string `json:"cur,omitempty" jsonschema:"resume cursor"`
+	ID       string `json:"id" jsonschema:"item ID, e.g. P-0007"`
+	Op       string `json:"op,omitempty" jsonschema:"pack (default) renders the critique; verdict records the independent review"`
+	Pass     *bool  `json:"pass,omitempty" jsonschema:"verdict: true = approved by the reviewer"`
+	Findings string `json:"findings,omitempty" jsonschema:"verdict: the review findings — required on pass=false, they become the author's next brief"`
+	Budget   int    `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
+	Cur      string `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
 
 func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
+	if in.Op == "verdict" {
+		return s.grillVerdict(in)
+	}
+	if in.Op != "" && in.Op != "pack" {
+		return refuse("! ARG E - op must be pack|verdict")
+	}
 	if in.Budget <= 0 {
 		in.Budget = 1500
 	}
@@ -76,6 +92,29 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	var lines []string
 	lines = append(lines, sc.record(it))
 
+	// The verdict line renders FIRST and is exempt from budget truncation
+	// (it and the record line survive any cut): the reviewer's state is the
+	// single highest-value line in the pack.
+	_, _, _, rev, rerr := s.reviewState(it.ID)
+	if rerr != nil {
+		return nil, nil, rerr
+	}
+	if rev != nil {
+		mark := ""
+		if rev.Hash != reviewHash(it) {
+			mark = " (stale — body edited since)"
+		}
+		verdict := "fail"
+		if rev.Pass {
+			verdict = "pass"
+		}
+		line := "review " + verdict + " " + rev.Ag + mark
+		if rev.Note != "" {
+			line += " :: " + rev.Note
+		}
+		lines = append(lines, line)
+	}
+
 	addSection := func(name string, recs []string) {
 		if len(recs) == 0 {
 			return
@@ -84,26 +123,32 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		lines = append(lines, recs...)
 	}
 
-	addSection("#targets", grillTargets(s.g, it.Targets, anchored))
-	addSection("#contracts", grillContracts(c, it.Targets))
-	addSection("#briefs", grillBriefs(all, it.ID, sc))
-	addSection("#tests", s.grillTests(it.Targets))
-
+	// Computed classes render before the lower-value sections: they are
+	// what the reviewer must address and what open=<n> counts.
 	rej, err := s.grillRejections(it)
 	if err != nil {
 		return nil, nil, err
 	}
+	computed := s.grillComputed(it, c, len(rej))
+	addSection("#computed", computed)
+	addSection("#targets", grillTargets(s.g, it.Targets, anchored))
+	addSection("#contracts", grillContracts(c, it.Targets))
+	addSection("#tests", s.grillTests(it.Targets))
 	addSection("#rejections", rej)
 	addSection("#questions", grillQuestions(it))
+	_ = all // child-brief heuristics deleted (word-presence checks, T-01KYD94KP4)
 
 	// evidence — the ONE write this tool performs: stamp the item as
-	// grilled today, journal it, and let siblings piggyback the news.
-	it.Grilled = time.Now().UTC().Format("2006-01-02")
+	// grilled today with the open computed-finding count, journal the
+	// render with the body hash it bound to, and let siblings piggyback.
+	open := len(computed)
+	it.Grilled = time.Now().UTC().Format("2006-01-02") + fmt.Sprintf(" open=%d", open)
 	if err := item.Upsert(s.ws, it); err != nil {
 		return nil, nil, err
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvGrill, ID: it.ID, Dir: it.Dir, Gr: it.Grilled,
+		Hash: reviewHash(it), Open: open,
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -112,8 +157,12 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 
 	lines = append(lines, fmt.Sprintf("ok grilled %s %s", sc.short(it.ID), it.Grilled))
 
-	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
-	return text(budget.Render(kept, cur))
+	keep := 1
+	if rev != nil {
+		keep = 2
+	}
+	kept, cur := budget.TruncateRecords(lines[keep:], budget.Resume(in.Cur), in.Budget)
+	return text(budget.Render(append(lines[:keep:keep], kept...), cur))
 }
 
 // grillTargets checks node-ID-shaped targets against the graph and the
@@ -153,40 +202,12 @@ func grillContracts(c *spec.Cascade, targets []string) []string {
 	return out
 }
 
-// grillBriefs applies the task-brief quality heuristics from the
-// ORCHESTRATION paragraph ("Task bodies must be exhaustive") to every child
-// task, one b-line per failing heuristic — a task can fail more than one.
-func grillBriefs(all []item.Item, parentID string, sc idScope) []string {
-	var out []string
-	for _, ch := range all {
-		if ch.Parent != parentID || ch.Kind != "task" {
-			continue
-		}
-		for _, h := range briefHeuristics(ch.Body) {
-			out = append(out, "b "+sc.short(ch.ID)+" "+h)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// briefHeuristics is the cheap, mechanical half of "is this task brief
-// exhaustive enough for a fresh minimal-context implementer": long enough to
-// plausibly carry files/APIs/constraints, names at least one path, and names
-// a verification command the implementer can run before calling it done.
-func briefHeuristics(body string) []string {
-	var fails []string
-	if len(body) < 300 {
-		fails = append(fails, "short-body")
-	}
-	if !strings.Contains(body, "/") {
-		fails = append(fails, "no-path")
-	}
-	if !strings.Contains(body, "go test") && !strings.Contains(body, "make") {
-		fails = append(fails, "no-verify")
-	}
-	return fails
-}
+// The child-brief heuristics (short-body/no-path/no-verify) and the
+// scope/rollback/exit-criterion substring questions were DELETED here
+// (T-01KYD94KP4): every one was a word-presence test satisfiable by padding
+// — T-0137 gamed them with a well-formed paragraph — and their job belongs
+// to the independent reviewer's verdict, which the computed classes below
+// feed with evidence the author cannot fake.
 
 // grillTests flags target packages under internal/ or cmd/ that have no
 // *_test.go file at all — a coarse, package-level test-coverage smell check
@@ -239,38 +260,426 @@ func (s *Server) grillRejections(it item.Item) ([]string, error) {
 	return out, nil
 }
 
-// grillQuestions is the standing review checklist: scope disjointness,
-// rollback and an exit criterion should each be addressed somewhere in the
-// item's own body; whichever the body never mentions comes back as an open
-// question (omit-if-present, not a fixed always-on list).
+// grillQuestions shrank to the refs-only deliberation check
+// (T-01KYD94KP4): the substring questions were padding-gameable, and even
+// hasRecordedDeliberation's prose path was strings.Contains(body,
+// "rejected") — a word-presence test of exactly the species this task
+// removes. A weighed decision now counts only as a STRUCTURAL ref: an
+// ADR-, R-, or rejection-tombstone citation. Prose never counts.
 func grillQuestions(it item.Item) []string {
-	body := strings.ToLower(it.Body)
+	if it.Kind != "proposal" {
+		return nil
+	}
+	for _, r := range it.Refs {
+		if strings.HasPrefix(r, "ADR-") || strings.HasPrefix(r, "R-") {
+			return nil
+		}
+	}
+	return []string{"q no deliberation recorded: no ADR or research ref"}
+}
+
+// ---- computed critique classes + the review verdict (T-01KYD94KP4) ----
+
+// reviewHash is what verdicts and pack renders bind to: the judged
+// SUBSTANCE — body AND targets, since four of the five computed classes
+// (irreversible, blast, env-axes, research-needed) are functions of the
+// target set, and a Body-only hash left a targets-only edit keeping a
+// verdict fresh (cross-verification of this task). Edit either and every
+// stamp computed against them expires by construction. The separators are
+// unambiguous: neither byte occurs in bodies or target paths.
+func reviewHash(it item.Item) string {
+	h := sha256.New()
+	h.Write([]byte(it.Body))
+	for _, t := range it.Targets {
+		h.Write([]byte{0})
+		h.Write([]byte(t))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// reEphemeralAgent matches coord.GenName's exact output shape ("ag-%04x").
+// Chosen over a per-event env-set boolean: the shape is fixed in one place
+// (coord.go GenName), needs no journal schema change, and survives replay.
+// STATED LIMIT: a caller who deliberately names itself ag-beef is
+// indistinguishable from a generated identity and gets refused — a
+// deliberate name should look deliberate.
+var reEphemeralAgent = regexp.MustCompile(`^ag-[0-9a-f]{4}$`)
+
+// knownBadVerify is the table of VERIFY-command shapes that have actually
+// burned this repository — each entry cites its recorded failure. Seeded
+// with exactly two; grown only by recorded incidents, never speculation.
+var knownBadVerify = []struct {
+	re   *regexp.Regexp
+	name string
+}{
+	{regexp.MustCompile(`\blint\s+-root\b`), "lint -root"},                   // B-0010: lint takes a positional root
+	{regexp.MustCompile(`\|[^\n;|]*;\s*echo\s+\$\?`), "pipe-then-exit-code"}, // $? after a pipe reads the LAST stage (false B-01KYED3E)
+}
+
+// reIrreversibleTarget names target substrings whose damage a revert cannot
+// undo: append-only journals, the coordination DB, schema migrations.
+var reIrreversibleTarget = regexp.MustCompile(`journal\.ndjson|coord\.db|SchemaStamp|migrat`)
+
+// reRestoreHeading is the tripwire the irreversibility class demands.
+// STATED LIMIT, verbatim per the brief: this is a TRIPWIRE against
+// omission, not a verification of substance — T-0137 gamed the old
+// word-check with a well-formed paragraph and a heading requirement is
+// gameable the same way; substance is judged by the independent reviewer's
+// verdict, and declared-vs-landed divergence is NOT detectable
+// pre-implementation here — it is the validation phase's #diff computation.
+var reRestoreHeading = regexp.MustCompile(`(?mi)^#*\s*(RESTORE|ROLLBACK)\b`)
+
+// rePathToken finds repo-path-shaped tokens in a body for the
+// path-existence class; the prefix list keeps URLs and flag args out.
+var rePathToken = regexp.MustCompile(`(?:^|[\s"'` + "`" + `(])((?:internal|cmd|docs|scripts|\.spectackle|\.github)/[A-Za-z0-9_./\-]+)`)
+
+// envAxes is the environment differential (class d): five axes, each
+// anchored to a recorded defect. tests= comes from a static token scan of
+// the target packages' _test.go files; an absent test counts as an OPEN
+// finding only when the item's targets touch the axis's subsystem (dirs) —
+// the per-axis scoping condition, stated here as the brief demands.
+var envAxes = []struct {
+	name   string
+	defect string   // the recorded defect anchoring the axis
+	dirs   []string // targets under these prefixes arm the axis
+	tokens []string // any of these in a target package's tests = covered
+}{
+	{"branch-name", "B-0004", []string{"internal/wt", "internal/mcpserver", "cmd/"}, []string{"master", "gitBase", "DefaultBranch"}},
+	{"git-dir-shape", "B-01KYD1G9K", []string{"internal/wt", "internal/mcpserver"}, []string{".git"}},
+	{"root-kind", "B-0002", []string{"internal/wt", "internal/mcpserver", "internal/workspace"}, []string{"worktree"}},
+	{"process-topology", "B-01KYD57F", []string{"internal/mcpserver", "internal/coord"}, []string{"SPECTACKLE_AGENT"}},
+	{"path-normalization", "T-0136", []string{"internal/wt", "internal/workspace", "internal/mcpserver"}, []string{"EvalSymlinks", "ToSlash"}},
+}
+
+// grillComputed renders the five computed classes; every returned line is
+// one OPEN finding counted into the open=<n> stamp. The classes are the
+// half of review the author cannot fake — the server computes them, the
+// reviewer judges them (rendered evidence, not a veto; the gate keys on
+// the verdict).
+func (s *Server) grillComputed(it item.Item, c *spec.Cascade, rejectionHits int) []string {
 	var out []string
-	if !strings.Contains(body, "scope") && !strings.Contains(body, "disjoint") {
-		out = append(out, "q scope disjointness not addressed")
+	// a. path-existence: named paths must exist in the working tree.
+	seen := map[string]bool{}
+	for _, m := range rePathToken.FindAllStringSubmatch(it.Body, -1) {
+		tok := strings.TrimRight(m[1], ".,;:)")
+		if seen[tok] {
+			continue
+		}
+		seen[tok] = true
+		if _, err := os.Stat(filepath.Join(s.ws.Dir, filepath.FromSlash(tok))); err != nil {
+			out = append(out, "g nopath "+tok)
+		}
 	}
-	if !strings.Contains(body, "rollback") && !strings.Contains(body, "revert") {
-		out = append(out, "q rollback not addressed")
+	// b. verify-executability: known-burned command shapes.
+	for _, kb := range knownBadVerify {
+		if kb.re.MatchString(it.Body) {
+			out = append(out, "g badverify "+kb.name)
+		}
 	}
-	if !strings.Contains(body, "exit criterion") && !strings.Contains(body, "done when") && !strings.Contains(body, "verif") {
-		out = append(out, "q exit criterion not addressed")
+	// c. irreversibility: dangerous targets or a wide blast radius demand
+	// a RESTORE/ROLLBACK section heading (tripwire — see reRestoreHeading).
+	if !reRestoreHeading.MatchString(it.Body) {
+		for _, t := range it.Targets {
+			if reIrreversibleTarget.MatchString(t) {
+				out = append(out, "g irreversible "+t)
+			}
+		}
+		if len(it.Targets) >= 8 {
+			out = append(out, fmt.Sprintf("g blast %d targets", len(it.Targets)))
+		}
 	}
-	if it.Kind == "proposal" && !hasRecordedDeliberation(it) {
-		out = append(out, "q no deliberation recorded: no ADR/research ref and no rejected alternative")
+	// d. environment differential: live value beside what the tests pin.
+	out = append(out, s.grillEnvAxes(it.Targets)...)
+	// e. research-demand: uncovered path + zero history/rejection signal =
+	// unknown territory; the pack cannot substitute for a study. Closes on
+	// a cited R-item (any state) — a structural ref, never semantic scoring.
+	for _, r := range it.Refs {
+		if strings.HasPrefix(r, "R-") {
+			return out
+		}
+	}
+	if rejectionHits == 0 {
+		for _, t := range it.Targets {
+			p, ok := targetPath(t)
+			if !ok {
+				continue
+			}
+			if len(c.ForPath(p)) == 0 {
+				out = append(out, "g research-needed "+p)
+				break
+			}
+		}
 	}
 	return out
 }
 
-// hasRecordedDeliberation reports whether a proposal shows any sign of a
-// weighed decision: a ref citing an adr or research item (kind is encoded
-// in the ID prefix — ADR-/R- — so no item lookup is needed), or body prose
-// naming a rejected alternative (same cheap case-insensitive substring
-// style as grillQuestions' other checks).
-func hasRecordedDeliberation(it item.Item) bool {
-	for _, r := range it.Refs {
-		if strings.HasPrefix(r, "ADR-") || strings.HasPrefix(r, "R-") {
-			return true
+// grillEnvAxes computes class d: for each armed axis (targets touch its
+// dirs), the live environment value beside the token scan of the target
+// packages' tests; absent coverage is the open finding.
+func (s *Server) grillEnvAxes(targets []string) []string {
+	dirs := map[string]bool{}
+	for _, t := range targets {
+		if p, ok := targetPath(t); ok {
+			dirs[p] = true
 		}
 	}
-	return strings.Contains(strings.ToLower(it.Body), "rejected")
+	testBlob := s.targetTestBlob(dirs)
+	var out []string
+	for _, ax := range envAxes {
+		armed := false
+		for d := range dirs {
+			for _, pre := range ax.dirs {
+				if strings.HasPrefix(d, pre) {
+					armed = true
+				}
+			}
+		}
+		if !armed {
+			continue
+		}
+		covered := ""
+		for _, tok := range ax.tokens {
+			if strings.Contains(testBlob, tok) {
+				covered = tok
+				break
+			}
+		}
+		if covered == "" {
+			out = append(out, fmt.Sprintf("e %s live=%s tests=absent (%s)", ax.name, s.envAxisLive(ax.name), ax.defect))
+		}
+	}
+	return out
+}
+
+// envAxisLive answers the LIVE value of one environment axis for this
+// serving process — the concrete thing the item's tests should also pin.
+func (s *Server) envAxisLive(axis string) string {
+	switch axis {
+	case "branch-name":
+		if b, err := wt.CurrentBranch(s.main.Dir); err == nil {
+			return b
+		}
+		return "unknown"
+	case "git-dir-shape":
+		if fi, err := os.Stat(filepath.Join(s.ws.Dir, ".git")); err == nil && !fi.IsDir() {
+			return "file"
+		}
+		return "dir"
+	case "root-kind":
+		if s.ws.Dir != s.main.Dir {
+			return "worktree"
+		}
+		return "checkout"
+	case "process-topology":
+		if reEphemeralAgent.MatchString(s.agent) {
+			return "generated-identity"
+		}
+		return "env-identity"
+	case "path-normalization":
+		return runtime.GOOS
+	}
+	return "unknown"
+}
+
+// targetTestBlob concatenates the *_test.go contents of every target
+// package once per render — the static scan class d reads.
+func (s *Server) targetTestBlob(dirs map[string]bool) string {
+	var b strings.Builder
+	for d := range dirs {
+		dir := d
+		if strings.Contains(filepath.Base(d), ".") {
+			dir = filepath.Dir(d)
+		}
+		matches, _ := filepath.Glob(filepath.Join(s.ws.Dir, filepath.FromSlash(dir), "*_test.go"))
+		for _, m := range matches {
+			if data, err := os.ReadFile(m); err == nil {
+				b.Write(data)
+			}
+		}
+	}
+	return b.String()
+}
+
+// rejectSnapshot reconstructs a rejected item's pre-state from its latest
+// reject event — enough for the review gate (kind, state, and the judged
+// substance the hash binds). Rejected items leave work.md, so item.Get
+// cannot answer for a revival move.
+func (s *Server) rejectSnapshot(id string) (item.Item, bool) {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return item.Item{}, false
+	}
+	var snap *journal.Event
+	for i := range events {
+		e := events[i]
+		if e.ID != id {
+			continue
+		}
+		switch e.Ev {
+		case journal.EvReject:
+			snap = &events[i]
+		case journal.EvCreate, journal.EvMove, journal.EvArchive:
+			// any later lifecycle event means the item was revived or
+			// re-recorded — the snapshot no longer describes it
+			if snap != nil && events[i].T.After(snap.T) {
+				snap = nil
+			}
+		}
+	}
+	if snap == nil {
+		return item.Item{}, false
+	}
+	return item.Item{
+		ID: id, Kind: snap.K, State: item.StateRejected,
+		Body: snap.Body, Targets: snap.Tg, Grilled: snap.Gr,
+	}, true
+}
+
+// reviewState scans the item's journal trail once: the author (create
+// event's ag), the latest pack render (hash + open count), and the latest
+// review verdict.
+func (s *Server) reviewState(id string) (author, renderHash string, open int, rev *journal.Event, err error) {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return "", "", 0, nil, err
+	}
+	for i := range events {
+		e := events[i]
+		if e.ID != id {
+			continue
+		}
+		switch e.Ev {
+		case journal.EvCreate:
+			if author == "" {
+				author = e.Ag
+			}
+		case journal.EvGrill:
+			renderHash, open = e.Hash, e.Open
+		case journal.EvReview:
+			rev = &events[i]
+		}
+	}
+	return author, renderHash, open, rev, nil
+}
+
+// crossesApproval reports whether a move crosses the approval boundary —
+// the edge the review gate guards. Forward skips are legal, so draft→active
+// crosses it exactly like submitted→approved does — and so does a REJECTED
+// revival straight to approved/active: the first draft's pre-set covered
+// only draft|submitted, and move to=rejected followed by move to=approved
+// reached approved with no grill and no verdict in two calls (cross-
+// verification of this task; the pre-change stamp gate refused that lane).
+// Anything not already post-approval crosses when the target is.
+func crossesApproval(from, to string) bool {
+	post := func(s string) bool {
+		return s == item.StateApproved || s == item.StateActive ||
+			s == item.StateDone || s == item.StateArchived
+	}
+	return !post(from) && post(to)
+}
+
+// reviewGateGap answers what still stands between a proposal and approval:
+// "" when a passing, identity-valid, current-body review verdict exists.
+func (s *Server) reviewGateGap(it item.Item) (string, error) {
+	if it.Grilled == "" {
+		return "ungrilled — grill first", nil
+	}
+	author, _, _, rev, err := s.reviewState(it.ID)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case rev == nil:
+		return "no review verdict — grill op=verdict from a second identity", nil
+	case rev.Hash != reviewHash(it):
+		return "stale review (body edited since) — re-grill, then re-verdict", nil
+	case !rev.Pass:
+		return "failing review — address its findings, re-grill, re-verdict", nil
+	case author != "" && rev.Ag == author:
+		return "review by the author — a second identity must judge it", nil
+	case reEphemeralAgent.MatchString(rev.Ag):
+		return "anonymous review — verdicts need a deliberate SPECTACKLE_AGENT", nil
+	}
+	return "", nil
+}
+
+// grillVerdict records the independent review verdict: a journal event
+// bound to the reviewer's identity and the body it judged. The server
+// cannot create independence — it refuses the ways independence is
+// FORGOTTEN. IDENTITY LIMIT, stated per the brief: what the refusals
+// compute is ag-string divergence, not independence. They defend against
+// forgetting to use a separate reviewer — the failure mode R-0007
+// documented — not against a driver minting a second name purely to clear
+// the gate while sharing every blind spot. That residual is accepted and
+// stated; process guidance (different model or fresh context for
+// reviewers) lives in the workflow docs, outside what the server can
+// verify. RESIDENT-SERVER corollary: a shared resident connection carries
+// ONE identity for all its callers (B-0002 lineage), so verdicts are
+// per-call stdio operations with an explicitly set SPECTACKLE_AGENT.
+func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
+	sc, err := s.idScope()
+	if err != nil {
+		return nil, nil, err
+	}
+	id, bad := sc.expand(in.ID)
+	if bad != nil {
+		return bad, nil, nil
+	}
+	it, ok, err := item.Get(s.ws, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return s.nearest(id)
+	}
+	short := sc.short(it.ID)
+	if reEphemeralAgent.MatchString(s.agent) {
+		return refuse("! REVIEW E " + short + " anonymous reviewer - set SPECTACKLE_AGENT to a deliberate name")
+	}
+	if in.Pass == nil {
+		return refuse("! ARG E - verdict requires pass")
+	}
+	author, renderHash, open, _, err := s.reviewState(it.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if author != "" && author == s.agent {
+		return refuse("! REVIEW E " + short + " reviewer is the author - use a fresh agent identity")
+	}
+	cur := reviewHash(it)
+	if renderHash != cur {
+		return refuse("! REVIEW E " + short + " no pack rendered for the current body - grill it first")
+	}
+	if *in.Pass && open > 0 {
+		return refuse(fmt.Sprintf("! REVIEW E %s %d computed findings open - fix them or fail with findings; they are not the reviewer's to waive", short, open))
+	}
+	// The findings floor is deliberately ASYMMETRIC (stated per the
+	// cross-verification): a fail must say why — the findings are the
+	// author's next brief — and a thin fail draws the tripwire warn; a
+	// pass needs no essay, because mandatory pass-findings would breed
+	// ritual words of exactly the deleted species. The engagement-free
+	// pass is covered by the sockpuppet residual in the IDENTITY LIMIT
+	// comment, not by prose quotas.
+	warn := ""
+	if !*in.Pass {
+		if strings.TrimSpace(in.Findings) == "" {
+			return refuse("! REVIEW E " + short + " a failing verdict must say why - the findings become the author's next brief")
+		}
+		if len(in.Findings) < 80 {
+			warn = "! REVIEW W findings under 80 chars - token-thin reviews are a known tell (tripwire, padding-gameable)\n"
+		}
+	}
+	if err := journal.Append(s.ws, it.Dir, journal.Event{
+		Ev: journal.EvReview, ID: it.ID, Dir: it.Dir,
+		Pass: *in.Pass, Hash: cur, Note: in.Findings,
+	}); err != nil {
+		return nil, nil, err
+	}
+	verdict := "fail"
+	if *in.Pass {
+		verdict = "pass"
+	}
+	_ = s.cd.Emit("review", it.ID, verdict+" by "+s.agent)
+	s.markDirty()
+	return text(warn + "ok review " + short + " " + verdict + " by " + s.agent)
 }

@@ -265,7 +265,7 @@ func (s *Server) registerTools() {
 		gate(s, s.research))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "grill",
-		Description: "Critique pack before delegation: #targets #contracts #briefs (b = thin child-task bodies) #tests #rejections #questions. Stamps grilled: <date> on the item — the evidence move checks before approve. Close every gap it surfaces, then approve."},
+		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. Fix computed findings, then have a fresh identity judge."},
 		gate(s, s.grill))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
@@ -509,6 +509,22 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	}
 	if it.Status != "" {
 		b.WriteString("status: " + it.Status + "\n")
+	}
+	// The latest review verdict renders with the item so the author's next
+	// revision sees the findings it must answer (T-01KYD94KP4).
+	if _, _, _, rev, err := s.reviewState(it.ID); err == nil && rev != nil {
+		verdict := "fail"
+		if rev.Pass {
+			verdict = "pass"
+		}
+		line := "review " + verdict + " " + rev.Ag
+		if rev.Hash != reviewHash(it) {
+			line += " (stale — body edited since)"
+		}
+		if rev.Note != "" {
+			line += " :: " + rev.Note
+		}
+		b.WriteString(line + "\n")
 	}
 	return text(b.String())
 }
@@ -1523,16 +1539,35 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	// grill/needs gates on forward moves (soft warnings by default;
-	// feedback.grill=require hard-blocks ungrilled proposals).
+	// feedback.grill=require hard-blocks). The gate keys on the REVIEW
+	// VERDICT, not the stamp (T-01KYD94KP4): a date records that a pack
+	// rendered; approval needs a passing EvReview from a non-author,
+	// non-ephemeral identity whose body hash matches the CURRENT body — a
+	// body edited after review needs re-review by construction. Legacy
+	// bare-date stamps carry no verdict and refuse under require.
 	warns := ""
 	if forwardState(in.To) {
-		if pre, ok, _ := item.Get(s.ws, in.ID); ok {
+		pre, ok, _ := item.Get(s.ws, in.ID)
+		if !ok {
+			// Rejected items live only as journal snapshots (item.Remove on
+			// reject), and their REVIVAL straight to approved/active crosses
+			// the same boundary: draft→rejected→approved reached approved
+			// with no grill and no verdict in two calls (cross-verification
+			// of T-01KYD94KP4). Reconstruct the pre-state from the latest
+			// reject event so the gate sees the revival.
+			pre, ok = s.rejectSnapshot(in.ID)
+		}
+		if ok {
 			short := sc.short(in.ID)
-			if pre.Kind == "proposal" && pre.Grilled == "" {
-				if s.ws.Cfg.Feedback.Grill == "require" {
-					return refuse("! GRILL E " + short + " ungrilled — grill first (feedback.grill=require)")
+			if pre.Kind == "proposal" && crossesApproval(pre.State, in.To) {
+				if gap, err := s.reviewGateGap(pre); err != nil {
+					return nil, nil, err
+				} else if gap != "" {
+					if s.ws.Cfg.Feedback.Grill == "require" {
+						return refuse("! GRILL E " + short + " " + gap + " (feedback.grill=require)")
+					}
+					warns += "! GRILL W " + short + " " + gap + "\n"
 				}
-				warns += "! GRILL W " + short + " ungrilled — grill first or proceed deliberately\n"
 			}
 			if open := s.openNeeds(pre); len(open) > 0 {
 				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"

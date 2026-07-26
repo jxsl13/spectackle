@@ -44,6 +44,7 @@ const (
 	EvGrill    = "grill"    // grill feedback recorded against an item
 	EvDecide   = "decide"   // a blocked item's linked decision was resolved
 	EvEscalate = "escalate" // an item exhausted its feedback rounds and was blocked
+	EvReview   = "review"   // independent review verdict, identity- and body-hash-bound (T-01KYD94KP4)
 )
 
 // Event is the single flat record type for all journal lines; unused fields
@@ -82,6 +83,14 @@ type Event struct {
 	Gr  string   `json:"gr,omitempty"`  // grill/reject: Grilled feedback
 	Nd  []string `json:"nd,omitempty"`  // escalate/reject: Needs (blocking decision IDs)
 	Ov  bool     `json:"ov,omitempty"`  // decide(override-once)/reject: Override spent
+
+	// Review verdicts (EvReview) and the grill render they bind to
+	// (T-01KYD94KP4): Hash is the sha256 of the item body at render/verdict
+	// time — a body edit invalidates both by construction. Open is the
+	// computed-finding count of the render; Pass the reviewer's verdict.
+	Hash string `json:"hash,omitempty"` // grill/review: sha256 of the item body
+	Open int    `json:"open,omitempty"` // grill: computed findings still open
+	Pass bool   `json:"pass,omitempty"` // review: the verdict
 }
 
 // Append writes one event to the journal of a context dir, creating the
