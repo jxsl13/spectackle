@@ -19,7 +19,7 @@ REMAINING RISK, unchanged by this fix: any forge operation whose stub is written
 
 ## B-01KYDV9PWZFEQV4VR3NRJ42R0F offline forge Ready mutates memory only: the draft flip never reaches forge-offline.json
 kind: bug
-state: active
+state: done
 created: 2026-07-25
 
 Found by the enriched bench fixture (T-01KYDT) during the corrected re-measurement of the B-01KYDS merge: post-merge runs pay a systematic +49 bytes on the archive step because the pull request arrives at archive still draft and the merge path flips it a second time (g local gates passed plus g pr ready lines appear twice per lifecycle). Isolated cause, confirmed by reading internal/forge/offline.go: Open persists via o.save() and Merge persists after delete, but Ready sets rec.Draft = false and returns without saving — the flip lives only in that process. Every spectackle call is its own process, so the next Find loads Draft=true from forge-offline.json. Masked until B-01KYDS because nothing consulted pr.Draft after done. Observed vs expected, reproduced with a minimal offline lifecycle: archive output carries the duplicate gate-and-ready pair; expected: done flips once, archive sees Draft=false and goes straight to merge. Fix: o.save() after the flip inside Ready, under the held mutex, symmetric with Open and Merge. VERIFY: unit test drives Open, Ready, then reopens the state file in a NEW Offline instance and asserts Find reports Draft=false; the minimal offline lifecycle probe shows the archive step without the duplicate pair; bench archive step returns to its pre-B-01KYDS byte cost. Side observation for B-01KYDK: the offline merge hardcodes user.name=spectackle user.email=spectackle@localhost, same identity class as internal/wt.
