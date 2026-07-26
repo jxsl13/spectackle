@@ -1,0 +1,2 @@
+{"t":"2026-07-26T04:34:14Z","eid":"7bdd9057f257fcd6","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYEB7H5VEHMR76VTEMXDCSPN","k":"task","ti":"the judge reference curves become a versioned document, verified by the first fully anchored cross-scenario regression batch","dir":"docs"}
+{"t":"2026-07-26T04:34:31Z","eid":"e71a8c9db8f68f74","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYEB7H5VEHMR76VTEMXDCSPN","dir":"docs","fr":"draft","to":"active"}
