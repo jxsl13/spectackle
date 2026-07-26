@@ -45,7 +45,16 @@ tests inside their leased scope; landing the result (commit, PR, merge) is
 always the orchestrator's job, whether it drives `work op=submit` itself or
 reviews and commits an implementer's diff. Before landing, the orchestrator
 has a fresh-context verifier re-run the task's VERIFY block from the diff
-alone — the implementer's transcript is never the evidence. The merge method is a merge
+alone — the implementer's transcript is never the evidence.
+
+The PR duties, per task: open a **draft** pull request with the first
+pushed commit of a task branch; flip it to ready — and stop pushing — the
+moment the task is checked and done; drive CI to green on the open PR
+(diagnose and push fixes on red); leave the merge to the user or their
+standing instruction (CONTRIBUTING.md, "One task, one branch, one pull
+request"). Never hold finished work hostage to unfinished siblings, and
+never leave any change unpushed or uncovered by a PR. The payoff: revert,
+bisect and review all regain task granularity. The merge method is a merge
 commit, never squash — the per-edge decision trail on the branch must
 survive into `main` intact (see CONTRIBUTING.md for the policy and the
 repository settings enforcing it). The edge commits themselves are
