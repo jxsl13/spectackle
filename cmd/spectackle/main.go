@@ -37,6 +37,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -135,6 +136,8 @@ func serve(args []string) int {
 	root := fs.String("root", ".", "workspace detection start / fallback root")
 	httpAddr := fs.String("http", "", "serve over Streamable HTTP on this address (e.g. 127.0.0.1:7331) instead of stdio")
 	pidfile := fs.String("pidfile", "", "write the process PID here once the server is ready to accept requests; removed on shutdown (fails if the file already exists)")
+	selfRestart := fs.Bool("self-restart", false, "HTTP mode only: when this dev binary serves its own source tree and goes stale, rebuild and exec-replace it (the manual make-dev step after every merge, made mechanical)")
+	selfRestartEvery := fs.Duration("self-restart-every", 30*time.Second, "staleness poll cadence for -self-restart")
 	_ = fs.Parse(args)
 
 	s, err := mcpserver.New(*root)
@@ -145,6 +148,13 @@ func serve(args []string) int {
 	defer s.Close()
 
 	if *httpAddr == "" {
+		if *selfRestart {
+			// A stdio peer holds the pipe; an exec swap mid-session would
+			// sever a live JSON-RPC conversation. The staleness HINT
+			// (MCP-010) still fires on stdio — the restart stays manual
+			// there by design.
+			log.Printf("serve: -self-restart is HTTP-only; stdio keeps the stale hint and a manual restart")
+		}
 		if *pidfile != "" {
 			if err := writePIDFile(*pidfile); err != nil {
 				log.Printf("serve: %v", err)
@@ -170,12 +180,116 @@ func serve(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runHTTP(ctx, *httpAddr, handler, *pidfile); err != nil {
-		log.Printf("serve: %v", err)
+	restartTo := make(chan string, 1)
+	if *selfRestart {
+		exe, err := os.Executable()
+		if err != nil {
+			log.Printf("serve: -self-restart disabled, cannot resolve own executable: %v", err)
+		} else {
+			go watchStale(ctx, s.BinaryStale, s.ServedDir(), exe, *selfRestartEvery, restartTo, stop)
+		}
+	}
+	httpErr := runHTTP(ctx, *httpAddr, handler, *pidfile)
+	select {
+	case exe := <-restartTo:
+		// The exec proceeds even when the drain timed out (httpErr from a
+		// shutdown deadline — a hanging streamable-HTTP GET holds its
+		// session stream for as long as the session lives): the on-disk
+		// binary is already replaced and the pidfile is gone, so bailing
+		// out here would leave NO resident server at all, the one outcome
+		// strictly worse than severing the laggard streams. runHTTP's
+		// deferred removePIDFile has run either way; the replacement
+		// re-creates the pidfile through the atomic create-remove contract
+		// (B-01KYDR). Exec keeps the PID and argv, and carries the swarm
+		// identity explicitly — defers never run across exec, so Deregister
+		// is skipped, and a replacement minting a fresh random agent would
+		// ghost-block its own pre-swap leases and orphan its worktrees.
+		if httpErr != nil {
+			log.Printf("serve: drain incomplete (%v) — exec-replacing anyway, laggard streams are severed", httpErr)
+		}
+		log.Printf("serve: binary went stale — exec-replacing with the rebuilt %s", exe)
+		// Replace, never append: a pre-existing SPECTACKLE_AGENT entry —
+		// even an empty one — precedes the appended value in the environ
+		// list, and os.Getenv returns the FIRST match, so the replacement
+		// would re-generate a random identity despite the carry-over.
+		env := make([]string, 0, len(os.Environ())+1)
+		for _, kv := range os.Environ() {
+			if !strings.HasPrefix(kv, "SPECTACKLE_AGENT=") {
+				env = append(env, kv)
+			}
+		}
+		env = append(env, "SPECTACKLE_AGENT="+s.AgentName())
+		if err := syscall.Exec(exe, os.Args, env); err != nil {
+			log.Printf("serve: exec replacement failed: %v", err)
+			return 1
+		}
+		return 0 // unreachable: exec does not return on success
+	default:
+	}
+	if httpErr != nil {
+		log.Printf("serve: %v", httpErr)
 		return 1
 	}
 	log.Printf("serve: shutdown complete")
 	return 0
+}
+
+// watchStale polls stale() and, once it reports true, rebuilds the binary
+// beside exe and triggers the graceful drain: the new image is renamed
+// over the executable path (atomic; the running image keeps its inode),
+// the path is handed to serve's exec step, and stop() cancels the serve
+// context. A failing rebuild is LOUD and non-fatal — the old binary keeps
+// serving and the watcher keeps trying, because a silently dead
+// auto-restart is exactly the stale-binary trap this exists to close
+// (T-01KYEH). buildRoot is the SERVED tree (Server.ServedDir), never the
+// resolved main root: for a server inside a linked git worktree the main
+// root is the primary checkout, whose sources may lack exactly the changes
+// that made the binary stale — the first live swap rebuilt there and
+// exec'd a replacement that did not know its own flags.
+func watchStale(ctx context.Context, stale func() bool, buildRoot, exe string, every time.Duration, restartTo chan<- string, stop func()) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if !stale() {
+			continue
+		}
+		buildStart := time.Now()
+		tmp := exe + ".new"
+		// Context-bound: a stop signal racing an in-flight build must WIN —
+		// an unbounded build that completes during the drain would fill the
+		// channel and resurrect the process a supervisor just tried to
+		// stop.
+		cmd := exec.CommandContext(ctx, "go", "build", "-o", tmp, "./cmd/spectackle")
+		cmd.Dir = buildRoot
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("serve: self-restart rebuild FAILED, still serving the stale binary: %v: %s", err, strings.TrimSpace(string(out)))
+			continue
+		}
+		if ctx.Err() != nil {
+			return // shutdown won the race; leave the .new artifact behind, loudly absent from restartTo
+		}
+		if err := os.Rename(tmp, exe); err != nil {
+			log.Printf("serve: self-restart: replace %s: %v", exe, err)
+			continue
+		}
+		// Backdate the new image to the build START: a source edit landing
+		// DURING the build has an mtime between start and completion, and
+		// against the completion-stamped binary it would read fresh —
+		// permanently missed until an unrelated future edit. Stamped at
+		// start, any mid-build edit makes the replacement immediately stale
+		// again and the next cycle catches it.
+		if err := os.Chtimes(exe, buildStart, buildStart); err != nil {
+			log.Printf("serve: self-restart: backdate %s: %v", exe, err)
+		}
+		restartTo <- exe
+		stop()
+		return
+	}
 }
 
 // runHTTP listens on addr and serves handler until ctx is cancelled, then
