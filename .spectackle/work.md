@@ -41,27 +41,6 @@ targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcps
 
 OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.shortHash 100% fired although BOTH functions predate the diff - short8 sat in hunk CONTEXT lines adjacent to inserted code, so the hunk-scoped extraction treated it as touched. RULE: a dup finding must implicate only functions with at least one ADDED line in the attributed diff; context-line-only functions are preexisting code the task never wrote. IMPLEMENTATION: when mapping diffHunks to functions in validateDups, track added-line ranges (+ lines only, not context) and intersect with function spans before lookup in the dup index. PROOF: unify short8 (tools.go, 8 chars) and shortHash (validate.go, 12 chars) into one parameterized helper as the cleanup this false positive pointed at, and add a regression test where a diff INSERTS code adjacent to one twin of a preexisting dup pair and validateDups stays silent, plus one where the diff ADDS a twin and it fires. Byte-budget neutral: no output-format change.
 
-## T-01KYFXEQ71F8X9C2028Q3B4WBX verdict events survive compaction and findings render only pre-archive: the token diet closes the loop
-kind: task
-state: approved
-created: 2026-07-26
-parent: P-01KYESGDWFFMH80ENHNFXMVZE8
-grilled: 2026-07-26 open=0
-targets: internal/mcpserver/tools.go, internal/mcpserver/grill.go, docs/lifecycle.md
-
-IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TT: verdict events survive compaction. VERIFIED GROUND: they do NOT today - compact()s keep-list (tools.go ~2416) retains reject/archive/compact/escalate/decide and DROPS EvReview and EvValidate, so a compaction erases the identity-bound evidence the gates rest on; a re-validation after compact would find no verdict and refuse an already-validated archive... except archived items are past the gate - the REAL loss is the audit trail and reviewState/lastGateResult on still-live items whose verdicts predate the fold.
-
-WHAT TO BUILD:
-1. KEEP-LIST: add journal.EvReview and journal.EvValidate to the retained cases with a comment citing ADR-01KYES0TT and the loss shape above.
-2. PRUNE THE DEAD WEIGHT: retained verdicts of items already archived or rejected at compact time MAY drop their Keys and Wv slices (the addressal detail) while keeping ev/id/ag/hash/pass/ln - the verdict identity survives forever, the per-key forensics only while the item lives. Implement as part of the same fold pass; comment the byte rationale.
-3. FINDINGS PRE-ARCHIVE ONLY: the grill and validate PACK renders skip the #computed findings section for items in archived state (tombstone readers want the verdict trail, not a re-critique; the classes recompute against a tree that has moved on and mislead). One sentence in each tool description; render a single line computed: suppressed (archived) instead of the section.
-4. DOCS: lifecycle.md compaction paragraph gains the retention vocabulary (verdicts retained, addressal detail pruned post-terminal).
-NON-NEGOTIABLE, tested: a compact fold over a journal with live-item verdicts keeps them byte-complete; over archived-item verdicts keeps ev/hash/pass and drops Keys/Wv; reviewState still resolves a retained verdict after compact (integration: grill render -> verdict -> compact -> reviewState finds it); archived-item pack renders the suppressed line and no v/g classes; live-item pack unchanged (golden).
-VERIFY: build/test -race/vet/gofmt; lint; check ok; live: run compact dry-run on this repo, paste the c candidates, do NOT apply (the resident owns its own compaction cadence).
-SCOPE: compact keep-list + the two pack renders + docs. No journal.go schema changes (Ln lands in the lens task - coordinate through the lease if concurrent).
-ROLLBACK: revert; retention is strictly additive to todays behavior.
-REPORT: before/after fold of a synthetic journal, each test, the dry-run paste.
-
 ## ADR-01KYFYGVSRFX4B9B2YJ44QSBS8 live probe: should the widget cache be bounded
 kind: adr
 state: done
