@@ -100,3 +100,22 @@ VERIFY: build/test -race/vet/gofmt; lint; check ok; live proof deferred to the b
 SCOPE: validateGateGap + config + scaffold + docs/lifecycle.md gate paragraph. No grill.go.
 ROLLBACK: revert; knobs additive.
 REPORT: refusal line verbatim, each test, knob defaults rationale.
+
+## T-01KYFXEPW3FD7RYDR1Q0S1R4FF waiver-rate tripwire: a computed non-vetoing line in state and packs when waivers dominate recent verdicts
+kind: task
+state: draft
+created: 2026-07-26
+parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+targets: internal/mcpserver/state.go, internal/mcpserver/grill.go, internal/mcpserver/validate.go, docs/agent-workflow.md
+
+IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH / ADR-01KYES0TR: ambiguity (and every) finding is waivable with a reason, and the counterweight is a TRIPWIRE - computed, visible, never vetoing. A gate that vetoes on waiver rate would just teach padding the findings; visibility teaches judgment.
+
+WHAT TO BUILD:
+1. COMPUTATION, one pure function (own file waiverrate.go, mcpserver package): over the TRAILING 20 verdict events (EvReview + EvValidate, both kinds pooled, newest first across all context journals), rate = waived keys / (waived keys + addressed-open keys); events whose renders had zero open findings are excluded from the denominator entirely (a clean streak must not dilute the signal). Threshold 0.5. Below: silence. At or above: one line - w waiver-rate 62% over last 13 verdicts (waived=8 addressed=5) - counts shown so the reader can judge the base size; fewer than 5 qualifying verdicts: silence (sample too small, state in a comment).
+2. SURFACES: state (#health section) and the grill/validate PACK renders (one line, after the verdict line). Never in check (CI string-matches ok - the coverage-gate lesson, T-01KYD87ZN).
+3. DOCS: three sentences in agent-workflow.md - what it measures, why it never vetoes, what a high rate suggests (briefs too thin, classes too eager, or reviewers rubber-stamping - all three are human calls).
+NON-NEGOTIABLE, tested: synthetic journals - 10 verdicts with 6 waived/4 addressed renders the line with those counts; 4 qualifying verdicts renders nothing; zero-open verdicts excluded from the denominator (test pins it); rate below threshold silent; check output byte-identical with a tripping journal present (golden).
+VERIFY: build/test -race/vet/gofmt; lint; check ok; live: state on this repo pasted (whatever it shows - this session waived heavily, the line may well fire; that is signal, not embarrassment).
+SCOPE: new waiverrate.go + one render line in three files + docs. No gate logic anywhere.
+ROLLBACK: revert.
+REPORT: the live state line or its absence with the computed rate, each test.
