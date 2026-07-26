@@ -156,12 +156,3 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
-
-## T-01KYFYHAWMFWC8KKQMSGQMQBJA live ambiguity probe task
-kind: task
-state: draft
-created: 2026-07-26
-refs: ADR-01KYFYGVSRFX4B9B2YJ44QSBS8
-grilled: 2026-07-26 open=0
-
-bound the widget cache somehow
