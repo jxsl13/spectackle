@@ -29,10 +29,3 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
-
-## B-01KYG6FQR8FZNTK26XEB3CADPX orphan record closure: ambiguity fixture incident B-01KYD4HB8GE4FTFXKAT9R4AG0F
-kind: bug
-state: draft
-created: 2026-07-26
-
-Recovery re-draft for an orphaned journal create event (B-01KYG56Y orphan sweep); rejected immediately for the record - see the note.
