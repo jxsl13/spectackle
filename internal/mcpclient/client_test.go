@@ -2,6 +2,7 @@ package mcpclient_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -319,4 +320,28 @@ func waitProcessGone(pid int, timeout time.Duration) bool {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return !processAlive(pid)
+}
+
+// TestRefusalErrorCarriesNoTransportPaths pins T-01KYE0: a tool refusal's
+// error is a marker (ErrToolRefused), never a re-narration carrying the
+// spawn command's absolute paths — those cost CLI-driven agents ~430 bytes
+// per refusal, 68-78% of the first live judges' whole tool-output diet.
+// Transport errors keep the full description; a refusal has its text.
+func TestRefusalErrorCarriesNoTransportPaths(t *testing.T) {
+	bin := requireBinary(t)
+	sess := dialStdio(t, bin, t.TempDir())
+
+	out, err := sess.Call(context.Background(), mcpclient.Call{Name: "find", Arguments: map[string]any{}})
+	if err == nil {
+		t.Fatal("expected a refusal error")
+	}
+	if !errors.Is(err, mcpclient.ErrToolRefused) {
+		t.Fatalf("refusal not marked ErrToolRefused: %v", err)
+	}
+	if strings.Contains(err.Error(), "stdio spawn") || strings.Contains(err.Error(), os.TempDir()) || strings.Contains(err.Error(), bin) {
+		t.Fatalf("refusal error leaks transport detail: %v", err)
+	}
+	if out == "" {
+		t.Fatal("refusal text must still be rendered")
+	}
 }

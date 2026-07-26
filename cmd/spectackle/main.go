@@ -335,7 +335,13 @@ func call(args []string) int {
 		out, callErr := sess.Call(ctx, c)
 		fmt.Println(out)
 		if callErr != nil {
-			log.Printf("call: %s: %v", c.Name, callErr)
+			// A refusal already printed its whole reason as the result text;
+			// the non-zero exit is the machine signal, and a second stderr
+			// rendition would only re-tax every reader (T-01KYE0). Transport
+			// errors have no result text, so they keep the full error.
+			if !errors.Is(callErr, mcpclient.ErrToolRefused) {
+				log.Printf("call: %s: %v", c.Name, callErr)
+			}
 			return 1
 		}
 		return 0
@@ -384,7 +390,11 @@ func callStdin(ctx context.Context, sess *mcpclient.Session) int {
 		out, err := sess.Call(ctx, mcpclient.Call{Name: req.Name, Arguments: req.Arguments})
 		fmt.Println(out)
 		if err != nil {
-			log.Printf("call: line %d (%s): %v", line, req.Name, err)
+			// Same refusal/transport split as the single-call path: the
+			// printed text is the refusal, stderr re-narration is noise.
+			if !errors.Is(err, mcpclient.ErrToolRefused) {
+				log.Printf("call: line %d (%s): %v", line, req.Name, err)
+			}
 			failed = true
 		}
 	}
