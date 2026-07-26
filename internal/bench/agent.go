@@ -49,6 +49,35 @@ Goals, in any order:
 Start with the state tool. When all goals are met, stop and output exactly DONE.
 `
 
+// trickyTaskTitle and trickyRuleStem are the tricky scenario's goal
+// markers, shared by brief and scorer like the basic pair.
+const (
+	trickyTaskTitle = "stubborn rework loop"
+	trickyRuleStem  = "JUDGE-API"
+)
+
+// trickyBrief sends the agent through the side states the basic scenario
+// never touches (T-01KYE4): rule slot elicitation and lint, the reopen
+// counter, the ROUNDS escalation into blocked, and the decide exit. Same
+// zero-coaching discipline: tool names only, the server's own texts must
+// carry the agent through — those texts are what is being judged.
+const trickyBrief = `You operate a spec-driven-development workflow through a CLI.
+
+Workspace: %s
+Command shape, the ONLY allowed way to act:
+  %s call -root %s <tool> '<json-arguments>'
+
+Available tool names: state, draft, move, get, find, grill, check, rule, decide, research.
+No other documentation is provided; the tool outputs themselves guide you.
+
+Goals, in order:
+1. A rule with stem "` + trickyRuleStem + `" exists in directory "api". Its response clause must name a concrete number.
+2. A task titled "` + trickyTaskTitle + `" is driven to done, reopened to active, driven to done again, and reopened again — keep going until the server refuses to continue this loop and points you at a decision; resolve that decision choosing rescope, so the task ends in state draft.
+3. A final check call reports no findings marked E.
+
+Start with the state tool. When all goals are met, stop and output exactly DONE.
+`
+
 // meterShim passes every call through to the real binary while appending
 // one line per call to meter.log: <bytes> <exit> <argv>. Stdout and stderr
 // are metered together — both reach the agent's context, so both are cost.
@@ -74,7 +103,7 @@ exit $rc
 // scorer can report the session-shaped cost next to the tool diet
 // (T-01KYE3X: whether connect-time guidance BUYS anything is measured, not
 // assumed). Without the flag the brief is byte-identical to before.
-func AgentPrep(bin, dir string, withManifest bool) (briefPath, shimPath string, err error) {
+func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, shimPath string, err error) {
 	if err := Fixture(dir); err != nil {
 		return "", "", err
 	}
@@ -88,7 +117,21 @@ func AgentPrep(bin, dir string, withManifest bool) (briefPath, shimPath string, 
 	if err := os.WriteFile(shimPath, fmt.Appendf(nil, meterShim, bin, meterLog), 0o755); err != nil {
 		return "", "", err
 	}
-	brief := fmt.Sprintf(agentBrief, dir, shimPath, dir)
+	var brief string
+	switch scenario {
+	case "", "basic":
+		brief = fmt.Sprintf(agentBrief, dir, shimPath, dir)
+	case "tricky":
+		brief = fmt.Sprintf(trickyBrief, dir, shimPath, dir)
+		// The scorer branches on this sidecar: tricky goals are judged by
+		// different criteria, and inferring the scenario from brief prose
+		// would couple the scorer to wording.
+		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("tricky\n"), 0o644); err != nil {
+			return "", "", err
+		}
+	default:
+		return "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky)", scenario)
+	}
 	if withManifest {
 		out, err := exec.Command(bin, "manifest").Output()
 		if err != nil {
@@ -126,6 +169,11 @@ type AgentScore struct {
 	// diets, and folding a per-session constant into them would blur
 	// exactly the wandering signal they exist to show.
 	ManifestBytes int
+	// Scenario is "basic" or "tricky" (from the scenario sidecar); RuleOK
+	// is the tricky rule goal, DecideOK the tricky decide-answer proof.
+	Scenario string
+	RuleOK   bool
+	DecideOK bool
 }
 
 func ScoreAgentRun(bin, dir string) (AgentScore, error) {
@@ -154,10 +202,21 @@ func ScoreAgentRun(bin, dir string) (AgentScore, error) {
 		}
 	}
 
-	// Goal states are judged through the same tool surface the agent used:
-	// archived and rejected items leave work.md entirely (the journal holds
-	// the tombstone and the reject snapshot), so the history and rejection
-	// scopes of find are the authoritative — and public — answer.
+	checkOut, _, err := callOnce(bin, dir, "check", "{}")
+	if err != nil {
+		return sc, err
+	}
+	sc.CheckOK = strings.TrimSpace(checkOut) == "ok" || !strings.Contains(checkOut, " E ")
+
+	if scen, err := os.ReadFile(filepath.Join(dir, "scenario")); err == nil && strings.TrimSpace(string(scen)) == "tricky" {
+		return scoreTricky(bin, dir, sc, string(raw))
+	}
+
+	// Basic scenario. Goal states are judged through the same tool surface
+	// the agent used: archived and rejected items leave work.md entirely
+	// (the journal holds the tombstone and the reject snapshot), so the
+	// history and rejection scopes of find are the authoritative — and
+	// public — answer.
 	histOut, _, err := callOnce(bin, dir, "find", fmt.Sprintf(`{"q":%q,"scope":"history"}`, judgeTaskTitle))
 	if err != nil {
 		return sc, err
@@ -173,13 +232,46 @@ func ScoreAgentRun(bin, dir string) (AgentScore, error) {
 		sc.BugState = "rejected"
 	}
 
-	checkOut, _, err := callOnce(bin, dir, "check", "{}")
+	sc.Valid = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK
+	return sc, nil
+}
+
+// scoreTricky judges the side-state scenario (T-01KYE4). Ground truths the
+// criteria rest on, probed before this was built: find scope=history shows
+// only create and archive events, so the reopen cycle is NOT scorable there
+// — instead the chain is proven by its endpoints: the task ends at draft
+// (only the rescope exit lands there from blocked) and the meter shows a
+// successful decide call answering it (an agent cannot legally answer a
+// decision that was never minted, and only the exhausted reopen loop mints
+// one for this task).
+func scoreTricky(bin, dir string, sc AgentScore, meterRaw string) (AgentScore, error) {
+	ruleOut, _, err := callOnce(bin, dir, "find", fmt.Sprintf(`{"q":%q,"scope":"rule"}`, trickyRuleStem))
 	if err != nil {
 		return sc, err
 	}
-	sc.CheckOK = strings.TrimSpace(checkOut) == "ok" || !strings.Contains(checkOut, " E ")
+	ruleOK := strings.Contains(ruleOut, trickyRuleStem)
 
-	sc.Valid = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK
+	// The task's end state comes from state's live item listing: draft
+	// items are present there (only archived/rejected tombstone away).
+	stateOut, _, err := callOnce(bin, dir, "state", "{}")
+	if err != nil {
+		return sc, err
+	}
+	for line := range strings.SplitSeq(stateOut, "\n") {
+		if strings.Contains(line, trickyTaskTitle) && strings.Contains(line, " draft ") {
+			sc.TaskState = "draft"
+		}
+	}
+
+	for line := range strings.SplitSeq(strings.TrimSpace(meterRaw), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 && fields[1] == "0" && strings.Contains(line, " decide ") && strings.Contains(line, "answer") {
+			sc.DecideOK = true
+		}
+	}
+	sc.Scenario = "tricky"
+	sc.RuleOK = ruleOK
+	sc.Valid = ruleOK && sc.TaskState == "draft" && sc.DecideOK && sc.CheckOK
 	return sc, nil
 }
 
@@ -190,7 +282,11 @@ func AgentReport(sc AgentScore) string {
 	if sc.ManifestBytes > 0 {
 		fmt.Fprintf(&b, "agent session=%dB (manifest %d + tools %d)\n", sc.ManifestBytes+sc.Bytes, sc.ManifestBytes, sc.Bytes)
 	}
-	fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
+	if sc.Scenario == "tricky" {
+		fmt.Fprintf(&b, "agent goal rule=%v task=%s decide=%v check=%v\n", sc.RuleOK, orAbsent(sc.TaskState), sc.DecideOK, sc.CheckOK)
+	} else {
+		fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
+	}
 	if sc.Valid {
 		b.WriteString("agent verdict: valid — goals reached\n")
 	} else {
