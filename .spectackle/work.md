@@ -652,28 +652,6 @@ REJECTED: having each agent commit records opportunistically without a lock (the
 
 EXIT CRITERION: a full task lifecycle — draft through archived, with a sibling agent landing a conflicting change midway — completes with the LLM issuing zero git and zero forge commands, and the resulting main branch carries one merge commit per task whose pull request body names the task, the change and the trigger.
 
-## P-01KYDPRXQSF8XAP1HCHY7390T8 every MCP text earns its tokens: a benchmark harness scores hint and record variants by tokens against validity, judged by independent agents over tricky fixture repos covering all eight states
-kind: proposal
-state: active
-created: 2026-07-25
-refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
-grilled: 2026-07-25
-targets: internal/mcpserver, internal/bench
-
-Requirement: improve every hint and text the MCP emits so the state-machine workflow reaches the best result with minimal tokens — valid and complete above all. Implementations compete against each other in a deliberate benchmark, preferably driven by independent agents over example repositories with tricky outputs covering every state of the machine. Gaps and bugs found along the way are recorded, and the server is updated after every task.
-
-BASELINE, measured on the live server this hour: the instructions manifest is 7238 bytes, one state call on this repository answers 5605 bytes, and every tool result may carry piggybacked hints. These texts are read by an LLM on every single call, so their cost is multiplied by the call count of every session — and their QUALITY decides whether the agent takes the right next transition or wanders. Token cost and outcome quality pull against each other, which is exactly why variants must be measured, not argued.
-
-THE HARNESS, the first deliverable and the precondition for everything else.
-1. Fixture repositories, generated not hand-kept: small synthetic workspaces whose records and code deliberately exercise every state — draft through archived, rejected with revocation, blocked with all three escalation exits — plus the tricky output shapes that have bitten this session: ambiguous short-ID prefixes, ID-dense state output, refusal grammar, degraded-index findings, gitflow records in offline mode.
-2. A driver that walks a scripted full lifecycle over a fixture through the REAL tool surface (offline mode, no network) and captures every tool result byte. Metrics per run: total result bytes and estimated tokens, per-tool breakdown, and a VALIDITY verdict computed from the workspace afterward — end states correct, no dangling references, check ok — plus a COMPLETENESS check that every record the workflow promises actually appeared. Invalid runs never count as wins regardless of token savings.
-3. A/B comparison: the same script over the same fixture against two server builds, reported as tokens-delta and validity-delta. This is how any future text change proves itself; a variant that saves tokens and loses validity loses.
-4. Independent agents as judges, second stage: fresh subagents each driving a fixture through one server build with a fixed task brief, scored on whether they reach the correct end state and how many tokens of tool output they consumed. Agents are the only honest judge of GUIDANCE quality — a scripted driver cannot get lost, an agent can.
-
-REJECTED: optimizing texts by taste without the harness (this session already shows dense-looking texts hiding real ambiguity), and token-only scoring (validity outranks tokens by construction).
-
-EXIT CRITERION: the harness runs in CI-free local mode; a baseline report exists for the current texts; at least one text improvement lands that the benchmark shows strictly better — fewer tokens at equal validity or better validity at equal tokens — and every state of the machine appears in at least one fixture run.
-
 ## T-01KYDYSK4TE5R9JABNM5YJHBXT goreleaser changelog filter excludes spectackle process-commit subjects
 kind: task
 state: draft
