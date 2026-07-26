@@ -281,7 +281,7 @@ WHEN proving a landed feature live, the orchestrating agent SHALL drive the proo
 The review workflow SHALL default to 1 reviewer walking all lenses sequentially in one context, reserving multi-agent panels for recorded risk signals: at 3 lenses a panel pays 3x context ingestion for marginal judgment gain.
 
 ## ASK-SURFACE-001
-WHEN WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
+WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
 
 ## AGENT-ISOLATION-001
 WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
