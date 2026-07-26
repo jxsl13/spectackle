@@ -89,9 +89,11 @@ type Event struct {
 	// (T-01KYD94KP4): Hash is the sha256 of the item body at render/verdict
 	// time — a body edit invalidates both by construction. Open is the
 	// computed-finding count of the render; Pass the reviewer's verdict.
-	Hash string `json:"hash,omitempty"` // grill/review: sha256 of the item body
-	Open int    `json:"open,omitempty"` // grill: computed findings still open
-	Pass bool   `json:"pass,omitempty"` // review: the verdict
+	Hash string   `json:"hash,omitempty"` // grill/review/validate: hash of the judged substance
+	Open int      `json:"open,omitempty"` // grill/validate render: computed findings still open
+	Pass bool     `json:"pass,omitempty"` // review/validate: the verdict
+	Keys []string `json:"keys,omitempty"` // grill/validate render: the open finding keys (class:subject)
+	Wv   []string `json:"wv,omitempty"`   // review/validate verdict: per-finding waivers, "key reason" (T-01KYD9J)
 }
 
 // Append writes one event to the journal of a context dir, creating the

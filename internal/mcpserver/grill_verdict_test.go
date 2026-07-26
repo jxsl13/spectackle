@@ -127,10 +127,17 @@ func TestVerdictCannotWaiveComputedFindings(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
 	reviewer := connectRoot(t, root)
 	out := callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop, "pass": true})
-	if !strings.Contains(out, "computed findings open") {
-		t.Fatalf("open findings waived by pass=true: %q", out)
+	if !strings.Contains(out, "unaddressed findings") {
+		t.Fatalf("open findings passed without addressal: %q", out)
 	}
-	out = callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop, "pass": false, "findings": "the nopath finding is real: the named file does not exist and the brief must name real files before approval"})
+	// blanket waivers are impossible by construction: keys are exact, a
+	// wildcard is just an unknown key and the real one stays unaddressed
+	out = callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop, "pass": true,
+		"waivers": map[string]string{"*": "waive everything"}})
+	if !strings.Contains(out, "unaddressed findings") {
+		t.Fatalf("wildcard waiver cleared the gate: %q", out)
+	}
+	out = callText(t, reviewer, "grill", map[string]any{"op": "verdict", "id": prop, "pass": false, "findings": "the nopath finding on internal/definitely/missing.go is real: that file does not exist and the brief must name real files before approval"})
 	if !strings.Contains(out, "ok review") {
 		t.Fatalf("failing verdict with findings refused: %q", out)
 	}
