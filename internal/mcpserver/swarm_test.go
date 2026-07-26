@@ -954,3 +954,38 @@ func TestAbortSaysWhenBranchSurvives(t *testing.T) {
 		t.Fatalf("surviving branch not said:\n%s", abortOut)
 	}
 }
+
+// TestSubmitOnDetachedHeadSaysSo pins B-01KYEEJKQ: when the main checkout
+// is detached at submit time, the fast-forward advances no named branch —
+// the result must say the deferral (the archive merge lands it on the
+// base) instead of claiming "merged to main". The state is forced
+// directly; in the wild it needs a repo where vacateBranch found no base
+// at all.
+func TestSubmitOnDetachedHeadSaysSo(t *testing.T) {
+	t.Setenv("SPECTACKLE_AGENT", "detached-submit")
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s1, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "detached delivery"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+	startOut := callText(t, sess, "work", map[string]any{"op": "start", "item": id})
+	m := regexp.MustCompile(`(?m)^wt \S+ open (.+)$`).FindStringSubmatch(startOut)
+	if m == nil {
+		t.Fatalf("no worktree root:\n%s", startOut)
+	}
+	if err := os.WriteFile(filepath.Join(m[1], "main.go"), []byte("package main\n\n// detached\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", root, "checkout", "--detach").CombinedOutput(); err != nil {
+		t.Fatalf("detach: %v: %s", err, out)
+	}
+
+	subOut := callText(t, sess, "work", map[string]any{"op": "submit", "item": id})
+	if strings.Contains(subOut, "merged to main") {
+		t.Fatalf("detached submit still claims merged to main:\n%s", subOut)
+	}
+	if !strings.Contains(subOut, "detached head") || !strings.Contains(subOut, "archive merge lands it") {
+		t.Fatalf("deferral not said:\n%s", subOut)
+	}
+}

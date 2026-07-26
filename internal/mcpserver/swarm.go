@@ -718,7 +718,16 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	_ = s.cd.ReleaseItem(id)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "ok %s merged to main (%d events, %d rules replayed)\n", id, rep.Events, rep.Rules)
+	// A detached main checkout means the fast-forward advanced no named
+	// branch (B-01KYEEJKQ): reachable only when vacateBranch found no base
+	// at all, and self-healing at archive (the branch merges into the real
+	// base via the PR or the offline double) — but claiming "merged to
+	// main" while it lasts is a lie, and the deferral must be said.
+	if cur, cerr := wt.CurrentBranch(s.main.Dir); cerr == nil && cur == "HEAD" {
+		fmt.Fprintf(&b, "ok %s integrated on a detached head (%d events, %d rules replayed) — no named branch advanced; the archive merge lands it on the base\n", id, rep.Events, rep.Rules)
+	} else {
+		fmt.Fprintf(&b, "ok %s merged to main (%d events, %d rules replayed)\n", id, rep.Events, rep.Rules)
+	}
 	for from, to := range rep.Remap {
 		fmt.Fprintf(&b, "sw 0 %s remap %s replayed as %s\n", s.agent, from, to)
 	}
