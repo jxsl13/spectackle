@@ -116,7 +116,7 @@ choice: yes bounded
 
 ## T-01KYG0ZX2XERAS022A42JNAV75 human-facing git surfaces carry the short display ID: branches, PR titles, commit subjects; machine trailers stay full
 kind: task
-state: draft
+state: approved
 created: 2026-07-26
 grilled: 2026-07-26 open=2
 targets: internal/mcpserver/gitflow.go, internal/mcpserver/edgecommit.go, internal/wt/wt.go, docs/lifecycle.md

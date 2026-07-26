@@ -566,3 +566,4 @@
 {"t":"2026-07-26T20:08:26Z","eid":"764217a0124b937d","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYFXDCHHFV3SQDA5CEHAA4AQ","fr":"approved","to":"active"}
 {"t":"2026-07-26T20:13:47Z","eid":"745be59f71dc69ee","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYG0ZX2XERAS022A42JNAV75","k":"task","ti":"human-facing git surfaces carry the short display ID: branches, PR titles, commit subjects; machine trailers stay full"}
 {"t":"2026-07-26T20:14:03Z","eid":"c75fc7ef3cbc8366","ag":"dogfeed-orchestrator","ev":"grill","id":"T-01KYG0ZX2XERAS022A42JNAV75","gr":"2026-07-26 open=2","hash":"cfc32a141b5dccdd6b9f0a1387890a4381618847d5a0061f0a97b0262ae6774b","open":2,"keys":["env:unconsumed","env:unconsumed"]}
+{"t":"2026-07-26T20:14:04Z","eid":"5233ffe156f47759","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYG0ZX2XERAS022A42JNAV75","fr":"draft","to":"approved"}
