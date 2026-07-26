@@ -183,6 +183,60 @@ func diffHunks(diff string) map[string][][2]int {
 	return out
 }
 
+// diffAddedLines parses the NEW-side line ranges of added ('+') runs per
+// file (T-01KYFPNCX). diffHunks spans whole hunks INCLUDING context lines,
+// which made the dup detector implicate pre-existing neighbors of an
+// insertion (short8 vs shortHash, flagged on two landings); a dup finding
+// must implicate only functions the diff actually added lines to.
+func diffAddedLines(diff string) map[string][][2]int {
+	out := map[string][][2]int{}
+	cur := ""
+	newLine := 0
+	inHunk := false
+	runStart := -1
+	flush := func() {
+		if runStart >= 0 && cur != "" {
+			out[cur] = append(out[cur], [2]int{runStart, newLine - 1})
+		}
+		runStart = -1
+	}
+	for _, l := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(l, "diff --git a/"):
+			flush()
+			inHunk = false
+			f := strings.TrimPrefix(l, "diff --git a/")
+			if i := strings.Index(f, " b/"); i >= 0 {
+				cur = f[i+3:]
+			}
+		case strings.HasPrefix(l, "@@"):
+			flush()
+			var aStart, aLen, bStart, bLen int
+			if n, _ := fmt.Sscanf(l, "@@ -%d,%d +%d,%d @@", &aStart, &aLen, &bStart, &bLen); n >= 3 {
+				newLine = bStart
+				inHunk = true
+			}
+		case !inHunk:
+			// content outside an @@ hunk is not diff body (synthetic or
+			// malformed input) — never counted
+		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"):
+			// file headers, not content
+		case strings.HasPrefix(l, "+"):
+			if runStart < 0 {
+				runStart = newLine
+			}
+			newLine++
+		case strings.HasPrefix(l, "-"):
+			flush()
+		default:
+			flush()
+			newLine++
+		}
+	}
+	flush()
+	return out
+}
+
 // diffFiles parses changed paths with +/- counts out of a unified diff.
 func diffFiles(diff string) (files []string, adds, dels map[string]int) {
 	adds, dels = map[string]int{}, map[string]int{}
@@ -889,12 +943,17 @@ func (s *Server) derivedArchiveNote(it item.Item, explicit string) string {
 	return note
 }
 
-func shortHash(h string) string {
-	if len(h) > 12 {
-		return h[:12]
+// hashPrefix truncates a hex hash for display; the standing dup-detector
+// false positive (short8 twin, T-01KYFPNCX) is retired by making this THE
+// one truncation helper.
+func hashPrefix(h string, n int) string {
+	if len(h) > n {
+		return h[:n]
 	}
 	return h
 }
+
+func shortHash(h string) string { return hashPrefix(h, 12) }
 
 // validateComputedForTest exercises the diff-only classes without a
 // workspace — the unit seam TestValidateNodocsClass uses.
@@ -966,7 +1025,10 @@ func (s *Server) validateDups(diff string) []string {
 	if diff == "" {
 		return nil
 	}
-	hunks := diffHunks(diff)
+	// Added-line scoping (T-01KYFPNCX): only functions the diff ADDED
+	// lines to can carry a dup finding — context-only neighbors are
+	// pre-existing code the task never wrote.
+	hunks := diffAddedLines(diff)
 	if len(hunks) == 0 {
 		return nil
 	}
