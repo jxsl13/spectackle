@@ -46,22 +46,3 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the 
 SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifecycle.go's state machine, the item model, templates.
 ROLLBACK: revert the commit - one conditional, no stored state, no format change.
 REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
-
-## T-01KYEWT8GMFAQAQP46DEK5FJ35 the manifest teaches memory-to-spec: standing decisions and constraints are cast into rules and decisions, never kept in agent-private memory
-kind: task
-state: approved
-created: 2026-07-26
-refs: P-01KYESGDWFFMH80ENHNFXMVZE8
-targets: internal/mcpserver/server.go, internal/mcpserver/templates
-
-USER DIRECTIVE (2026-07-26): agent memory is independent of the specification and therefore unwanted for project knowledge; the server must nudge the LLM to cast standing knowledge into the spec, always.
-
-WHY. An orchestrator that accumulates project constraints in harness-private memory (files only its own sessions read) forks the source of truth: sibling agents, fresh sessions, and the user never see those constraints, they are unversioned with the repo, and they silently diverge from the spec the server enforces. Seven such memories existed in this repositorys orchestration before this task; all seven are now EARS rules (TOKEN-OBJECTIVE, ORCH-GITQUEUE, ORCH-PROOF, REVIEW-MODE, ASK-SURFACE, AGENT-ISOLATION, ROLE-BOUNDARY). The nudge prevents the next seven from accumulating.
-
-WHAT TO BUILD. One RECORDS-paragraph sentence in the instructions manifest (server.go, beside the American-English/compacted-substance rules) and the matching line in the workflow command template: standing decisions, constraints, and durable learnings are cast into the spec via rule op=add or decide op=ask the moment they emerge - never kept in agent-private memory, which no sibling reads and no merge versions. Keep it to one sentence per surface; the manifest byte test must show the addition under 200 bytes.
-
-VERIFY. go build ./... ; go test ./... ; manifest byte assertion updated with the measured delta; commands gen regenerates templates and the diff shows exactly the one line per surface.
-
-ROLLBACK: revert the commit; no state or schema is touched.
-
-EXIT CRITERION: the manifest and the generated workflow command each carry exactly one memory-to-spec sentence; the byte test pins the cost; a grep for the sentence in a fresh commands gen output succeeds.
