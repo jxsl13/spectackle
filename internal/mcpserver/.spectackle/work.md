@@ -46,12 +46,3 @@ CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the 
 SCOPE: the move gate region of tools.go plus tests. Do not touch grill.go, lifecycle.go's state machine, the item model, templates.
 ROLLBACK: revert the commit - one conditional, no stored state, no format change.
 REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mechanism and result, each fixture's real result including the red-run, anything deliberately not done.
-
-## B-01KYFG1KEEF1S8SYF8C7GXPZ0E re-land the memory-to-spec nudge stranded on the closed PR 121 by the premature post-refusal sync
-kind: bug
-state: done
-created: 2026-07-26
-refs: ADR-01KYF58AKGEZ3SDFX53H19P3GR
-targets: internal/mcpserver/server.go, internal/mcpserver/templates, docs/bench-curves.md
-
-Incident: T-01KYEW archived with its records riding a close branch (PR 122) while its CODE sat on the item branch (PR 121). Sequence: the resident swapped between calls (legal window), the archive retry was refused, and the orchestrator ran the post-merge sync ritual anyway - the raw checkout moved off the item branch AND discarded the live verdict event, so the later archive took the stale-branch closure and never merged 121, which then records-conflicted with 122 and was closed. Re-apply: the RECORDS-paragraph memory-to-spec sentence in the manifest (176B, byte test holds), the workflow template Records sentence, the ledger row. Lesson for the record: the sync ritual belongs strictly AFTER a confirmed merge line, and a refused or severed transition call stops the block - the flow may not be interleaved with raw git under any convenience.
