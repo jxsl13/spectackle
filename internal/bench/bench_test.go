@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,7 +143,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, err := AgentPrep(bin, dir)
+	brief, shim, err := AgentPrep(bin, dir, false)
 	if err != nil {
 		t.Fatalf("AgentPrep: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	// Short-of-goals workspace: prep only, nothing driven — invalid, and
 	// the missing goals are named as absent.
 	dir2 := t.TempDir()
-	if _, _, err := AgentPrep(bin, dir2); err != nil {
+	if _, _, err := AgentPrep(bin, dir2, false); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(filepath.Join(dir2, "meter.sh"), "call", "-root", dir2, "state", "{}").CombinedOutput(); err != nil {
@@ -241,5 +242,75 @@ func TestAggregateReportSpreadAndExitGate(t *testing.T) {
 	_, ok := AggregateReport([]string{"a", "b"}, scores[:2])
 	if !ok {
 		t.Fatal("two valid runs must pass the gate")
+	}
+}
+
+// TestAgentPrepWithManifest pins T-01KYE3X: -with-manifest prepends the
+// connect-time manifest to the brief and records its size in the sidecar;
+// plain prep produces neither; the score report carries the session line
+// exactly when the sidecar exists.
+func TestAgentPrepWithManifest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	dir := t.TempDir()
+	brief, _, err := AgentPrep(bin, dir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefBytes, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(briefBytes), "Connect-time server instructions") ||
+		!strings.Contains(string(briefBytes), "spectackle — spec-lifecycle server") {
+		t.Fatalf("with-manifest brief missing the manifest preamble:\n%.200s", briefBytes)
+	}
+	sidecar, err := os.ReadFile(filepath.Join(dir, "manifest.size"))
+	if err != nil {
+		t.Fatalf("manifest.size sidecar missing: %v", err)
+	}
+	manifestOut, err := exec.Command(bin, "manifest").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(sidecar)) != fmt.Sprint(len(manifestOut)) {
+		t.Fatalf("sidecar %s does not match manifest length %d", sidecar, len(manifestOut))
+	}
+
+	// The session line appears in the score report for this run.
+	if out, err := exec.Command(filepath.Join(dir, "meter.sh"), "call", "-root", dir, "state", "{}").CombinedOutput(); err != nil {
+		t.Fatalf("metered call: %v: %s", err, out)
+	}
+	sc, err := ScoreAgentRun(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.ManifestBytes != len(manifestOut) {
+		t.Fatalf("score ManifestBytes = %d, want %d", sc.ManifestBytes, len(manifestOut))
+	}
+	if !strings.Contains(AgentReport(sc), "agent session=") {
+		t.Fatalf("session line missing:\n%s", AgentReport(sc))
+	}
+
+	// Plain prep: no sidecar, no session line, brief without preamble.
+	dir2 := t.TempDir()
+	brief2, _, err := AgentPrep(bin, dir2, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := os.ReadFile(brief2)
+	if strings.Contains(string(b2), "Connect-time") {
+		t.Fatal("plain brief gained the manifest preamble")
+	}
+	if _, err := os.Stat(filepath.Join(dir2, "manifest.size")); !os.IsNotExist(err) {
+		t.Fatal("plain prep wrote a manifest.size sidecar")
 	}
 }
