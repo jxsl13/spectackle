@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYDNNVCRFSDVF6ZCXM1XAJB2 the server recommends and scaffolds a pre-push hook running the local gates, so human pushes are gated like automated ones
 kind: task
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 grilled: 2026-07-26 open=0
