@@ -142,7 +142,14 @@ func Fixture(dir string) error {
 // healthy-inventory collapse class the enriched fixture exists to measure.
 // Every response clause names a number the W001 lint accepts as verifiable —
 // a finding-tripping seed would defeat the enrichment (see the doc above).
+// The root entry exists so a fresh workspace answers check with plain ok
+// (B-01KYE0RCK): without it the root main.go is uncovered, check leads with
+// the gap line, and a judge agent whose brief promises check-reports-ok
+// rabbit-holes into rule-writing to clear a gap the brief never mentioned —
+// the scripted bench adds the same root rule in its own first step for the
+// same reason.
 var seedRules = []struct{ dir, stem, response string }{
+	{"", "FIX-ROOT", "terminate with exit code 0"},
 	{"api", "API-STATUS", "terminate with exit code 0"},
 	{"api", "API-EMPTY", "return HTTP status 204"},
 	{"api/handlers", "HND-ECHO", "return the input with HTTP status 200"},
@@ -158,9 +165,13 @@ var seedRules = []struct{ dir, stem, response string }{
 // take shape would silently bench a thinner workspace than reported.
 func Seed(bin, dir string) error {
 	for _, r := range seedRules {
+		label := r.dir
+		if label == "" {
+			label = "root"
+		}
 		args := fmt.Sprintf(
 			`{"op":"add","dir":%q,"stem":%q,"pattern":"U","system":"fixture %s","response":%q}`,
-			r.dir, r.stem, r.dir, r.response)
+			r.dir, r.stem, label, r.response)
 		out, refused, err := callOnce(bin, dir, "rule", args)
 		if err != nil {
 			return fmt.Errorf("bench seed %s/%s: %w", r.dir, r.stem, err)
@@ -368,10 +379,11 @@ func Report(r Result) string {
 	for _, s := range steps {
 		fmt.Fprintf(&b, "bench %6dB %s\n", s.Bytes, s.Label)
 	}
-	// fixture=v2 marks the enriched multi-dir workspace (T-01KYDT): absolute
-	// totals are not comparable to v1 numbers, and the label is how a reader
-	// of two reports knows whether they may compare them at all.
-	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v fixture=v2\n", r.Bytes, r.Tokens, r.Valid)
+	// The fixture label marks the workspace generation (v2: multi-dir seeds,
+	// T-01KYDT; v3: root coverage added, B-01KYE0RCK): absolute totals are
+	// not comparable across generations, and the label is how a reader of
+	// two reports knows whether they may compare them at all.
+	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v fixture=v3\n", r.Bytes, r.Tokens, r.Valid)
 	for _, v := range r.Violations {
 		fmt.Fprintf(&b, "bench ! %s\n", v)
 	}
