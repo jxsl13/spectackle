@@ -356,6 +356,14 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 // messages) is specified separately; this is the invariant it will refine, not
 // replace.
 func (s *Server) gitCommitRecords(res *gitFlowResult, it item.Item, to string) {
+	// One line per transition when the host resolves no commit identity: the
+	// commits below then carry the spectackle@localhost placeholder
+	// (B-01KYDK), and a fallback that changes commit attribution must never
+	// be silent (ADR-01KYDG). Emitted here because every committing
+	// transition passes through this function exactly once.
+	if !wt.IdentityConfigured(s.ws.Dir) {
+		res.addf("g identity fallback spectackle@localhost — set git user.name and user.email to attribute and sign commits")
+	}
 	committed, err := wt.CommitRecords(s.ws.Dir, "spectackle("+to+"): "+it.ID+" records")
 	if err != nil {
 		res.addf("! GIT E %s records: %s", it.ID, err)

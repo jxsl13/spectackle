@@ -320,3 +320,67 @@ func TestMergeMainPreservesSpectackleState(t *testing.T) {
 		t.Fatalf("FFMain after preserved merge: %v", err)
 	}
 }
+
+// TestCommitInheritsRepoIdentity pins B-01KYDK's core: an automation commit
+// carries the identity the repository's config declares — never the old
+// hardcoded spectackle@localhost override, which misattributed every commit
+// and made signing structurally impossible. GIT_CONFIG_GLOBAL/SYSTEM are
+// pointed at /dev/null so the assertion cannot pass by inheriting the
+// host's config instead of the fixture's.
+func TestCommitInheritsRepoIdentity(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	root := repo(t) // InitTestRepo sets spectackle-test <test@spectackle.local>
+
+	if !IdentityConfigured(root) {
+		t.Fatal("fixture repo must report a configured identity")
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitCode(root, "identity probe"); err != nil {
+		t.Fatalf("CommitCode: %v", err)
+	}
+	got, err := git(root, "log", "-1", "--format=%an <%ae> / %cn <%ce>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "spectackle-test <test@spectackle.local> / spectackle-test <test@spectackle.local>"
+	if got != want {
+		t.Fatalf("commit identity = %q, want %q", got, want)
+	}
+}
+
+// TestCommitFallbackOnBareHost: with no identity in ANY config scope the
+// commit still succeeds, carrying the placeholder — automation on a bare CI
+// container must degrade, not die at tell-me-who-you-are. IdentityConfigured
+// must say false so the transition layer can report the fallback loudly.
+func TestCommitFallbackOnBareHost(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A bare repo: no InitTestRepo (it would configure an identity). The
+	// init commit itself needs the fallback too.
+	if _, err := git(root, "init", "-b", "main"); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	if IdentityConfigured(root) {
+		t.Skip("host leaks an identity despite GIT_CONFIG_GLOBAL/SYSTEM=/dev/null; cannot exercise the bare path")
+	}
+	if _, err := git(root, "add", "-A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CommitCode(root, "bare host probe"); err != nil {
+		t.Fatalf("CommitCode on a bare host: %v", err)
+	}
+	got, err := git(root, "log", "-1", "--format=%an <%ae>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "spectackle <spectackle@localhost>" {
+		t.Fatalf("fallback identity = %q, want the documented placeholder", got)
+	}
+}

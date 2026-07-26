@@ -11,6 +11,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/forge"
 
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Issue closing is driven by the STRUCTURED refs field carrying real URLs, not
@@ -458,5 +459,51 @@ func TestArchiveForwardSkipFlipsDraftReady(t *testing.T) {
 	}
 	if !strings.Contains(out, "merged") {
 		t.Fatalf("forward skip did not merge:\n%s", out)
+	}
+}
+
+// TestIdentityFallbackIsSaidOnTransition pins B-01KYDK's never-silent half:
+// on a host resolving no git identity, the committing transition must SAY
+// that its commits carry the placeholder — a fallback that changes commit
+// attribution may never be invisible (ADR-01KYDG). On a configured host the
+// line must be absent.
+func TestIdentityFallbackIsSaidOnTransition(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+
+	// Bare repo: gitRoot/InitTestRepo would configure an identity, so build
+	// the fixture by hand without one.
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
+		[]byte("schema: v1\ngit:\n  mode: offline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", root, "init", "-b", "main").CombinedOutput(); err != nil {
+		t.Skipf("git unavailable: %v: %s", err, out)
+	}
+	if wt.IdentityConfigured(root) {
+		t.Skip("host leaks an identity despite GIT_CONFIG_GLOBAL/SYSTEM=/dev/null")
+	}
+	// The fixture's own baseline commit, via the fallback-aware helper.
+	if out, err := exec.Command("git", "-C", root, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", root,
+		"-c", "user.name=fixture", "-c", "user.email=fixture@localhost",
+		"commit", "-q", "-m", "init").CombinedOutput(); err != nil {
+		t.Fatalf("init commit: %v: %s", err, out)
+	}
+
+	s, sess := connectRootWithServer(t, root)
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "identity fallback probe"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if !strings.Contains(out, "g identity fallback spectackle@localhost") {
+		t.Fatalf("bare-host transition did not report the identity fallback:\n%s", out)
 	}
 }

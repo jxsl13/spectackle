@@ -18,14 +18,51 @@ import (
 	"strings"
 )
 
+// git runs a git command in dir, inheriting the repository's and the host's
+// configuration WHOLE — identity and signing included (B-01KYDK). The
+// previous hardcoded -c user.name/user.email override made every automation
+// commit read spectackle <spectackle@localhost>: misattributed (the
+// repository owner's chosen identity erased) and structurally Unverified on
+// GitHub (no account owns that email), while also bypassing the user's
+// commit.gpgsign at the exec boundary. Commit-creating callers that must
+// survive a host with NO identity at all prepend FallbackIdentity
+// explicitly — see withIdentity.
 func git(dir string, args ...string) (string, error) {
-	full := append([]string{"-C", dir,
-		"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}, args...)
+	full := append([]string{"-C", dir}, args...)
 	out, err := exec.Command("git", full...).CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// FallbackIdentity is the placeholder -c pair used ONLY when no identity
+// resolves from any git config scope, so automation can still commit on a
+// bare host (CI containers) instead of dying at "tell me who you are". It
+// must never override a configured identity — withIdentity guards that —
+// and per git precedence GIT_AUTHOR_*/GIT_COMMITTER_* environment identity
+// still wins over these flags.
+var FallbackIdentity = []string{"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}
+
+// IdentityConfigured reports whether dir resolves a commit identity
+// (user.name AND user.email non-empty) from any config scope. An upfront
+// check rather than a retry on the commit failure: git's tell-me-who-you-are
+// prose localizes with the host locale, and error-text matching would make
+// the fallback fire (or not) depending on LC_ALL.
+func IdentityConfigured(dir string) bool {
+	name, errN := git(dir, "config", "user.name")
+	mail, errE := git(dir, "config", "user.email")
+	return errN == nil && errE == nil && name != "" && mail != ""
+}
+
+// withIdentity prepends FallbackIdentity to a commit-creating command line
+// when — and only when — the repository resolves no identity. The -c flags
+// are global git flags and must precede the subcommand.
+func withIdentity(dir string, args ...string) []string {
+	if IdentityConfigured(dir) {
+		return args
+	}
+	return append(append([]string{}, FallbackIdentity...), args...)
 }
 
 // CommonRoot resolves the MAIN repository root for a dir that may be inside
@@ -290,7 +327,7 @@ func CommitRecords(wtRoot, msg string) (bool, error) {
 	if _, err := git(wtRoot, append([]string{"add", "--"}, files...)...); err != nil {
 		return false, err
 	}
-	if _, err := git(wtRoot, append([]string{"commit", "-m", msg, "--"}, files...)...); err != nil {
+	if _, err := git(wtRoot, withIdentity(wtRoot, append([]string{"commit", "-m", msg, "--"}, files...)...)...); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -317,7 +354,7 @@ func CommitCode(wtRoot, msg string) (bool, error) {
 	if !staged && !MergeInProgress(wtRoot) {
 		return false, nil
 	}
-	if _, err := git(wtRoot, "commit", "-m", msg); err != nil {
+	if _, err := git(wtRoot, withIdentity(wtRoot, "commit", "-m", msg)...); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -355,7 +392,7 @@ func MergeMain(wtRoot string) (conflicts []string, err error) {
 			}
 		}()
 	}
-	if _, err := git(wtRoot, "merge", "--no-edit", target); err != nil {
+	if _, err := git(wtRoot, withIdentity(wtRoot, "merge", "--no-edit", target)...); err != nil {
 		out, lsErr := git(wtRoot, "diff", "--name-only", "--diff-filter=U")
 		if lsErr == nil && out != "" {
 			return strings.Split(out, "\n"), nil
@@ -488,8 +525,14 @@ func DirtyOverlap(mainRoot string, files []string) []string {
 // InitTestRepo creates a git repo with an initial commit on branch main —
 // used by tests and nowhere else.
 func InitTestRepo(dir string) error {
+	// Repo-local identity: the production git helper inherits host config
+	// (B-01KYDK), so fixtures declare their own — tests must neither depend
+	// on the host being configured nor exercise the no-identity fallback by
+	// accident.
 	for _, args := range [][]string{
 		{"init", "-b", "main"},
+		{"config", "user.name", "spectackle-test"},
+		{"config", "user.email", "test@spectackle.local"},
 		{"add", "-A"},
 		{"commit", "--allow-empty", "-m", "init"},
 	} {

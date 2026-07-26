@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Offline implements Forge with no network at all: PRs are tracked
@@ -168,9 +170,17 @@ func (o *Offline) Merge(pr PR) (MergeResult, error) {
 	if base == "" {
 		base = "main"
 	}
+	// Identity is inherited from the repository and host config, exactly
+	// like every wt commit (B-01KYDK) — a hardcoded override here would
+	// stamp the placeholder onto every offline merge commit and bypass the
+	// user's signing config. The fallback pair applies only on a host that
+	// resolves no identity at all.
+	idArgs := []string{}
+	if !wt.IdentityConfigured(o.RepoRoot) {
+		idArgs = wt.FallbackIdentity
+	}
 	gitArgs := func(args ...string) []string {
-		return append([]string{"-C", o.RepoRoot,
-			"-c", "user.name=spectackle", "-c", "user.email=spectackle@localhost"}, args...)
+		return append(append([]string{"-C", o.RepoRoot}, idArgs...), args...)
 	}
 	if out, err := exec.Command("git", gitArgs("checkout", base)...).CombinedOutput(); err != nil {
 		return MergeResult{}, fmt.Errorf("forge: offline merge %s: checkout %s: %w: %s", rec.Branch, base, err, strings.TrimSpace(string(out)))
