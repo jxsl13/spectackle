@@ -34,9 +34,21 @@ spec-driven-development lifecycle to completion:
    claims scope via `lease`/`work op=start`, implements, tests, and moves
    it to `done`.
 7. **Check** — `check` until `ok`; review diffs, run the declared
-   gate/verify commands. Never trust a `done` you haven't checked.
+   gate/verify commands. Never trust a `done` you haven't checked. Then
+   re-verify independently: a fresh-context verifier re-runs the task's
+   VERIFY block from the diff alone — the implementer's transcript is
+   never the evidence.
 8. **Archive** — `move to=archived` (implies `done`); the delta merges
-   into spec.md. Commit/PR per this repo's normal git conventions.
+   into spec.md. Commit/PR per this repo's normal git conventions. The
+   archive note becomes the journal tombstone every later session
+   searches: state what changed, what was measured, what was deliberately
+   not done, and where the learning landed (rule, ADR, doc).
+9. **Restart** — the repo ships the resident {{.Tool}} server itself?
+   Rebuild it after every merge (`make dev`): a stale binary silently
+   serves yesterday's logic to every later call.
+10. **Research capture** — every R-item ends consumed (rules, ADRs, or
+    tasks citing it) or explicitly closed with a no-action note; the
+    server enforces this at the archive gate.
 
 If any task escalates to `blocked` (rounds limit hit), resolve the
 auto-minted ADR-item via `decide` — `rescope`, `reject`, or `override-once`

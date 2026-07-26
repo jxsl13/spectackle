@@ -288,8 +288,12 @@ func TestManifestDietAndGuidePrompt(t *testing.T) {
 			t.Fatalf("situational section %q still rides the manifest", moved)
 		}
 	}
-	if len(m) > 4000 {
-		t.Fatalf("manifest regrew to %d bytes — the diet's whole point was ~3400", len(m))
+	// Ceiling raised 4000 -> 4300 by T-01KYD88KV: the diet's point was
+	// evicting the three situational playbooks (54%% of the old manifest),
+	// not freezing the core — the BACKPROP paragraph (~600B, budgeted <=
+	// 700B by its brief) is always-relevant core, not playbook regrowth.
+	if len(m) > 4300 {
+		t.Fatalf("manifest regrew to %d bytes — playbooks belong in guide, core additions need a budget", len(m))
 	}
 
 	s := newTestServer(t, t.TempDir())

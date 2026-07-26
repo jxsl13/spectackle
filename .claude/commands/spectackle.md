@@ -40,9 +40,21 @@ spec-driven-development lifecycle to completion:
    claims scope via `lease`/`work op=start`, implements, tests, and moves
    it to `done`.
 7. **Check** — `check` until `ok`; review diffs, run the declared
-   gate/verify commands. Never trust a `done` you haven't checked.
+   gate/verify commands. Never trust a `done` you haven't checked. Then
+   re-verify independently: a fresh-context verifier re-runs the task's
+   VERIFY block from the diff alone — the implementer's transcript is
+   never the evidence.
 8. **Archive** — `move to=archived` (implies `done`); the delta merges
-   into spec.md. Commit/PR per this repo's normal git conventions.
+   into spec.md. Commit/PR per this repo's normal git conventions. The
+   archive note becomes the journal tombstone every later session
+   searches: state what changed, what was measured, what was deliberately
+   not done, and where the learning landed (rule, ADR, doc).
+9. **Restart** — the repo ships the resident spectackle server itself?
+   Rebuild it after every merge (`make dev`): a stale binary silently
+   serves yesterday's logic to every later call.
+10. **Research capture** — every R-item ends consumed (rules, ADRs, or
+    tasks citing it) or explicitly closed with a no-action note; the
+    server enforces this at the archive gate.
 
 If any task escalates to `blocked` (rounds limit hit), resolve the
 auto-minted ADR-item via `decide` — `rescope`, `reject`, or `override-once`
@@ -54,7 +66,10 @@ alternatives and why. Never paste verbatim user quotes or transcript
 excerpts; they bloat every later read of the record without adding
 information. Write every item body in American English: spelling variants
 (behavior/behaviour, initialize/initialise) fragment full-text matches
-exactly like a language mix does. Compact the input, lose nothing.
+exactly like a language mix does. Compact the input, lose nothing. Standing decisions, constraints and durable
+learnings are cast into the spec the moment they emerge — `rule op=add` or
+`decide op=ask` — never kept in agent-private memory, which no sibling
+reads and no merge versions.
 
 Defects: notice a defect in spectackle itself, not in this repository? Open
 an issue with your analysis (reproduction, observed vs. expected, isolated

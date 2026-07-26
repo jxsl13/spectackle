@@ -239,6 +239,9 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 	}
 
 	var b strings.Builder
+	if next := nextAction(it, sc.short); next != "" {
+		b.WriteString(next + "\n")
+	}
 	b.WriteString(sc.record(it) + "\n")
 	if it.Parent != "" {
 		b.WriteString("parent " + sc.short(it.Parent) + "\n")
@@ -347,4 +350,51 @@ func textPrompt(s string) *mcp.GetPromptResult {
 			{Role: "user", Content: &mcp.TextContent{Text: s}},
 		},
 	}
+}
+
+// nextAction computes the ONE next step for an item's state — the backward
+// path made explicit on the machine-facing surface (T-01KYD88KV). This is
+// a rendered hint, never a gate: the gates that enforce these edges live
+// in move/grill/validate. Empty for archived/rejected (terminal here).
+func nextAction(it item.Item, short func(string) string) string {
+	id := short(it.ID)
+	switch it.State {
+	case item.StateDraft:
+		if it.Grilled == "" {
+			return "next grill id=" + id + " — render the critique, then an independent verdict"
+		}
+		if n := grilledOpen(it.Grilled); n > 0 {
+			return fmt.Sprintf("next close the %d open findings, then grill id=%s op=verdict", n, id)
+		}
+		return "next move id=" + id + " to=submitted"
+	case item.StateSubmitted:
+		return "next move id=" + id + " to=approved — or to=rejected with a note"
+	case item.StateApproved:
+		return "next work op=start item=" + id
+	case item.StateActive:
+		return "next implement + test, then work op=submit"
+	case item.StateDone:
+		return "next check until ok, then move id=" + id + " to=archived with a substance note"
+	case item.StateBlocked:
+		if len(it.Needs) > 0 {
+			return "next decide op=answer id=" + short(it.Needs[0]) + " — the linked decision is the only exit"
+		}
+		return "next decide — resolve the linked decision, the only exit from blocked"
+	}
+	return ""
+}
+
+// grilledOpen parses the open-finding count out of the "<date> open=<n>"
+// stamp grill writes into it.Grilled; malformed stamps count as 0 open so
+// the hint degrades to the submit step rather than inventing gaps.
+func grilledOpen(stamp string) int {
+	i := strings.LastIndex(stamp, "open=")
+	if i < 0 {
+		return 0
+	}
+	n := 0
+	if _, err := fmt.Sscanf(stamp[i:], "open=%d", &n); err != nil {
+		return 0
+	}
+	return n
 }

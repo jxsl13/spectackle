@@ -43,7 +43,9 @@ mixed-vendor ones; the table above is the definition, this note is not.)*
 Only the orchestrator has git write access. Implementers edit files and run
 tests inside their leased scope; landing the result (commit, PR, merge) is
 always the orchestrator's job, whether it drives `work op=submit` itself or
-reviews and commits an implementer's diff. The merge method is a merge
+reviews and commits an implementer's diff. Before landing, the orchestrator
+has a fresh-context verifier re-run the task's VERIFY block from the diff
+alone — the implementer's transcript is never the evidence. The merge method is a merge
 commit, never squash — the per-edge decision trail on the branch must
 survive into `main` intact (see CONTRIBUTING.md for the policy and the
 repository settings enforcing it). The edge commits themselves are
@@ -332,6 +334,35 @@ forcing an actual rescope or reject.
   is not a defeat: it feeds the rejection corpus, which siblings see in
   real time via `swarm`/`find scope=rejection`, and a rejection made with
   too little information is revocable (the orchestrator can move it back).
+
+## Backward path
+
+The forward path turns intent into merged code; the backward path turns
+what happened into what the next session knows. Three durable stores carry
+it, and every completed or rejected item must land its learning in one:
+
+- **spec.md rules** — standing contracts, added the moment a decision or
+  constraint emerges (`rule op=add`), never kept in agent-private memory.
+- **Journal tombstone notes** — the `move to=archived`/`to=rejected` note
+  is indexed and full-text-searched by every later session
+  (`find scope=history|rejection`). Write substance: what changed, what
+  was measured, what was deliberately not done, where the learning landed.
+  The note IS the training signal — a thin note costs every future reader
+  a full re-derivation.
+- **Knowledge artifacts** — docs and ADR items for anything with rationale
+  too large for a rule sentence.
+
+Research items are part of the same loop: every R-item ends consumed
+(rules, ADRs, or tasks citing it) or explicitly closed with a no-action
+note — the server enforces this at the archive gate. Code-to-spec drift
+closes the loop mechanically: `check fix=true` drafts one backprop
+proposal per drifted rule.
+
+When the repository under change ships the resident server itself, the
+backward path includes the binary: rebuild after every merge (`make dev`,
+see CONTRIBUTING.md) — a stale resident silently serves yesterday's logic.
+The machine-facing mirror of this section lives in the server manifest
+(BACKPROP paragraph) and workflow steps 7–10.
 
 ## This repo eats its own dog food
 
