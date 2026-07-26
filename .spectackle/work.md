@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYFPNCK2E2QVSAF3QDS1W11S http CLI path silently drops SPECTACKLE_AGENT for identity-bound verdicts
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 grilled: 2026-07-26 open=0
 targets: cmd/spectackle/main.go, internal/mcpserver/validate.go
