@@ -273,8 +273,7 @@ func (s *Server) validateComputed(it item.Item, diff string) []string {
 	// test-sibling shapes)
 	exportedAdded := false
 	inTestFile := false
-	for _, l := range strings.Split(diff, "
-") {
+	for _, l := range strings.Split(diff, "\n") {
 		if strings.HasPrefix(l, "diff --git") {
 			inTestFile = strings.Contains(l, "_test.go")
 			continue
