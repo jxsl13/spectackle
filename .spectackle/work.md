@@ -109,7 +109,7 @@ state: active
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72H15EPV8KCW6ASSMEFZX
-grilled: 2026-07-25
+grilled: 2026-07-26 open=3
 targets: internal/evidence, internal/mcpserver/grill.go
 
 IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Supersedes the rejected draft in refs; the one change is the suppression mechanism (its absence let an acknowledged false-positive class gate approval with no escape - anti-ceremony validation finding); everything else is re-recorded intact.
