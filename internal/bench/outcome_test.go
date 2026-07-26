@@ -238,3 +238,21 @@ func TestAggregateRefusesUnequalValidity(t *testing.T) {
 		t.Fatalf("missing efficiency line: %s", out)
 	}
 }
+
+// OutcomeFixture is the standalone fixture entry (AgentPrep composes the
+// same pieces itself): standard fixture plus the seeded trap.
+func TestOutcomeFixture(t *testing.T) {
+	dir := t.TempDir()
+	if err := OutcomeFixture(dir); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTrapHash(dir) == "missing" {
+		t.Fatal("trap file must be seeded")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		t.Fatal("fixture must be a git workspace (first-iteration recovery needs the edge commits)")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "limiter")); err == nil {
+		t.Fatal("the limiter package must NOT pre-exist — creating it is the task")
+	}
+}
