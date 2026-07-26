@@ -77,3 +77,11 @@ changelog:
       - "^docs:"
       - "^spec:"
       - "^chore:"
+      # The never-squash merge policy (CONTRIBUTING.md) carries the server's
+      # process commits onto main; their subjects narrate workflow decisions,
+      # not shipped change — excluded like docs:/spec:/chore: (docs/release.md).
+      # Task CODE commits (subject `spectackle <id>: <title>`) stay IN: they
+      # carry the shipped change and its best one-line description.
+      - '^spectackle\('
+      - '^spectackle .*: checkpoint$'
+      - "^Merge pull request "
