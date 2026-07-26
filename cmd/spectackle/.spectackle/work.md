@@ -25,7 +25,7 @@ choice: committed-only: rebuild from git HEAD, dirty tree never served (recommen
 
 ## B-01KYF7DJATEEDAXXV67GW958AK the committed-only watcher swaps while tool calls are in flight, severing the very edge that moved HEAD
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 rounds: 1
 
