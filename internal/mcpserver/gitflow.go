@@ -188,6 +188,20 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		return res
 	}
 	res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
+	// Reopen direction (T-01KYDKNR8): an item re-entering active declares
+	// its work not-finished, so a pull request still marked ready must
+	// return to draft — the PR draft state mirrors the item state in both
+	// directions. A fresh activation's PR is a draft already (or was just
+	// opened as one above), so in effect this fires only on reopens.
+	if pr, ok, err := f.Find(branch); err != nil {
+		res.addf("! GIT E %s pr lookup for draft flip: %s", it.ID, err)
+	} else if ok && !pr.Draft {
+		if pr, err = f.Draft(pr); err != nil {
+			res.addf("! GIT E %s pr draft: %s", it.ID, err)
+		} else {
+			res.addf("g pr %d back to draft %s", pr.Number, pr.URL)
+		}
+	}
 	return res
 }
 

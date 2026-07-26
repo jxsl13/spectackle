@@ -200,3 +200,35 @@ func TestOfflineReadySurvivesReload(t *testing.T) {
 		t.Fatal("Ready's draft flip was lost across the reload — o.save() missing in Ready")
 	}
 }
+
+// TestOfflineDraftFlipSurvivesReload: the reopen flip persists across
+// processes like every other mutation (B-01KYDV precedent), and the full
+// drafted-readied-drafted-readied sequence lands in the state file.
+func TestOfflineDraftFlipSurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "forge-offline.json")
+
+	o1 := NewOfflinePersistent(dir, "main", state)
+	pr, err := o1.Open("feature/reopen", "main", "t", "b")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if pr, err = o1.Ready(pr); err != nil {
+		t.Fatalf("Ready: %v", err)
+	}
+	if pr, err = o1.Draft(pr); err != nil {
+		t.Fatalf("Draft: %v", err)
+	}
+	if !pr.Draft {
+		t.Fatal("Draft returned a still-ready PR")
+	}
+
+	o2 := NewOfflinePersistent(dir, "main", state)
+	got, ok, err := o2.Find("feature/reopen")
+	if err != nil || !ok {
+		t.Fatalf("Find after reload: ok=%v err=%v", ok, err)
+	}
+	if !got.Draft {
+		t.Fatal("reopen draft flip lost across reload")
+	}
+}

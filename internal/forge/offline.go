@@ -150,6 +150,22 @@ func (o *Offline) Ready(pr PR) (PR, error) {
 	return cp, nil
 }
 
+// Draft converts the tracked pull request back to draft — the reopen
+// mirror of Ready. Saved like every other mutation (B-01KYDV): an unsaved
+// flip would be invisible to the next process's Find.
+func (o *Offline) Draft(pr PR) (PR, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	rec, ok := o.prs[pr.Branch]
+	if !ok || rec.Number != pr.Number {
+		return PR{}, notFoundErr(pr.Branch, pr.Number)
+	}
+	rec.Draft = true
+	o.save()
+	cp := *rec
+	return cp, nil
+}
+
 // Merge performs a genuine `git merge --no-ff` of pr.Branch into o.Base
 // inside o.RepoRoot, then drops the tracked PR (matching GitHub's own
 // pulls API, where a merged PR no longer shows up as open). --no-ff is not

@@ -186,7 +186,10 @@ walk through every state in between. `rejected` is reachable from any state
 except `archived`, REQUIRES `note` (the rejection corpus), and is
 **revocable**: move the rejected ID back to `draft`/`submitted`/`approved`/
 `active` (never `done`/`archived`) — the reject event snapshots the full
-item. `done → active` (reopen) is the one backward hop outside rejection.
+item. `done → active` (reopen) is the one backward hop outside rejection;
+it also converts the task's pull request back to draft (`g pr N back to
+draft`), the mirror of `done`'s ready flip — the PR draft state follows the
+item state in both directions.
 `archived` requires no open children; a skip straight to `archived` implies
 `done` and runs the archive effects once — merges the delta into spec.md
 `## intent`. `archived` is terminal. Illegal transition → `!` with the
