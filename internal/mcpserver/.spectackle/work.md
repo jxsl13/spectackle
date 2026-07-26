@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYG56YQAFD09C2151VVYQHSV archive split the record from the code: closure heuristics discard live work
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/gitflow.go
