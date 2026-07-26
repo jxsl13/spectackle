@@ -120,10 +120,3 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
-
-## B-01KYE0RCTXFYVV2C59BVWR4MGN elicitation need responses exit zero over the CLI: an unperformed action reads as success to a shell-driven agent
-kind: bug
-state: done
-created: 2026-07-26
-
-Found by live judge C: rule op=add with an invalid pattern answers need pattern EARS pattern: U ubiquitous, E event... and exits ZERO over the CLI. The need line is the elicitation fallback — the action was NOT performed — but a shell-driven agent keys on the exit code, reads success, and moves on or retries blind: judge C issued nine rule calls with junk patterns (main, U:fixture, fixture) without ever landing on the plain U the need line names, partly because nothing signaled failure at the machine level. MCP-protocol consumers see the same softness: the result carries no IsError. Analysis: need is designed as a conversational prompt, but on a headless surface an unperformed action that exits 0 violates the same principle the refusal sweep enforced (B-01KYD4H: refusals exit non-zero) — the distinction between refused and needs-more-input does not survive translation to exit codes, and the caller must not be left believing the rule exists. Fix direction: need-fallback results carry IsError and exit non-zero over the CLI, keeping the need grammar as the text so interactive flows still parse the slot question; sweep all elicitSlots call sites. VERIFY: rule op=add with an invalid pattern exits non-zero with the need line as text; the bench script ambiguity-retry machinery is unaffected; a judge rerun shows retry loops keyed by the exit code.
