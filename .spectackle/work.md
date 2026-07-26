@@ -126,7 +126,7 @@ REPORT: the live state line or its absence with the computed rate, each test.
 
 ## T-01KYFXEQ71F8X9C2028Q3B4WBX verdict events survive compaction and findings render only pre-archive: the token diet closes the loop
 kind: task
-state: draft
+state: approved
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 grilled: 2026-07-26 open=0
