@@ -130,7 +130,11 @@ func (o *Offline) Open(branch, base, title, body string) (PR, error) {
 	return pr, nil
 }
 
-// Ready flips the tracked draft to ready for review.
+// Ready flips the tracked draft to ready for review. The flip is saved like
+// Open's and Merge's mutations are (B-01KYDV): every `spectackle call` is
+// its own process, so an unsaved flip is invisible to the next Find, which
+// then reports a stale draft and makes the archive path flip (and gate) a
+// second time.
 func (o *Offline) Ready(pr PR) (PR, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -139,6 +143,7 @@ func (o *Offline) Ready(pr PR) (PR, error) {
 		return PR{}, notFoundErr(pr.Branch, pr.Number)
 	}
 	rec.Draft = false
+	o.save()
 	cp := *rec
 	return cp, nil
 }
