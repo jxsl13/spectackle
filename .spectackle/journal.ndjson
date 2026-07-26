@@ -442,3 +442,4 @@
 {"t":"2026-07-26T16:31:44Z","eid":"f7a8a45ea529a42e","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","fr":"active","to":"done","note":"round two: the task-body-anatomy guidance sentence committed"}
 {"t":"2026-07-26T16:34:39Z","eid":"1b29e2e7e9baf249","ag":"cross-val-9r","ev":"validate","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","op":"render","hash":"0bd6842afc733c30975acfb1b8c85367d9b04f35f193c55a8b621c0dfcaff1fb","open":1,"keys":["untested:BuildDupIndex"]}
 {"t":"2026-07-26T16:39:08Z","eid":"e9f766c33db220aa","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","fr":"done","to":"active","note":"the BuildDupIndex test import raced the previous done edge","rnd":2}
+{"t":"2026-07-26T16:39:14Z","eid":"fd563e0c75dc4105","ag":"dogfeed-orchestrator","ev":"move","id":"T-01KYD9RJTREBEVQFV34HYW8VJ2","fr":"active","to":"done","note":"round three: guidance sentence plus the BuildDupIndex direct test, all committed green"}
