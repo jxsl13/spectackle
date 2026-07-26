@@ -64,7 +64,7 @@ SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 t
 
 ## T-01KYD87ZN7EJ49CMSEQE9XGGWS package-local contract coverage: silent by default with visibility in state, counted by check only under coverage_gate
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
 refs: R-0007, T-01KYD72GQ6E2ZV0HX8S443NPY6

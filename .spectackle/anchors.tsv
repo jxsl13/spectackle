@@ -24,8 +24,8 @@ DRF-001	go:drift.Upsert	internal/drift/drift.go	175-183	7a41f19e26ed4b1b	ed38696
 LSP-001	go:langspec.SpecParser.Parse	internal/langspec/langspec.go	235-289	ee77989091bab22d	eae57d105eaf62a4
 MCP-002	go:graph.Node	internal/graph/graph.go	124-133	092160135b9850c0	1a52ce91c2f5ebcc
 MCP-003	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-336	dd6be8188f0b8306	92dcbcfaffa20331
-MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1844-2050	6857e2d4d546f0ac	8800c929f7ba22f7
-MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2243-2331	207cd742db307bbf	eb2b0afd3aaf585d
+MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1844-2057	dcd585488e73a98a	8800c929f7ba22f7
+MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2350-2438	207cd742db307bbf	eb2b0afd3aaf585d
 SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	259-283	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
 SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-148	b22279d1973d0f49	12a13a8c05a928ed
