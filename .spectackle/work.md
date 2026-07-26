@@ -125,7 +125,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYDA92TGF3FT994TEE6EDVN6 one task, one branch, one pull request: every finished task opens its own PR immediately, never batched
 kind: task
-state: active
+state: done
 created: 2026-07-25
 parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
 refs: R-0007, T-01KYDA17KBFV3SBCEV79KXW7Z3
