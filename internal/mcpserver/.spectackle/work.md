@@ -49,7 +49,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## B-01KYERTFRSFVDTNCT8EB4XGDPK no body-edit path exists for draft-state items, so grill feedback cannot amend the record it critiques
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 
 Reproduced during P-01KYER: grill surfaced scope-disjointness and rollback questions; the draft tool always mints (shape has no id property), item bodies are otherwise immutable outside lifecycle moves, and the documented loop (grill, close what it surfaces) therefore cannot close pack findings into the record they criticize without minting a successor and rejecting the original, which pollutes the rejection corpus with non-rejections. The chain (T-01KYD9J) presumes body edits exist: a body edit clears waivers, hash-bound verdicts expire on edit. Expected: a draft-state-only body revision path (draft id=<existing> or an item op=edit) that re-renders the context pack, expires grilled/verdict stamps via the body hash, and journals the revision; forbidden at submitted and later, where the body is the frozen review subject. Verify: grill question answered by a body revision clears from the re-rendered pack; revision on a submitted item refused; verdict stamped on the old hash no longer gates the new body.
