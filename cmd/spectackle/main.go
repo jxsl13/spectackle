@@ -421,6 +421,7 @@ func benchCmd(args []string) int {
 	baseline := fs.String("baseline", "", "override the baseline binary (default: this one), so two foreign builds can be A/B'd with the current fixture and script")
 	agentPrep := fs.String("agent-prep", "", "prepare a metered judge workspace in DIR: seeded fixture, fixed brief, metering shim (P-01KYDP stage 4)")
 	withManifest := fs.Bool("with-manifest", false, "agent-prep only: prepend the connect-time manifest to the brief (simulates an MCP session) and record its size for the session-cost line")
+	scenario := fs.String("scenario", "basic", "agent-prep only: judge scenario — basic (draft/archive/reject) or tricky (rule slots, reopen loop into blocked, decide exit)")
 	agentScore := fs.String("agent-score", "", "score a completed judge run in DIR: goal states plus metered bytes; exit non-zero when goals were not reached")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -431,7 +432,7 @@ func benchCmd(args []string) int {
 		return 1
 	}
 	if *agentPrep != "" {
-		brief, shim, err := bench.AgentPrep(self, *agentPrep, *withManifest)
+		brief, shim, err := bench.AgentPrep(self, *agentPrep, *withManifest, *scenario)
 		if err != nil {
 			log.Printf("bench: agent-prep: %v", err)
 			return 1

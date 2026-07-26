@@ -143,7 +143,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, err := AgentPrep(bin, dir, false)
+	brief, shim, err := AgentPrep(bin, dir, false, "basic")
 	if err != nil {
 		t.Fatalf("AgentPrep: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	// Short-of-goals workspace: prep only, nothing driven — invalid, and
 	// the missing goals are named as absent.
 	dir2 := t.TempDir()
-	if _, _, err := AgentPrep(bin, dir2, false); err != nil {
+	if _, _, err := AgentPrep(bin, dir2, false, "basic"); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(filepath.Join(dir2, "meter.sh"), "call", "-root", dir2, "state", "{}").CombinedOutput(); err != nil {
@@ -261,7 +261,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, _, err := AgentPrep(bin, dir, true)
+	brief, _, err := AgentPrep(bin, dir, true, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 
 	// Plain prep: no sidecar, no session line, brief without preamble.
 	dir2 := t.TempDir()
-	brief2, _, err := AgentPrep(bin, dir2, false)
+	brief2, _, err := AgentPrep(bin, dir2, false, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,5 +312,94 @@ func TestAgentPrepWithManifest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir2, "manifest.size")); !os.IsNotExist(err) {
 		t.Fatal("plain prep wrote a manifest.size sidecar")
+	}
+}
+
+// TestTrickyScenarioPrepAndScore drives the side-state scenario (T-01KYE4)
+// without an agent: tricky prep writes the scenario sidecar and its own
+// brief; a scripted stand-in reaches all three goals through the shim (rule
+// with slots, reopen loop to blocked, decide rescope); the scorer must
+// report valid with the tricky goal line. An unfinished tricky workspace
+// (rule only) must score invalid. Skipped in -short (builds the binary).
+func TestTrickyScenarioPrepAndScore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	dir := t.TempDir()
+	brief, shim, err := AgentPrep(bin, dir, false, "tricky")
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefBytes, _ := os.ReadFile(brief)
+	for _, must := range []string{trickyRuleStem, trickyTaskTitle, "rescope"} {
+		if !strings.Contains(string(briefBytes), must) {
+			t.Fatalf("tricky brief missing %q", must)
+		}
+	}
+
+	viaShim := func(tool, args string) string {
+		out, err := exec.Command(shim, "call", "-root", dir, tool, args).CombinedOutput()
+		if err != nil {
+			if _, isExit := err.(*exec.ExitError); !isExit {
+				t.Fatalf("shim call %s: %v: %s", tool, err, out)
+			}
+		}
+		return string(out)
+	}
+
+	// Goal 1: the rule.
+	viaShim("rule", `{"op":"add","dir":"api","stem":"`+trickyRuleStem+`","pattern":"U","system":"judged api","response":"terminate with exit code 0"}`)
+	// Goal 2: the reopen loop into blocked, resolved via rescope.
+	taskOut := viaShim("draft", `{"kind":"task","title":"`+trickyTaskTitle+`"}`)
+	m := reItemID.FindStringSubmatch(taskOut)
+	if m == nil {
+		t.Fatalf("no task ID in: %s", taskOut)
+	}
+	id := m[1]
+	for _, to := range []string{"active", "done", "active", "done"} {
+		viaShim("move", `{"id":"`+id+`","to":"`+to+`"}`)
+	}
+	escOut := viaShim("move", `{"id":"`+id+`","to":"active"}`) // exhausts max_rounds=2
+	adr := reDecideID.FindStringSubmatch(escOut)
+	if adr == nil {
+		t.Fatalf("escalation did not name a decision:\n%s", escOut)
+	}
+	viaShim("decide", `{"op":"answer","id":"`+adr[1]+`","choose":"rescope"}`)
+	viaShim("check", `{}`)
+
+	sc, err := ScoreAgentRun(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Scenario != "tricky" || !sc.Valid {
+		t.Fatalf("tricky scripted run scored invalid:\n%s", AgentReport(sc))
+	}
+	if !strings.Contains(AgentReport(sc), "agent goal rule=true task=draft decide=true") {
+		t.Fatalf("tricky goal line wrong:\n%s", AgentReport(sc))
+	}
+
+	// Rule-only workspace: invalid, decide and task goals absent.
+	dir2 := t.TempDir()
+	_, shim2, err := AgentPrep(bin, dir2, false, "tricky")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command(shim2, "call", "-root", dir2, "rule",
+		`{"op":"add","dir":"api","stem":"`+trickyRuleStem+`","pattern":"U","system":"judged api","response":"terminate with exit code 0"}`).CombinedOutput(); err != nil {
+		t.Fatalf("rule in dir2: %v: %s", err, out)
+	}
+	sc2, err := ScoreAgentRun(bin, dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc2.Valid {
+		t.Fatal("rule-only tricky run scored valid")
 	}
 }
