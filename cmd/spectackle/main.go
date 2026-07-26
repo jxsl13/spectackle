@@ -55,6 +55,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/store"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
 	"github.com/jxsl13/spectackle/internal/workspace"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // httpShutdownTimeout bounds how long runHTTPListener waits for in-flight
@@ -79,6 +80,10 @@ func run(args []string) int {
 		return call(args[1:])
 	case "lint":
 		return lint(args[1:])
+	case "verify":
+		return verifyCmd(args[1:])
+	case "hook":
+		return hookCmd(args[1:])
 	case "reindex":
 		return reindex(args[1:])
 	case "bench":
@@ -505,6 +510,64 @@ func runHTTPListener(ctx context.Context, ln net.Listener, handler http.Handler)
 // Exit codes: 2 for a usage problem (bad arguments/JSON, unreadable stdin
 // line), 1 when the session could not be established or any tool call came
 // back flagged IsError, 0 when every call succeeded.
+// verifyCmd runs the workspace verify commands — the ONE local gate
+// definition (config.yaml 'verify'), shared by the done transition and the
+// pre-push hook (T-01KYDNN). Exit mirrors the worst command.
+func verifyCmd(args []string) int {
+	fs := flag.NewFlagSet("verify", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	_ = fs.Parse(args)
+	ws, err := workspace.Detect(*root, *root)
+	if err != nil {
+		log.Printf("verify: %v", err)
+		return 1
+	}
+	if len(ws.Cfg.Verify) == 0 {
+		fmt.Println("ok verify: no commands configured")
+		return 0
+	}
+	for _, cmdline := range ws.Cfg.Verify {
+		fmt.Println("verify:", cmdline)
+		c := exec.Command("sh", "-c", cmdline)
+		c.Dir = ws.Dir
+		c.Stdout, c.Stderr = os.Stdout, os.Stderr
+		if err := c.Run(); err != nil {
+			log.Printf("verify: %s: %v", cmdline, err)
+			return 1
+		}
+	}
+	fmt.Println("ok verify")
+	return 0
+}
+
+// hookCmd installs the pre-push hook on explicit operator request — the
+// consent model is recommendation over imposition; nothing here runs
+// without this command (T-01KYDNN).
+func hookCmd(args []string) int {
+	if len(args) < 1 || args[0] != "install" {
+		log.Printf("hook: usage: spectackle hook install [-root DIR]")
+		return 2
+	}
+	fs := flag.NewFlagSet("hook install", flag.ExitOnError)
+	root := fs.String("root", ".", "repository root")
+	_ = fs.Parse(args[1:])
+	ws, err := workspace.Detect(*root, *root)
+	if err != nil {
+		log.Printf("hook install: %v", err)
+		return 1
+	}
+	if err := wt.InstallPrePushHook(ws.Dir); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			log.Printf("hook install: a foreign pre-push hook exists — chain it to 'spectackle verify' yourself, it will not be clobbered")
+			return 1
+		}
+		log.Printf("hook install: %v", err)
+		return 1
+	}
+	fmt.Println("ok hook installed:", wt.HookPath(ws.Dir))
+	return 0
+}
+
 func call(args []string) int {
 	fs := flag.NewFlagSet("call", flag.ExitOnError)
 	root := fs.String("root", ".", "workspace detection start / fallback root (stdio transport only)")
