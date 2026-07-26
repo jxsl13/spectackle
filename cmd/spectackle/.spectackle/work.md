@@ -11,7 +11,7 @@ Observed live on the resident server (serve.log): exec-replacing count went 4 to
 
 ## B-01KYES20Y0E9FRQ8DGPC4YD9NK self-restart builds and execs the dirty working tree, so the resident server runs unreviewed in-flight code mid-fix
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 rounds: 1
 
