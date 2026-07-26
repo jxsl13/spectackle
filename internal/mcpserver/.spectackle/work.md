@@ -120,10 +120,3 @@ TESTS
 VERIFY (real output, never predicted): go build ./... ; go test ./internal/mcpserver/... -race ; go test ./... -race ; go vet ; gofmt -l (empty) ; spectackle lint . (POSITIONAL). Then show a composed body for one of the real bug items that says GitHub issue 26.
 SCOPE: internal/mcpserver/gitflow.go and its tests only.
 ROLLBACK: the Closes lines are additive text in a pull request body; removing the call restores today's body exactly.
-
-## B-01KYEEJKEVF56SXG2C937RD4CQ abort and orphan adoption ignore DeleteBranch failures, so discarded work can silently resurrect through the attach path
-kind: bug
-state: done
-created: 2026-07-26
-
-Secondary finding of the adversarial review of B-01KYED3D: workAbort and the orphan-adoption path in workStart discard the item branch with an ignored error — git branch -D fails silently when the branch is checked out anywhere, reachable because every CLI call is its own process and a gitflow transition can have re-checked the branch out in main between calls. Since the attach fix, a later work op=start on the same item then ATTACHES to the surviving branch, resurrecting commits that abort explicitly chose to discard (its contract: worktree state is discarded, item back to approved) — whether discarded work returns now depends on incidental checkout state, with no signal either way; the old reset-to-HEAD behavior at least made restart semantics uniform. Resurrected commits still pass both submit gates, so this is inconsistency rather than corruption. Fix direction: DeleteBranch failures at the two discard sites become loud (a WT W line naming the surviving branch and why), and the discard vacates the branch from the main checkout first via the same vacateBranch helper the attach path uses, so the deletion actually succeeds in the checked-out case. VERIFY: e2e — activate (gitflow checks the branch out), work start, abort; the branch is gone, a fresh start creates it anew from HEAD, and no stale commits resurface.
