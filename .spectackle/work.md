@@ -162,6 +162,6 @@ kind: task
 state: draft
 created: 2026-07-26
 refs: ADR-01KYFYGVSRFX4B9B2YJ44QSBS8
-grilled: 2026-07-26 open=1
+grilled: 2026-07-26 open=0
 
 bound the widget cache somehow
