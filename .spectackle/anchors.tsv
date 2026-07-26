@@ -28,9 +28,9 @@ MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1852-2064	4c7c2af1
 MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2352-2461	a70ad293c07022f9	eb2b0afd3aaf585d
 SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	259-283	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
-SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-148	b22279d1973d0f49	12a13a8c05a928ed
-SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	203-253	0fa34a1f18005e98	12a13a8c05a928ed
-SPX-EARS-004	go:ears.StripFrontMatter	internal/ears/ears.go	269-281	45da9a4aa569b9e8	12a13a8c05a928ed
+SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-156	d36df6df89ccad2f	12a13a8c05a928ed
+SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	211-261	0fa34a1f18005e98	12a13a8c05a928ed
+SPX-EARS-004	go:ears.StripFrontMatter	internal/ears/ears.go	277-289	45da9a4aa569b9e8	12a13a8c05a928ed
 MCP-006	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-336	9255f3f3b401d34f	dc3914bfaa235c28
 RSV-002	go:resolve.GpuPipeResolver.Resolve	internal/resolve/gpupipe.go	66-80	c1ee7682e99013bd	2a844dd5c561d2dc
 LSP-002	go:langspec.SpecParser.callEdges	internal/langspec/langspec.go	317-338	55b2a954ca598924	b43e489d49084037
@@ -38,3 +38,4 @@ MTC-API-004	objc:Renderer.buildPipeline	examples/metalcompute/Renderer.m	12-15	8
 MTC-API-006	msl:add_arrays	examples/metalcompute/shaders.metal	4-6	894657ad7bcbe04e	41ca46660e86a63f
 MCP-011	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-336	9255f3f3b401d34f	081060ff3535ad7c
 ROLE-BOUNDARY-001	go:mcpserver.Server.gitFlowFor	internal/mcpserver/gitflow.go	845-866	798a2537ef34c41b	d23a97e322d7aeea
+EARS-001	go:ears.Compose	internal/ears/compose.go	58-112	53c73ccecccf14d1	f7c6a352c74c6284

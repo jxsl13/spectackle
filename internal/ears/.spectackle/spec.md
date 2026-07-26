@@ -16,3 +16,6 @@ The linter SHALL match EARS keywords case-sensitively so that lowercase words in
 
 ## SPX-EARS-004 {applies: go:ears.LintSentence,go:ears.ParseRules,go:ears.StripFrontMatter}
 The EARS linter SHALL process arbitrary byte input in LintSentence, ParseRules and StripFrontMatter without panicking.
+
+## EARS-001 {applies: go:ears.Compose}
+WHEN a clause slot already leads with its own keyword, the EARS composer SHALL strip that keyword case-insensitively before composing, per ears.Compose and the W003 doubled-keyword lint.

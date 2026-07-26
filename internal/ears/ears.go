@@ -132,6 +132,14 @@ func LintSentence(sentence, file string, line int) []Finding {
 	if Classify(s) == PInvalid {
 		add("E002", Error, "rule matches no EARS pattern (U/E/S/N/O/C)")
 	}
+	// W003 (B-01KYFSZ7): a doubled clause keyword is composer damage — the
+	// pre-normalization composer prepended WHEN to triggers that already
+	// led with it, and seven live rules carried WHEN WHEN undetected.
+	for _, kw := range []string{"WHEN", "WHILE", "IF", "WHERE", "THEN"} {
+		if strings.Contains(s, kw+" "+kw+" ") {
+			add("W003", Warn, "doubled clause keyword "+kw+" "+kw+" (composer damage; re-compose via rule op=edit)")
+		}
+	}
 	low := " " + strings.ToLower(s) + " "
 	for _, t := range vagueTerms {
 		if strings.Contains(low, " "+t+" ") || strings.Contains(low, " "+t+",") || strings.Contains(low, " "+t+".") {
