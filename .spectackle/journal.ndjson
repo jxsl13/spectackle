@@ -526,3 +526,4 @@
 {"t":"2026-07-26T19:30:38Z","eid":"a36eafc9bb27a030","ag":"dogfeed-orchestrator","ev":"create","id":"ADR-01KYFYGVSRFX4B9B2YJ44QSBS8","k":"adr","ti":"live probe: should the widget cache be bounded"}
 {"t":"2026-07-26T19:30:38Z","eid":"652adc7678d6315e","ag":"dogfeed-orchestrator","ev":"move","id":"ADR-01KYFYGVSRFX4B9B2YJ44QSBS8","fr":"draft","to":"submitted"}
 {"t":"2026-07-26T19:30:53Z","eid":"2aa026b1a019758b","ag":"dogfeed-orchestrator","ev":"create","id":"T-01KYFYHAWMFWC8KKQMSGQMQBJA","k":"task","ti":"live ambiguity probe task"}
+{"t":"2026-07-26T19:31:05Z","eid":"c4246404f219d91c","ag":"dogfeed-orchestrator","ev":"grill","id":"T-01KYFYHAWMFWC8KKQMSGQMQBJA","gr":"2026-07-26 open=1","hash":"50f76769f526652f9d3bdcdb2184361ba3077677de604401961cfcb49ba79b86","open":1,"keys":["amb-thin:body"]}
