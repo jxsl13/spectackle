@@ -35,23 +35,23 @@ IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Small, self-contained; 
 WHY. The user requirement pins the division of labor: the LLM spends tokens only on judgment (traversal, elaboration, code, research, validation, refutation); every mechanical git/forge step is the server's. Today that boundary is convention plus implementation; nothing CONTRACTS it and nothing MEASURES a regression where a tool result starts telling the agent to compose git commands - which would silently tax every session.
 
 WHAT TO BUILD
-1. EARS RULE, root bundle, via rule op=add (dir empty, pattern U, stem ROLE): The spectackle server SHALL perform every mechanical git and forge step (branch, commit, push, pull request, merge, CI await) itself, and never emit a tool result instructing the caller to run a git or forge command. (36 words - lint W001 clean; the bench detector below is the verifiable artifact, name it in the rationale.) applies: go:mcpserver.Server.gitFlowFor. VERIFY the anchor row lands (a <rule> go:mcpserver.Server.gitFlowFor line).
+1. RULE ALREADY EXISTS - do not mint a duplicate: ROLE-BOUNDARY-001 (root) already states the server performs every mechanical git/forge step and no tool result instructs the caller to run git. Your job is BINDING and ARTIFACT: check whether ROLE-BOUNDARY-001 carries an applies binding (find scope=rule / anchors); if unanchored, rule op=edit adding applies go:mcpserver.Server.gitFlowFor and VERIFY the anchor row lands (a ROLE-BOUNDARY-001 go:mcpserver.Server.gitFlowFor line). The bench detector below becomes the rule's verifiable artifact either way - cite ROLE-BOUNDARY-001 in the detector's doc comment.
 2. DETECTOR in internal/bench/bench.go: func gitInstructionViolations(transcript string) []string returning one violation per match of (a) imperative-instruction shape (?i)\b(?:run|execute|invoke)\s+`?git\b and (b) command-line shape (?m)^\s*(?:\$\s*)?git\s+(?:add|commit|push|checkout|switch|merge|rebase|pull|fetch|reset|cherry-pick)\b. CALIBRATE FIRST, then pin: run the existing scripted bench (spectackle bench) and the current fixture transcripts, grep the concatenated result bytes for the patterns, and paste proof that legitimate output (g branch, g pr N merged, g records, h stale hints, refusal lines) matches NEITHER pattern. If any legitimate line matches, tighten the regex and record the collision in the report - do not ship a detector that fires on todays clean surface.
 3. WIRING: scripted mode - Run() appends the violations to Result.Violations and they flip Valid=false. Judge mode - ScoreAgentRunAnchored appends them to AgentScore violations with the same validity effect (find the existing violations field and mirror its plumbing exactly).
 4. TESTS: positive control - a synthetic transcript containing run `git push origin` and a second containing a bare git commit -m line each yield exactly their one violation; negative control - a transcript built from real current-surface records (g branch x, g pr 12 merged abc, g records clean, i/ok/! lines) yields zero; wiring test - a Run result carrying one violation is Valid=false.
 
 NON-NEGOTIABLE PROPERTIES
 - The detector never fires on the current surface: proven by the calibration run, pasted.
-- Rule exists, anchored, lint 0 findings (83 rules -> 84).
+- ROLE-BOUNDARY-001 anchored, lint 0 findings (rule count unchanged at 83).
 - No behavior change outside bench: the server code is untouched by this task.
 
 VERIFY (real output, never predicted)
   go build ./... ; go test ./... ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> - 84 rules 0 findings
+  spectackle lint <worktree-root> - 83 rules 0 findings
   spectackle bench (scripted mode) - valid run, zero git-instruction violations, paste the report tail
   spectackle call -root <worktree-root> check '{}' ends exactly ok
 CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the negative-control test and the calibration grep from the diff alone.
 
 SCOPE: internal/bench only plus the one root rule. Do not touch internal/mcpserver, cmd, templates, docs (curves ledger untouched - no A/B here).
-ROLLBACK: revert the commit; rule op=retire ROLE-001.
+ROLLBACK: revert the commit; the applies edit reverts via rule op=edit restoring the prior applies set.
 REPORT BACK: the calibration grep output, the pinned regexes verbatim, each test result, the anchor line.
