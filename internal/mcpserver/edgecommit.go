@@ -28,7 +28,15 @@ import (
 // touched bundles — or nothing, when the call failed, wrote nothing, or
 // the knob is off (byte-identical behavior, zero commits).
 func (s *Server) beginEdgeCapture() func(failed bool) {
-	if !s.ws.Cfg.Git.EdgeCommits() {
+	// The master git opt-out wins (enabled: false disarmed everything
+	// before this engine existed and must keep doing so), and the swarm
+	// worktree flow OWNS record-state reconciliation: engine commits on an
+	// item branch made work.md/spec.md git-conflict at submit — the exact
+	// B-0006 class replay and preserveSpectackle exist to make impossible
+	// (cross-verification, live repro). Inside a task worktree the engine
+	// stands down; replay carries the events to main, and main-side calls
+	// commit there.
+	if !s.ws.Cfg.Git.IsEnabled() || !s.ws.Cfg.Git.EdgeCommits() || s.wtItem != "" {
 		return func(bool) {}
 	}
 	type hit struct {
@@ -102,6 +110,10 @@ func (s *Server) commitEdge(root string, events []journal.Event, journalPaths []
 	git := func(args ...string) (string, error) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
+		// pinned locale: the retry logic must never depend on translated
+		// prose (cross-verification: non-English locales broke every
+		// string match)
+		cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 		out, err := cmd.CombinedOutput()
 		return string(out), err
 	}
@@ -130,14 +142,6 @@ func (s *Server) commitEdge(root string, events []journal.Event, journalPaths []
 	if len(specSet) == 0 {
 		return
 	}
-	// A sibling process's sweep may have carried these events already —
-	// their eids would sit in its commit trailers. One log probe keeps
-	// one-commit-per-call truthful instead of minting an empty duplicate.
-	if len(events) > 0 && events[0].Eid != "" {
-		if out, err := git("log", "-8", "--format=%B"); err == nil && strings.Contains(out, events[0].Eid) {
-			return
-		}
-	}
 	specs := make([]string, 0, len(specSet))
 	for sp := range specSet {
 		specs = append(specs, sp)
@@ -154,6 +158,20 @@ func (s *Server) commitEdge(root string, events []journal.Event, journalPaths []
 			}
 			return
 		}
+		// STRUCTURAL no-diff detection, never prose parsing (the English
+		// phrases vary by untracked-file state and vanish under other
+		// locales — cross-verification lost an edge silently to exactly
+		// that): staged-diff-empty means a sibling's commit already
+		// carried this call's bytes, and the DECISION still gets its own
+		// log entry — an empty commit with the structured message and an
+		// explicit marker — so one call remains one greppable edge.
+		checkArgs := append([]string{"diff", "--cached", "--quiet", "--"}, specs...)
+		if _, err := git(checkArgs...); err == nil {
+			empty := append([]string{"commit", "-q", "--allow-empty",
+				"-m", msg + "\nSpectackle-Content: carried-by-sibling-commit", "--"}, specs...)
+			_, _ = git(empty...)
+			return
+		}
 		out, err := git(commitArgs...)
 		if err == nil {
 			return
@@ -161,17 +179,6 @@ func (s *Server) commitEdge(root string, events []journal.Event, journalPaths []
 		if strings.Contains(out, "index.lock") {
 			time.Sleep(75 * time.Millisecond)
 			continue
-		}
-		if strings.Contains(out, "nothing to commit") || strings.Contains(out, "no changes added") {
-			// A sibling process's sweep carried this call's bytes before we
-			// took the lock: the DECISION still gets its own log entry — an
-			// empty commit with the structured message and an explicit
-			// marker — so one call remains one greppable edge forever,
-			// while the tree content lives one commit over.
-			empty := append([]string{"commit", "-q", "--allow-empty",
-				"-m", msg + "\nSpectackle-Content: carried-by-sibling-commit", "--"}, specs...)
-			_, _ = git(empty...)
-			return
 		}
 		return
 	}
@@ -181,6 +188,14 @@ func (s *Server) commitEdge(root string, events []journal.Event, journalPaths []
 		Ev: journal.EvGitSkip, Note: "edge commit skipped: index contention after retries",
 	})
 }
+
+// STATED RESIDUAL (cross-verification): notes render verbatim in commit
+// bodies, so git log --grep=<id> returns every commit MENTIONING the id —
+// including other items' edges whose notes cite it. Machine-parsed
+// trailers cannot be forged (the genuine block always terminates the
+// message), and itemDiff attribution ignores spectackle( subjects; the
+// grep surface is deliberately mention-inclusive, which is how humans use
+// git log anyway.
 
 // edgeCommitMessage renders the structured, immutable-safe message: the
 // primary event in the subject, the decision note verbatim in the body,

@@ -201,3 +201,73 @@ func TestEdgeCommitConcurrentAgents(t *testing.T) {
 		t.Fatalf("8 concurrent drafts produced %d commits", added)
 	}
 }
+
+// Cross-verification regressions pinned: the master git opt-out disarms the
+// engine, and a swarm task worktree stands down entirely (record-state
+// reconciliation belongs to replay — the B-0006 class).
+func TestEdgeCommitsHonorMasterGitOptOut(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
+		[]byte("schema: v1\ngit:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := wt.InitTestRepo(root); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	t.Setenv("SPECTACKLE_AGENT", "edge-author")
+	sess := connectRoot(t, root)
+	before := len(gitLogSubjects(t, root))
+	draftID(t, sess, map[string]any{"kind": "proposal", "title": "opted out"})
+	if after := len(gitLogSubjects(t, root)); after != before {
+		t.Fatalf("enabled:false still committed: %d -> %d", before, after)
+	}
+}
+
+// In-worktree calls make no engine commits: the item branch carries only
+// what the submit flow owns, and work.md never git-conflicts at submit.
+func TestEdgeCommitsStandDownInsideWorktree(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "edge-author")
+	sess := connectRoot(t, root)
+	prop := draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "worktree standdown", "targets": []string{"main.go"}})
+	callText(t, sess, "move", map[string]any{"id": prop, "to": "approved"})
+	out := callText(t, sess, "work", map[string]any{"op": "start", "item": prop})
+	if !strings.Contains(out, "wt "+prop+" open ") {
+		t.Fatalf("start: %q", out)
+	}
+	wtRoot := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "wt "+prop+" open ") {
+			wtRoot = strings.TrimPrefix(l, "wt "+prop+" open ")
+		}
+	}
+	beforeWt := len(gitLogSubjects(t, wtRoot))
+	draftID(t, sess, map[string]any{"kind": "task", "title": "drafted inside the worktree"})
+	if after := len(gitLogSubjects(t, wtRoot)); after != beforeWt {
+		t.Fatalf("in-worktree call committed on the item branch: %d -> %d", beforeWt, after)
+	}
+	callText(t, sess, "work", map[string]any{"op": "abort", "item": prop})
+}
+
+// An unknown git.commits value fails at load — a typo'd opt-out must never
+// silently arm the engine.
+func TestEdgeCommitsKnobValidatedAtLoad(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
+		[]byte("schema: v1\ngit:\n  commits: disabled\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(root); err == nil || !strings.Contains(err.Error(), "git.commits") {
+		t.Fatalf("typo'd knob did not fail at load: %v", err)
+	}
+}

@@ -79,11 +79,11 @@ var coverageStates = []string{
 // recordFamilies are the promised output families whose ABSENCE from a full
 // run means the surface went silent somewhere it must not (ADR-01KYDG).
 var recordFamilies = map[string]string{
-	"item record":       "\ni ",
-	"gitflow branch":    "g branch ",
-	"pr draft":          " draft offline://",
-	"pr ready":          " ready offline://",
-	"pr merged":         " merged ",
+	"item record":    "\ni ",
+	"gitflow branch": "g branch ",
+	"pr draft":       " draft offline://",
+	"pr ready":       " ready offline://",
+	"pr merged":      " merged ",
 	// "g records " matches both "committed" and "clean": under the
 	// edge-commit engine (T-01KYD94MG) the structured edge commit lands
 	// first and the transition sweep finds the records clean — either way

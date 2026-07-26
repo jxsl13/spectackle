@@ -90,7 +90,9 @@ type GitCfg struct {
 	// Commits selects the edge-commit engine (T-01KYD94MG): "edges"
 	// (default) commits every .spectackle-writing tool call with a
 	// structured decision message derived from its journal events; "off"
-	// produces byte-identical tool behavior and zero commits. A validator
+	// produces zero commits and unchanged tool output (the validate
+	// attribution fix that excludes spectackle( records subjects is
+	// knob-independent and intended). A validator
 	// argued the journal already carries eid/ag and the feature is
 	// redundant; the requirement is explicit that the decision trail must
 	// be readable in git log by humans, so the default stays edges and the
@@ -310,6 +312,14 @@ func load(dir string) (Root, error) {
 		// different error depending on which command the user ran.
 		if m := r.Cfg.Git.Mode; m != "" && m != "online" && m != "offline" {
 			return Root{}, fmt.Errorf("workspace: config.yaml: git.mode %q: must be \"online\" or \"offline\"", m)
+		}
+		// Same principle for the edge-commit knob: `commits: disabled` or
+		// `commits: false` silently ARMED the engine (every non-"off"
+		// value did) — a typo'd opt-out must fail loudly at load, never
+		// invert into unwanted per-call commits (cross-verification of
+		// T-01KYD94MG).
+		if c := r.Cfg.Git.Commits; c != "" && c != "edges" && c != "off" {
+			return Root{}, fmt.Errorf("workspace: config.yaml: git.commits %q: must be \"edges\" or \"off\"", c)
 		}
 	}
 	if r.Cfg.BudgetDefault == 0 {
