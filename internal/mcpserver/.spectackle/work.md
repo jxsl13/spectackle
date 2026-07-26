@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## T-01KYDKNR8KF66BSZ9W7ZPTX9BC a reopened task flips its pull request back to draft: the PR draft state mirrors the item state in both directions
 kind: task
-state: active
+state: done
 created: 2026-07-25
 refs: ADR-01KYDGXWH4FX9VQTG0G2CF8GQQ
 
