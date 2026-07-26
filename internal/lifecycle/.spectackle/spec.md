@@ -12,3 +12,4 @@ WHEN a `needs:` entry names an archived item, the spectacle server SHALL count t
 
 ## intent
 - P-01KY9MZ098EM4AXJ6BEGCBRBD6 archived items stay referenceable: journal tombstones + decide option fidelity: archived items resolve as journal tombstones at every reference site; decide options roundtrip byte-exact
+- T-01KYDAS36XFHJ8X3H1Q8Y845FF exhaustive, deterministic transition matrix over every state pair: internal/lifecycle/matrix_test.go exercises every ordered state pair deterministically: forward skips legal, backward hops refused except the reopen, side states entered only by their designated mechanisms; green in every suite run since landing
