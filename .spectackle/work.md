@@ -147,13 +147,15 @@ REPORT: before/after fold of a synthetic journal, each test, the dry-run paste.
 
 ## ADR-01KYFYGVSRFX4B9B2YJ44QSBS8 live probe: should the widget cache be bounded
 kind: adr
-state: submitted
+state: done
 created: 2026-07-26
-status: proposed
+decision: yes bounded
+status: accepted
 
 kind: radio
 option: yes bounded
 option: no unbounded
+choice: yes bounded
 
 ## T-01KYFYHAWMFWC8KKQMSGQMQBJA live ambiguity probe task
 kind: task
