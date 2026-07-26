@@ -18,6 +18,7 @@ choice: yes bounded
 kind: task
 state: draft
 created: 2026-07-26
+grilled: 2026-07-26 open=0
 targets: internal/mcpserver/prompts.go, internal/mcpserver/server.go, internal/mcpserver/tools.go, docs/lifecycle.md
 
 IMPLEMENTER IN OWN WORKTREE. USER PRINCIPLE (2026-07-27, now NODE-EDGE-001): graph NODES are LLM interactions - at each state the LLM decides direction and does judgment work (implement, document, review, test, decide) from the MCP hints; EDGES are fully mechanical MCP steps. No tool result may DEMAND mechanical work of the caller; every state surface must present the judgment OPTIONS, not just one next command.
