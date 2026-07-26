@@ -258,7 +258,7 @@ ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (requ
 
 ## T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted
 kind: task
-state: approved
+state: active
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007, T-01KYD87YYZFSJVGX74JG2HD4V3
