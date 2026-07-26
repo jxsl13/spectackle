@@ -123,7 +123,7 @@ ROLLBACK: the Closes lines are additive text in a pull request body; removing th
 
 ## T-01KYEBTE1PFR38C585EKQDZDZ6 the approved-transition result names the work flow: half the worktree judges shortcut past a flow nothing pointed at
 kind: task
-state: draft
+state: active
 created: 2026-07-26
 
 Data from the worktree scenario across two batches: two of four live judges delivered the file change by editing main directly instead of discovering work op=start — the flow column caught both, and at that rate the shortcut is a guidance gap, not variance (docs/bench-curves.md records it as a finding, not a baseline). Nothing in the per-call surface points an agent holding an approved item at the work flow: the manifest MODES pointer names the swarm guide prompt, which CLI-driven agents never fetch, and the start hint is only visible AFTER start. Change: the move-to-approved success result appends one line — next: work op=start item=<id> leases the scope and opens a worktree — so the pointer sits exactly where the decision is made, on the transition every implementer passes. Costs one line only on approved transitions; the scripted bench pays it on move/T1-approved (~55B step, expect roughly +50B total) and the judged worktree scenario is the beneficiary. VERIFY: unit test pins the line on the approved result and its absence on other transitions; scripted A/B quantifies the cost; a worktree judge batch n=3 measures the effect on the shortcut rate — target zero flow-invalids, recorded whichever way it lands.
