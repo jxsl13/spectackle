@@ -252,3 +252,21 @@ Rationale: A linked worktree has its own git dir and therefore its own index (.g
 
 ## TOKEN-OBJECTIVE-001
 The spectackle server SHALL minimize total tokens to a complete, valid, defect-free result including correction rounds when composing machine-facing text; per-call bytes are subordinate, and hint lines ship only with a docs/bench-curves.md A/B entry showing non-increasing total cost.
+
+## ORCH-GITQUEUE-001
+The orchestrating agent SHALL merge every open pull request before activating new work, checking the forge PR list first, because parallel agents leave WIP branches that may already implement the next item.
+
+## ORCH-PROOF-001
+WHEN WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
+
+## REVIEW-MODE-001
+The review workflow SHALL default to 1 reviewer walking all lenses sequentially in one context, reserving multi-agent panels for recorded risk signals: at 3 lenses a panel pays 3x context ingestion for marginal judgment gain.
+
+## ASK-SURFACE-001
+WHEN WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
+
+## AGENT-ISOLATION-001
+WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
+
+## ROLE-BOUNDARY-001
+The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.
