@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -496,5 +497,108 @@ func TestMeterTamperDetection(t *testing.T) {
 	out, ok := AggregateReport([]string{"x"}, []AgentScore{sc})
 	if ok || !strings.Contains(out, "disqualified=1") {
 		t.Fatalf("aggregate labeling wrong:\n%s", out)
+	}
+}
+
+// TestWorktreeScenarioPrepAndScore drives the swarm-core scenario
+// (T-01KYE9) without an agent: draft, approve, work start, an edit under
+// the root start reports, submit with the explicit item — every shim call
+// its own process, so the B-01KYE8 reattach is exercised through the
+// metered surface — then done and check; the scorer must report valid with
+// the worktree goal line. A workspace whose file was edited directly on
+// main without work calls must score invalid on the flow column. Skipped
+// in -short (builds the binary).
+func TestWorktreeScenarioPrepAndScore(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	dir := t.TempDir()
+	brief, shim, err := AgentPrep(bin, dir, false, "worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefBytes, _ := os.ReadFile(brief)
+	for _, must := range []string{worktreeTaskTitle, "returns 7", "read-only"} {
+		if !strings.Contains(string(briefBytes), must) {
+			t.Fatalf("worktree brief missing %q", must)
+		}
+	}
+
+	// One stable agent identity across the per-call processes — exactly
+	// what SPECTACKLE_AGENT provides real CLI flows and every judge spawn
+	// sets; without it each process mints a random agent and the B-01KYE8
+	// identity gate correctly refuses the reattach.
+	viaShim := func(tool, args string) string {
+		c := exec.Command(shim, "call", "-root", dir, tool, args)
+		c.Env = append(os.Environ(), "SPECTACKLE_AGENT=worktree-sim")
+		out, err := c.CombinedOutput()
+		if err != nil {
+			if _, isExit := err.(*exec.ExitError); !isExit {
+				t.Fatalf("shim call %s: %v: %s", tool, err, out)
+			}
+		}
+		return string(out)
+	}
+
+	taskOut := viaShim("draft", `{"kind":"task","title":"`+worktreeTaskTitle+`"}`)
+	m := reItemID.FindStringSubmatch(taskOut)
+	if m == nil {
+		t.Fatalf("no task ID in: %s", taskOut)
+	}
+	id := m[1]
+	viaShim("move", `{"id":"`+id+`","to":"approved"}`)
+	startOut := viaShim("work", `{"op":"start","item":"`+id+`"}`)
+	wm := regexp.MustCompile(`(?m)^wt \S+ open (.+)$`).FindStringSubmatch(startOut)
+	if wm == nil {
+		t.Fatalf("start did not report a root:\n%s", startOut)
+	}
+	if err := os.WriteFile(filepath.Join(wm[1], "api", "api.go"),
+		[]byte("package api\n\n// Serve is the fixture's api entry point.\nfunc Serve() int { return 7 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subOut := viaShim("work", `{"op":"submit","item":"`+id+`"}`)
+	if !strings.Contains(subOut, "merged to main") {
+		t.Fatalf("submit did not merge:\n%s", subOut)
+	}
+	viaShim("move", `{"id":"`+id+`","to":"done"}`)
+	viaShim("check", `{}`)
+
+	sc, err := ScoreAgentRun(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.Scenario != "worktree" || !sc.Valid {
+		t.Fatalf("worktree scripted run scored invalid:\n%s", AgentReport(sc))
+	}
+	if !strings.Contains(AgentReport(sc), "agent goal change=true task=done flow=true") {
+		t.Fatalf("worktree goal line wrong:\n%s", AgentReport(sc))
+	}
+
+	// The cheat: direct edit on main, no work calls — flow must fail it.
+	dir2 := t.TempDir()
+	_, shim2, err := AgentPrep(bin, dir2, false, "worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cheatOut, _ := exec.Command(shim2, "call", "-root", dir2, "draft", `{"kind":"task","title":"`+worktreeTaskTitle+`"}`).CombinedOutput()
+	cm := reItemID.FindStringSubmatch(string(cheatOut))
+	if cm == nil {
+		t.Fatalf("no task ID in cheat run: %s", cheatOut)
+	}
+	os.WriteFile(filepath.Join(dir2, "api", "api.go"), []byte("package api\n\nfunc Serve() int { return 7 }\n"), 0o644)
+	exec.Command(shim2, "call", "-root", dir2, "move", `{"id":"`+cm[1]+`","to":"done"}`).Run()
+	sc2, err := ScoreAgentRun(bin, dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc2.Valid || sc2.DecideOK {
+		t.Fatalf("direct-edit cheat scored valid / flow=true:\n%s", AgentReport(sc2))
 	}
 }

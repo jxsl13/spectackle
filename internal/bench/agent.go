@@ -81,6 +81,32 @@ Goals, in order:
 Start with the state tool. When all goals are met, stop and output exactly DONE.
 `
 
+// worktreeTaskTitle is the worktree scenario's goal marker.
+const worktreeTaskTitle = "worktree delivery run"
+
+// worktreeBrief sends the agent through the swarm core (T-01KYE9): claim a
+// task, open a worktree, edit under the root the server reports, submit.
+// The brief names the DELIVERABLE and one constraint; that the work tool is
+// the way remains the judged discovery — the tool list names it, the
+// manifest MODES pointer and the start hint carry the rest.
+const worktreeBrief = `You operate a spec-driven-development workflow through a CLI.
+
+Workspace: %s
+Command shape, the ONLY allowed way to act:
+  %s call -root %s <tool> '<json-arguments>'
+
+Available tool names: state, draft, move, get, find, grill, check, rule, decide, research, work, lease, swarm.
+No other documentation is provided; the tool outputs themselves guide you.
+Workspace files are read-only for you, with one exception: you may edit files under a directory root that a tool's output explicitly reports for that purpose.
+
+Goals, in order:
+1. A task titled "` + worktreeTaskTitle + `" exists, and its code change — the function Serve in api/api.go returns 7 instead of 0 — reaches the repository's default branch.
+2. That task ends in state done.
+3. A final check call reports no findings marked E.
+
+Start with the state tool. When all goals are met, stop and output exactly DONE.
+`
+
 // meterShim passes every call through to the real binary while appending
 // one line per call to meter.log: <seq> <nonce> <bytes> <exit> <argv>.
 // Stdout and stderr are metered together — both reach the agent's context,
@@ -152,8 +178,13 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("tricky\n"), 0o644); err != nil {
 			return "", "", err
 		}
+	case "worktree":
+		brief = fmt.Sprintf(worktreeBrief, dir, shimPath, dir)
+		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("worktree\n"), 0o644); err != nil {
+			return "", "", err
+		}
 	default:
-		return "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky)", scenario)
+		return "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky|worktree)", scenario)
 	}
 	if withManifest {
 		out, err := exec.Command(bin, "manifest").Output()
@@ -171,6 +202,48 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 		return "", "", err
 	}
 	return briefPath, shimPath, nil
+}
+
+// scoreWorktree judges the swarm-core scenario (T-01KYE9). The file
+// assertion alone cannot distinguish the worktree flow from an illegal
+// direct edit on main, so successful work start AND submit calls in the
+// meter are a first-class goal column: WorkOK is what proves the change
+// traveled through the machinery under judgment.
+func scoreWorktree(bin, dir string, sc AgentScore, meterRaw string) (AgentScore, error) {
+	sc.Scenario = "worktree"
+
+	if src, err := os.ReadFile(filepath.Join(dir, "api", "api.go")); err == nil &&
+		strings.Contains(string(src), "return 7") {
+		sc.RuleOK = true // reused column: the delivered-change goal
+	}
+
+	stateOut, _, err := callOnce(bin, dir, "state", "{}")
+	if err != nil {
+		return sc, err
+	}
+	for line := range strings.SplitSeq(stateOut, "\n") {
+		if strings.Contains(line, worktreeTaskTitle) && strings.Contains(line, " done ") {
+			sc.TaskState = "done"
+		}
+	}
+
+	startOK, submitOK := false, false
+	for line := range strings.SplitSeq(strings.TrimSpace(meterRaw), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[3] != "0" || fields[7] != "work" {
+			continue
+		}
+		if strings.Contains(line, "start") {
+			startOK = true
+		}
+		if strings.Contains(line, "submit") {
+			submitOK = true
+		}
+	}
+	sc.DecideOK = startOK && submitOK // reused column: the flow proof
+
+	sc.Valid = sc.RuleOK && sc.TaskState == "done" && sc.DecideOK && sc.CheckOK && !sc.Disqualified
+	return sc, nil
 }
 
 // reShimNonce extracts the nonce prep embedded in meter.sh.
@@ -310,8 +383,11 @@ func ScoreAgentRun(bin, dir string) (AgentScore, error) {
 	}
 	sc.CheckOK = strings.TrimSpace(checkOut) == "ok" || !strings.Contains(checkOut, " E ")
 
-	if scen, err := os.ReadFile(filepath.Join(dir, "scenario")); err == nil && strings.TrimSpace(string(scen)) == "tricky" {
+	switch scen, _ := os.ReadFile(filepath.Join(dir, "scenario")); strings.TrimSpace(string(scen)) {
+	case "tricky":
 		return scoreTricky(bin, dir, sc, string(raw))
+	case "worktree":
+		return scoreWorktree(bin, dir, sc, string(raw))
 	}
 
 	// Basic scenario. Goal states are judged through the same tool surface
@@ -385,9 +461,12 @@ func AgentReport(sc AgentScore) string {
 	if sc.ManifestBytes > 0 {
 		fmt.Fprintf(&b, "agent session=%dB (manifest %d + tools %d)\n", sc.ManifestBytes+sc.Bytes, sc.ManifestBytes, sc.Bytes)
 	}
-	if sc.Scenario == "tricky" {
+	switch sc.Scenario {
+	case "tricky":
 		fmt.Fprintf(&b, "agent goal rule=%v task=%s decide=%v check=%v\n", sc.RuleOK, orAbsent(sc.TaskState), sc.DecideOK, sc.CheckOK)
-	} else {
+	case "worktree":
+		fmt.Fprintf(&b, "agent goal change=%v task=%s flow=%v check=%v\n", sc.RuleOK, orAbsent(sc.TaskState), sc.DecideOK, sc.CheckOK)
+	default:
 		fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
 	}
 	switch {
