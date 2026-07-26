@@ -299,4 +299,4 @@ WHEN information needed for a decision is missing, the orchestrating agent SHALL
 WHEN a lifecycle gate evaluates an item, the spectackle server SHALL treat recorded agent verdicts (EvReview, EvValidate) as the sole gating authority and computed findings as evidence requiring per-key addressal, never as an independent veto.
 
 ## ORCH-SYNC-001
-WHEN WHEN a lifecycle transition call is refused or severed, the orchestrating agent SHALL stop the block before any git sync: the checkout runs only after a confirmed merged line - raw checkout over live records discarded a verdict (B-01KYFG1KEEF1S).
+WHEN a lifecycle transition call is refused or severed, the orchestrating agent SHALL stop the block before any git sync: the checkout runs only after a confirmed merged line - raw checkout over live records discarded a verdict (B-01KYFG1KEEF1S).
