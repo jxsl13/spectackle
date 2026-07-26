@@ -48,7 +48,7 @@ func TestStateSeededSections(t *testing.T) {
 			t.Fatalf("state missing %s on a seeded workspace: %q", sec, out)
 		}
 	}
-	if !strings.Contains(out, "ok items total=1 active=0 approved=0 draft=1 submitted=0 done=0") {
+	if !strings.Contains(out, "ok items total=1 draft=1") {
 		t.Fatalf("state items summary: %q", out)
 	}
 	if !strings.Contains(out, "i "+task+" task draft") {
@@ -266,5 +266,34 @@ func TestStateRulesInventoryCollapses(t *testing.T) {
 	}
 	if !strings.Contains(out, "ok dir sub rules=1") {
 		t.Fatalf("finding dir not listed: %q", out)
+	}
+}
+
+// TestItemsSummaryNonZeroBucketsAndSideStates pins T-01KYE8 from both
+// sides: zero buckets never render, and the side states DO — a blocked
+// item awaiting its decide was invisible in the summary line before, and
+// the summary is the one line agents read first.
+func TestItemsSummaryNonZeroBucketsAndSideStates(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "will be blocked"})
+	// max_rounds default 3: exhaust via reopen cycles until the server
+	// side-steps the item to blocked.
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	for range 3 {
+		callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+		callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	}
+
+	out := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(out, " blocked=1") {
+		t.Fatalf("blocked bucket missing from the items summary:\n%s", out)
+	}
+	for _, zero := range []string{"active=0", "approved=0", "submitted=0", "done=0", "draft=0"} {
+		if strings.Contains(out, zero) {
+			t.Fatalf("zero bucket %q rendered:\n%s", zero, out)
+		}
 	}
 }

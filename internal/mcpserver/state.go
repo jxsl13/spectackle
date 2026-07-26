@@ -188,9 +188,22 @@ func (s *Server) stateItemsSection(path string) (string, error) {
 		return !di && dj
 	})
 	var b strings.Builder
-	fmt.Fprintf(&b, "ok items total=%d active=%d approved=%d draft=%d submitted=%d done=%d\n",
-		len(scoped), counts[item.StateActive], counts[item.StateApproved],
-		counts[item.StateDraft], counts[item.StateSubmitted], counts[item.StateDone])
+	// Only non-zero buckets, side states included (T-01KYE8): the fixed
+	// six-bucket line spent bytes on zeros while blocked and rejected — the
+	// most actionable states in the machine — were invisible in the one
+	// line agents read first; a blocked item awaiting its decide could only
+	// be found by scanning the listing.
+	fmt.Fprintf(&b, "ok items total=%d", len(scoped))
+	for _, st := range []string{
+		item.StateDraft, item.StateSubmitted, item.StateApproved,
+		item.StateActive, item.StateDone,
+		item.StateBlocked, item.StateRejected,
+	} {
+		if counts[st] > 0 {
+			fmt.Fprintf(&b, " %s=%d", st, counts[st])
+		}
+	}
+	b.WriteString("\n")
 	sc, err := s.idScope()
 	if err != nil {
 		return "", err
