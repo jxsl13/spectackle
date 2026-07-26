@@ -138,5 +138,6 @@ choice: yes bounded
 kind: proposal
 state: draft
 created: 2026-07-26
+grilled: 2026-07-26 open=1
 
 A throwaway proposal existing only so a lens-labeled verdict can be recorded live against this repository, proving the round-trip from the lenses parameter through the journal event onto the pack verdict line. It names no targets, changes nothing, and is rejected immediately after the render below is captured for the T-01KYFXDC6 report.
