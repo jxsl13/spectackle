@@ -187,6 +187,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - ADR-01KYES0TMSETQSBYHCZF3X66CJ Where should validation be a HARD gate (feedback.validate=require)? Token analysis: break-even at ~30-50 percent defect-catch rate; always-on require does not pay for small items.: kind: radio
 - ADR-01KYES0TR8FP78R6CGSXM9MQ01 May a reviewer waive an ambiguity finding without a user round-trip? Recommended: waivable with recorded reason plus computed waive-rate tripwire (ask-only would make automation authoritative over judgment, inverting the steps-are-judgments contract).: kind: radio
 - ADR-01KYES0TTVERW92GN8R86TCG6W Do review/validation verdict events survive journal compaction forever (~5KB per item, permanent audit corpus) or fold after archive?: kind: radio
+- ADR-01KYF367A2EAERK9142M53JX8X v0.2.0 release cut: core cut (land addressal PR 105, fix both self-restart bugs, body-edit path, manifest nudge, elicitation gate, release notes and tag - ready in roughly 2-3 days at current pace) or full-chain cut (additionally the seven remaining chain tasks plus outcome benchmarks - roughly 5-7 days)? Pre-1.0 semantics: whatever is cut, the rest ships in v0.3.0.: kind: radio
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
