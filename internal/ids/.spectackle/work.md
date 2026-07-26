@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYF3BVBSFG6SWNXEQ5RKA28S raise MinRecordPrefixLen to 13: lifetime-stable short prefixes per the ADR-0013 amendment the user decided for v0.2.0
 kind: task
-state: draft
+state: approved
 created: 2026-07-26
 refs: ADR-01KYEP4Z5CFGBRNRX5AE59ZG2P
 targets: internal/ids/ids.go, internal/ids/ids_test.go, docs

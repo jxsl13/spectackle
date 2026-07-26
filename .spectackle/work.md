@@ -313,48 +313,6 @@ SCOPE: gate and the rule inline twin in tools.go, the capture mechanism, git plu
 ROLLBACK: git_commits: off disarms without rebuild; reverting the commit removes the engine; existing edge commits are inert history.
 REPORT BACK: the capture mechanism chosen and why, the exact git invocation form for pathspec-only commits, the submit-path commit inventory, each test's real result including the red-run, measured wall-time overhead per call (report the delta on 10 sequential draft calls), anything deliberately not done.
 
-## T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYD9466KEPWBV2RBK7EQM202
-refs: R-0007
-grilled: 2026-07-25
-targets: internal/mcpserver/grill.go, internal/mcpserver/validate.go, internal/mcpserver/tools.go, .spectackle
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-NEEDS: BOTH verdict tasks must be MERGED first - the grill-verdict task (title: grill computes its critique and stamps a verdict) and the validation-phase task (title: validate: the post-implementation phase). This task AMENDS one clause in each after they land; it is deliberately a separate, later task so the amendment is a visible recorded decision rather than a silent redraft.
-
-THE PRINCIPLE, stated by the user as a standing design rule and to be pinned as a contract: state-machine steps are AGENT JUDGMENTS - drafting, reviewing, deciding, implementing, validating. Server automations - computed critique classes, evidence sweeps, edge commits, note auto-fill, next-step hints - are IMPLICATIONS of those steps: they exist to save the agent purely mechanical work (token economy), and they are never themselves a step, never a substitute for one, and never an authority above one. Grill is a review process performed by a reviewing agent; its computed pack is the evidence delivered to that reviewer so the reviewer spends no tokens on mechanical discovery - the pack is not the review.
-
-WHAT THIS AMENDS, precisely. Both verdict tasks carry the refusal: pass=true while computed findings > 0 is refused, computed gaps are not the reviewer's to waive. That clause makes the automation authoritative over the judgment step - exactly the inversion the principle forbids. It was drafted to prevent silent waiving; the correct mechanism preserves that property without the inversion:
-1. PER-FINDING ADDRESSAL replaces the blanket refusal. Every computed finding in the pack carries a stable finding key (class + subject, e.g. nopath:docs/missing.md). A verdict must ADDRESS every open finding key, each in exactly one of two ways: fixed (the re-rendered pack no longer emits it) or waived with a per-finding reason recorded in the verdict event (mirror of the unconsumed-ok suppression design in the evidence-sweeps task: explicit, per-item, visible, never blanket). The server refuses a verdict - pass OR fail - that leaves any finding key unaddressed: "! REVIEW E <id> unaddressed findings: <keys>". This is automation in its correct role: it cannot overrule the reviewer, but it mechanically guarantees the reviewer SAW everything, which is the only thing a machine can actually verify.
-2. THE GATE KEYS ON THE VERDICT ALONE. move to=approved (and to=archived for validation) checks: passing verdict, identity and hash/SHA binding valid - and nothing else. The open=<n> stamp remains rendered evidence, not a gate input. Waived findings render in the pack as "g waived <key> <reason>" so the next reader sees the judgment, and waivers are hash-bound like the verdict: a body edit clears them with the verdict.
-3. WORDING SWEEP: the grill and validate tool descriptions, the workflow docs and the instruction manifest must describe grill/validate as review performed by an agent with server-computed evidence - not as checks that pass or fail. Rendered refusal texts follow: the server never says the pack failed the item; it says which findings await the reviewer's judgment.
-4. CONTRACT: one EARS rule at the root bundle pinning the principle, composed via rule op=add, applies-bound to the gate function so the coverage definition counts it: WHEN a lifecycle gate evaluates an item, the server SHALL treat recorded agent verdicts as the sole gating authority and computed findings as evidence requiring addressal, never as an independent veto.
-
-WHY THE ANTI-FAKING PROPERTY SURVIVES (state this in code comments): the blanket refusal prevented silent waiving by force; per-finding waivers prevent it by RECORD - a waiver without a reason is refused, a blanket waiver is impossible (keys are enumerated), and every waiver is permanently attributed to the reviewer identity in the journal. R-0007's fakeability split is respected: what the author can fake is unchanged (nothing new is written by the author); what the reviewer asserts is now exactly as recorded and attributable as the verdict itself.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- A verdict leaving one finding key unaddressed is refused naming exactly that key; addressing it as waived with a reason passes; with an empty reason, refused.
-- A blanket attempt (waive-all without keys) has no API shape that succeeds - prove by construction, state in the report.
-- The gate approves on a passing verdict with waivers present, and refuses on a stale verdict after a body edit (waivers cleared with it).
-- The re-render after a fix drops the fixed key; the verdict then needs no entry for it.
-- Tool descriptions and docs contain the review-with-evidence framing (multi-substring test, mirror the T-0098 pattern).
-- Existing verdict tests from the two NEEDS tasks keep passing with the amended semantics (adjust only the not-waivable fixtures, list each adjustment in the report).
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  Red-run: the unaddressed-findings refusal test written first, shown failing against the freshly merged verdict code; paste the failing output.
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier with a distinct agent identity performs one real review on a live draft: waives one finding with a reason, fixes another, records the verdict, confirms the gate honors it; from the diff alone. Verdict in the archive note.
-
-SCOPE: the verdict paths in grill.go and validate.go, the gate in tools.go, the one EARS rule, docs wording, tests. Do not change the computed classes themselves, the identity/hash binding, the reopen machinery, or the edge-commit engine.
-ROLLBACK: revert the commit; the EARS rule retires via rule op=retire. Waiver records in journals are inert history for a reverted server.
-REPORT BACK: the finding-key scheme as landed, each adjusted fixture, the real waive-and-approve transcript, each test's result including the red-run, anything deliberately not done.
-
 ## T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing
 kind: task
 state: approved
