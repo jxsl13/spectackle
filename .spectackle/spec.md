@@ -275,7 +275,7 @@ The spectackle server SHALL minimize total tokens to a complete, valid, defect-f
 The orchestrating agent SHALL merge every open pull request before activating new work, checking the forge PR list first, because parallel agents leave WIP branches that may already implement the next item.
 
 ## ORCH-PROOF-001
-WHEN WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
+WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
 
 ## REVIEW-MODE-001
 The review workflow SHALL default to 1 reviewer walking all lenses sequentially in one context, reserving multi-agent panels for recorded risk signals: at 3 lenses a panel pays 3x context ingestion for marginal judgment gain.
