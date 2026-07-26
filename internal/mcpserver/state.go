@@ -163,6 +163,9 @@ func (s *Server) stateText(path string) (string, error) {
 	for _, o := range s.orphanedItems() {
 		health += o + "\n"
 	}
+	if h := s.hookHint(); h != "" {
+		health += h + "\n"
+	}
 	if health != "" {
 		b.WriteString("#health\n")
 		b.WriteString(health)

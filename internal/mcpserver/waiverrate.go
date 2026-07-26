@@ -10,12 +10,15 @@ package mcpserver
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // reOrphanCite matches a full record ID cited in a terminal note — the
@@ -159,4 +162,18 @@ func (s *Server) orphanedItems() []string {
 		out = append(out[:10], fmt.Sprintf("w orphaned +%d more", len(out)-10))
 	}
 	return out
+}
+
+// hookHint (T-01KYDNN): one #health line when verify commands are
+// configured but no pre-push hook runs them — a human push would bypass
+// the exact gate automated transitions pay. Recommendation only; the
+// opt-in write is the operator's explicit `spectackle hook install`.
+func (s *Server) hookHint() string {
+	if len(s.ws.Cfg.Verify) == 0 || wt.HookReferencesSpectackle(s.ws.Dir) {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(s.ws.Dir, ".git")); err != nil {
+		return "" // not a git checkout — nothing to hook
+	}
+	return "w hook pre-push absent — human pushes bypass the verify gate; opt in: spectackle hook install"
 }
