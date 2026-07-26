@@ -31,35 +31,37 @@ func TestVerdictLensesRoundTrip(t *testing.T) {
 	}
 }
 
-func TestVerdictEmptyLensRefused(t *testing.T) {
-	root := requireGrillRoot(t)
-	t.Setenv("SPECTACKLE_AGENT", "author-a")
-	author := connectRoot(t, root)
-	prop := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "empty lens refusal", "body": ambFixturePad})
-	callText(t, author, "grill", map[string]any{"id": prop})
-	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
-	reviewer := connectRoot(t, root)
-	out := callText(t, reviewer, "grill", map[string]any{
-		"op": "verdict", "id": prop, "pass": true, "lenses": "a,,b"})
-	if !strings.Contains(out, "empty lens label") {
-		t.Fatalf("empty lens must refuse: %q", out)
+// Refusal shapes share one skeleton deliberately (table-driven after the
+// dup detector flagged the copy-pasted pair): each case drafts, grills,
+// and expects the verdict to refuse with its marker.
+func TestVerdictRefusalShapes(t *testing.T) {
+	cases := []struct {
+		name   string
+		args   map[string]any
+		marker string
+	}{
+		{"empty lens", map[string]any{"lenses": "a,,b"}, "empty lens label"},
+		{"panel without risk", map[string]any{"panel": 2}, "panel needs a live risk signal"},
 	}
-}
-
-func TestPanelNeedsRiskSignal(t *testing.T) {
-	root := requireGrillRoot(t)
-	t.Setenv("SPECTACKLE_AGENT", "author-a")
-	author := connectRoot(t, root)
-	prop := draftID(t, author, map[string]any{
-		"kind": "proposal", "title": "panel without risk", "body": ambFixturePad})
-	callText(t, author, "grill", map[string]any{"id": prop})
-	t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
-	reviewer := connectRoot(t, root)
-	out := callText(t, reviewer, "grill", map[string]any{
-		"op": "verdict", "id": prop, "pass": true, "panel": 2})
-	if !strings.Contains(out, "panel needs a live risk signal") {
-		t.Fatalf("panel without risk must refuse naming the signal: %q", out)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := requireGrillRoot(t)
+			t.Setenv("SPECTACKLE_AGENT", "author-a")
+			author := connectRoot(t, root)
+			prop := draftID(t, author, map[string]any{
+				"kind": "proposal", "title": "refusal shape " + c.name, "body": ambFixturePad})
+			callText(t, author, "grill", map[string]any{"id": prop})
+			t.Setenv("SPECTACKLE_AGENT", "reviewer-b")
+			reviewer := connectRoot(t, root)
+			args := map[string]any{"op": "verdict", "id": prop, "pass": true}
+			for k, v := range c.args {
+				args[k] = v
+			}
+			out := callText(t, reviewer, "grill", args)
+			if !strings.Contains(out, c.marker) {
+				t.Fatalf("%s must refuse with %q: %q", c.name, c.marker, out)
+			}
+		})
 	}
 }
 
