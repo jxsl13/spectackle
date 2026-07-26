@@ -69,6 +69,10 @@ type Config struct {
 type SwarmCfg struct {
 	LeaseTTL int `yaml:"lease_ttl"` // seconds a scope lease lives without refresh
 	AgentTTL int `yaml:"agent_ttl"` // seconds without heartbeat before an agent counts as gone
+	// PanelMax CAPS a per-item multi-agent review panel (grill op=verdict
+	// panel=n, legal only on live risk signals). Config can cap a panel,
+	// never raise one that was not item-justified (P-01KYES kill list).
+	PanelMax int `yaml:"panel_max"`
 }
 
 // FeedbackCfg tunes the SDD orchestration v2 feedback loop (see
@@ -140,7 +144,7 @@ func defaultConfig() Config {
 		Ignore:        []string{".git/**", "bin/**"},
 		BudgetDefault: 2000,
 		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
-		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900},
+		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900, PanelMax: 3},
 		Feedback:      FeedbackCfg{MaxRounds: 3},
 		Git:           GitCfg{Mode: "online", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
 	}
@@ -697,6 +701,7 @@ func scaffoldConfigYAML() []byte {
 	b.WriteString("swarm:\n")
 	fmt.Fprintf(&b, "  lease_ttl: %d  # seconds a scope lease lives without refresh\n", d.Swarm.LeaseTTL)
 	fmt.Fprintf(&b, "  agent_ttl: %d  # seconds without heartbeat before an agent counts as gone\n", d.Swarm.AgentTTL)
+	fmt.Fprintf(&b, "  panel_max: %d  # cap on a per-item review panel (grill panel=n needs a live risk signal; config caps, never raises)\n", d.Swarm.PanelMax)
 	b.WriteString("feedback:\n")
 	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
 	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)

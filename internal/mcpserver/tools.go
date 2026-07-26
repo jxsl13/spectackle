@@ -281,7 +281,7 @@ func (s *Server) registerTools() {
 		gate(s, s.research))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "grill",
-		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. The reviewer judges ON the evidence: every open finding is addressed — fixed, or waived per key with a recorded reason — then a fresh identity's verdict opens the gate; the pack never passes or fails anything itself."},
+		Description: "Review evidence + verdict. Default op renders the computed critique (#computed g/e findings the author cannot fake, #targets #contracts #tests #rejections #questions) and stamps grilled: <date> open=<n>. op=verdict pass=<bool> findings=<text> records the INDEPENDENT review — a second, deliberately named SPECTACKLE_AGENT (per-call, never the shared resident identity); approval gates on a passing verdict bound to the current body hash. The reviewer judges ON the evidence: every open finding is addressed — fixed, or waived per key with a recorded reason — then a fresh identity's verdict opens the gate; the pack never passes or fails anything itself. Multi-lens: ONE reviewer walks lenses sequentially (lenses=a,b,c), resetting perspective per lens; per-lens findings prefixed [lens] or an explicit [lens] none; refutation lens last. panel=n is per-item risk-gated evidence breadth, never voting."},
 		gate(s, s.grill))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "validate",

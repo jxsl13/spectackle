@@ -41,6 +41,8 @@ type grillIn struct {
 	Pass     *bool             `json:"pass,omitempty" jsonschema:"verdict: true = approved by the reviewer"`
 	Findings string            `json:"findings,omitempty" jsonschema:"verdict: the review findings — required on pass=false, they become the author's next brief"`
 	Waivers  map[string]string `json:"waivers,omitempty" jsonschema:"verdict: per-finding waivers, key (class:subject from the pack) to reason — every open finding must be fixed or waived (T-01KYD9J)"`
+	Lenses   string            `json:"lenses,omitempty" jsonschema:"verdict: comma-separated lens labels the reviewer walked sequentially (e.g. correctness,security,refute); prefix per-lens findings with [lens]"`
+	Panel    int               `json:"panel,omitempty" jsonschema:"verdict: declare an n-agent review panel for THIS item — legal only on a live risk signal (open irreversible/blast finding, or override-once spent); capped by swarm.panel_max"`
 	Budget   int               `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
 	Cur      string            `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
@@ -112,6 +114,9 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 			verdict = "pass"
 		}
 		line := "review " + verdict + " " + rev.Ag + mark
+		if len(rev.Ln) > 0 {
+			line += " lenses=" + strings.Join(rev.Ln, ",")
+		}
 		if rev.Note != "" {
 			line += " :: " + rev.Note
 		}
@@ -804,9 +809,49 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 			warn = "! REVIEW W findings under 80 chars - token-thin reviews are a known tell (tripwire, padding-gameable)\n"
 		}
 	}
+	// Lens labels (T-01KYFXDC6): the sequential single-reviewer default —
+	// one context walking the configured lenses with explicit perspective
+	// resets — records WHICH lenses were walked; the names are the
+	// reviewer's vocabulary, unvalidated, but an empty label is an error.
+	var lenses []string
+	if strings.TrimSpace(in.Lenses) != "" {
+		for _, l := range strings.Split(in.Lenses, ",") {
+			l = strings.TrimSpace(l)
+			if l == "" {
+				return refuse("! ARG E - empty lens label in lenses")
+			}
+			lenses = append(lenses, l)
+		}
+	}
+	// Panel opt-in (per item, never per gate): a multi-agent panel is
+	// evidence breadth, not consensus voting — the gate still needs one
+	// passing verdict. Legal ONLY on a live risk signal; config CAPS the
+	// size and can never raise a panel that was not item-justified.
+	if in.Panel > 1 {
+		risk := ""
+		for _, k := range openKeys {
+			if strings.HasPrefix(k, "irreversible:") || strings.HasPrefix(k, "blast:") {
+				risk = k
+				break
+			}
+		}
+		if risk == "" && it.Override {
+			risk = "override-once spent"
+		}
+		if risk == "" {
+			return refuse("! REVIEW E " + short + " panel needs a live risk signal (open irreversible/blast finding or override-once spent) - none present")
+		}
+		max := s.ws.Cfg.Swarm.PanelMax
+		if max <= 0 {
+			max = 3
+		}
+		if in.Panel > max {
+			return refuse(fmt.Sprintf("! REVIEW E %s panel=%d exceeds swarm.panel_max=%d - config caps, never raises", short, in.Panel, max))
+		}
+	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
 		Ev: journal.EvReview, ID: it.ID, Dir: it.Dir,
-		Pass: *in.Pass, Hash: cur, Note: in.Findings, Wv: wv,
+		Pass: *in.Pass, Hash: cur, Note: in.Findings, Wv: wv, Ln: lenses,
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -816,7 +861,11 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 	_ = s.cd.Emit("review", it.ID, verdict+" by "+s.agent)
 	s.markDirty()
-	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + s.agent)
+	lensNote := ""
+	if len(lenses) > 0 {
+		lensNote = " lenses=" + strings.Join(lenses, ",")
+	}
+	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + s.agent + lensNote)
 }
 
 // grillEvidence runs the target-scoped sweeps with the item's unconsumed-ok

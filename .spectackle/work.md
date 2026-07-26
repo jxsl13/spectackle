@@ -41,26 +41,6 @@ targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcps
 
 OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.shortHash 100% fired although BOTH functions predate the diff - short8 sat in hunk CONTEXT lines adjacent to inserted code, so the hunk-scoped extraction treated it as touched. RULE: a dup finding must implicate only functions with at least one ADDED line in the attributed diff; context-line-only functions are preexisting code the task never wrote. IMPLEMENTATION: when mapping diffHunks to functions in validateDups, track added-line ranges (+ lines only, not context) and intersect with function spans before lookup in the dup index. PROOF: unify short8 (tools.go, 8 chars) and shortHash (validate.go, 12 chars) into one parameterized helper as the cleanup this false positive pointed at, and add a regression test where a diff INSERTS code adjacent to one twin of a preexisting dup pair and validateDups stays silent, plus one where the diff ADDS a twin and it fires. Byte-budget neutral: no output-format change.
 
-## T-01KYFXDC6KFNCB66W8JVHTZZNK lens-labeled verdicts under the single-reviewer sequential default, with per-item panel opt-in capped by config
-kind: task
-state: approved
-created: 2026-07-26
-parent: P-01KYESGDWFFMH80ENHNFXMVZE8
-grilled: 2026-07-26 open=0
-targets: internal/mcpserver/grill.go, internal/journal/journal.go, internal/mcpserver/server.go, docs/agent-workflow.md
-
-IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH carries the settled review-mode economics (REVIEW-MODE-001, one reviewer walks lenses sequentially; panel sizing by computed risk REJECTED with three kills) - implement, do not re-argue.
-
-WHAT TO BUILD:
-1. LENS LABELS: grill op=verdict gains optional lenses (comma list, e.g. correctness,security,refute); journal Event gains Ln []string (json ln, 10-20B); the verdict render and reviewState surface them (verdict ... lenses=a,b,c). Findings text convention documented: prefix per-lens findings with [lens]. No validation of lens NAMES (vocabulary is the reviewers), but an empty-string lens is an ARG error.
-2. SEQUENTIAL-DEFAULT INSTRUCTION, in the orchestration guide topic (server.go guideTopics) and the grill tool description: one reviewer, explicit perspective reset between lenses, per-lens quota - findings or an explicit [lens] none line, never silence - refutation lens LAST. Keep the addition under 350 bytes across both surfaces combined (measure, state the bytes).
-3. PANEL OPT-IN, per item only: grill op=verdict panel=<n> records intent for MULTI-agent review; legal ONLY when a risk signal is live on the item - an open irreversibility finding (class c), a prior verdict-contradicts-evidence refusal, or override-once spent (Ov). Otherwise ARG-refused naming the missing signal. Config swarm.panel_max (default 3) CAPS n; config can never raise a panel that was not item-justified. Each panelist verdict is a separate EvReview from its own identity (existing machinery unchanged); the gate still needs only one passing verdict - panel is evidence breadth, not consensus voting (state this in the tool description).
-NON-NEGOTIABLE, tested: lenses stored and rendered round-trip; empty lens string refused; panel without risk signal refused naming the signal; panel over cap refused; verdict without lenses still valid (back-compat); guide-text byte cap measured in a test with the base named.
-VERIFY: build/test -race/vet/gofmt; lint; check ok; live: one real verdict on a throwaway draft with lenses=minimality,tokens,refute pasted.
-SCOPE: named files + tests. No decide.go, no validate.go changes.
-ROLLBACK: revert; Ln is additive, old journals parse.
-REPORT: byte measurements, refusal transcripts, live render.
-
 ## T-01KYFXDCHHFV3SQDA5CEHAA4AQ validation require is risk-gated from the landed diff: file count and dangerous-path membership, never declared targets
 kind: task
 state: approved
