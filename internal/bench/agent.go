@@ -12,6 +12,7 @@ package bench
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -66,7 +67,14 @@ exit $rc
 // AgentPrep builds a judge workspace in dir: the seeded v2 fixture, the
 // fixed brief, and the metering shim wrapping bin. It prints nothing —
 // callers report the returned paths.
-func AgentPrep(bin, dir string) (briefPath, shimPath string, err error) {
+//
+// withManifest prepends the composed connect-time manifest to the brief —
+// the judge then simulates an MCP session, which reads exactly that text at
+// initialize — and records its byte count in a manifest.size sidecar so the
+// scorer can report the session-shaped cost next to the tool diet
+// (T-01KYE3X: whether connect-time guidance BUYS anything is measured, not
+// assumed). Without the flag the brief is byte-identical to before.
+func AgentPrep(bin, dir string, withManifest bool) (briefPath, shimPath string, err error) {
 	if err := Fixture(dir); err != nil {
 		return "", "", err
 	}
@@ -81,6 +89,18 @@ func AgentPrep(bin, dir string) (briefPath, shimPath string, err error) {
 		return "", "", err
 	}
 	brief := fmt.Sprintf(agentBrief, dir, shimPath, dir)
+	if withManifest {
+		out, err := exec.Command(bin, "manifest").Output()
+		if err != nil {
+			return "", "", fmt.Errorf("bench agent-prep: manifest: %w", err)
+		}
+		brief = "Connect-time server instructions (what an MCP session receives at initialize):\n\n" +
+			string(out) + "\n---\n\n" + brief
+		if err := os.WriteFile(filepath.Join(dir, "manifest.size"),
+			fmt.Appendf(nil, "%d\n", len(out)), 0o644); err != nil {
+			return "", "", err
+		}
+	}
 	if err := os.WriteFile(briefPath, []byte(brief), 0o644); err != nil {
 		return "", "", err
 	}
@@ -100,6 +120,12 @@ type AgentScore struct {
 	BugState  string // state of the judge bug, "" if absent
 	CheckOK   bool
 	Valid     bool
+	// ManifestBytes is the connect-time manifest's size when the run was
+	// prepped -with-manifest (read from the manifest.size sidecar), zero
+	// otherwise. Kept OUT of Bytes: the aggregate spreads compare tool
+	// diets, and folding a per-session constant into them would blur
+	// exactly the wandering signal they exist to show.
+	ManifestBytes int
 }
 
 func ScoreAgentRun(bin, dir string) (AgentScore, error) {
@@ -122,6 +148,11 @@ func ScoreAgentRun(bin, dir string) (AgentScore, error) {
 		sc.Bytes += n
 	}
 	sc.Tokens = sc.Bytes / 4
+	if raw, err := os.ReadFile(filepath.Join(dir, "manifest.size")); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
+			sc.ManifestBytes = n
+		}
+	}
 
 	// Goal states are judged through the same tool surface the agent used:
 	// archived and rejected items leave work.md entirely (the journal holds
@@ -156,6 +187,9 @@ func ScoreAgentRun(bin, dir string) (AgentScore, error) {
 func AgentReport(sc AgentScore) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent calls=%d bytes=%d ~%d tokens\n", sc.Calls, sc.Bytes, sc.Tokens)
+	if sc.ManifestBytes > 0 {
+		fmt.Fprintf(&b, "agent session=%dB (manifest %d + tools %d)\n", sc.ManifestBytes+sc.Bytes, sc.ManifestBytes, sc.Bytes)
+	}
 	fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
 	if sc.Valid {
 		b.WriteString("agent verdict: valid — goals reached\n")
