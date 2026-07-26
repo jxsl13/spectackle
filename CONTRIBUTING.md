@@ -46,15 +46,28 @@ before you open a PR — CI ([.github/workflows/ci.yml](.github/workflows/ci.yml
 re-runs the same steps plus `make fuzz` and the self-hosting `check` gate, and does not
 merge red.
 
-## Every change lands through a pull request that auto-merges on green CI
+## Every change lands through a pull request that merges on green CI — with a merge commit, never a squash
 
 Nothing is pushed straight to `main`. Work goes onto a branch, opens a pull
-request, and gets **auto-merge (squash)** enabled immediately — so it merges
-by itself the moment CI is green, with no one waiting on a button. A red CI
-simply means it never merges.
+request, and merges the moment CI is green, with no one waiting on a button.
+A red CI simply means it never merges.
 
-Two repository settings make that real, and without them the intent is
-silently a no-op:
+The merge method is a **merge commit — never squash**. Every state-machine
+edge and every distinct change is its own commit on the branch, and each
+message carries the decision it records; a squash is a lossy compression of
+that decision log, collapsing N recorded decisions into one blob on `main`
+and destroying exactly the trail the branch built. This policy stands on its
+own: it holds whether or not the server's per-edge commit machinery is
+active for a given workspace.
+
+The branch hygiene consequence: because a merge commit preserves every
+branch commit on `main` forever, branches carry clean per-edge and
+per-change commits, not fixup noise. Work-in-progress commits are amended or
+rebased **before** the pull request opens — never cleaned up by squashing at
+merge time, which is the exact operation this policy forbids.
+
+Three repository settings make the policy real, and without them the intent
+is silently a no-op:
 
 1. **Settings → General → Pull Requests → Allow auto-merge.** Without it,
    arming auto-merge is refused outright.
@@ -63,6 +76,13 @@ silently a no-op:
    considers a fresh pull request immediately mergeable and there is nothing
    for auto-merge to wait on — "merge when CI passes" then degrades to
    "merge now, CI or not".
+3. **Settings → General → Pull Requests → Allow merge commits ON, Allow
+   squash merging OFF.** This is the hard enforcement, and it is a one-time
+   manual step for the repository owner — nothing inside the repository can
+   flip it. With squash left enabled, one habitual click on the wrong merge
+   button silently flattens a branch's decision trail, and nothing fails
+   loudly: the loss is only discovered when someone goes looking for a
+   decision that `main` no longer carries.
 
 A merged pull request is finished and is never reused. Follow-up work
 restarts the branch from the current `main` and opens a new pull request;
