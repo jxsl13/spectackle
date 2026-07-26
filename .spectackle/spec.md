@@ -184,6 +184,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - T-01KYD94KP4FBHR0RGR2P8CZNBZ grill computes its critique and stamps a verdict; the verdict is an independent review event with feedback and a research-demand path; the fakeable word-checks are deleted: IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This task supersedes the rejected draft it cites in refs; everything that draft specified remains in force here and is restated - nothing is inherited by pointer.
 - T-01KYD94M3EFXCBVRVWZCS5KBE9 validate: the post-implementation phase - computed pack over the diff, independent verdict gating archive, findings reopen the item as the implementer's next brief: IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
 - ADR-01KYES0TJ0E33RRP1JERC62DCA Approve the review-machinery work? The 14 submitted chain items (P-01KYD9 family: grill as recorded independent verdict gating approved, validate phase gating archived, per-finding addressal) plus P-01KYER (elicitation gate, single-reviewer sequential lens default, panel amendments) form one coherent design; P-01KYER child tasks are sequenced after the chain ones they amend.: kind: radio
+- ADR-01KYES0TMSETQSBYHCZF3X66CJ Where should validation be a HARD gate (feedback.validate=require)? Token analysis: break-even at ~30-50 percent defect-catch rate; always-on require does not pay for small items.: kind: radio
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

@@ -443,20 +443,6 @@ SCOPE: the two named markdown files. No Go code, no templates (the backward-path
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
 
-## ADR-01KYES0TMSETQSBYHCZF3X66CJ Where should validation be a HARD gate (feedback.validate=require)? Token analysis: break-even at ~30-50 percent defect-catch rate; always-on require does not pay for small items.
-kind: adr
-state: done
-created: 2026-07-26
-decision: risk-gated require + always-require on this repo (recommended)
-status: accepted
-
-kind: radio
-option: risk-gated require + always-require on this repo (recommended)
-option: warn everywhere, never require
-option: require everywhere
-blocks: P-01KYERRMHSFYH8CY01A624ZZBV
-choice: risk-gated require + always-require on this repo (recommended)
-
 ## ADR-01KYES0TR8FP78R6CGSXM9MQ01 May a reviewer waive an ambiguity finding without a user round-trip? Recommended: waivable with recorded reason plus computed waive-rate tripwire (ask-only would make automation authoritative over judgment, inverting the steps-are-judgments contract).
 kind: adr
 state: done
