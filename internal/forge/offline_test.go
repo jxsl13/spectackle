@@ -168,3 +168,35 @@ func TestOfflineMergeUnknownPRErrors(t *testing.T) {
 		t.Fatal("Merge of an untracked PR should error")
 	}
 }
+
+// TestOfflineReadySurvivesReload pins B-01KYDV: the draft flip must reach
+// the state file, because every `spectackle call` is its own process — a
+// flip held only in memory makes the NEXT process's Find report a stale
+// draft, and the archive path then gates and flips a second time. Open and
+// Merge already saved; Ready was the one mutation that did not.
+func TestOfflineReadySurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "forge-offline.json")
+
+	o1 := NewOfflinePersistent(dir, "main", state)
+	pr, err := o1.Open("feature/x", "main", "t", "b")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !pr.Draft {
+		t.Fatal("Open must create a draft")
+	}
+	if _, err := o1.Ready(pr); err != nil {
+		t.Fatalf("Ready: %v", err)
+	}
+
+	// A NEW instance over the same state file is the next process.
+	o2 := NewOfflinePersistent(dir, "main", state)
+	got, ok, err := o2.Find("feature/x")
+	if err != nil || !ok {
+		t.Fatalf("Find after reload: ok=%v err=%v", ok, err)
+	}
+	if got.Draft {
+		t.Fatal("Ready's draft flip was lost across the reload — o.save() missing in Ready")
+	}
+}
