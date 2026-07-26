@@ -62,53 +62,6 @@ ROLLBACK. Each surface change is a template/instruction edit; the R-item gate is
 
 SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 touches the move path in tools.go, which the grill-verdict task under the review-and-validation proposal (title: grill computes its critique and stamps a verdict) restructures first - task 2 declares NEEDS on that task BY TITLE and runs after it merges. No task ID is cited here by prefix guess; the prior draft's lesson is recorded: reference sibling work by exact title phrase or full minted ID, never by a predicted prefix.
 
-## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYD87FX0F6YRX49R3A8TB6E4
-refs: R-0007, T-01KYD72HB0FHX9G80DQGS9YBB1
-grilled: 2026-07-25
-targets: internal/mcpserver/server.go, internal/mcpserver/prompts.go, internal/mcpserver/templates/commands/workflow.md.tmpl, docs/agent-workflow.md
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Supersedes the rejected draft in refs. Its validation round found: a wrong rule pointer stated twice (SPX-MCP-006 governs the research tool; the rule that pins TOKEN ECONOMY is MCP-006), a substance test left as prose, and two unbounded/unmeasured caps. All corrected below; everything else re-recorded intact.
-
-WHY. The loop's backward path is convention, not definition. An LLM driving the loop from the server's own surfaces is never told: that the archive note becomes the journal tombstone and the FTS body every later session searches (the note IS the training signal); that research results must land as rules, ADRs, tasks or an explicit no-action note; that after every merge the resident server must be rebuilt (CONTRIBUTING.md mandates make dev; the machine-facing surfaces never mention it - real stale-binary confusion this session); or what the single next action is for the state an item is in. Each omission costs a later session full re-derivation price.
-
-ENFORCEMENT LAYERING (from the parent proposal, restated because it bounds this task): everything this task ships is GUIDANCE surfaces plus computed next-step hints. The hard gates for note substance live elsewhere: the research-consumption gate (sibling task) and the validation verdict gating archive for task/bug kinds (the validation-phase task under the review-and-validation proposal). This task must not claim its template prose enforces anything.
-
-VERIFIED GROUND (do not re-derive)
-- server.go instruction manifest: ORCHESTRATION and TOKEN ECONOMY paragraphs (~line 44). The rule pinning TOKEN ECONOMY is MCP-006 (internal/mcpserver/.spectackle/spec.md:67, applies go:mcpserver.Server.registerTools; its rationale at spec.md:73 says so). SPX-MCP-006 is a DIFFERENT rule about the research tool - do not touch it, do not cite it.
-- Manifest-content test precedent to MIRROR (T-0098 pattern, cited in spec.md): multi-substring assertions on the manifest.
-- templates/commands/: exactly 8 tmpl files; workflow.md.tmpl has exactly 8 steps, step 7 Check, step 8 Archive+Commit/PR, no make dev anywhere. commands op=gen regenerates command files from templates.
-- prompts.go: promptNext (line 158) picks an actionable item and renders its brief; skips blocked and open-needs items. lifecycleLines at :68.
-- check fix=true already drafts one backprop proposal per drifted rule (tools.go:1733) - the code-to-spec direction exists; reference it, never duplicate it.
-
-WHAT TO BUILD
-1. server.go: one BACKPROP paragraph, <= 700 bytes, stating: the three durable stores (spec.md rules, journal tombstone notes, knowledge artifacts); every completed or rejected item leaves its learning in one of them; the archive/reject note is searched by future sessions - write substance; after every merge, make dev (the server is the product under change). Add an EARS rule via rule op=add binding go:mcpserver.Server.registerTools, mirroring MCP-006's pattern exactly.
-2. workflow.md.tmpl: step 7 gains independent re-verification (a fresh-context verifier re-runs the VERIFY block from the diff alone - the implementer's transcript is never the evidence); step 8 gains the note guidance (what changed, what was measured, what was deliberately not done, where the learning landed); new step 9: make dev after merge, one sentence why; new step 10: research capture - every R-item ends consumed or explicitly closed, citing that the server enforces this at the archive gate. TOTAL template growth <= 40 lines, MEASURED: a test counts the template's lines with a hardcoded ceiling and a comment naming the measured pre-change base (the validation round found the prior draft asserted this cap but never measured it).
-3. promptNext: the rendered output's FIRST line is the one computed next action per state: draft ungrilled -> grill; draft grilled-with-open-gaps -> close gaps, re-grill; submitted -> approve or reject; approved -> work op=start; active -> implement, then work op=submit; done -> check, then move to=archived with note; blocked -> decide op=answer on the linked ADR. Table test over fixture items in each state asserting the exact first line.
-4. docs/agent-workflow.md: BACKWARD PATH section, <= 30 lines (the prior draft left this cap unstated), human-facing mirror of 1-3, plus the independent-verification sentence in the orchestrator role.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- Manifest SUBSTANCE, computed (mirror T-0098): assertions that the manifest contains BACKPROP, all three store names, the phrase make dev, and the training-signal sentence fragment - multi-substring, not presence-of-paragraph.
-- Manifest size ceiling: current measured size + 800 bytes, hardcoded with the base named in a comment.
-- Template line ceiling test as in (2).
-- promptNext table test as in (3).
-- commands op=gen on a temp workspace regenerates files containing steps 9 and 10.
-- No lifecycle behavior changes: existing suite passes untouched.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  spectackle call -root <worktree-root> commands '{"op":"gen"}' succeeds; paste the regenerated steps 9-10.
-CROSS-VERIFICATION (orchestrator, after done): independent verifier regenerates the commands file, diffs against the report's claim, and re-runs the manifest substance + size tests from the diff alone; verdict recorded in the archive note.
-
-SCOPE: the four named files, generated command files, the one new EARS rule, tests. Do not touch tools.go, lifecycle.go, grill.go. No new tools, no config keys.
-ROLLBACK: revert the commit; run commands op=gen once to restore prior command files. The added rule retires via rule op=retire. No stored state.
-REPORT BACK: manifest base and final sizes, template base and final line counts, the regenerated steps verbatim, each test's result, anything deliberately not done.
-
 ## P-01KYD8HSZ0ERTBFBBEVQD68M4R the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail
 kind: proposal
 state: approved
