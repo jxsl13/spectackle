@@ -86,7 +86,7 @@ REPORT: byte measurements, refusal transcripts, live render.
 
 ## T-01KYFXDCHHFV3SQDA5CEHAA4AQ validation require is risk-gated from the landed diff: file count and dangerous-path membership, never declared targets
 kind: task
-state: draft
+state: approved
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
 grilled: 2026-07-26 open=1
