@@ -134,6 +134,15 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		lines = append(lines, recs...)
 	}
 
+	// Findings render pre-archive only (T-01KYFXEQ): tombstone readers
+	// want the verdict trail above, not a re-critique — the classes
+	// recompute against a tree that has moved on and mislead.
+	if it.State == item.StateArchived {
+		lines = append(lines, "computed: suppressed (archived)")
+		kept, cur := budget.TruncateRecords(lines[1:], budget.Resume(in.Cur), in.Budget)
+		return text(budget.Render(append(lines[:1:1], kept...), cur))
+	}
+
 	// Computed classes render before the lower-value sections: they are
 	// what the reviewer must address and what open=<n> counts.
 	rej, err := s.grillRejections(it)

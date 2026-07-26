@@ -196,8 +196,14 @@ Architecture decisions live in the lifecycle as first-class `adr` items (ID lett
    `journal_max`/`done_max` (`config.yaml`, `compact.journal_max` defaults to
    **300** events since the last compact, `compact.done_max` to 8) trip; the
    LLM then runs `compact` (dry-run → `apply=true`). Journal folds drop
-   `create/move/rule/drift` noise; `reject`/`archive`/`compact` lines are
-   kept verbatim.
+   `create/move/rule/drift` noise; `reject`/`archive`/`compact`/
+   `escalate`/`decide` lines are kept verbatim, and verdict events
+   (`review`, `validate`) survive too (ADR-01KYES0TT): identity, hash,
+   pass and lenses forever — the per-key addressal detail (`keys`/`wv`)
+   is pruned once the item is archived or rejected, so retention never
+   bloats the journals compaction exists to shrink. Archived items'
+   grill/validate packs render `computed: suppressed (archived)` instead
+   of re-critiquing a tree that has moved on.
    - The server also surfaces this proactively, without waiting for an
      explicit `check`: once the root journal crosses `journal_max`, EVERY
      tool result carries a `c . journal <n> events since last compact` line

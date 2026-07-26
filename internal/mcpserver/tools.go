@@ -2418,12 +2418,33 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		if len(events) < s.ws.Cfg.Compact.JournalMax {
 			continue
 		}
+		// Terminal items: their verdicts keep identity forever but shed
+		// the per-key addressal forensics (Keys/Wv) — the detail matters
+		// only while the item lives, and retention must not bloat exactly
+		// the journals compaction exists to shrink (T-01KYFXEQ).
+		terminal := map[string]bool{}
+		for _, e := range events {
+			if e.Ev == journal.EvArchive || e.Ev == journal.EvReject {
+				terminal[e.ID] = true
+			}
+		}
 		var keep []journal.Event
 		folded := 0
 		for _, e := range events {
 			switch e.Ev {
 			case journal.EvReject, journal.EvArchive, journal.EvCompact,
 				journal.EvEscalate, journal.EvDecide:
+				keep = append(keep, e)
+			case journal.EvReview, journal.EvValidate:
+				// Verdicts survive compaction (ADR-01KYES0TT): they are
+				// the identity-bound evidence the gates rest on, and
+				// reviewState/lastGateResult on still-live items must
+				// resolve verdicts that predate the fold. The real loss
+				// shape without this was the audit trail on live items —
+				// archived ones are already past the gate.
+				if terminal[e.ID] {
+					e.Keys, e.Wv = nil, nil
+				}
 				keep = append(keep, e)
 			default:
 				folded++
