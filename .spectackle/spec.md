@@ -290,7 +290,7 @@ WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestra
 The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.
 
 ## COMPLETE-DIMS-001
-WHEN WHEN rendering review or validation evidence for an item, the spectackle server SHALL compute finding classes spanning tests, targets, scope, benchmarks, and documentation (validate.go v nodocs), so no completeness dimension goes silently unexamined.
+WHEN rendering review or validation evidence for an item, the spectackle server SHALL compute findings across testing, validity, edge cases, implementation, documentation, and research so no completeness dimension is silently skipped.
 
 ## GROUND-LADDER-001
 WHEN WHEN information needed for a decision is missing, the orchestrating agent SHALL call the research tool first (or draft an R-item); only without a grounded answer ask via decide op=ask (internal/mcpserver/decide.go), the last resort.
