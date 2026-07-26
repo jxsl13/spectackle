@@ -43,9 +43,10 @@ OBSERVED (T-01KYD87ZN validation): v dup go:mcpserver.short8 ~= go:mcpserver.sho
 
 ## T-01KYFXBYMZFH7BC4Z1JQT8FV73 ambiguity findings computed from post-deletion signals, closed by decide round-trip or recorded waiver
 kind: task
-state: done
+state: active
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+rounds: 1
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/grill.go, internal/mcpserver/decide.go, internal/mcpserver/tools.go, docs/agent-workflow.md
 
