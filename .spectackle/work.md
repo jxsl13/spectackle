@@ -315,7 +315,7 @@ REPORT BACK: the capture mechanism chosen and why, the exact git invocation form
 
 ## T-01KYD9JTSDFYHTEM8B6YXX6NSP steps are judgments, automations are implications: the reviewer's verdict is authoritative over computed findings, per-finding, with recorded reasons
 kind: task
-state: approved
+state: active
 created: 2026-07-25
 parent: P-01KYD9466KEPWBV2RBK7EQM202
 refs: R-0007
