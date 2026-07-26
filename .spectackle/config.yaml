@@ -10,3 +10,5 @@ budget_default: 2000
 compact:
   journal_max: 500
   done_max: 8
+feedback:
+  validate: require
