@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -169,4 +170,43 @@ func orAbsent(s string) string {
 		return "absent"
 	}
 	return s
+}
+
+// AggregateReport renders n judged runs: per-run lines prefixed with their
+// label, then one summary. One run cannot carry a verdict — at one build,
+// valid runs have spanned 17-46 calls and 2279-5896 bytes — so the spread
+// IS the signal. Median over mean: a single wanderer must not drag the
+// central figure. AllValid gates the caller's exit code: a text change that
+// makes one judge in three fail is a regression however good the median
+// looks.
+func AggregateReport(labels []string, scores []AgentScore) (string, bool) {
+	var b strings.Builder
+	allValid := true
+	calls := make([]int, 0, len(scores))
+	bytes := make([]int, 0, len(scores))
+	valid := 0
+	for i, sc := range scores {
+		for line := range strings.SplitSeq(strings.TrimRight(AgentReport(sc), "\n"), "\n") {
+			fmt.Fprintf(&b, "%s %s\n", labels[i], line)
+		}
+		calls = append(calls, sc.Calls)
+		bytes = append(bytes, sc.Bytes)
+		if sc.Valid {
+			valid++
+		} else {
+			allValid = false
+		}
+	}
+	fmt.Fprintf(&b, "agents n=%d valid=%d/%d calls=%s bytes=%s\n",
+		len(scores), valid, len(scores), spread(calls), spread(bytes))
+	return b.String(), allValid
+}
+
+// spread renders min/median/max. Even-length medians take the lower middle:
+// judge counts are tiny, and a half-value would suggest precision the
+// sample cannot carry.
+func spread(vals []int) string {
+	s := append([]int(nil), vals...)
+	sort.Ints(s)
+	return fmt.Sprintf("%d/%d/%d", s[0], s[(len(s)-1)/2], s[len(s)-1])
 }

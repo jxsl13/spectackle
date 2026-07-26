@@ -213,3 +213,33 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 		t.Fatalf("missing goal not named absent:\n%s", AgentReport(sc2))
 	}
 }
+
+// TestAggregateReportSpreadAndExitGate pins the n-run judge summary
+// (T-01KYE2): min/median/max spreads (lower-middle median — tiny samples
+// carry no half-value precision), the validity ratio, and the all-valid
+// gate — one failing judge in three is a regression however good the
+// median looks.
+func TestAggregateReportSpreadAndExitGate(t *testing.T) {
+	scores := []AgentScore{
+		{Calls: 12, Bytes: 1038, Tokens: 259, TaskState: "archived", BugState: "rejected", CheckOK: true, Valid: true},
+		{Calls: 46, Bytes: 5896, Tokens: 1474, TaskState: "archived", BugState: "rejected", CheckOK: true, Valid: true},
+		{Calls: 14, Bytes: 1119, Tokens: 279, TaskState: "archived", BugState: "", CheckOK: true, Valid: false},
+	}
+	out, allValid := AggregateReport([]string{"e", "c", "f"}, scores)
+	if allValid {
+		t.Fatal("one invalid run must fail the aggregate gate")
+	}
+	if !strings.Contains(out, "agents n=3 valid=2/3 calls=12/14/46 bytes=1038/1119/5896") {
+		t.Fatalf("aggregate line wrong:\n%s", out)
+	}
+	// per-run lines carry their labels
+	if !strings.Contains(out, "c agent calls=46") || !strings.Contains(out, "f agent goal task=archived bug=absent") {
+		t.Fatalf("per-run labeling wrong:\n%s", out)
+	}
+
+	// all-valid pair gates true
+	_, ok := AggregateReport([]string{"a", "b"}, scores[:2])
+	if !ok {
+		t.Fatal("two valid runs must pass the gate")
+	}
+}
