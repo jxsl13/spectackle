@@ -16,6 +16,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/budget"
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/evidence"
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
@@ -132,6 +133,18 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 	}
 	computed := s.grillComputed(it, c, len(rej))
 	addSection("#computed", computed)
+	// #evidence (T-01KYD88KE): the B-0009 unconsumed sweep and the B-0003
+	// caller-divergence sweep over declared targets. Unsuppressed
+	// unconsumed records count into the open tally for task and bug kinds
+	// only (a proposal declares intent, not code); divergence is always
+	// informational — a minority shape may be the point of the change.
+	ev := s.grillEvidence(it)
+	addSection("#evidence", ev)
+	for _, l := range ev {
+		if strings.HasPrefix(l, "e unconsumed ") && (it.Kind == "task" || it.Kind == "bug") {
+			computed = append(computed, l)
+		}
+	}
 	// standing waivers render beside the findings they judged — visible
 	// judgment, hash-bound like the verdict (T-01KYD9J)
 	if rev != nil && rev.Hash == reviewHash(it) {
@@ -796,4 +809,37 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 	_ = s.cd.Emit("review", it.ID, verdict+" by "+s.agent)
 	s.markDirty()
 	return text(warnIgnored + warn + "ok review " + short + " " + verdict + " by " + s.agent)
+}
+
+// grillEvidence runs the target-scoped sweeps with the item's unconsumed-ok
+// suppressions parsed from its body: per-symbol, reasoned, visible in the
+// pack — never a blanket toggle, and stale directives are flagged so a
+// suppression cannot outlive its reason (T-01KYD88KE).
+func (s *Server) grillEvidence(it item.Item) []string {
+	var paths []string
+	for _, t := range it.Targets {
+		if p, ok := targetPath(t); ok {
+			paths = append(paths, p)
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	suppressed := map[string]string{}
+	for _, l := range strings.Split(it.Body, "\n") {
+		l = strings.TrimSpace(l)
+		if rest, ok := strings.CutPrefix(l, "unconsumed-ok: "); ok {
+			sym, reason, _ := strings.Cut(rest, " ")
+			suppressed[sym] = strings.TrimSpace(reason)
+		}
+	}
+	out := evidence.Unconsumed(s.g, paths, suppressed)
+	out = append(out, evidence.DivergentCallers(s.g, paths, func(rel string) []byte {
+		data, err := os.ReadFile(filepath.Join(s.ws.Dir, filepath.FromSlash(rel)))
+		if err != nil {
+			return nil
+		}
+		return data
+	})...)
+	return out
 }
