@@ -581,7 +581,7 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	}
 	branch := "spectackle/" + id
 	root := filepath.Join(s.main.WtDir(), id)
-	if err := wt.Add(s.main.Dir, root, branch, "HEAD"); err != nil {
+	if err := wt.Add(s.main.Dir, root, branch, "HEAD", s.gitBase()); err != nil {
 		_ = s.cd.ReleaseItem(id)
 		return refuse("! WT E " + err.Error())
 	}
@@ -686,7 +686,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	if overlap := wt.DirtyOverlap(s.main.Dir, touched); len(overlap) > 0 {
 		return refuse("! WT E main-dirty " + strings.Join(overlap, " ") + " — commit/stash these in the main checkout, then submit again")
 	}
-	if err := wt.FFMain(s.main.Dir, w.Branch); err != nil {
+	if err := wt.FFMainPreservingRecords(s.main.Dir, w.Branch); err != nil {
 		return refuse("! WT E ff-merge: " + err.Error())
 	}
 

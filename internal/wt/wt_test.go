@@ -24,7 +24,7 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 		t.Fatalf("CommonRoot(main) = %q %v %v", main, isWT, err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
 		t.Fatal(err)
 	}
 	main2, isWT2, err := CommonRoot(wtRoot)
@@ -36,7 +36,7 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 	}
 	// leftover recovery: Add over a stale dir succeeds
 	os.MkdirAll(wtRoot, 0o755)
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
 		t.Fatalf("Add over leftover: %v", err)
 	}
 	Remove(root, wtRoot)
@@ -75,7 +75,7 @@ func TestMergeConflictAndTouched(t *testing.T) {
 	root := repo(t)
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0002")
 	base, _ := Head(root)
-	if err := Add(root, wtRoot, "spectackle/T-0002", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0002", "HEAD", "main"); err != nil {
 		t.Fatal(err)
 	}
 	// conflicting edits to the same file on both sides
@@ -120,7 +120,7 @@ func TestMergeMainResolvesPrimaryBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
 		t.Fatal(err)
 	}
 	// the primary branch advances after the worktree branched
@@ -288,7 +288,7 @@ func TestMergeMainPreservesSpectackleState(t *testing.T) {
 		t.Skipf("git unavailable: %v", err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
 		t.Fatal(err)
 	}
 	// the worktree's live record delta: an uncommitted local journal edit
@@ -382,5 +382,97 @@ func TestCommitFallbackOnBareHost(t *testing.T) {
 	}
 	if got != "spectackle <spectackle@localhost>" {
 		t.Fatalf("fallback identity = %q, want the documented placeholder", got)
+	}
+}
+
+// TestSnapshotSpectackleSkipsSiblingsAndRuntime pins the second adversarial
+// finding on B-01KYED3D: the vacate snapshot must capture the MAIN
+// checkout's records only — never sibling worktree trees (linked worktrees
+// carry a .git FILE the name-based skip misses) and never the shared
+// runtime state under .spectackle/cache (a live multi-process SQLite WAL) —
+// because restore() rewrites everything captured, silently reverting any
+// sibling write that landed during the checkout window.
+func TestSnapshotSpectackleSkipsSiblingsAndRuntime(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(".spectackle/journal.ndjson", "own-v1")
+	write(".spectackle/wt/sib/.git", "gitdir: elsewhere") // linked-worktree marker FILE
+	write(".spectackle/wt/sib/.spectackle/journal.ndjson", "sib-v1")
+	write(".spectackle/cache/coord.db", "db-v1")
+	write("api/.spectackle/spec.md", "spec-v1")
+
+	restore, err := snapshotSpectackle(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the checkout window: own records rewound, sibling and
+	// runtime state legitimately advanced by other processes.
+	write(".spectackle/journal.ndjson", "own-REWOUND")
+	write(".spectackle/wt/sib/.spectackle/journal.ndjson", "sib-v2")
+	write(".spectackle/cache/coord.db", "db-v2")
+	write("api/.spectackle/spec.md", "spec-REWOUND")
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	if read(".spectackle/journal.ndjson") != "own-v1" || read("api/.spectackle/spec.md") != "spec-v1" {
+		t.Fatal("own records not restored")
+	}
+	if read(".spectackle/wt/sib/.spectackle/journal.ndjson") != "sib-v2" {
+		t.Fatal("sibling worktree write silently reverted by restore")
+	}
+	if read(".spectackle/cache/coord.db") != "db-v2" {
+		t.Fatal("live runtime state rewritten by restore")
+	}
+}
+
+// TestVacateRefusesItemNamespaceBase pins the third adversarial finding: a
+// configured base that is itself an item branch (auto-filled from a main
+// checkout parked on spectackle/X by the very bug this fix repairs) must
+// never become the vacate target — the later submit would merge into and
+// fast-forward the SIBLING item's ref while claiming main.
+func TestVacateRefusesItemNamespaceBase(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := InitTestRepo(root); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	mustGit := func(args ...string) {
+		if _, err := git(root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustGit("branch", "spectackle/X")
+	mustGit("checkout", "-b", "spectackle/Y")
+
+	if err := vacateBranch(root, "spectackle/Y", "spectackle/X"); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := CurrentBranch(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur == "spectackle/X" {
+		t.Fatal("vacate landed on a sibling item branch")
+	}
+	if cur != "main" {
+		t.Fatalf("vacate landed on %q, want main", cur)
 	}
 }

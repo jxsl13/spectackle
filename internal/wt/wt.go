@@ -242,7 +242,7 @@ func HasUnpushedCommits(dir, remote, branch string) (bool, error) {
 
 // Add creates a worktree at wtRoot on a fresh branch from startPoint,
 // recovering from leftovers of a crashed prior run.
-func Add(mainRoot, wtRoot, branch, startPoint string) error {
+func Add(mainRoot, wtRoot, branch, startPoint, base string) error {
 	_, _ = git(mainRoot, "worktree", "prune")
 	if _, err := os.Stat(wtRoot); err == nil {
 		if _, err := git(mainRoot, "worktree", "remove", "--force", wtRoot); err != nil {
@@ -250,12 +250,158 @@ func Add(mainRoot, wtRoot, branch, startPoint string) error {
 			_, _ = git(mainRoot, "worktree", "prune")
 		}
 	}
-	_, _ = git(mainRoot, "branch", "-D", branch)
 	if err := os.MkdirAll(filepath.Dir(wtRoot), 0o755); err != nil {
+		return err
+	}
+	// The item branch may already exist and even be the CURRENT branch of
+	// the main checkout: the gitflow automation creates and checks it out
+	// at activation, and both mechanisms mean the same thing by the name —
+	// this item's line of work (B-01KYED3D). Deleting it (the old branch -D
+	// here) silently failed exactly then, and the -b add collided, locking
+	// every ever-active item out of the worktree flow. So: move the main
+	// checkout off the branch when it sits on it, then ATTACH the worktree
+	// to the existing branch — its commits and its pull request are real
+	// and must never be destroyed. Only a genuinely absent branch is
+	// created fresh from startPoint.
+	if BranchExists(mainRoot, branch) {
+		if cur, err := CurrentBranch(mainRoot); err == nil && cur == branch {
+			if err := vacateBranch(mainRoot, branch, base); err != nil {
+				return err
+			}
+		}
+		_, err := git(mainRoot, "worktree", "add", wtRoot, branch)
 		return err
 	}
 	_, err := git(mainRoot, "worktree", "add", "-b", branch, wtRoot, startPoint)
 	return err
+}
+
+// vacateBranch moves the main checkout off branch so a worktree can take
+// it, with the live .spectackle records snapshotted around the checkout:
+// after a gitflow activation the record files are TRACKED AND CLEAN on the
+// branch, and a plain checkout silently swaps them to the target branch's
+// older content (or deletes them) — the one state preserveSpectackle's
+// dirty+untracked coverage misses, found by adversarial review of the
+// first fix draft (B-01KYED3D). Live records are authoritative, so ALL of
+// them are captured and written back, whatever their git status. The
+// target is the CONFIGURED base first — guessing main/master steered a
+// develop-based repo onto a stale conventional branch, which MergeMain
+// would then have merged while reporting success — then the remote-derived
+// default and the conventional names, detaching as the last resort (safe:
+// later transitions re-EnsureBranch).
+func vacateBranch(mainRoot, branch, base string) (err error) {
+	restore, perr := snapshotSpectackle(mainRoot)
+	if perr != nil {
+		return perr
+	}
+	defer func() {
+		if rerr := restore(); rerr != nil && err == nil {
+			err = rerr
+		}
+	}()
+	// No candidate from the ITEM-BRANCH NAMESPACE may ever be a vacate
+	// target: a server started while main sat parked on spectackle/X (the
+	// exact state the pre-fix bug left repos in) auto-fills its configured
+	// base from the checked-out branch, and checking a SIBLING item branch
+	// out here makes the later submit merge into it and fast-forward its
+	// ref while claiming "merged to main" — found by adversarial review of
+	// the second fix draft. The namespace is derived from the branch being
+	// vacated, not hardcoded.
+	ns := ""
+	if i := strings.Index(branch, "/"); i >= 0 {
+		ns = branch[:i+1]
+	}
+	def, _ := DefaultBranch(mainRoot)
+	for _, cand := range []string{base, def, "main", "master"} {
+		if cand == "" || cand == branch || !BranchExists(mainRoot, cand) {
+			continue
+		}
+		if ns != "" && strings.HasPrefix(cand, ns) {
+			continue
+		}
+		if _, err := git(mainRoot, "checkout", cand); err == nil {
+			return nil
+		}
+	}
+	_, err = git(mainRoot, "checkout", "--detach")
+	return err
+}
+
+// snapshotSpectackle captures every live .spectackle file under root and
+// returns a restore that writes them all back. Unlike preserveSpectackle
+// it does not consult git status at all: the caller is about to let git
+// rewrite the working tree, and clean tracked records are exactly as
+// vulnerable as dirty ones there.
+func snapshotSpectackle(root string) (restore func() error, err error) {
+	saved := map[string][]byte{}
+	walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			// Never descend into sibling checkouts or the shared runtime
+			// state (adversarial review of the second fix draft, confirmed
+			// by probe): linked worktrees carry a .git FILE, so the name
+			// check above misses them, and the walk otherwise slurps entire
+			// sibling trees under .spectackle/wt plus the LIVE multi-process
+			// coord.db under .spectackle/cache — restore() then silently
+			// reverts every sibling write that landed during the checkout
+			// window and rewrites a live SQLite WAL database.
+			if p != root {
+				if _, gerr := os.Stat(filepath.Join(p, ".git")); gerr == nil {
+					return filepath.SkipDir
+				}
+			}
+			if filepath.Base(filepath.Dir(p)) == ".spectackle" && (d.Name() == "wt" || d.Name() == "cache") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.Contains(filepath.ToSlash(p), "/.spectackle/") {
+			if b, rErr := os.ReadFile(p); rErr == nil {
+				saved[p] = b
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	return func() error {
+		for p, b := range saved {
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(p, b, 0o644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
+}
+
+// FFMainPreservingRecords fast-forwards branch into the main checkout with
+// the same records dance MergeMain performs on the worktree side (B-0006):
+// live .spectackle files are preserved, cleared for the merge, and put
+// back. Needed since B-01KYED3D let worktrees attach to gitflow-created
+// branches, which CARRY records commits — the plain ff collided with the
+// main checkout's live untracked records exactly where the worktree-side
+// merge used to, and replay stays the sole owner of record-state
+// reconciliation either way.
+func FFMainPreservingRecords(mainRoot, branch string) (err error) {
+	restore, perr := preserveSpectackle(mainRoot)
+	if perr != nil {
+		return perr
+	}
+	defer func() {
+		if rerr := restore(); rerr != nil && err == nil {
+			err = rerr
+		}
+	}()
+	return FFMain(mainRoot, branch)
 }
 
 // Remove tears a worktree down (working files are discarded).
