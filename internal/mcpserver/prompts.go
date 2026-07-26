@@ -95,6 +95,11 @@ func lifecycleLines(task string) []string {
 // client with no access to Claude Code's repo commands still gets the full
 // two-mode entry point natively.
 func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	// in-flight for the swap deferral (B-01KYF7): elicitation and
+	// prompt paths bypass gate() and are exactly the long-blocking
+	// calls the watcher must not sever.
+	s.inFlight.Add(1)
+	defer s.inFlight.Add(-1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -164,6 +169,11 @@ func (s *Server) promptWorkflow(_ context.Context, req *mcp.GetPromptRequest) (*
 
 // promptNext also bypasses gate() — lock and refresh manually.
 func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	// in-flight for the swap deferral (B-01KYF7): elicitation and
+	// prompt paths bypass gate() and are exactly the long-blocking
+	// calls the watcher must not sever.
+	s.inFlight.Add(1)
+	defer s.inFlight.Add(-1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {
@@ -262,6 +272,11 @@ func (s *Server) promptNext(_ context.Context, req *mcp.GetPromptRequest) (*mcp.
 // the exact same builder the `state` tool calls, so `prompts/get state` and
 // `tools/call state` never drift apart in content.
 func (s *Server) promptState(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	// in-flight for the swap deferral (B-01KYF7): elicitation and
+	// prompt paths bypass gate() and are exactly the long-blocking
+	// calls the watcher must not sever.
+	s.inFlight.Add(1)
+	defer s.inFlight.Add(-1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.refreshLocked(); err != nil {

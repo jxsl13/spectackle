@@ -233,6 +233,11 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",
 		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots (missing ones elicited or returned as need records); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
+			// in-flight for the swap deferral (B-01KYF7): elicitation and
+			// prompt paths bypass gate() and are exactly the long-blocking
+			// calls the watcher must not sever.
+			s.inFlight.Add(1)
+			defer s.inFlight.Add(-1)
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if err := s.preCall(); err != nil {
@@ -281,6 +286,11 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "decide",
 		Description: "Structured user decisions — never unstructured chat. ask: native UI form (radio|confirm|text) via elicitation; without UI the ADR-item stays open (need decision …) and is answered later from ANY session via op=answer. Decisions on blocked items drive the exits rescope|reject|override-once. ls: open decisions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in decideIn) (*mcp.CallToolResult, any, error) {
+			// in-flight for the swap deferral (B-01KYF7): elicitation and
+			// prompt paths bypass gate() and are exactly the long-blocking
+			// calls the watcher must not sever.
+			s.inFlight.Add(1)
+			defer s.inFlight.Add(-1)
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if err := s.preCall(); err != nil {
@@ -301,6 +311,11 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
 		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
+			// in-flight for the swap deferral (B-01KYF7): elicitation and
+			// prompt paths bypass gate() and are exactly the long-blocking
+			// calls the watcher must not sever.
+			s.inFlight.Add(1)
+			defer s.inFlight.Add(-1)
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			if err := s.preCall(); err != nil {

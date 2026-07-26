@@ -306,6 +306,7 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 	defer t.Stop()
 	warnedNoGit := false
 	loggedFailHead := ""
+	loggedBusyHead := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -325,8 +326,14 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 		}
 		// Defer the swap while a call is in flight: HEAD staleness is never
 		// urgent, and an exec mid-edge severed the archive that had itself
-		// moved HEAD — twice, live (B-01KYF7). Retry next tick.
+		// moved HEAD — twice, live (B-01KYF7). Retry next tick; say so once
+		// per stale head, so an hour of deferral under load is
+		// distinguishable from a dead watcher.
 		if busy != nil && busy() {
+			if loggedBusyHead != head {
+				loggedBusyHead = head
+				log.Printf("serve: self-restart deferring the swap to %.12s while calls are in flight (retrying each tick)", head)
+			}
 			continue
 		}
 		snap, err := snapshotHead(ctx, repoDir, head)
@@ -358,7 +365,12 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 		}
 		// Re-check at the swap point: a call may have started during the
 		// build. The built image is discarded, not renamed — next tick
-		// rebuilds cheaply on the warm cache.
+		// rebuilds cheaply on the warm cache. STATED RESIDUAL: a call whose
+		// counter increment lands in the sub-millisecond window between
+		// this check and the exec is not deferred; the 5s drain covers
+		// every short call in that window, so only a >5s call starting
+		// inside it can still be severed — narrowed by orders of
+		// magnitude, not eliminated.
 		if busy != nil && busy() {
 			_ = os.Remove(tmp)
 			continue
