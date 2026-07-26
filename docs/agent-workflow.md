@@ -282,6 +282,17 @@ opt-in (`grill op=verdict panel=n`), legal only on a live risk signal
 by `swarm.panel_max`; config can cap a panel, never raise one. A panel is
 evidence breadth — the gate still needs exactly one passing verdict.
 
+### The waiver-rate tripwire
+
+`state` (#health) and the grill/validate packs render one computed line —
+`w waiver-rate N% over last M verdicts (waived=X addressed=Y)` — when
+waivers dominate the recent verdicts (threshold 50%, minimum 5 qualifying
+verdicts, clean renders excluded from the denominator). It never vetoes:
+a gate on waiver rate would just teach padding the findings, while
+visibility teaches judgment. A high rate suggests briefs too thin,
+computed classes too eager, or reviewers rubber-stamping — all three are
+human calls to make, not machine ones.
+
 ### Grill before you approve
 
 Before `move to=approved` on a proposal (or before delegating its child

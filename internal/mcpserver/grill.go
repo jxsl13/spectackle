@@ -121,6 +121,9 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 			line += " :: " + rev.Note
 		}
 		lines = append(lines, line)
+		if wr := s.waiverRate(); wr != "" {
+			lines = append(lines, wr)
+		}
 	}
 
 	addSection := func(name string, recs []string) {

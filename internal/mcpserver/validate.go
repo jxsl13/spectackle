@@ -653,6 +653,9 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 		verifySec = append(verifySec, "g gate "+last)
 	}
 	if len(verifySec) > 0 {
+		if wr := s.waiverRate(); wr != "" {
+			lines = append(lines, wr)
+		}
 		lines = append(lines, "#verify")
 		lines = append(lines, verifySec...)
 	}
