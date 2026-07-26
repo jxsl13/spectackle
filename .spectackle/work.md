@@ -2,18 +2,6 @@
 schema: v1
 ---
 
-## ADR-01KYFYGVSRFX4B9B2YJ44QSBS8 live probe: should the widget cache be bounded
-kind: adr
-state: done
-created: 2026-07-26
-decision: yes bounded
-status: accepted
-
-kind: radio
-option: yes bounded
-option: no unbounded
-choice: yes bounded
-
 ## T-01KYGCJ6P6FFHB9VJK5S4359V8 cut v0.2.0: release notes from the archive intent log, ldflags version stamp, tag, GitHub release
 kind: task
 state: draft
