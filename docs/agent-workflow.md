@@ -363,4 +363,6 @@ ship a new serving generation. Foreign trees are refused by an eligibility
 guard at serve start; non-git roots idle with one loud log line. The
 mtime-based `make dev` hint is suppressed while the watcher runs, since its
 advice would be a manual dirty-tree rebuild — the exact hazard this policy
-closes.
+closes. Swaps defer while any tool call or prompt render is in flight
+(`Server.Busy`): a records-committing edge that moves HEAD completes on the
+old generation, and the swap follows within one tick of quiet.

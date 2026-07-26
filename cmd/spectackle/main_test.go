@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -675,7 +676,7 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 	restartTo := make(chan string, 1)
 	stopped := make(chan struct{})
 	go watchStale(ctx, repoRoot, exe,
-		10*time.Millisecond, restartTo, func() { close(stopped) })
+		10*time.Millisecond, restartTo, func() { close(stopped) }, nil)
 
 	select {
 	case got := <-restartTo:
@@ -699,7 +700,7 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	restartTo2 := make(chan string, 1)
 	go watchStale(ctx2, t.TempDir(), filepath.Join(t.TempDir(), "x"),
-		10*time.Millisecond, restartTo2, func() { t.Error("non-git root must not trigger a restart") })
+		10*time.Millisecond, restartTo2, func() { t.Error("non-git root must not trigger a restart") }, nil)
 	select {
 	case <-restartTo2:
 		t.Fatal("failing rebuild produced a restart path")
@@ -887,5 +888,40 @@ func TestSnapshotHeadExcludesDirtyTree(t *testing.T) {
 	}
 	if string(data) != "in\n" {
 		t.Fatalf("snapshot carries the dirty edit, not HEAD: %q", data)
+	}
+}
+
+// The busy guard (B-01KYF7): while a call is in flight the watcher must
+// not swap — the long edge that moved HEAD completes on the old
+// generation, and the swap follows once quiet.
+func TestWatchStaleDefersWhileBusy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a real go build: skipped in -short")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "spx")
+	if err := os.WriteFile(exe, []byte("old image"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var busy atomic.Bool
+	busy.Store(true)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	restartTo := make(chan string, 1)
+	go watchStale(ctx, repoRoot, exe,
+		10*time.Millisecond, restartTo, func() {}, busy.Load)
+	select {
+	case <-restartTo:
+		t.Fatal("swap fired while busy")
+	case <-time.After(2 * time.Second):
+	}
+	busy.Store(false)
+	select {
+	case <-restartTo:
+	case <-time.After(120 * time.Second):
+		t.Fatal("swap never followed once quiet")
 	}
 }

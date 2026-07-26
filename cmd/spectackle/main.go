@@ -188,7 +188,7 @@ func serve(args []string) int {
 		} else if s.SetSelfRestart(); !s.SelfRestartEligible() {
 			log.Printf("serve: -self-restart idle: this binary is not a dev build serving its own module (the eligibility guard — foreign trees must never be built or exec'd)")
 		} else {
-			go watchStale(ctx, s.ServedDir(), exe, *selfRestartEvery, restartTo, stop)
+			go watchStale(ctx, s.ServedDir(), exe, *selfRestartEvery, restartTo, stop, s.Busy)
 		}
 	}
 	httpErr := runHTTP(ctx, *httpAddr, handler, *pidfile)
@@ -301,11 +301,12 @@ func snapshotHead(ctx context.Context, repoDir, head string) (string, error) {
 // committed-only). It never reads working-tree mtimes and never builds the
 // working tree: uncommitted code cannot reach the serving binary, and edit
 // churn cannot thrash the swap loop.
-func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, restartTo chan<- string, stop func()) {
+func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, restartTo chan<- string, stop func(), busy func() bool) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	warnedNoGit := false
 	loggedFailHead := ""
+	loggedBusyHead := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -321,6 +322,18 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 			continue
 		}
 		if !needsRebuild(buildHead, head) {
+			continue
+		}
+		// Defer the swap while a call is in flight: HEAD staleness is never
+		// urgent, and an exec mid-edge severed the archive that had itself
+		// moved HEAD — twice, live (B-01KYF7). Retry next tick; say so once
+		// per stale head, so an hour of deferral under load is
+		// distinguishable from a dead watcher.
+		if busy != nil && busy() {
+			if loggedBusyHead != head {
+				loggedBusyHead = head
+				log.Printf("serve: self-restart deferring the swap to %.12s while calls are in flight (retrying each tick)", head)
+			}
 			continue
 		}
 		snap, err := snapshotHead(ctx, repoDir, head)
@@ -349,6 +362,18 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 		}
 		if ctx.Err() != nil {
 			return // shutdown won the race; leave the .new artifact behind, loudly absent from restartTo
+		}
+		// Re-check at the swap point: a call may have started during the
+		// build. The built image is discarded, not renamed — next tick
+		// rebuilds cheaply on the warm cache. STATED RESIDUAL: a call whose
+		// counter increment lands in the sub-millisecond window between
+		// this check and the exec is not deferred; the 5s drain covers
+		// every short call in that window, so only a >5s call starting
+		// inside it can still be severed — narrowed by orders of
+		// magnitude, not eliminated.
+		if busy != nil && busy() {
+			_ = os.Remove(tmp)
+			continue
 		}
 		if err := os.Rename(tmp, exe); err != nil {
 			log.Printf("serve: self-restart: replace %s: %v", exe, err)
