@@ -15,6 +15,7 @@ schema: v1
 - B-01KYES20Y0E9FRQ8DGPC4YD9NK self-restart builds and execs the dirty working tree, so the resident server runs unreviewed in-flight code mid-fix: validated pass by cross-val-es20y diff b1cb53b63ec2
 - B-01KYF7DJATEEDAXXV67GW958AK the committed-only watcher swaps while tool calls are in flight, severing the very edge that moved HEAD: validated pass by cross-val-f7 diff 807f668a31bb
 - ADR-01KYF58AKGEZ3SDFX53H19P3GR Self-restart rebuild policy for the resident server: today it builds and serves the DIRTY working tree, so mid-implementation the lifecycle runs on unreviewed code (it served the refuted round-1 fix while round 2 was still refuting it). Which policy?: kind: radio
+- B-01KYES20VSFJ1VM7JJ3E6XMJS0 self-restart thrash: 31 exec swaps in 45 minutes, one per poll cycle, instead of one per real source change: validated pass by cross-val-es20v diff 5ad38304b535 :: records-only closure: no diff attributes to this item by design - it resolved through the committed-only policy landed under B-01KYES20Y (PR 114), where the edit-churn tripwire test asserts the property this bug demanded — resolved by the committed-only rebuild policy (ADR-01KYF5, landed with B-01KYES20Y): edit churn is structurally incapable of triggering swaps; the title diagnosis was refuted by idle-hour data
 
 ## CLI-001 {applies: go:main.main}
 WHEN `serve` runs on stdio, the spectacle CLI SHALL emit only JSON-RPC frames on stdout and route every log line to stderr, so a single misplaced print can never corrupt the MCP transport.
