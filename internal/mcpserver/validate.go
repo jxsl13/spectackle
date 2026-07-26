@@ -194,12 +194,16 @@ func (s *Server) validateComputed(it item.Item, diff string) []string {
 			continue
 		}
 		in := false
+		// The test sibling of a declared file is in scope: declaring x.go
+		// conventionally covers x_test.go, and the first armed landing
+		// flagged its own tests as offscope (false-positive shape).
+		prod := strings.TrimSuffix(f, "_test.go") + ".go"
 		for _, t := range it.Targets {
 			p, ok := targetPath(t)
 			if !ok {
 				continue
 			}
-			if f == p || strings.HasPrefix(f, strings.TrimSuffix(p, "/")+"/") {
+			if f == p || prod == p || strings.HasPrefix(f, strings.TrimSuffix(p, "/")+"/") {
 				in = true
 				break
 			}
@@ -371,10 +375,13 @@ func vacuousTestLines(path string, src []byte) []string {
 					}
 				}
 			}
-			// range holding every assertion, no emptiness guard before it
+			// range holding every assertion, no emptiness guard before it —
+			// but a range over a composite literal (the table-driven test
+			// idiom) cannot be empty and is exempt (first live landing
+			// flagged a two-entry literal table; false-positive shape).
 			if rng, ok := x.(*ast.RangeStmt); ok && total > 0 {
 				inRange := countAsserts(rng.Body)
-				if inRange == total && !hasLenGuard(fn.Body, rng, fset) {
+				if inRange == total && !hasLenGuard(fn.Body, rng, fset) && !rangesOverLiteral(fn.Body, rng) {
 					out = append(out, fmt.Sprintf("v vacuous %s:%d assertions only inside a range with no emptiness guard", path, fset.Position(rng.Pos()).Line))
 				}
 			}
@@ -765,4 +772,36 @@ func (s *Server) lastGateResult(id string) string {
 		}
 	}
 	return last
+}
+
+// rangesOverLiteral reports whether the range's operand is a composite
+// literal, directly or via an identifier assigned one in this function —
+// the table-driven idiom, non-empty by construction.
+func rangesOverLiteral(body *ast.BlockStmt, rng *ast.RangeStmt) bool {
+	if _, ok := rng.X.(*ast.CompositeLit); ok {
+		return true
+	}
+	id, ok := rng.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	literal := false
+	ast.Inspect(body, func(x ast.Node) bool {
+		if x == nil || x.Pos() >= rng.Pos() {
+			return false
+		}
+		if as, ok := x.(*ast.AssignStmt); ok {
+			for i, lhs := range as.Lhs {
+				l, lok := lhs.(*ast.Ident)
+				if !lok || l.Name != id.Name || i >= len(as.Rhs) {
+					continue
+				}
+				if _, cok := as.Rhs[i].(*ast.CompositeLit); cok {
+					literal = true
+				}
+			}
+		}
+		return !literal
+	})
+	return literal
 }
