@@ -303,47 +303,6 @@ ROLLBACK. git_commits: off disarms the engine without a rebuild; reverting the c
 
 CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch across CONTRIBUTING, docs and instructions. The validation-phase task sheds its narrower git section to the engine at its next redraft.
 
-## T-01KYD8M955E9NBPH27D21E4J9J merge policy: never squash - merge commits everywhere the workflow speaks, so the per-edge decision trail survives into main
-kind: task
-state: done
-created: 2026-07-25
-parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
-refs: R-0007
-grilled: 2026-07-25
-targets: CONTRIBUTING.md, docs/agent-workflow.md, docs/release.md
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. This is a documentation-and-policy task; it changes no Go code.
-
-WHY. The edge-commit engine (sibling task) makes every state-machine edge a commit whose message is the decision. A squash merge collapses N such commits into one, destroying on main exactly the trail the engine creates on the branch - the two policies cannot coexist. The requirement is explicit: pull requests are never squashed; every decision stays visible in the commit log of main.
-
-VERIFIED GROUND (do not re-derive)
-- CONTRIBUTING.md's section 'Every change lands through a pull request that auto-merges on green CI' currently prescribes auto-merge (squash) verbatim and documents the two repository settings auto-merge depends on. This is the primary edit site.
-- docs/agent-workflow.md describes the orchestrator's git duties; docs/release.md documents the changelog derived from commit messages (commits prefixed docs:/spec:/chore: are excluded) - the edge-commit subject format spectackle(<ev>): ... interacts with that filter and the interaction must be stated, not discovered at release time.
-- The workflow template (workflow.md.tmpl) step 8 says Commit/PR per this repo's normal git conventions - it inherits whatever CONTRIBUTING says, and the backward-path task (title: the backward path in every machine-facing surface) owns editing that template. Do NOT edit the template here; the convention text it points to is what you change.
-
-WHAT TO BUILD
-1. CONTRIBUTING.md: the auto-merge section switches from squash to MERGE COMMITS, with the one-paragraph rationale (per-edge decisions must survive into main; a squash is a lossy compression of the decision log). Document the THREE repository settings now required, each with why: Allow auto-merge (unchanged), a required status check on main (unchanged), and Allow merge commits ON / Allow squash merging OFF - the last is the hard enforcement and is a one-time manual step for the repository owner; name it as such, the repo cannot enforce it from inside.
-2. Same section: state the branch hygiene consequence - merge commits preserve every branch commit, so branches must carry clean per-edge and per-change commits rather than fixup noise; wip commits are amended or rebased BEFORE the PR opens, never squashed at merge time.
-3. docs/agent-workflow.md: the orchestrator role's git duties gain two sentences: merge method is merge commit, never squash; the edge commits are server-made and the orchestrator neither replicates nor batches them.
-4. docs/release.md: one paragraph on changelog interaction - state whether spectackle(<ev>) subjects appear in release notes and the chosen filter (recommend: exclude spectackle(*) subjects from the changelog exactly like docs:/spec:/chore:, since they narrate process, not shipped change; implement by documenting the goreleaser filter addition needed and flag that .goreleaser.yaml itself is OUT of this task's file scope - name the follow-up explicitly in the report if you cannot make the filter change without touching it).
-5. Every edited sentence must remain true if the edge-commit engine is disabled (git_commits: off) - the merge policy stands on its own; do not couple the two beyond the rationale sentence.
-
-NON-NEGOTIABLE PROPERTIES
-- No remaining instruction to squash anywhere in the repository's markdown: a grep for squash across *.md shows only the new policy text explaining why squash is forbidden (test with a script or a Go doc test - state which).
-- The three settings are documented with their failure modes (what silently breaks when each is missing), mirroring the existing section's style, which already does this for the first two.
-- CONTRIBUTING.md still renders as coherent prose - the section reads as one policy, not a patch seam.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race (docs tasks still run the suite - nothing may break) ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  grep -rn squash --include='*.md' . - paste the output; every hit must be policy text forbidding it.
-CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the grep and reads the CONTRIBUTING section cold, then answers from the text alone: what merge method, which three settings, who flips the third - if the text does not answer all three, the task is not done. Verdict recorded in the archive note.
-
-SCOPE: the three named markdown files. No Go code, no templates (backward-path task owns them), no .goreleaser.yaml, no workflow yml.
-ROLLBACK: revert the commit; the repository settings revert by hand.
-REPORT BACK: the final CONTRIBUTING section verbatim, the grep output, the release-notes filter decision and any named follow-up, anything deliberately not done.
-
 ## P-01KYD9466KEPWBV2RBK7EQM202 review and validation are recorded independent verdicts: grill reviews the draft with feedback and a research path, a validation phase judges the implementation, both bound to reviewer identity
 kind: proposal
 state: submitted
