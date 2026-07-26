@@ -213,7 +213,9 @@ func gate[T any](s *Server, h func(T) (*mcp.CallToolResult, any, error)) func(co
 		if err := s.preCall(); err != nil {
 			return nil, nil, err
 		}
+		finish := s.beginEdgeCapture()
 		res, out, err := h(in)
+		finish(err != nil || (res != nil && res.IsError))
 		return s.postCall(res), out, err
 	}
 }
@@ -244,7 +246,9 @@ func (s *Server) registerTools() {
 			if err := s.preCall(); err != nil {
 				return nil, nil, err
 			}
+			finish := s.beginEdgeCapture()
 			res, out, err := s.rule(ctx, req, in)
+			finish(err != nil || (res != nil && res.IsError))
 			return s.postCall(res), out, err
 		})
 
@@ -297,7 +301,9 @@ func (s *Server) registerTools() {
 			if err := s.preCall(); err != nil {
 				return nil, nil, err
 			}
+			finish := s.beginEdgeCapture()
 			res, out, err := s.decide(ctx, req, in)
+			finish(err != nil || (res != nil && res.IsError))
 			return s.postCall(res), out, err
 		})
 
@@ -322,7 +328,9 @@ func (s *Server) registerTools() {
 			if err := s.preCall(); err != nil {
 				return nil, nil, err
 			}
+			finish := s.beginEdgeCapture()
 			res, out, err := s.commands(ctx, req, in)
+			finish(err != nil || (res != nil && res.IsError))
 			return s.postCall(res), out, err
 		})
 }
@@ -1709,6 +1717,9 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	// item record, and a forge problem is a note here rather than a failed
 	// transition — the lifecycle state is the server's own, and an unreachable
 	// forge must not be able to stop an item from moving.
+	if s.edgeFlush != nil {
+		s.edgeFlush(false)
+	}
 	return text(warns + sc.record(it) + "\n" + next + s.gitFlowFor(it, in.To).String())
 }
 

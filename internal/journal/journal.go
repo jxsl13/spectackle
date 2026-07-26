@@ -47,6 +47,7 @@ const (
 	EvReview   = "review"   // independent review verdict, identity- and body-hash-bound (T-01KYD94KP4)
 	EvValidate = "validate" // post-implementation validation: Op=render (pack, diff hash) or Op=verdict (T-01KYD94M3)
 	EvRevise   = "revise"   // draft-state body/targets revision through the draft tool (B-01KYER)
+	EvGitSkip  = "gitskip"  // edge commit skipped after retries (index contention) — journal-only warning (T-01KYD94MG)
 )
 
 // Event is the single flat record type for all journal lines; unused fields
@@ -123,8 +124,15 @@ func Append(root workspace.Root, ctx string, e Event) error {
 		return err
 	}
 	defer f.Close()
-	_, err = f.Write(append(raw, '\n'))
-	return err
+	if _, err = f.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	// The edge-commit engine's capture point (T-01KYD94MG): the sink sees
+	// exactly what was appended, after it durably landed.
+	if root.Sink != nil {
+		root.Sink(root.JournalPath(ctx), raw)
+	}
+	return nil
 }
 
 // Read returns all events of one context dir (missing file = empty).

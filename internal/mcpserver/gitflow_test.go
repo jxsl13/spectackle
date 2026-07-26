@@ -170,7 +170,10 @@ func TestRecordsCommitContainsOnlyRecords(t *testing.T) {
 	checked := 0
 	for _, line := range strings.Split(strings.TrimSpace(string(logOut)), "\n") {
 		sha, subject, ok := strings.Cut(line, " ")
-		if !ok || !strings.Contains(subject, "records") {
+		// records commits: the gitflow sweep ("… records") and the
+		// structured edge commits ("spectackle(<ev>): …") both qualify —
+		// code checkpoints ("spectackle <id>: …") do not.
+		if !ok || (!strings.Contains(subject, "records") && !strings.HasPrefix(subject, "spectackle(")) {
 			continue
 		}
 		checked++
@@ -433,7 +436,8 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") {
+	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") &&
+		!strings.Contains(string(logOut), "spectackle(archive): "+id) {
 		t.Fatalf("archival records commit not reachable:\n%s", logOut)
 	}
 }
@@ -617,7 +621,8 @@ func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") {
+	if !strings.Contains(string(logOut), "spectackle(archived): "+id+" records") &&
+		!strings.Contains(string(logOut), "spectackle(archive): "+id) {
 		t.Fatalf("archival records commit not reachable from main:\n%s", logOut)
 	}
 }

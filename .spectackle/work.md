@@ -256,63 +256,6 @@ EXIT CRITERION. On this repository: a draft receives an independent review verdi
 
 ROLLBACK. Both gates sit behind config strictness mirroring feedback.grill (require|warn); removing the key returns to warn, reverting the commits returns to today. Verdict events in journals are inert history for a reverted server.
 
-## T-01KYD94MG8FBMTJP5CPC62PCYM edge-commit engine in gate: every tool call that writes .spectackle state commits it with a structured decision message composed from its journal events
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-01KYD8HSZ0ERTBFBBEVQD68M4R
-refs: R-0007, T-01KYD8M8RXEXPVTCWTMY962PQQ
-grilled: 2026-07-25
-targets: internal/mcpserver/tools.go, internal/mcpserver/server.go, internal/wt/wt.go, internal/workspace/workspace.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first.
-
-NEEDS: the coord.db serialization task (title: serialize server-side whole-file rewrites through the coord.db lock table) must be MERGED first - two server processes on one checkout race the git index exactly like they race work.md, and the commit step belongs inside the same cross-process serialization. Do not start while it is open.
-
-WHY. The requirement is followability: a human reading git log alone must see every decision - each state-machine edge as its own commit, message carrying what moved, from where to where, by whom, and the reasoning note. Today the journal knows this and git does not: reconciliation happens only when an orchestrator remembers to commit, in batches whose messages summarize. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command (user authorization: fully automatic, without the LLM doing anything).
-
-VERIFIED GROUND (do not re-derive)
-- gate[T] (tools.go:175-185) wraps every tool handler: s.mu.Lock, preCall, handler, postCall. The rule tool inlines the identical pattern at tools.go:200-210. These two sites are the complete write surface - no .spectackle write happens outside a tool call.
-- Every state edge appends a journal event with agent identity (journal.Append stamps ag, eid, timestamp). Event kinds: journal.go:31-46.
-- wt.CommitCode (wt.go:111) commits in a worktree today - the plumbing precedent; reuse or extract, do not duplicate git exec logic.
-- P-0009 (archived): one move call per forward jump. Commit granularity inherits it: ONE call = ONE edge traversal = ONE commit, even when the jump skips states (draft->active is one decision, one commit).
-- workspace config: FeedbackCfg pattern at workspace.go:53 for adding the knob.
-
-WHAT TO BUILD
-1. CAPTURE: during a tool call, record which journal events the call appended and which .spectackle paths it wrote (choose the mechanism from reading the code - an events buffer on the Server filled by the append path, or a pre/post diff of journal lengths plus a written-paths set; justify the choice in the report; it must be exact, not a glob of everything dirty).
-2. COMMIT STEP in gate (and the rule tool's inline twin), after the handler returns success, before postCall renders: if the call wrote .spectackle state and git_commits=edges, commit EXACTLY the .spectackle paths this call wrote, via explicit-pathspec commit semantics (git commit restricted to named paths so a user's concurrently staged work is NEVER swept in - state which git invocation form guarantees this and prove it with the staged-bystander test below). One commit per call. A call that wrote nothing commits nothing. A failed handler commits nothing.
-3. MESSAGE FORMAT, structured and immutable-safe:
-   subject: spectackle(<ev>): <full-item-or-rule-id> <from>-><to | one-clause decision>
-   body: the decision note verbatim (move notes, verdict findings, rejection reasons; empty note renders the item title).
-   trailers: Spectackle-Ev, Spectackle-Item (FULL ID - a display-short prefix is unambiguous only at that instant, T-0136, and commits are immutable), Spectackle-From, Spectackle-To (when applicable), Spectackle-Agent, Spectackle-Eid.
-   Multi-event calls (a move that cascades child updates) still produce one commit: primary event in the subject, sibling events as additional Spectackle-Eid trailers.
-4. CONFIG: git_commits: edges|off in workspace config, DEFAULT edges. off produces byte-identical tool behavior and zero commits (test). This knob supersedes the phases|off draft in the validation-phase task; that task sheds its git section at its next redraft - do not implement anything from it here beyond what this body states.
-5. SAFETY RAILS, each tested: no git repo or .spectackle gitignored -> skip silently, tool call succeeds (a checkpoint is a bonus, never a failure mode); index.lock contention -> bounded retry with backoff, then skip with one journal-only warning event, never a tool error; never push, never amend, never commit paths outside .spectackle trees; detached HEAD or mid-rebase -> skip silently.
-6. REPLAY RECONCILIATION - the B-0006 question, answered (the anti-ceremony validation raised it as severe and it must be in your ground truth): wt.CommitCode deliberately EXCLUDES .spectackle (":(exclude).spectackle", comment: live replay input, deliberately uncommitted), and MergeMain's preserveSpectackle exists because a worktree and the primary checkout touching the same journal paths concurrently was defect B-0006. The edge engine does NOT change any of that: TREE CONTENT of .spectackle on main remains owned by replay + preserveSpectackle exactly as today - the code merge continues to exclude .spectackle, preserveSpectackle stays authoritative, and journals are never git-merged (append-only files conflict trivially; the replay machinery exists because git merge cannot reconcile them). What the engine adds is HISTORY: edge commits made inside a worktree live on that worktree's branch, and because the merge policy is never-squash (sibling task), the merge commit's second parent keeps them readable in git log forever - the decision trail survives while the tree stays replay-owned. Consequence to state in code comments and prove with a test: after a submit, main's .spectackle content equals what replay produced (byte-check against a no-engine control run), AND git log --grep on the item ID shows the worktree-side edge commits through the merge parent. One validator recommended defaulting this feature off as redundant with the journal's eid/ag event log; the requirement is explicit that the trail must be in git for humans, so the default stays edges and the dissent is recorded here.
-7. SUBMIT-PATH COEXISTENCE: work op=start/submit/abort already create branches, merge and commit code (internal/wt). The edge engine must not double-commit what the submit path commits: during a work call the engine commits only the journal/state writes the call made OUTSIDE the code merge (read the submit flow first; state in the report exactly which commits a submit now produces and why each exists).
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- One edge, one commit: draft then move to=approved then move to=rejected produces exactly three commits, subjects matching the format, trailers parseable by git interpret-trailers.
-- Forward-skip is one commit: move draft->active yields one commit whose Spectackle-From/To are draft/active.
-- Decision visibility: git log --grep=<full-item-id> returns that item's complete edge history and nothing else, on a fixture driving the full lifecycle.
-- Staged-bystander: stage an unrelated source file, run a draft call; the edge commit contains only .spectackle paths, the bystander stays staged and uncommitted.
-- off knob: byte-identical journal and tool output, zero commits.
-- No-git workspace: calls succeed, zero errors.
-- Concurrency: the twoAgents topology (two servers, one root) driving concurrent drafts produces one commit per call with no index.lock failure surfacing to either caller (this is the test that requires the NEEDS ordering).
-- Failed handler: a refused move (e.g. unknown ID) commits nothing.
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok
-  In the worktree: run one draft + one move headlessly, paste git log --format=full -3 output showing the structured messages.
-  Red-run: the one-edge-one-commit test written first, shown failing against current code; paste the failing output.
-CROSS-VERIFICATION (orchestrator, after done): an independent verifier re-runs the staged-bystander, off-knob and concurrency tests from the diff alone, then drives one real lifecycle and reads the log; verdict recorded in the archive note.
-
-SCOPE: gate and the rule inline twin in tools.go, the capture mechanism, git plumbing shared with internal/wt, the config knob, tests. Do not touch lifecycle.go's state machine, grill.go, templates, prompts, or the merge-policy docs (sibling task).
-ROLLBACK: git_commits: off disarms without rebuild; reverting the commit removes the engine; existing edge commits are inert history.
-REPORT BACK: the capture mechanism chosen and why, the exact git invocation form for pathspec-only commits, the submit-path commit inventory, each test's real result including the red-run, measured wall-time overhead per call (report the delta on 10 sequential draft calls), anything deliberately not done.
-
 ## T-01KYD9RJTREBEVQFV34HYW8VJ2 redundancy findings in the validation pack: diff-scoped duplicate-block detection against the graph, so implementations reuse instead of re-writing
 kind: task
 state: approved

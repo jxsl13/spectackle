@@ -128,6 +128,12 @@ type Server struct {
 	// HEAD, twice, live).
 	inFlight atomic.Int64
 
+	// edgeFlush, when set, flushes the current call's edge commit early —
+	// the move handler calls it before gitflow so the structured edge
+	// commit lands (and rides the branch/push) ahead of the transition
+	// sweep, which then finds the records clean (T-01KYD94MG coexistence).
+	edgeFlush func(failed bool)
+
 	// selfRestartOn records that the committed-only self-restart watcher is
 	// active for this process: the mtime-based make-dev stale hint is then
 	// suppressed — its advice would be a manual dirty-tree rebuild, the

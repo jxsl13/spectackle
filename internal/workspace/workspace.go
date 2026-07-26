@@ -87,7 +87,23 @@ type GitCfg struct {
 	Mode    string `yaml:"mode"`    // "online" (default: push branches to Remote) or "offline" (commit/branch locally only); an unknown value is rejected at load, see load()
 	Remote  string `yaml:"remote"`  // remote name pushed to in online mode; default "origin"
 	Base    string `yaml:"base"`    // branch task branches are pushed against; default is the repository's OWN default branch, read at load (see wt.DefaultBranch) — never hardcoded "main"
+	// Commits selects the edge-commit engine (T-01KYD94MG): "edges"
+	// (default) commits every .spectackle-writing tool call with a
+	// structured decision message derived from its journal events; "off"
+	// produces zero commits and unchanged tool output (the validate
+	// attribution fix that excludes spectackle( records subjects is
+	// knob-independent and intended). A validator
+	// argued the journal already carries eid/ag and the feature is
+	// redundant; the requirement is explicit that the decision trail must
+	// be readable in git log by humans, so the default stays edges and the
+	// dissent is recorded on the task.
+	Commits string `yaml:"commits"`
 }
+
+// EdgeCommits reports whether the edge-commit engine is armed: empty (key
+// omitted, incl. every pre-feature workspace) means edges — the default —
+// and only an explicit "off" disarms.
+func (g GitCfg) EdgeCommits() bool { return g.Commits != "off" }
 
 // IsEnabled reports whether git integration is active. nil means the key was
 // never in config.yaml at all — which includes every workspace scaffolded
@@ -142,6 +158,13 @@ type Locker interface {
 
 // Root is a detected workspace.
 type Root struct {
+	// Sink, when set, observes every journal event this Root appends —
+	// the edge-commit engine's exact capture mechanism (T-01KYD94MG): the
+	// server installs a per-call buffer here in its gate, so the commit
+	// derives from precisely the events the call wrote, never a glob of
+	// everything dirty.
+	Sink func(journalPath string, raw []byte)
+
 	Dir   string // absolute path
 	Agent string // agent identity writing through this workspace ("" outside swarm contexts)
 	Cfg   Config
@@ -289,6 +312,14 @@ func load(dir string) (Root, error) {
 		// different error depending on which command the user ran.
 		if m := r.Cfg.Git.Mode; m != "" && m != "online" && m != "offline" {
 			return Root{}, fmt.Errorf("workspace: config.yaml: git.mode %q: must be \"online\" or \"offline\"", m)
+		}
+		// Same principle for the edge-commit knob: `commits: disabled` or
+		// `commits: false` silently ARMED the engine (every non-"off"
+		// value did) — a typo'd opt-out must fail loudly at load, never
+		// invert into unwanted per-call commits (cross-verification of
+		// T-01KYD94MG).
+		if c := r.Cfg.Git.Commits; c != "" && c != "edges" && c != "off" {
+			return Root{}, fmt.Errorf("workspace: config.yaml: git.commits %q: must be \"edges\" or \"off\"", c)
 		}
 	}
 	if r.Cfg.BudgetDefault == 0 {
