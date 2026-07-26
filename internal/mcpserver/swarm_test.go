@@ -813,3 +813,82 @@ func TestWorkSubmitForeignWorktreeStaysRefused(t *testing.T) {
 		t.Fatalf("foreign agent adopted a sibling's worktree:\n%s", out)
 	}
 }
+
+// TestWorkStartAfterGitflowActivation pins B-01KYED3D, the exact dead end
+// live judge X2 hit: move to=active lets the gitflow automation create AND
+// check out spectackle/<id> in the main checkout; work op=start must then
+// ATTACH its worktree to that existing branch (moving main off it first)
+// instead of colliding on the name — the old path silently failed branch
+// -D on the checked-out branch and died in worktree add -b, permanently
+// locking every ever-active item out of the worktree flow.
+func TestWorkStartAfterGitflowActivation(t *testing.T) {
+	t.Setenv("SPECTACKLE_AGENT", "gitflow-then-worktree")
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s1, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "activate then start"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if cur, err := wt.CurrentBranch(root); err != nil || !strings.HasPrefix(cur, "spectackle/") {
+		t.Fatalf("precondition lost: gitflow did not check out the item branch (cur=%q err=%v)", cur, err)
+	}
+
+	// Live-records anchor: the adversarial review of the first fix draft
+	// found the vacate checkout silently rewinding main's TRACKED-AND-CLEAN
+	// record files to the default branch's older content — so capture the
+	// live journal now and assert byte-level survival across start.
+	journalPath := filepath.Join(root, ".spectackle", "journal.ndjson")
+	beforeStart, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startOut := callText(t, sess, "work", map[string]any{"op": "start", "item": id})
+	if strings.Contains(startOut, "! WT E") {
+		t.Fatalf("work start still collides after activation:\n%s", startOut)
+	}
+	m := regexp.MustCompile(`(?m)^wt \S+ open (.+)$`).FindStringSubmatch(startOut)
+	if m == nil {
+		t.Fatalf("start did not report a worktree root:\n%s", startOut)
+	}
+	if cur, err := wt.CurrentBranch(root); err != nil || cur != "main" {
+		t.Fatalf("main checkout not moved to the default branch (cur=%q err=%v)", cur, err)
+	}
+	afterStart, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatalf("live journal gone after start (the vacate rewound records): %v", err)
+	}
+	if !strings.HasPrefix(string(afterStart), string(beforeStart)) {
+		t.Fatalf("live journal lost activation-era events across the vacate:\nbefore %dB, after %dB", len(beforeStart), len(afterStart))
+	}
+
+	if err := os.WriteFile(filepath.Join(m[1], "main.go"), []byte("package main\n\n// via worktree after activation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subOut := callText(t, sess, "work", map[string]any{"op": "submit", "item": id})
+	if !strings.Contains(subOut, "merged to main") {
+		t.Fatalf("submit after attach did not merge:\n%s", subOut)
+	}
+	mainGo, err := os.ReadFile(filepath.Join(root, "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainGo), "via worktree after activation") {
+		t.Fatalf("worktree edit did not land on main:\n%s", subOut)
+	}
+	// The activation-era journal events must also survive the records-
+	// preserving fast-forward at submit — the second silent-loss site the
+	// review found (restore of rewound bytes over the branch's good copy,
+	// with replay skipping the lost events as baseline eids).
+	afterSubmit, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(afterSubmit), string(beforeStart)) {
+		t.Fatalf("live journal lost activation-era events across submit:\nbefore %dB, after %dB", len(beforeStart), len(afterSubmit))
+	}
+	histOut := callText(t, sess, "find", map[string]any{"q": "activate then start", "scope": "history"})
+	if !strings.Contains(histOut, "create") {
+		t.Fatalf("history lost the item's creation event:\n%s", histOut)
+	}
+}
