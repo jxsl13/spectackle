@@ -49,7 +49,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## T-01KYEWT8GMFAQAQP46DEK5FJ35 the manifest teaches memory-to-spec: standing decisions and constraints are cast into rules and decisions, never kept in agent-private memory
 kind: task
-state: active
+state: done
 created: 2026-07-26
 refs: P-01KYESGDWFFMH80ENHNFXMVZE8
 targets: internal/mcpserver/server.go, internal/mcpserver/templates
