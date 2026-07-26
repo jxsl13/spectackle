@@ -64,6 +64,7 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - B-01KYERTFRSFVDTNCT8EB4XGDPK no body-edit path exists for draft-state items, so grill feedback cannot amend the record it critiques: validated pass by cross-val-er diff 5fd4575f863e
 - T-01KYEWT8GMFAQAQP46DEK5FJ35 the manifest teaches memory-to-spec: standing decisions and constraints are cast into rules and decisions, never kept in agent-private memory: validated pass by cross-val-ew diff 84007fc60886 — re-validated after an orchestrator sequencing error: the post-merge sync checkout ran after a swap-window-refused archive and discarded the live verdict event - raw git on live records, the exact hazard the flow forbids; lesson recorded
 - B-01KYFG1KEEF1S8SYF8C7GXPZ0E re-land the memory-to-spec nudge stranded on the closed PR 121 by the premature post-refusal sync: validated pass by cross-val-fg diff cb644490171a
+- T-01KYD88M80EQEAJDW0AB243ZK2 research return path enforced at the archive gate: an R-item archives only consumed or explicitly closed: validated pass by cross-val-88m diff 3b334487bd00 — landed through three rounds (docs plus nodocs refinement, checkpoint race repair, waiver completion) and one repeated ORCH-SYNC-001 violation by the orchestrator - the rule held, the recovery was checkout-back plus complete waivers, and the sync now waits for this merge line
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
