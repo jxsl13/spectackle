@@ -203,6 +203,43 @@ const staleCheckInterval = 30 * time.Second
 // installed user runs, fired this on every call, telling them to run a
 // Makefile target their tree does not have). Checking eligibility first
 // means an ineligible binary never pays for binaryStale's walk either.
+// BinaryStale exposes the staleness verdict to the serve loop (T-01KYEH):
+// the self-restart watcher polls it to decide when a rebuild-and-exec is
+// due. It deliberately mirrors staleHint BYTE FOR BYTE — same s.ws root,
+// under the same lock — because a first draft judged s.main instead and
+// never read stale while the hint on the identical process did; whatever
+// the two Root values diverge in, the hint path is the one proven live.
+// Undebounced by design: the caller owns its own cadence.
+func (s *Server) BinaryStale() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return staleEligible(s.ws) && binaryStale(s.ws)
+}
+
+// AgentName is this server's swarm identity. The self-restart exec must
+// carry it explicitly in the environment: defers never run across
+// syscall.Exec, so Deregister is skipped, and a replacement that
+// re-generates a random name (coord.GenName when SPECTACKLE_AGENT is
+// unset) turns its own pre-swap leases into a dead foreign holder that
+// blocks it and every sibling until the TTL sweep — found by adversarial
+// review of the first self-restart draft (T-01KYEH). With the identity
+// carried over, the skipped Deregister is harmless: the same row upserts
+// and the leases are legitimately retained.
+func (s *Server) AgentName() string { return s.agent }
+
+// ServedDir is the root of the tree currently being served — the tree
+// BinaryStale judges, and therefore the tree the self-restart rebuild must
+// compile. The distinction from s.main.Dir is load-bearing: a server
+// started inside a linked git worktree resolves main to the PRIMARY
+// checkout, whose sources may lack exactly the changes that made the
+// binary stale — the first live swap rebuilt there and exec'd a
+// replacement that did not know its own flags.
+func (s *Server) ServedDir() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ws.Dir
+}
+
 func (s *Server) staleHint() string {
 	if !staleEligible(s.ws) {
 		return ""

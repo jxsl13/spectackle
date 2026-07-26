@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -649,4 +650,139 @@ func TestCallExitCodesOnRefusal(t *testing.T) {
 	if code(err) == 0 || !strings.Contains(stdout, "note") {
 		t.Fatalf("noteless reject: code=%d out=%q", code(err), stdout)
 	}
+}
+
+// TestWatchStaleRebuildsAndTriggers pins the watcher half of T-01KYEH: a
+// true staleness verdict rebuilds the binary, atomically replaces the
+// executable path, hands it to the exec step, and cancels the serve
+// context; a rebuild failure is loud but non-fatal — the watcher keeps
+// polling instead of dying, because a silently dead auto-restart is the
+// stale-binary trap this exists to close.
+func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs a real go build: skipped in -short")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "spx")
+	if err := os.WriteFile(exe, []byte("old image"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	restartTo := make(chan string, 1)
+	stopped := make(chan struct{})
+	go watchStale(ctx, func() bool { return true }, repoRoot, exe,
+		10*time.Millisecond, restartTo, func() { close(stopped) })
+
+	select {
+	case got := <-restartTo:
+		if got != exe {
+			t.Fatalf("restart path = %q, want %q", got, exe)
+		}
+	case <-time.After(120 * time.Second):
+		t.Fatal("watcher never triggered")
+	}
+	<-stopped
+	if info, err := os.Stat(exe); err != nil || info.Size() < 1<<20 {
+		t.Fatalf("executable not replaced by a real build: %v size=%d", err, info.Size())
+	}
+	if _, err := os.Stat(exe + ".new"); !os.IsNotExist(err) {
+		t.Fatal("temp build artifact left behind")
+	}
+
+	// Failure half: an unbuildable root logs and keeps going — the trigger
+	// never fires, the goroutine survives more than one tick, and cancel
+	// still shuts it down cleanly.
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	restartTo2 := make(chan string, 1)
+	go watchStale(ctx2, func() bool { return true }, t.TempDir(), filepath.Join(t.TempDir(), "x"),
+		10*time.Millisecond, restartTo2, func() { t.Error("failing rebuild must not trigger the restart") })
+	select {
+	case <-restartTo2:
+		t.Fatal("failing rebuild produced a restart path")
+	case <-time.After(300 * time.Millisecond):
+	}
+	cancel2()
+}
+
+// TestServeSelfRestartExecSwap is the end-to-end (non-short): a spawned
+// resident server with -self-restart notices a source file newer than its
+// binary, rebuilds, drains, and exec-replaces itself — same PID (exec
+// preserves it), same port, pidfile intact, and the log names the swap.
+func TestServeSelfRestartExecSwap(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a server and runs a real go build: skipped in -short")
+	}
+	repoRoot, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), "spx")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/spectackle")
+	build.Dir = repoRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	addr := freeAddr(t)
+	pidPath := filepath.Join(t.TempDir(), "spx.pid")
+	logPath := filepath.Join(t.TempDir(), "serve.log")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := exec.Command(bin, "serve", "-root", repoRoot, "-http", addr,
+		"-pidfile", pidPath, "-self-restart", "-self-restart-every", "500ms")
+	srv.Stderr = logFile
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Process.Kill(); _, _ = srv.Process.Wait() })
+	waitForFile(t, pidPath, 30*time.Second)
+
+	// Make a source file newer than the binary — mtime only, no content.
+	now := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(repoRoot, "cmd", "spectackle", "main.go"), now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(180 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, _ := os.ReadFile(logPath)
+		if strings.Contains(string(raw), "exec-replacing with the rebuilt") {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	raw, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(raw), "exec-replacing with the rebuilt") {
+		t.Fatalf("swap never logged:\n%s", raw)
+	}
+
+	// The replacement re-binds and re-creates the pidfile with the SAME pid.
+	waitForFile(t, pidPath, 30*time.Second)
+	pidRaw, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprintf("%d\n", srv.Process.Pid); string(pidRaw) != want {
+		t.Fatalf("pid changed across exec: got %q want %q", pidRaw, want)
+	}
+	// And it serves: the second serving-over-http line proves the new image.
+	if got := strings.Count(string(raw)+"", "serving over http"); got < 1 {
+		t.Fatalf("no serving line after swap:\n%s", raw)
+	}
+	deadline = time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, _ = os.ReadFile(logPath)
+		if strings.Count(string(raw), "serving over http") >= 2 {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("replacement never announced serving:\n%s", raw)
 }
