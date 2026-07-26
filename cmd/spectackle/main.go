@@ -406,6 +406,8 @@ func benchCmd(args []string) int {
 	fs := flag.NewFlagSet("bench", flag.ContinueOnError)
 	against := fs.String("against", "", "CANDIDATE binary to A/B; this binary (or -baseline) is the baseline")
 	baseline := fs.String("baseline", "", "override the baseline binary (default: this one), so two foreign builds can be A/B'd with the current fixture and script")
+	agentPrep := fs.String("agent-prep", "", "prepare a metered judge workspace in DIR: seeded fixture, fixed brief, metering shim (P-01KYDP stage 4)")
+	agentScore := fs.String("agent-score", "", "score a completed judge run in DIR: goal states plus metered bytes; exit non-zero when goals were not reached")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -413,6 +415,27 @@ func benchCmd(args []string) int {
 	if err != nil {
 		log.Printf("bench: resolve self: %v", err)
 		return 1
+	}
+	if *agentPrep != "" {
+		brief, shim, err := bench.AgentPrep(self, *agentPrep)
+		if err != nil {
+			log.Printf("bench: agent-prep: %v", err)
+			return 1
+		}
+		fmt.Printf("agent brief %s\nagent shim %s\n", brief, shim)
+		return 0
+	}
+	if *agentScore != "" {
+		sc, err := bench.ScoreAgentRun(self, *agentScore)
+		if err != nil {
+			log.Printf("bench: agent-score: %v", err)
+			return 1
+		}
+		fmt.Print(bench.AgentReport(sc))
+		if !sc.Valid {
+			return 1
+		}
+		return 0
 	}
 	if *against != "" || *baseline != "" {
 		base, cand := self, self
