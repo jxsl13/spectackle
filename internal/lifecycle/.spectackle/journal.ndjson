@@ -37,3 +37,4 @@
 {"t":"2026-07-26T10:17:00Z","eid":"dd07bc9206924135","ag":"ag-2526","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"cdd440b090a08eca","nh":"b93335a62dc8bd05"}
 {"t":"2026-07-26T10:30:47Z","eid":"eea35872965e7270","ag":"ag-cae5","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"b93335a62dc8bd05","nh":"16300d90ae69dcf8"}
 {"t":"2026-07-26T11:38:51Z","eid":"51b7637c30e37c8f","ag":"ag-a094","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"16300d90ae69dcf8","nh":"eb86c5dea77e9e16"}
+{"t":"2026-07-26T15:34:29Z","eid":"1ece295711c0dcd6","ag":"ag-eb41","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"73ebf91d9482f80b","nh":"04fe85047ecd216c"}
