@@ -269,3 +269,53 @@ func TestPromptNextSkipsBlockedAndOpenNeeds(t *testing.T) {
 		t.Fatalf("next skipped past the actionable item: %q", out)
 	}
 }
+
+// TestManifestDietAndGuidePrompt pins T-01KYE3 from both sides: the
+// manifest keeps the always-relevant core and the MODES pointer but none of
+// the three situational playbooks; the guide prompt serves each playbook
+// verbatim and answers an unknown topic with the topic list instead of an
+// error (a refusal would just cost a second round trip to learn three
+// words).
+func TestManifestDietAndGuidePrompt(t *testing.T) {
+	m := Manifest()
+	for _, keep := range []string{"spectackle — spec-lifecycle server", "TOKEN ECONOMY:", "RECORDS:", "DEFECT REPORTS:", "prompt guide topic=swarm|orchestration|brownfield"} {
+		if !strings.Contains(m, keep) {
+			t.Fatalf("manifest lost a core section or the MODES pointer: %q", keep)
+		}
+	}
+	for _, moved := range []string{"SWARM:", "ORCHESTRATION:", "BROWNFIELD IMPORT:"} {
+		if strings.Contains(m, moved) {
+			t.Fatalf("situational section %q still rides the manifest", moved)
+		}
+	}
+	if len(m) > 4000 {
+		t.Fatalf("manifest regrew to %d bytes — the diet's whole point was ~3400", len(m))
+	}
+
+	s := newTestServer(t, t.TempDir())
+	for topic, marker := range map[string]string{
+		"swarm":         "SWARM: you may be one of several agents",
+		"orchestration": "ORCHESTRATION: the intended division of labor",
+		"brownfield":    "BROWNFIELD IMPORT: onboarding an existing repo",
+	} {
+		res, err := s.promptGuide(context.Background(), &mcp.GetPromptRequest{
+			Params: &mcp.GetPromptParams{Arguments: map[string]string{"topic": topic}},
+		})
+		if err != nil {
+			t.Fatalf("guide %s: %v", topic, err)
+		}
+		body := res.Messages[0].Content.(*mcp.TextContent).Text
+		if !strings.Contains(body, marker) {
+			t.Fatalf("guide %s lost its playbook:\n%.120s", topic, body)
+		}
+	}
+	res, err := s.promptGuide(context.Background(), &mcp.GetPromptRequest{
+		Params: &mcp.GetPromptParams{Arguments: map[string]string{"topic": "nope"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := res.Messages[0].Content.(*mcp.TextContent).Text; !strings.Contains(body, "swarm, orchestration, brownfield") {
+		t.Fatalf("unknown topic must list the topics: %q", body)
+	}
+}

@@ -1187,15 +1187,23 @@ func TestInstructionsTeachTokenEconomy(t *testing.T) {
 }
 
 // TestInstructionsTeachBrownfieldImportAndRecords (T-0098, T-0101) asserts
-// that the server's instructions const teaches brownfield-repo onboarding
-// and the records token-economy guardrail, including the American English
-// language mandate (MCP-007).
+// that the server still TEACHES brownfield-repo onboarding and the records
+// token-economy guardrail, including the American English language mandate
+// (MCP-007). The obligations are unchanged; their ADDRESS moved with the
+// manifest diet (T-01KYE3): brownfield lives in the guide prompt now, paid
+// only when onboarding actually happens, while the records rules stay in
+// the always-read core — and the manifest must keep pointing at the moved
+// playbook or nothing would ever find it.
 func TestInstructionsTeachBrownfieldImportAndRecords(t *testing.T) {
-	if !strings.Contains(instructions, "BROWNFIELD IMPORT") {
-		t.Errorf("instructions missing BROWNFIELD IMPORT paragraph")
+	brownfield := guideTopics["brownfield"]
+	if !strings.Contains(brownfield, "BROWNFIELD IMPORT") {
+		t.Errorf("guide topic brownfield missing its paragraph")
 	}
-	if !strings.Contains(instructions, "Survey in parallel") {
-		t.Errorf("instructions missing 'Survey in parallel' step")
+	if !strings.Contains(brownfield, "Survey in parallel") {
+		t.Errorf("guide topic brownfield missing 'Survey in parallel' step")
+	}
+	if !strings.Contains(instructions, "brownfield") {
+		t.Errorf("manifest lost the pointer to the brownfield playbook")
 	}
 	if !strings.Contains(instructions, "RECORDS") {
 		t.Errorf("instructions missing RECORDS paragraph")
