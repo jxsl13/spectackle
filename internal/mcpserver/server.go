@@ -121,6 +121,12 @@ func manifest() string {
 type Server struct {
 	main workspace.Root // the MAIN repo root (immutable after New)
 	ws   workspace.Root // the ACTIVE root — re-rooted to a worktree during `work`
+	// selfRestartOn records that the committed-only self-restart watcher is
+	// active for this process: the mtime-based make-dev stale hint is then
+	// suppressed — its advice would be a manual dirty-tree rebuild, the
+	// exact hazard ADR-01KYF5 closes. Set once at serve start.
+	selfRestartOn bool
+
 	// home is the root this process was STARTED with (-root), immutable
 	// after New. It is where submit/abort re-root back to: a server homed
 	// in a linked worktree (the resident orchestrator topology) must return
@@ -419,6 +425,9 @@ func (s *Server) leaseTTL() time.Duration {
 func (s *Server) agentTTL() time.Duration {
 	return time.Duration(s.main.Cfg.Swarm.AgentTTL) * time.Second
 }
+
+// SetSelfRestart marks the committed-only watcher active (see selfRestartOn).
+func (s *Server) SetSelfRestart() { s.selfRestartOn = true }
 
 // rerootBack answers where submit/abort return the active workspace after
 // tearing down the task worktree at removedRoot: the process's home root —

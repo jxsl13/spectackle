@@ -188,32 +188,17 @@ func rootJournalSince(ws workspace.Root) int {
 // correctness requirement.
 const staleCheckInterval = 30 * time.Second
 
-// staleHint returns a "h . binary stale ..." record naming the rebuild
-// command (MCP-010) once the running executable is older than the newest
-// .go file under s.ws.Dir — the resident server is answering from code the
-// tree has moved past. Debounced like compactHint: the walk itself is
-// cached and refreshed at most once per staleCheckInterval, and once
-// surfaced for a given crossing the hint stays silent (staleHinted) until
-// the verdict drops back to "not stale" (a rebuild ran — re-armed) and
-// crosses again. Empty string = nothing to say right now.
-//
-// Gated by staleEligible BEFORE any of the above: the advice is only
-// followable on a dev build of spectackle serving spectackle's own tree
-// (issue #29 — a released binary answering ANY tree, which is what every
-// installed user runs, fired this on every call, telling them to run a
-// Makefile target their tree does not have). Checking eligibility first
-// means an ineligible binary never pays for binaryStale's walk either.
-// BinaryStale exposes the staleness verdict to the serve loop (T-01KYEH):
-// the self-restart watcher polls it to decide when a rebuild-and-exec is
-// due. It deliberately mirrors staleHint BYTE FOR BYTE — same s.ws root,
-// under the same lock — because a first draft judged s.main instead and
-// never read stale while the hint on the identical process did; whatever
-// the two Root values diverge in, the hint path is the one proven live.
-// Undebounced by design: the caller owns its own cadence.
-func (s *Server) BinaryStale() bool {
+// SelfRestartEligible reports whether the committed-only self-restart
+// watcher may operate on this serving root: a development build serving its
+// own module (the issue #29 guard). Dropping this gate let the watcher act
+// on ANY tree with a resolvable HEAD — flap-forever on foreign repos, and
+// structurally able to build and exec foreign code over the server
+// (adversarial cross-verification of ADR-01KYF5). Checked once at serve
+// start; the answer is static for the process lifetime.
+func (s *Server) SelfRestartEligible() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return staleEligible(s.ws) && binaryStale(s.ws)
+	return staleEligible(s.ws)
 }
 
 // AgentName is this server's swarm identity. The self-restart exec must
@@ -241,6 +226,12 @@ func (s *Server) ServedDir() string {
 }
 
 func (s *Server) staleHint() string {
+	// Under -self-restart the make-dev advice would steer an operator into
+	// a manual dirty-tree rebuild — the hazard ADR-01KYF5 closes. The
+	// resident swaps itself on commit; say that instead.
+	if s.selfRestartOn {
+		return ""
+	}
 	if !staleEligible(s.ws) {
 		return ""
 	}

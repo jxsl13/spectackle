@@ -1124,3 +1124,22 @@ func TestWorktreeHomedRestartReattachesMainItem(t *testing.T) {
 		t.Fatalf("abort epilogue must name the root the rollback landed on: %q", out)
 	}
 }
+
+// SelfRestartEligible gates the committed-only watcher (ADR-01KYF5): a test
+// binary serving a scratch root is neither a dev build of that module nor
+// serving its own source — the guard must refuse, keeping foreign trees
+// structurally unbuildable. SetSelfRestart suppresses the make-dev hint
+// whose advice would be a manual dirty-tree rebuild.
+func TestSelfRestartEligibilityAndHintSuppression(t *testing.T) {
+	s, _ := connectRootWithServer(t, gitRoot(t))
+	if s.SelfRestartEligible() {
+		t.Fatal("scratch root must never be self-restart eligible")
+	}
+	s.SetSelfRestart()
+	if !s.selfRestartOn {
+		t.Fatal("SetSelfRestart did not mark the watcher active")
+	}
+	if hint := s.staleHint(); hint != "" {
+		t.Fatalf("stale hint not suppressed under self-restart: %q", hint)
+	}
+}

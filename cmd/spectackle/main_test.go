@@ -652,12 +652,11 @@ func TestCallExitCodesOnRefusal(t *testing.T) {
 	}
 }
 
-// TestWatchStaleRebuildsAndTriggers pins the watcher half of T-01KYEH: a
-// true staleness verdict rebuilds the binary, atomically replaces the
-// executable path, hands it to the exec step, and cancels the serve
-// context; a rebuild failure is loud but non-fatal — the watcher keeps
-// polling instead of dying, because a silently dead auto-restart is the
-// stale-binary trap this exists to close.
+// TestWatchStaleRebuildsAndTriggers pins the watcher half of T-01KYEH under
+// the committed-only policy (ADR-01KYF5): a moved (or unstamped) HEAD
+// rebuilds from a clean snapshot, atomically replaces the executable path,
+// hands it to the exec step, and cancels the serve context; a non-git root
+// idles loudly instead of dying or thrashing.
 func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a real go build: skipped in -short")
@@ -675,7 +674,7 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 	defer cancel()
 	restartTo := make(chan string, 1)
 	stopped := make(chan struct{})
-	go watchStale(ctx, func() bool { return true }, repoRoot, exe,
+	go watchStale(ctx, repoRoot, exe,
 		10*time.Millisecond, restartTo, func() { close(stopped) })
 
 	select {
@@ -694,13 +693,13 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 		t.Fatal("temp build artifact left behind")
 	}
 
-	// Failure half: an unbuildable root logs and keeps going — the trigger
-	// never fires, the goroutine survives more than one tick, and cancel
+	// Idle half: a non-git root has no resolvable HEAD — committed-only
+	// means the watcher idles loudly instead of rebuilding, and cancel
 	// still shuts it down cleanly.
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	restartTo2 := make(chan string, 1)
-	go watchStale(ctx2, func() bool { return true }, t.TempDir(), filepath.Join(t.TempDir(), "x"),
-		10*time.Millisecond, restartTo2, func() { t.Error("failing rebuild must not trigger the restart") })
+	go watchStale(ctx2, t.TempDir(), filepath.Join(t.TempDir(), "x"),
+		10*time.Millisecond, restartTo2, func() { t.Error("non-git root must not trigger a restart") })
 	select {
 	case <-restartTo2:
 		t.Fatal("failing rebuild produced a restart path")
@@ -710,20 +709,47 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 }
 
 // TestServeSelfRestartExecSwap is the end-to-end (non-short): a spawned
-// resident server with -self-restart notices a source file newer than its
-// binary, rebuilds, drains, and exec-replaces itself — same PID (exec
-// preserves it), same port, pidfile intact, and the log names the swap.
+// hand-built resident server with -self-restart converges onto the stamped
+// committed-only lineage in exactly one swap — same PID (exec preserves
+// it), same port, pidfile intact, the log names the swap — and afterwards
+// working-tree edits must NOT trigger further swaps (the B-01KYES20V
+// edit-churn tripwire).
 func TestServeSelfRestartExecSwap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns a server and runs a real go build: skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
+	srcRoot, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The served repo is a FIXTURE whose HEAD is the current working tree:
+	// the watcher rebuilds from HEAD, and asserting committed-only
+	// semantics against a HEAD that predates the feature would test the
+	// old code (the bootstrap chicken-and-egg this fixture removes).
+	repoRoot := filepath.Join(t.TempDir(), "fixture")
+	if out, err := exec.Command("cp", "-R", srcRoot, repoRoot).CombinedOutput(); err != nil {
+		t.Fatalf("fixture copy: %v: %s", err, out)
+	}
+	for _, junk := range []string{".git", ".spectackle/cache", ".spectackle/wt"} {
+		_ = os.RemoveAll(filepath.Join(repoRoot, junk))
+	}
+	fixtureGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repoRoot
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=f@f",
+			"GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=f@f")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("fixture git %v: %v %s", args, err, out)
+		}
+	}
+	fixtureGit("init", "-q", "-b", "main")
+	fixtureGit("add", "-A")
+	fixtureGit("commit", "-q", "-m", "fixture: working tree as HEAD")
+
 	bin := filepath.Join(t.TempDir(), "spx")
 	build := exec.Command("go", "build", "-o", bin, "./cmd/spectackle")
-	build.Dir = repoRoot
+	build.Dir = srcRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
 	}
@@ -744,22 +770,21 @@ func TestServeSelfRestartExecSwap(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Process.Kill(); _, _ = srv.Process.Wait() })
 	waitForFile(t, pidPath, 30*time.Second)
 
-	// Make a source file newer than the binary — mtime only, no content.
-	now := time.Now().Add(2 * time.Second)
-	if err := os.Chtimes(filepath.Join(repoRoot, "cmd", "spectackle", "main.go"), now, now); err != nil {
-		t.Fatal(err)
-	}
+	// No trigger needed: the hand-built binary carries buildHead="" and the
+	// committed-only watcher converges onto the stamped lineage at the
+	// first tick — that swap IS the test. A working-tree mtime touch must
+	// no longer matter at all.
 
 	deadline := time.Now().Add(180 * time.Second)
 	for time.Now().Before(deadline) {
 		raw, _ := os.ReadFile(logPath)
-		if strings.Contains(string(raw), "exec-replacing with the rebuilt") {
+		if strings.Contains(string(raw), "exec-replacing with the clean-snapshot rebuild") {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	raw, _ := os.ReadFile(logPath)
-	if !strings.Contains(string(raw), "exec-replacing with the rebuilt") {
+	if !strings.Contains(string(raw), "exec-replacing with the clean-snapshot rebuild") {
 		t.Fatalf("swap never logged:\n%s", raw)
 	}
 
@@ -777,12 +802,90 @@ func TestServeSelfRestartExecSwap(t *testing.T) {
 		t.Fatalf("no serving line after swap:\n%s", raw)
 	}
 	deadline = time.Now().Add(30 * time.Second)
+	served2 := false
 	for time.Now().Before(deadline) {
 		raw, _ = os.ReadFile(logPath)
 		if strings.Count(string(raw), "serving over http") >= 2 {
-			return
+			served2 = true
+			break
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	t.Fatalf("replacement never announced serving:\n%s", raw)
+	if !served2 {
+		t.Fatalf("replacement never announced serving:\n%s", raw)
+	}
+	// The edit-churn tripwire: with gen2 stamped on HEAD, a working-tree
+	// mtime touch and an untracked file must trigger NO further swap —
+	// committed-only means edits are structurally invisible to the watcher.
+	now := time.Now().Add(2 * time.Second)
+	_ = os.Chtimes(filepath.Join(repoRoot, "cmd", "spectackle", "main.go"), now, now)
+	churn := filepath.Join(repoRoot, "selfrestart_churn_probe.txt")
+	if err := os.WriteFile(churn, []byte("uncommitted\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(churn) })
+	time.Sleep(2 * time.Second) // four 500ms ticks
+	raw, _ = os.ReadFile(logPath)
+	if got := strings.Count(string(raw), "serving over http"); got != 2 {
+		t.Fatalf("working-tree edits changed the serving generation (%d announcements, want 2) under committed-only:\n%s", got, raw)
+	}
+}
+
+// The committed-only rebuild policy (ADR-01KYF5, closing B-01KYES20V and
+// B-01KYES20Y): the rebuild decision keys on commits alone, and the build
+// snapshot structurally excludes the dirty working tree.
+func TestNeedsRebuildCommitBased(t *testing.T) {
+	if needsRebuild("abc", "abc") {
+		t.Fatal("same commit must not rebuild")
+	}
+	if !needsRebuild("abc", "def") {
+		t.Fatal("moved HEAD must rebuild")
+	}
+	if !needsRebuild("", "def") {
+		t.Fatal("hand-built first generation must converge once")
+	}
+	if needsRebuild("abc", "") {
+		t.Fatal("unresolvable HEAD must never rebuild")
+	}
+}
+
+func TestSnapshotHeadExcludesDirtyTree(t *testing.T) {
+	dir := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "committed.txt"), []byte("in\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-q", "-m", "seed")
+	if err := os.WriteFile(filepath.Join(dir, "dirty.txt"), []byte("out\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "committed.txt"), []byte("dirty edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := snapshotHead(context.Background(), dir, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(snap)
+	if _, err := os.Stat(filepath.Join(snap, "dirty.txt")); err == nil {
+		t.Fatal("untracked dirty file leaked into the build snapshot")
+	}
+	data, err := os.ReadFile(filepath.Join(snap, "committed.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "in\n" {
+		t.Fatalf("snapshot carries the dirty edit, not HEAD: %q", data)
+	}
 }

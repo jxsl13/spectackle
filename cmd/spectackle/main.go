@@ -136,7 +136,7 @@ func serve(args []string) int {
 	root := fs.String("root", ".", "workspace detection start / fallback root")
 	httpAddr := fs.String("http", "", "serve over Streamable HTTP on this address (e.g. 127.0.0.1:7331) instead of stdio")
 	pidfile := fs.String("pidfile", "", "write the process PID here once the server is ready to accept requests; removed on shutdown (fails if the file already exists)")
-	selfRestart := fs.Bool("self-restart", false, "HTTP mode only: when this dev binary serves its own source tree and goes stale, rebuild and exec-replace it (the manual make-dev step after every merge, made mechanical)")
+	selfRestart := fs.Bool("self-restart", false, "HTTP mode only: when git HEAD of the served tree moves past the commit this binary was built from, rebuild from a clean snapshot of HEAD and exec-replace (committed-only, ADR-01KYF5; the dirty working tree never serves)")
 	selfRestartEvery := fs.Duration("self-restart-every", 30*time.Second, "staleness poll cadence for -self-restart")
 	_ = fs.Parse(args)
 
@@ -185,8 +185,10 @@ func serve(args []string) int {
 		exe, err := os.Executable()
 		if err != nil {
 			log.Printf("serve: -self-restart disabled, cannot resolve own executable: %v", err)
+		} else if s.SetSelfRestart(); !s.SelfRestartEligible() {
+			log.Printf("serve: -self-restart idle: this binary is not a dev build serving its own module (the eligibility guard — foreign trees must never be built or exec'd)")
 		} else {
-			go watchStale(ctx, s.BinaryStale, s.ServedDir(), exe, *selfRestartEvery, restartTo, stop)
+			go watchStale(ctx, s.ServedDir(), exe, *selfRestartEvery, restartTo, stop)
 		}
 	}
 	httpErr := runHTTP(ctx, *httpAddr, handler, *pidfile)
@@ -207,7 +209,7 @@ func serve(args []string) int {
 		if httpErr != nil {
 			log.Printf("serve: drain incomplete (%v) — exec-replacing anyway, laggard streams are severed", httpErr)
 		}
-		log.Printf("serve: binary went stale — exec-replacing with the rebuilt %s", exe)
+		log.Printf("serve: exec-replacing into the rebuilt image %s", exe)
 		// Replace, never append: a pre-existing SPECTACKLE_AGENT entry —
 		// even an empty one — precedes the appended value in the environ
 		// list, and os.Getenv returns the FIRST match, so the replacement
@@ -246,28 +248,103 @@ func serve(args []string) int {
 // root is the primary checkout, whose sources may lack exactly the changes
 // that made the binary stale — the first live swap rebuilt there and
 // exec'd a replacement that did not know its own flags.
-func watchStale(ctx context.Context, stale func() bool, buildRoot, exe string, every time.Duration, restartTo chan<- string, stop func()) {
+// buildHead is the commit this binary was built from, stamped by
+// watchStale's own rebuilds via -ldflags. The hand-built first generation
+// carries "" and swaps exactly once at the first tick, converging onto the
+// stamped lineage.
+var buildHead string
+
+// gitHead answers the current HEAD commit of dir, "" when unresolvable.
+func gitHead(ctx context.Context, dir string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// needsRebuild is the whole rebuild decision: HEAD resolvable and different
+// from the commit the serving binary carries. Working-tree edits can NEVER
+// trigger a swap — that is the committed-only policy (ADR-01KYF5): the 103
+// edit-churn swaps in one session (B-01KYES20V) and the dirty-tree serving
+// hazard (B-01KYES20Y) both close on this one predicate.
+func needsRebuild(built, head string) bool {
+	return head != "" && head != built
+}
+
+// snapshotHead extracts a CLEAN checkout of HEAD into a temp dir via git
+// archive — the dirty working tree is structurally excluded from the build.
+func snapshotHead(ctx context.Context, repoDir, head string) (string, error) {
+	snap, err := os.MkdirTemp("", "spx-selfbuild-")
+	if err != nil {
+		return "", err
+	}
+	tarPath := filepath.Join(snap, "head.tar")
+	// The RESOLVED hash, not the literal ref: a commit landing between the
+	// rev-parse and the archive would stamp the binary with one commit and
+	// fill it with another — self-healing but a wasted extra swap.
+	if out, err := exec.CommandContext(ctx, "git", "-C", repoDir, "archive", "--format=tar", "-o", tarPath, head).CombinedOutput(); err != nil {
+		os.RemoveAll(snap)
+		return "", fmt.Errorf("git archive: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if out, err := exec.CommandContext(ctx, "tar", "-x", "-f", tarPath, "-C", snap).CombinedOutput(); err != nil {
+		os.RemoveAll(snap)
+		return "", fmt.Errorf("untar: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	_ = os.Remove(tarPath)
+	return snap, nil
+}
+
+// watchStale polls git HEAD of the served tree and, when the serving binary
+// was built from an older commit, rebuilds from a CLEAN snapshot of HEAD
+// and exec-replaces the process (T-01KYEH, amended by ADR-01KYF5:
+// committed-only). It never reads working-tree mtimes and never builds the
+// working tree: uncommitted code cannot reach the serving binary, and edit
+// churn cannot thrash the swap loop.
+func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, restartTo chan<- string, stop func()) {
 	t := time.NewTicker(every)
 	defer t.Stop()
+	warnedNoGit := false
+	loggedFailHead := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 		}
-		if !stale() {
+		head := gitHead(ctx, repoDir)
+		if head == "" {
+			if !warnedNoGit {
+				log.Printf("serve: self-restart idle: %s has no resolvable HEAD (committed-only policy needs a git repo)", repoDir)
+				warnedNoGit = true
+			}
 			continue
 		}
-		buildStart := time.Now()
+		if !needsRebuild(buildHead, head) {
+			continue
+		}
+		snap, err := snapshotHead(ctx, repoDir, head)
+		if err != nil {
+			if loggedFailHead != head {
+				loggedFailHead = head
+				log.Printf("serve: self-restart snapshot FAILED, still serving the old binary (retrying quietly until HEAD moves): %v", err)
+			}
+			continue
+		}
 		tmp := exe + ".new"
 		// Context-bound: a stop signal racing an in-flight build must WIN —
 		// an unbounded build that completes during the drain would fill the
-		// channel and resurrect the process a supervisor just tried to
-		// stop.
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", tmp, "./cmd/spectackle")
-		cmd.Dir = buildRoot
-		if out, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("serve: self-restart rebuild FAILED, still serving the stale binary: %v: %s", err, strings.TrimSpace(string(out)))
+		// channel and resurrect the process a supervisor just tried to stop.
+		cmd := exec.CommandContext(ctx, "go", "build",
+			"-ldflags", "-X main.buildHead="+head, "-o", tmp, "./cmd/spectackle")
+		cmd.Dir = snap
+		out, err := cmd.CombinedOutput()
+		os.RemoveAll(snap)
+		if err != nil {
+			if loggedFailHead != head {
+				loggedFailHead = head
+				log.Printf("serve: self-restart rebuild FAILED, still serving the old binary (retrying quietly until HEAD moves): %v: %s", err, strings.TrimSpace(string(out)))
+			}
 			continue
 		}
 		if ctx.Err() != nil {
@@ -277,15 +354,7 @@ func watchStale(ctx context.Context, stale func() bool, buildRoot, exe string, e
 			log.Printf("serve: self-restart: replace %s: %v", exe, err)
 			continue
 		}
-		// Backdate the new image to the build START: a source edit landing
-		// DURING the build has an mtime between start and completion, and
-		// against the completion-stamped binary it would read fresh —
-		// permanently missed until an unrelated future edit. Stamped at
-		// start, any mid-build edit makes the replacement immediately stale
-		// again and the next cycle catches it.
-		if err := os.Chtimes(exe, buildStart, buildStart); err != nil {
-			log.Printf("serve: self-restart: backdate %s: %v", exe, err)
-		}
+		log.Printf("serve: HEAD moved to %.12s — exec-replacing with the clean-snapshot rebuild", head)
 		restartTo <- exe
 		stop()
 		return
