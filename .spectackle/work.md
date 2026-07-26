@@ -12,7 +12,7 @@ REPRO: SPECTACKLE_AGENT=cross-val-87zn spectackle call -http <addr> validate op=
 
 ## T-01KYFPNCXEERJ90CB7STB4ZGVZ dup detector must ignore hunk context-only functions; unify short8/shortHash as its proof
 kind: task
-state: active
+state: done
 created: 2026-07-26
 grilled: 2026-07-26 open=0
 targets: internal/mcpserver/validate.go, internal/evidence/dup.go, internal/mcpserver/tools.go
