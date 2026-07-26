@@ -62,47 +62,6 @@ ROLLBACK. Each surface change is a template/instruction edit; the R-item gate is
 
 SCOPE DISJOINTNESS. Task 1 touches server.go/prompts.go/templates/docs. Task 2 touches the move path in tools.go, which the grill-verdict task under the review-and-validation proposal (title: grill computes its critique and stamps a verdict) restructures first - task 2 declares NEEDS on that task BY TITLE and runs after it merges. No task ID is cited here by prefix guess; the prior draft's lesson is recorded: reference sibling work by exact title phrase or full minted ID, never by a predicted prefix.
 
-## T-01KYD87ZN7EJ49CMSEQE9XGGWS package-local contract coverage: silent by default with visibility in state, counted by check only under coverage_gate
-kind: task
-state: approved
-created: 2026-07-25
-parent: P-01KYD87FJREJ5SD0G2RDCMZ32Y
-refs: R-0007, T-01KYD72GQ6E2ZV0HX8S443NPY6
-grilled: 2026-07-25
-targets: internal/mcpserver/tools.go, internal/mcpserver/state.go, internal/workspace/workspace.go
-
-IMPLEMENTER IN OWN WORKTREE. Read this whole body first. Supersedes the rejected draft in refs, whose central output design was proven impossible against the real code by this set's anti-ceremony validation; the corrected design is below and the impossibility is part of your ground truth.
-
-NEEDS: the grill-verdict task (title: grill computes its critique and stamps a verdict) must be MERGED first - it restructures tools.go's move path and this task edits tools.go's check path; the lease serializes regardless. ALSO DISCLOSED: T-01KYD2XQG6E38APSR3EY4GY137 (rule op=edit recomposition) is an open draft targeting internal/spec/author.go AND internal/mcpserver/tools.go - if it becomes active before you, coordinate through the lease and rebase on whichever merges first.
-
-WHY. check cannot report a contract gap in this repository: the root bundle is unscoped and carries 16 rules, so spec.Cascade.ForPath never returns empty and the coverage branch (tools.go:1695-1716, fires on len(ForPath(rel))==0) is structurally unreachable. ELEVEN of twenty-four packages under internal/ carry no bundle (thirteen do - counted by this set's independence validator; the prior draft said twelve) while SPX-REPO-002 mandates one, and check answers ok. Six of the ten dogfooded defects landed in uncovered packages.
-
-THE OUTPUT-CHANNEL CONSTRAINT, verified against the real code - this is why the prior draft was impossible: check() has exactly ONE path that renders ok: if len(lines) == 0 return text("ok") (tools.go:1679-1680); any non-empty lines returns budget.Render(kept, cur) verbatim with NO trailing ok (budget.go:68-76 is a plain newline join; text() at tools.go:147-148 is a pass-through). The CI self-hosting gate does FULL-STRING equality: result != "ok" exits 1 (ci.yml:71-76). Therefore ANY unconditional visible output from check - twenty lines or one summary line - turns this repository's own CI red on merge. Visibility-without-gating cannot live in check's output channel. Do not rediscover this; design around it as specified.
-
-WHAT TO BUILD
-1. COVERED(pkg): a source dir under internal/ or cmd/ is covered iff (a) a non-root bundle exists at it or an ancestor below the root, or (b) at least one root-bundle rule binds a node inside it via applies (resolve applies targets to paths through the anchors table; a rule with empty applies never covers anything outside its own dir). This is the mitigation: a lazily written root-level EARS sentence with no applies binding silences nothing. Cost: O(rules x anchor rows), both already in memory - no new I/O; state this holds in a code comment.
-2. DEFAULT VISIBILITY lives in state, not check: state's #rules section already renders one line per dir (ok dir <d> rules=<n>); append the token uncovered to dirs failing COVERED. state is not string-matched by CI - VERIFY includes proving that (read ci.yml; only check's output is compared to ok). Zero new lines, one token appended to existing lines - no output growth beyond 10 bytes per uncovered dir.
-3. GATING: workspace config key coverage_gate: package (FeedbackCfg sibling or top-level key - pick, justify) makes check emit g nocontract <dir> lines (sorted, capped 20 + "+<n> more" tail) that COUNT as findings - CI red until backfilled, by explicit opt-in only. Default absent: check emits NOTHING for coverage - identical output to today, byte for byte, proven by a test.
-4. This repository does NOT set the key in this task. The report lists the eleven dirs as the backfill worklist.
-
-NON-NEGOTIABLE PROPERTIES, each with a test
-- Byte-identity default: on a workspace with uncovered dirs and no key, check output is byte-identical to pre-change (golden test).
-- state marks exactly the uncovered dirs; adding one applies-bound root rule into pkg X removes exactly X's token.
-- With coverage_gate: package, check emits the capped records and does NOT end ok; without, it does.
-- Cap holds: 40 uncovered dirs -> 20 lines + tail.
-- Unknown-key tolerance: a workspace that sets the key loads on a server built without this change (YAML ignores unknown keys - verify, state in report).
-
-VERIFY (real output, never predicted)
-  go build ./... ; go test ./... -race ; go vet ./... ; gofmt -l . (empty)
-  spectackle lint <worktree-root> (positional)
-  spectackle call -root <worktree-root> check '{}' ends exactly ok AND is byte-identical to a pre-change run on the same tree (paste both, diff empty)
-  spectackle call -root <worktree-root> state '{}' - paste the #rules section showing the eleven uncovered tokens.
-CROSS-VERIFICATION (orchestrator, after done): independent verifier re-runs the golden byte-identity test and the gated-mode test from the diff alone; verdict recorded in the archive note.
-
-SCOPE: coverageGaps and the check wiring in tools.go, the state.go rules-section token, the config key in workspace.go, tests. Do not touch grill.go, the spec package, or the anchors format.
-ROLLBACK: revert the commit; the config key is additive and ignored by older servers.
-REPORT BACK: the COVERED implementation, both pasted check runs with empty diff, the state section, the eleven-dir worklist, each test's result, anything deliberately not done.
-
 ## T-01KYD88KV5EX2SBYE81TKYHDH9 the backward path in every machine-facing surface: state-computed next steps, archive notes as the training signal, post-merge restart in the loop
 kind: task
 state: approved
