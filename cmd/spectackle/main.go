@@ -543,6 +543,23 @@ func call(args []string) int {
 				return 2
 			}
 		}
+		// B-01KYFPNCK: over -http the RESIDENT's identity would stamp every
+		// verdict, silently fabricating independence — SPECTACKLE_AGENT set
+		// on the CLI died at the process boundary. Forward it as the
+		// verdict-scoped agent field (never overriding an explicit one);
+		// the server applies every identity refusal to the forwarded name.
+		if *httpAddr != "" && (c.Name == "grill" || c.Name == "validate") {
+			if env := os.Getenv("SPECTACKLE_AGENT"); env != "" {
+				if op, _ := c.Arguments["op"].(string); op == "verdict" {
+					if _, has := c.Arguments["agent"]; !has {
+						if c.Arguments == nil {
+							c.Arguments = map[string]any{}
+						}
+						c.Arguments["agent"] = env
+					}
+				}
+			}
+		}
 		out, callErr := sess.Call(ctx, c)
 		fmt.Println(out)
 		if callErr != nil {

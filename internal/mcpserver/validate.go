@@ -40,6 +40,7 @@ type validateIn struct {
 	Pass     *bool             `json:"pass,omitempty" jsonschema:"verdict: true = the implementation is judged complete and honest"`
 	Findings string            `json:"findings,omitempty" jsonschema:"verdict: required on pass=false — they reopen the item as the implementer's next brief"`
 	Waivers  map[string]string `json:"waivers,omitempty" jsonschema:"verdict: per-finding waivers, key (class:subject from the pack) to reason — every open finding must be fixed or waived (T-01KYD9J)"`
+	Agent    string            `json:"agent,omitempty" jsonschema:"verdict only: validator identity when the session cannot carry SPECTACKLE_AGENT (a shared -http resident stamps ITS name otherwise, B-01KYFPNCK); every identity refusal applies to this name"`
 	Budget   int               `json:"budget,omitempty" jsonschema:"token budget, default 1500"`
 	Cur      string            `json:"cur,omitempty" jsonschema:"resume cursor"`
 }
@@ -782,8 +783,15 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 		return s.nearest(id)
 	}
 	short := sc.short(it.ID)
-	if reEphemeralAgent.MatchString(s.agent) {
-		return refuse("! VALIDATE E " + short + " anonymous validator - set SPECTACKLE_AGENT to a deliberate name")
+	// Validator identity (B-01KYFPNCK): same override as grillVerdict —
+	// the per-call agent field carries the real validator on shared
+	// sessions; every refusal applies to the overridden name.
+	validator := s.agent
+	if in.Agent != "" {
+		validator = in.Agent
+	}
+	if reEphemeralAgent.MatchString(validator) {
+		return refuse("! VALIDATE E " + short + " anonymous validator - set SPECTACKLE_AGENT (or the agent field) to a deliberate name")
 	}
 	if in.Pass == nil {
 		return refuse("! ARG E - verdict requires pass")
@@ -792,7 +800,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 	if err != nil {
 		return nil, nil, err
 	}
-	if implementers[s.agent] {
+	if implementers[validator] {
 		return refuse("! VALIDATE E " + short + " validator implemented this - use a fresh agent identity")
 	}
 	diff, _ := s.itemDiff(it.ID)
@@ -825,7 +833,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 		findings = findings[:maxFindingsBytes] + "…[truncated]"
 	}
 	if err := journal.Append(s.ws, it.Dir, journal.Event{
-		Ev: journal.EvValidate, ID: it.ID, Dir: it.Dir, Op: "verdict",
+		Ev: journal.EvValidate, ID: it.ID, Dir: it.Dir, Op: "verdict", Ag: validator,
 		Pass: *in.Pass, Hash: validateHash(it, diff), Note: findings, Wv: wv,
 	}); err != nil {
 		return nil, nil, err
@@ -834,7 +842,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 	if *in.Pass {
 		verdict = "pass"
 	}
-	_ = s.cd.Emit("validate", it.ID, verdict+" by "+s.agent)
+	_ = s.cd.Emit("validate", it.ID, verdict+" by "+validator)
 	s.markDirty()
 
 	// A failing verdict REOPENS a done item through the existing hop: the
@@ -849,13 +857,13 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 					return nil, nil, eErr
 				}
 				_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
-				return text(warn + fmt.Sprintf("ok validate %s fail by %s\ni %s blocked rounds exhausted — decide %s (rescope|reject|override-once)", short, s.agent, short, sc.short(dec.ID)))
+				return text(warn + fmt.Sprintf("ok validate %s fail by %s\ni %s blocked rounds exhausted — decide %s (rescope|reject|override-once)", short, validator, short, sc.short(dec.ID)))
 			}
 			return nil, nil, err
 		}
-		return text(warnIgnored + warn + fmt.Sprintf("ok validate %s fail by %s — reopened done→active; the findings are the next brief", short, s.agent))
+		return text(warnIgnored + warn + fmt.Sprintf("ok validate %s fail by %s — reopened done→active; the findings are the next brief", short, validator))
 	}
-	return text(warnIgnored + warn + "ok validate " + short + " " + verdict + " by " + s.agent)
+	return text(warnIgnored + warn + "ok validate " + short + " " + verdict + " by " + validator)
 }
 
 // validateGateGap answers what stands between a task/bug and archive:
