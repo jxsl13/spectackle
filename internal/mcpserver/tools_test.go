@@ -1459,3 +1459,32 @@ func TestDecideNeedFallbackStaysSuccess(t *testing.T) {
 		t.Fatalf("expected the need decision fallback line: %v", res.Content[0])
 	}
 }
+
+// TestNeedRefusalCarriesCallShape pins T-01KYE5: the rule need refusal
+// carries the assembled call shape exactly once, naming all six fields,
+// alongside every missing slot question — the tricky judges showed slot
+// questions alone cost 3-5 groping attempts per rule.
+func TestNeedRefusalCarriesCallShape(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "rule", Arguments: map[string]any{"op": "add"},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("need refusal lost IsError")
+	}
+	txt := res.Content[0].(*mcp.TextContent).Text
+	if got := strings.Count(txt, "shape: rule "); got != 1 {
+		t.Fatalf("shape line count = %d, want exactly 1:\n%s", got, txt)
+	}
+	for _, field := range []string{`"op":"add"`, `"dir"`, `"stem"`, `"pattern":"U|E|S|N|O|C"`, `"system"`, `"response"`} {
+		if !strings.Contains(txt, field) {
+			t.Fatalf("shape line missing %s:\n%s", field, txt)
+		}
+	}
+	if !strings.Contains(txt, "need pattern") {
+		t.Fatalf("slot questions lost:\n%s", txt)
+	}
+}
