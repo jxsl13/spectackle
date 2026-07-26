@@ -443,20 +443,6 @@ SCOPE: the two named markdown files. No Go code, no templates (the backward-path
 ROLLBACK: revert the commit.
 REPORT BACK: the final CONTRIBUTING paragraph verbatim, the grep output, any reconciliation with the sibling tasks' text, anything deliberately not done.
 
-## ADR-01KYES0TJ0E33RRP1JERC62DCA Approve the review-machinery work? The 14 submitted chain items (P-01KYD9 family: grill as recorded independent verdict gating approved, validate phase gating archived, per-finding addressal) plus P-01KYER (elicitation gate, single-reviewer sequential lens default, panel amendments) form one coherent design; P-01KYER child tasks are sequenced after the chain ones they amend.
-kind: adr
-state: done
-created: 2026-07-26
-decision: approve chain + P-01KYER (recommended)
-status: accepted
-
-kind: radio
-option: approve chain + P-01KYER (recommended)
-option: approve P-01KYER only, chain stays parked
-option: hold everything, discuss first
-blocks: P-01KYERRMHSFYH8CY01A624ZZBV
-choice: approve chain + P-01KYER (recommended)
-
 ## ADR-01KYES0TMSETQSBYHCZF3X66CJ Where should validation be a HARD gate (feedback.validate=require)? Token analysis: break-even at ~30-50 percent defect-catch rate; always-on require does not pay for small items.
 kind: adr
 state: done
