@@ -22,17 +22,3 @@ DESIGN - deterministic outcome scoring, no judge subjectivity where avoidable:
 5. TOKEN BOUNDS. Hidden tests live outside the fixture workspace (harness-held), cost zero agent tokens; scoring is harness code; one new bench flag -outcome selects the fixture set; curves table gains three columns (first-pass, final-pass, rounds).
 
 EXIT CRITERION on this repository: one outcome fixture with >=5 planted edge cases and 2 traps runs end to end under the judge harness; the report renders tokens, first-iteration pass rate, final pass rate, rounds; an A/B between two hint variants renders efficiency at equal validity and refuses the comparison when validity differs; the role-boundary rule exists, is anchored, and its bench assertion fails a transcript that tells the agent to run git.
-
-## ADR-01KYEVT1G6F2A847PX2TZ84R4Q Activate the outcome-scored benchmark proposal (hidden acceptance tests measure first-iteration completeness per token, role-boundary contract, catch-rate calibration for the review chain), and where in the queue?
-kind: adr
-state: done
-created: 2026-07-26
-decision: approve; implement after the review chain lands (recommended)
-status: accepted
-
-kind: radio
-option: approve; implement after the review chain lands (recommended)
-option: approve; implement before the review chain
-option: hold, discuss first
-blocks: P-01KYEVSK7BEEZBE7GGS4HSD5SV
-choice: approve; implement after the review chain lands (recommended)
