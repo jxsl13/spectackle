@@ -72,6 +72,7 @@ type Event struct {
 	Sum  string    `json:"sum,omitempty"`  // archive/reject summary
 	Body string    `json:"body,omitempty"` // reject: full item body (enables revocation)
 	Tg   []string  `json:"tg,omitempty"`   // reject: item targets
+	Refs []string  `json:"refs,omitempty"` // archive/reject: item refs — the research return path reads consumers from tombstones (T-01KYD88M)
 	Par  string    `json:"par,omitempty"`  // reject: item parent
 	Rls  []string  `json:"rules,omitempty"`
 	Node string    `json:"node,omitempty"` // drift

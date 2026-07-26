@@ -469,6 +469,7 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 	if err := journal.Append(ws, it.Dir, journal.Event{
 		Ev: journal.EvArchive, ID: it.ID, K: it.Kind, Ti: it.Title,
 		Sum: summary(it) + firstOf(" note: "+note, ""), Rls: it.Rules, Dir: it.Dir,
+		Refs: it.Refs,
 	}); err != nil {
 		return err
 	}
