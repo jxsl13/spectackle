@@ -89,6 +89,7 @@ kind: task
 state: draft
 created: 2026-07-26
 parent: P-01KYESGDWFFMH80ENHNFXMVZE8
+grilled: 2026-07-26 open=1
 targets: internal/mcpserver/validate.go, internal/workspace/workspace.go, docs/lifecycle.md
 
 IMPLEMENTER IN OWN WORKTREE. Parent P-01KYESGDWFFMH: break-even for the validation gate is a ~30-50 percent catch rate, so feedback.validate stays warn GLOBALLY and require flips per item from RISK computed off the LANDED diff - never declared targets (T-0135 landed 15 files against 4 declared; gaming kill). This repo keeps blanket require in its own config - the risk gate is for everyone else; nothing here may weaken an explicit require.
