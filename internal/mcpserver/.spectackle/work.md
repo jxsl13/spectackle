@@ -49,7 +49,7 @@ REPORT BACK: where the gate landed, the consumer lookup, the no-read test's mech
 
 ## B-01KYFG1KEEF1S8SYF8C7GXPZ0E re-land the memory-to-spec nudge stranded on the closed PR 121 by the premature post-refusal sync
 kind: bug
-state: active
+state: done
 created: 2026-07-26
 refs: ADR-01KYF58AKGEZ3SDFX53H19P3GR
 targets: internal/mcpserver/server.go, internal/mcpserver/templates, docs/bench-curves.md
