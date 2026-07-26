@@ -275,28 +275,28 @@ The spectackle server SHALL minimize total tokens to a complete, valid, defect-f
 The orchestrating agent SHALL merge every open pull request before activating new work, checking the forge PR list first, because parallel agents leave WIP branches that may already implement the next item.
 
 ## ORCH-PROOF-001
-WHEN WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
+WHEN proving a landed feature live, the orchestrating agent SHALL drive the proof with a freshly built candidate binary (bin/spx-candidate), never the resident serve binary, whose build predates the landing.
 
 ## REVIEW-MODE-001
 The review workflow SHALL default to 1 reviewer walking all lenses sequentially in one context, reserving multi-agent panels for recorded risk signals: at 3 lenses a panel pays 3x context ingestion for marginal judgment gain.
 
 ## ASK-SURFACE-001
-WHEN WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
+WHEN decide op=ask answers with a need-decision record, the orchestrating agent SHALL surface the question through the harness interactive ask tool (AskUserQuestion) and write the answer back via decide op=answer.
 
 ## AGENT-ISOLATION-001
-WHEN WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
+WHEN spawning an agent permitted to run tests or experiments, the orchestrating agent SHALL pass isolation=worktree in the Agent options so experiments never touch the live checkout: a live-tree refuter erased concurrent .spectackle/work.md writes with git checkout.
 
-## ROLE-BOUNDARY-001
+## ROLE-BOUNDARY-001 {applies: go:mcpserver.Server.gitFlowFor}
 The spectackle server SHALL perform every mechanical git and forge step itself per the docs/agent-workflow.md role table; no tool result instructs the caller to run git, and the caller works judgment only: traverse, elaborate, code, research, validate, refute.
 
 ## COMPLETE-DIMS-001
-WHEN WHEN rendering review or validation evidence for an item, the spectackle server SHALL compute finding classes spanning tests, targets, scope, benchmarks, and documentation (validate.go v nodocs), so no completeness dimension goes silently unexamined.
+WHEN rendering review or validation evidence for an item, the spectackle server SHALL compute findings across testing, validity, edge cases, implementation, documentation, and research (grillComputed, validateComputed) so no completeness dimension is silently skipped.
 
 ## GROUND-LADDER-001
-WHEN WHEN information needed for a decision is missing, the orchestrating agent SHALL call the research tool first (or draft an R-item); only without a grounded answer ask via decide op=ask (internal/mcpserver/decide.go), the last resort.
+WHEN information needed for a decision is missing, the orchestrating agent SHALL call the research tool first (or draft an R-item); only without a grounded answer ask via decide op=ask (internal/mcpserver/decide.go), the last resort.
 
 ## GATE-AUTHORITY-001
-WHEN WHEN a lifecycle gate evaluates an item, the spectackle server SHALL treat recorded agent verdicts (EvReview, EvValidate) as the sole gating authority and computed findings as evidence requiring per-key addressal, never as an independent veto.
+WHEN a lifecycle gate evaluates an item, the spectackle server SHALL treat recorded agent verdicts (EvReview, EvValidate) as the sole gating authority and computed findings as evidence requiring per-key addressal, never as an independent veto.
 
 ## ORCH-SYNC-001
-WHEN WHEN a lifecycle transition call is refused or severed, the orchestrating agent SHALL stop the block before any git sync: the checkout runs only after a confirmed merged line - raw checkout over live records discarded a verdict (B-01KYFG1KEEF1S).
+WHEN a lifecycle transition call is refused or severed, the orchestrating agent SHALL stop the block before any git sync: the checkout runs only after a confirmed merged line - raw checkout over live records discarded a verdict (B-01KYFG1KEEF1S).

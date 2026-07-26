@@ -315,6 +315,7 @@ func Run(bin string) (Result, error) {
 	}
 
 	full := all.String()
+	res.Violations = append(res.Violations, gitInstructionViolations(full)...)
 	for family, marker := range recordFamilies {
 		if !strings.Contains(full, marker) {
 			res.Violations = append(res.Violations, "record family missing: "+family)
@@ -351,6 +352,29 @@ func Run(bin string) (Result, error) {
 		}
 	}
 	return res, nil
+}
+
+// ROLE-BOUNDARY-001's verifiable artifact: the server performs every
+// mechanical git and forge step itself, so no tool result may instruct the
+// caller to run git. Two shapes, calibrated 2026-07-26 against a full
+// scripted run (3662B transcript, zero hits on the legitimate surface —
+// g branch/g pr N merged/g records/h hints/refusals match neither):
+// an imperative instruction ("run `git push`") and a bare command line
+// ("git commit -m ..."). A hit is a validity failure, never a note.
+var reGitImperative = regexp.MustCompile("(?i)\\b(?:run|execute|invoke)\\s+`?git\\b")
+var reGitCommandLine = regexp.MustCompile(`(?m)^\s*(?:\$\s*)?git\s+(?:add|commit|push|checkout|switch|merge|rebase|pull|fetch|reset|cherry-pick)\b`)
+
+// gitInstructionViolations scans a transcript (concatenated tool results)
+// for text instructing the caller to run git, one violation per match line.
+func gitInstructionViolations(transcript string) []string {
+	var out []string
+	for _, m := range reGitImperative.FindAllString(transcript, -1) {
+		out = append(out, "git instruction to caller (ROLE-BOUNDARY-001): "+m)
+	}
+	for _, m := range reGitCommandLine.FindAllString(transcript, -1) {
+		out = append(out, "git command line in tool result (ROLE-BOUNDARY-001): "+strings.TrimSpace(m))
+	}
+	return out
 }
 
 // callOnce runs one tool call, returning stdout, whether it refused, and any
