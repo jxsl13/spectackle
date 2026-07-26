@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -890,5 +891,66 @@ func TestWorkStartAfterGitflowActivation(t *testing.T) {
 	histOut := callText(t, sess, "find", map[string]any{"q": "activate then start", "scope": "history"})
 	if !strings.Contains(histOut, "create") {
 		t.Fatalf("history lost the item's creation event:\n%s", histOut)
+	}
+}
+
+// TestAbortDiscardsGitflowBranch pins B-01KYEEJKE's happy half: after a
+// gitflow activation parked the item branch as main's checkout, abort must
+// actually delete it (vacate first — branch -D fails on a checked-out
+// branch and used to be swallowed), so a fresh start creates anew instead
+// of silently resuming discarded commits through the attach path.
+func TestAbortDiscardsGitflowBranch(t *testing.T) {
+	t.Setenv("SPECTACKLE_AGENT", "abort-discards")
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s1, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "abort discards"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	callText(t, sess, "work", map[string]any{"op": "start", "item": id})
+	abortOut := callText(t, sess, "work", map[string]any{"op": "abort", "item": id})
+	if !strings.Contains(abortOut, "aborted") {
+		t.Fatalf("abort failed:\n%s", abortOut)
+	}
+	if strings.Contains(abortOut, "! WT W") {
+		t.Fatalf("clean abort raised the discard warning:\n%s", abortOut)
+	}
+	if wt.BranchExists(root, "spectackle/"+id) {
+		t.Fatal("discarded branch survived abort")
+	}
+
+	// A fresh start mints the branch anew — nothing resurrects.
+	startOut := callText(t, sess, "work", map[string]any{"op": "start", "item": id})
+	if !strings.Contains(startOut, "open") || strings.Contains(startOut, "! WT") {
+		t.Fatalf("fresh start after abort misbehaved:\n%s", startOut)
+	}
+}
+
+// TestAbortSaysWhenBranchSurvives pins the loud half: when the branch
+// genuinely cannot be deleted (held by a foreign git worktree outside
+// spectackle's control), abort still succeeds but SAYS the branch
+// survived — the next start resumes it, and that must never be silent.
+func TestAbortSaysWhenBranchSurvives(t *testing.T) {
+	t.Setenv("SPECTACKLE_AGENT", "abort-survivor")
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s1, sess := connectRootWithServer(t, root)
+
+	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "survivor branch"})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+	callText(t, sess, "work", map[string]any{"op": "start", "item": id})
+
+	// An out-of-band git worktree pins the branch so branch -D must fail.
+	pin := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "worktree", "add", filepath.Join(pin, "hold"), "spectackle/"+id).CombinedOutput(); err != nil {
+		t.Skipf("cannot pin branch via extra worktree: %v: %s", err, out)
+	}
+
+	abortOut := callText(t, sess, "work", map[string]any{"op": "abort", "item": id})
+	if !strings.Contains(abortOut, "aborted") {
+		t.Fatalf("abort failed outright:\n%s", abortOut)
+	}
+	if !strings.Contains(abortOut, "! WT W branch spectackle/"+id+" not deleted") {
+		t.Fatalf("surviving branch not said:\n%s", abortOut)
 	}
 }

@@ -421,6 +421,23 @@ func DeleteBranch(mainRoot, branch string) error {
 	return err
 }
 
+// DiscardBranch deletes an item branch whose work is being thrown away
+// (abort, orphan adoption), vacating it from the main checkout first when
+// it is checked out there — `branch -D` fails on a checked-out branch, and
+// the two discard sites used to swallow that failure, after which the
+// attach path (B-01KYED3D) would resurrect the surviving commits on the
+// next start (B-01KYEEJKE). The returned error is for the caller to SAY,
+// not to swallow: a branch that outlives its discard changes what the next
+// start resumes.
+func DiscardBranch(mainRoot, branch, base string) error {
+	if cur, err := CurrentBranch(mainRoot); err == nil && cur == branch {
+		if err := vacateBranch(mainRoot, branch, base); err != nil {
+			return err
+		}
+	}
+	return DeleteBranch(mainRoot, branch)
+}
+
 // CommitRecords stages and commits ONLY .spectackle record state, the exact
 // complement of CommitCode's pathspec split. committed=false means no record
 // file was dirty.

@@ -557,12 +557,18 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 		return refuse("! ARG E - item is " + it.State + "; work needs approved|active")
 	}
 	// orphaned worktree from a crashed sibling?
+	adoptWarn := ""
 	if w, exists, _ := s.cd.GetWorktree(id); exists {
 		if holderAlive(s, w.Agent) && w.Agent != s.agent {
 			return refuse("! WT E worktree for " + id + " open by live agent " + w.Agent)
 		}
 		_ = wt.Remove(s.main.Dir, w.Root)
-		_ = wt.DeleteBranch(s.main.Dir, w.Branch)
+		// A discard failure must be SAID (B-01KYEEJKE): the surviving
+		// branch is what the attach below will resume, silently changing
+		// what "a fresh start" means.
+		if err := wt.DiscardBranch(s.main.Dir, w.Branch, s.gitBase()); err != nil {
+			adoptWarn = "! WT W branch " + w.Branch + " not deleted (" + err.Error() + ") — the start below resumes its surviving commits\n"
+		}
 		_ = s.cd.DelWorktree(id)
 	}
 	// lease item + targets, all-or-nothing
@@ -616,7 +622,7 @@ func (s *Server) workStart(id string) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit item=%s (any process)", sc.short(id), root, sc.short(id)))
+	return text(adoptWarn + fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit item=%s (any process)", sc.short(id), root, sc.short(id)))
 }
 
 func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
@@ -746,7 +752,15 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	_ = wt.Remove(s.main.Dir, w.Root)
-	_ = wt.DeleteBranch(s.main.Dir, w.Branch)
+	// A discard failure must be SAID (B-01KYEEJKE): abort's contract is
+	// that the worktree state is thrown away, and a surviving branch is
+	// exactly what a later start would silently resume through the attach
+	// path. DiscardBranch vacates the main checkout first, so the common
+	// checked-out-branch failure now succeeds instead of being swallowed.
+	abortWarn := ""
+	if err := wt.DiscardBranch(s.main.Dir, w.Branch, s.gitBase()); err != nil {
+		abortWarn = "! WT W branch " + w.Branch + " not deleted (" + err.Error() + ") — a later start on this item resumes its surviving commits\n"
+	}
 	_ = s.cd.DelWorktree(id)
 	_ = s.cd.ReleaseItem(id)
 	// the item returns to approved on main (its worktree state is discarded);
@@ -772,7 +786,7 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return text("ok " + sc.short(id) + " aborted; item back to approved")
+	return text(abortWarn + "ok " + sc.short(id) + " aborted; item back to approved")
 }
 
 // runGate executes the configured verify commands plus the item goal in the
