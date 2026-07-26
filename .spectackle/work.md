@@ -2,38 +2,6 @@
 schema: v1
 ---
 
-## P-01KYD8HSZ0ERTBFBBEVQD68M4R the commit log is the decision log: every state-machine edge commits with a structured message, and no merge may flatten the trail
-kind: proposal
-state: approved
-created: 2026-07-25
-refs: R-0007, P-01KYD7QT8YE6PAT515BGPQ5VM4
-grilled: 2026-07-25
-targets: internal/mcpserver/tools.go, internal/wt/wt.go, internal/workspace/workspace.go, CONTRIBUTING.md, docs/agent-workflow.md
-
-REQUIREMENT. Every phase and step taken through the MCP must be followable by a human in git alone: each state-machine edge produces its own commit whose structured message describes the decision (what moved, from where to where, by whom, and the reasoning note), and no merge policy may flatten that trail - pull requests are merged with merge commits, never squashed, because a squash collapses N decisions into one blob and destroys exactly what the per-edge commits create.
-
-WHY THIS EXTENDS RATHER THAN DUPLICATES THE JOURNAL. The journal is the machine's replay log; git is where humans and reviewers already look. Today the two are reconciled only when an orchestrator remembers to commit, in batches with hand-written messages - this session's own history shows multi-edge batch commits whose messages summarize rather than enumerate. Deriving the commit from the journal event at write time makes the two logs agree by construction, with zero agent effort - the driving LLM issues no git command and needs no git knowledge (prior user authorization, extended here from phase checkpoints to every edge).
-
-VERIFIED GROUND. One choke point covers the whole tool surface: gate[T] (tools.go:175-185) wraps every handler under s.mu with preCall/postCall; only the rule tool inlines the identical pattern (tools.go:200-210). Every state edge already appends a journal event with agent identity (journal.Append stamps ag). wt.CommitCode (wt.go:111) is the committing precedent. P-0009 (archived) established one move call per forward jump - the commit granularity inherits it: one call, one edge traversal, one commit, even when the jump skips states.
-
-DESIGN DECISIONS, alternatives rejected:
-1. Commit composed FROM the journal event(s) the call appended, in the same gate, after the handler succeeds. Rejected: a background committer (races the next call, decouples decision from commit); a git hook (cannot know the decision, only the diff).
-2. Full record IDs in commit subjects and trailers, never display-short forms - a short prefix is the shortest unambiguous prefix AT THAT INSTANT (T-0136) and a commit message is immutable, so a later mint could make an archived subject ambiguous. Machine-readable trailers (Spectackle-Ev, Spectackle-Item, Spectackle-From/To, Spectackle-Agent, Spectackle-Eid) make the log queryable with plain git log --grep and interpret-trailers.
-3. The server commits ONLY paths under .spectackle trees it wrote in that call, via explicit-pathspec commit semantics so a user's concurrently staged work is never swept in. Code commits remain the implementer's and the submit path's business.
-4. Never push. Remotes stay with the orchestrator and CI.
-5. Config git_commits: edges|off, DEFAULT edges - supersedes the phases|off knob drafted in the validation-phase task, whose git section this proposal's engine task subsumes.
-6. Merge policy is enforced where it lives: the GitHub repository setting (allow merge commits, disallow squash) is the hard control and is the user's one manual step, documented; CONTRIBUTING.md, the agent workflow docs and the machine-facing instructions all switch from squash to merge so no agent re-introduces flattening.
-
-CROSS-CLONE CAUTION, stated because it is the known sharp edge: two server processes on one checkout can race the git index. The commit step must take the same cross-process serialization the whole-file-rewrite task establishes through coord.db, and must retry on index.lock. The lost-update work (B-01KYD57F line) is the prerequisite ordering.
-
-EXIT CRITERION. Drive one full item lifecycle headlessly (draft, grill, verdict, approve, start, submit, validate, archive); git log --oneline then shows one commit per edge in order, each message carrying the full item ID and the decision note; git log --grep on the item ID returns the complete decision history and nothing else. A squash of that branch is impossible through the documented merge path.
-
-TOKEN COST. Zero marginal agent tokens (commits are side effects); the git overhead is one commit per tool call that wrote state - milliseconds, no network.
-
-ROLLBACK. git_commits: off disarms the engine without a rebuild; reverting the commits removes it. Edge commits already made are inert history. The merge-policy docs revert with the commit; the repo setting reverts by hand.
-
-CHILD TASKS: (1) the edge-commit engine in gate; (2) the merge-policy switch across CONTRIBUTING, docs and instructions. The validation-phase task sheds its narrower git section to the engine at its next redraft.
-
 ## P-01KYD9466KEPWBV2RBK7EQM202 review and validation are recorded independent verdicts: grill reviews the draft with feedback and a research path, a validation phase judges the implementation, both bound to reviewer identity
 kind: proposal
 state: approved
