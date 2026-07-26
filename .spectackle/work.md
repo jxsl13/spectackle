@@ -29,3 +29,10 @@ kind: radio
 option: yes bounded
 option: no unbounded
 choice: yes bounded
+
+## B-01KYG6FRCTEX89ZAY4YKH6JNYB orphan record closure: displayed-prefix collision B-01KYD4J1Q8FSGTT9G7QJD8N8T8
+kind: bug
+state: draft
+created: 2026-07-26
+
+Recovery re-draft for an orphaned journal create event (B-01KYG56Y orphan sweep); rejected immediately for the record - see the note.
