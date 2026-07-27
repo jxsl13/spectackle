@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYHC7APAEH1TA430A8MW5JW3 work op=abort by a foreign identity destroys a dead holders dirty worktree without refusal or force
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/swarm.go
