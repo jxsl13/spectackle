@@ -13,10 +13,13 @@ import (
 // each key's retained versions sorted ascending by Ver.
 type Store struct {
 	byKey map[string][]Record
-	// Quarantined lines: content whose stored key failed verification or
-	// whose JSON did not parse. Never silently dropped — they are reported
-	// and preserved byte-identically on rewrite (union merges and hand
-	// edits must not lose data to a strict reader).
+	// Quarantined lines: content whose stored key failed verification,
+	// whose JSON did not parse, whose ID duplicates a live record with
+	// DIFFERENT content, or which lost a (key, ver) collision while
+	// measuring something different from the winner. Never silently
+	// dropped — they are reported and preserved byte-identically on
+	// rewrite (union merges and hand edits must not lose data to a strict
+	// reader; B-01KYJTASR5EKW).
 	Quarantine []string
 }
 
@@ -33,7 +36,11 @@ func Load(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	seenID := map[string]bool{}
+	type loadedLine struct {
+		rec  Record
+		line string
+	}
+	seen := map[string]loadedLine{}
 	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -47,10 +54,17 @@ func Load(path string) (*Store, error) {
 			st.Quarantine = append(st.Quarantine, line)
 			continue
 		}
-		if seenID[r.ID] {
-			continue // union-merge duplicate of the same record
+		if prev, ok := seen[r.ID]; ok {
+			if prev.rec.Ver == r.Ver && SameContent(prev.rec, r) {
+				continue // union-merge duplicate of the same record
+			}
+			// Same ID, DIFFERENT content (a hand edit or forge reusing a
+			// live ID): never silently dropped — quarantine the line
+			// verbatim like every other refused shape (B-01KYJTASR5EKW).
+			st.Quarantine = append(st.Quarantine, line)
+			continue
 		}
-		seenID[r.ID] = true
+		seen[r.ID] = loadedLine{rec: r, line: line}
 		st.byKey[r.Key] = append(st.byKey[r.Key], r)
 	}
 	for key, recs := range st.byKey {
@@ -64,13 +78,25 @@ func Load(path string) (*Store, error) {
 			return recs[i].ID < recs[j].ID
 		})
 		// (key, ver) collisions from parallel clones: keep the winner —
-		// the LAST in the deterministic order above (newest T, then ID).
+		// the LAST in the deterministic run order above (newest T, then
+		// ID) — and QUARANTINE every loser that measured something
+		// different (B-01KYJTASR5EKW: losing data must stay visible; a
+		// content-identical loser carries no information and drops).
 		kept := recs[:0]
-		for i, r := range recs {
-			if i+1 < len(recs) && recs[i+1].Ver == r.Ver {
-				continue
+		for i := 0; i < len(recs); {
+			j := i
+			for j+1 < len(recs) && recs[j+1].Ver == recs[i].Ver {
+				j++
 			}
-			kept = append(kept, r)
+			winner := recs[j]
+			for k := i; k < j; k++ {
+				if SameContent(recs[k], winner) {
+					continue
+				}
+				st.Quarantine = append(st.Quarantine, seen[recs[k].ID].line)
+			}
+			kept = append(kept, winner)
+			i = j + 1
 		}
 		st.byKey[key] = kept
 	}

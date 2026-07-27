@@ -47,14 +47,6 @@ option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
 
-## B-01KYJTASR5EKWAZ50DYTDXK1M3 benchmark store silently drops collision losers and duplicate-ID variants
-kind: bug
-state: draft
-created: 2026-07-27
-targets: internal/benchmark
-
-internal/benchmark/store.go Load: (1) two valid records sharing (key,ver) — the parallel-clone shape — resolve deterministically (newer T, then ID) but the LOSER is neither kept nor quarantined nor preserved on Save; it vanishes traceless. (2) seenID dedup treats a repeated ID as a union artifact without comparing content — a line reusing an existing ID with different values is silently discarded. Both contradict the never-silently-dropped contract that quarantine and the journal fold honor elsewhere. Expected: losers and content-diverging duplicates quarantine (preserved verbatim, reported by bench ls) or at minimum journal a bench event naming the discarded record. Repro: hand-append two records with equal key+ver and different id/content/T, trigger any put, grep the losing value — 0 hits, quarantine count unchanged. Found by the T-01KYJN4BGBFX6 cross-validation (findings 4+5).
-
 ## B-01KYJTB95HEPFRRBMAN2YPEE32 scaffolded config.yaml omits the benchmarks section
 kind: bug
 state: draft

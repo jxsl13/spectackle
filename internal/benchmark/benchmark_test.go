@@ -211,6 +211,64 @@ func TestVersionCollisionResolvesDeterministically(t *testing.T) {
 	if h1.ID != h2.ID || h1.ID != b.ID {
 		t.Fatalf("collision resolution must converge on the newer T: %q vs %q", h1.ID, h2.ID)
 	}
+	// the losing record measured something different — it must be
+	// QUARANTINED, not silently dropped (B-01KYJTASR5EKW), in both orders
+	if len(st1.Quarantine) != 1 || len(st2.Quarantine) != 1 {
+		t.Fatalf("the collision loser must quarantine: %d vs %d lines", len(st1.Quarantine), len(st2.Quarantine))
+	}
+	if !strings.Contains(st1.Quarantine[0], a.ID) {
+		t.Fatalf("the quarantined line must be the loser verbatim: %q", st1.Quarantine[0])
+	}
+	// and survive the next rewrite
+	if err := st1.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if !strings.Contains(string(after), a.ID) {
+		t.Fatal("the losing record vanished from the file on save")
+	}
+}
+
+// TestDupIDDifferentContentQuarantines: reusing a live record ID with
+// different values is a hand edit or forge, not a union artifact — the
+// line quarantines instead of vanishing (B-01KYJTASR5EKW finding 2).
+func TestDupIDDifferentContentQuarantines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bench.ndjson")
+	good := rec("bench-dup", frame(), "go", 1)
+	st := &Store{byKey: map[string][]Record{}}
+	if _, _, _, err := st.Put(good, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	forged := strings.Replace(string(raw), `"time":1`, `"time":999`, 1)
+	if forged == string(raw) {
+		t.Fatal("fixture: value replacement did not apply")
+	}
+	if err := os.WriteFile(path, []byte(string(raw)+forged), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st2.Quarantine) != 1 || !strings.Contains(st2.Quarantine[0], "999") {
+		t.Fatalf("the content-diverging duplicate must quarantine: %+v", st2.Quarantine)
+	}
+	head, _ := st2.Head(good.Key)
+	if head.Impls[0].Res["time"] != 1 {
+		t.Fatalf("the FIRST line must stay the live record: %+v", head)
+	}
+	if err := st2.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if !strings.Contains(string(after), "999") {
+		t.Fatal("the quarantined duplicate vanished on save")
+	}
 }
 
 func jsonMarshal(r Record) (string, error) {
