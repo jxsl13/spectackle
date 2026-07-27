@@ -231,6 +231,7 @@ func TestBriefToolListsAreHonest(t *testing.T) {
 	briefs := map[string]string{
 		"basic": agentBrief, "tricky": trickyBrief,
 		"worktree": worktreeBrief, "outcome": outcomeBrief,
+		"outcome-ask": outcomeAskBrief,
 	}
 	re := regexp.MustCompile(`Available tool names: ([a-z, ]+)\.`)
 	for name, b := range briefs {
@@ -248,5 +249,26 @@ func TestBriefToolListsAreHonest(t *testing.T) {
 		if m := re.FindStringSubmatch(outcomeBrief); !strings.Contains(m[1], want) {
 			t.Errorf("outcome brief missing %s", want)
 		}
+	}
+}
+
+// AskCount meters exit-0 decide-ask calls (T-01KYH6H9).
+func TestAskCountFromMeter(t *testing.T) {
+	dir := t.TempDir()
+	log := `1 cafe 10 0 call -root x decide {"op":"ask","question":"q1"}
+2 cafe 10 0 call -root x decide {"op":"answer","id":"A-1","choose":"x"}
+3 cafe 10 1 call -root x decide {"op":"ask","question":"failed"}
+4 cafe 10 0 call -root x state {}
+5 cafe 10 0 call -root x decide {"op":"ask","question":"q2"}
+`
+	if err := os.WriteFile(filepath.Join(dir, "meter.log"), []byte(log), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := ScoreAgentRun("/bin/echo", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.AskCount != 2 {
+		t.Fatalf("want 2 asks (exit-0 op=ask only), got %d", sc.AskCount)
 	}
 }

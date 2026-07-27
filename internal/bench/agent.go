@@ -227,6 +227,19 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("worktree\n"), 0o644); err != nil {
 			return "", "", "", err
 		}
+	case "outcome-ask":
+		// same fixture, traps, and SCORING as outcome (the marker below
+		// says outcome deliberately); only the brief adds the ask channel.
+		brief = fmt.Sprintf(outcomeAskBrief, dir, shimPath, dir)
+		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("outcome\n"), 0o644); err != nil {
+			return "", "", "", err
+		}
+		if err := seedOutcomeTrap(dir); err != nil {
+			return "", "", "", err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "trap.hash"), []byte(legacyTrapHash(dir)+"\n"), 0o644); err != nil {
+			return "", "", "", err
+		}
 	case "outcome":
 		brief = fmt.Sprintf(outcomeBrief, dir, shimPath, dir)
 		if err := os.WriteFile(filepath.Join(dir, "scenario"), []byte("outcome\n"), 0o644); err != nil {
@@ -241,7 +254,7 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 			return "", "", "", err
 		}
 	default:
-		return "", "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky|worktree|outcome)", scenario)
+		return "", "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky|worktree|outcome|outcome-ask)", scenario)
 	}
 	if withManifest {
 		out, err := exec.Command(bin, "manifest").Output()
@@ -379,6 +392,9 @@ type AgentScore struct {
 	FirstPass string
 	FinalPass string
 	Rounds    int
+	// AskCount: exit-0 decide op=ask calls in the meter — the elicitation
+	// usage the outcome-ask variant measures (T-01KYH6H9).
+	AskCount int
 
 	writeCalls int // metered exit-0 calls to write-capable tools (journal bound)
 }
@@ -448,6 +464,9 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		// argv is `call -root <dir> <tool> <json>`: the tool sits at index 7.
 		if len(fields) >= 8 && fields[3] == "0" && fields[4] == "call" && writeTools[fields[7]] {
 			sc.writeCalls++
+		}
+		if len(fields) >= 8 && fields[3] == "0" && fields[7] == "decide" && strings.Contains(line, "ask") {
+			sc.AskCount++
 		}
 	}
 	// Sequence COMPLETENESS, order-tolerant (B-01KYGZNT): pre-lock logs
@@ -581,7 +600,7 @@ func AgentReport(sc AgentScore) string {
 		fmt.Fprintf(&b, "agent goal change=%v task=%s flow=%v check=%v\n", sc.RuleOK, orAbsent(sc.TaskState), sc.DecideOK, sc.CheckOK)
 	case "outcome":
 		fmt.Fprintf(&b, "agent goal task=%s check=%v\n", orAbsent(sc.TaskState), sc.CheckOK)
-		fmt.Fprintf(&b, "agent outcome first-pass=%s final-pass=%s rounds=%d\n", orAbsent(sc.FirstPass), orAbsent(sc.FinalPass), sc.Rounds)
+		fmt.Fprintf(&b, "agent outcome first-pass=%s final-pass=%s rounds=%d asks=%d\n", orAbsent(sc.FirstPass), orAbsent(sc.FinalPass), sc.Rounds, sc.AskCount)
 	default:
 		fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
 	}

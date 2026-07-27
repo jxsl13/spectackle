@@ -140,6 +140,36 @@ token cost buys nothing against semantic misses on a well-specified small
 feature. The estimate is hereby replaced by 25% (n=4, wide interval) with
 the structural/semantic split as the operative insight.
 
+## Ask-oracle batch (2026-07-27, T-01KYH6H9)
+
+Does elicitation convert semantic misses into first-pass completeness?
+Three sonnet judges, outcome-ask variant (one brief sentence inviting
+`decide op=ask`), require config, an orchestrator-side oracle answering
+through the real decide machinery (Q/A log kept verbatim beside this
+entry's task records).
+
+| Run | Calls | Surface tokens | First-pass | Rounds | Asks | Verdict |
+|---|---|---|---|---|---|---|
+| a1 | 116 | ~6513 | 4/5 | 0 | 12 | INVALID — vacuous-test trap (second wild catch of the assert-free concurrency-smoke idiom) |
+| a2 | 99 | ~4920 | **5/5** | 0 | 6 | valid |
+| a3 | 83 | ~4405 | **5/5** | 0 | 6 | INVALID — harness boundary (the permission classifier read the fixture's second-identity verdict as self-approval; the judge honestly stopped at done) |
+
+**Ask-rate 3/3 — every judge asked, and every judge asked the killer
+question** (`Allow(n<=0)` semantics), the exact case 4 of 5 guessing
+require-judges had missed. Content outcomes: two 5/5 first-passes (vs a
+4/5 mode without asks); the single n<=0 miss (a1) traces in the Q/A log
+to the ORACLE choosing the wrong bundled option, not to a judge guess —
+oracle v1 also failed silently for a2, which then documented assumptions
+and still chose correctly. H1 supported, sharpened: **elicitation moves
+the failure point from the implementer's guess to the answer source's
+quality — which is where it belongs.** The invitation sentence costs one
+line and produced 24 asks across three runs.
+
+Also surfaced by this batch: `work op=start` on an already-started item
+silently wipes the worktree's uncommitted files when the caller's agent
+identity rotated (each shim call mints a fresh one without
+SPECTACKLE_AGENT) — filed with the judge's source-confirmed root cause.
+
 ## Operating discipline
 
 - **n=3, all-valid gate.** One failing judge in three is a regression
