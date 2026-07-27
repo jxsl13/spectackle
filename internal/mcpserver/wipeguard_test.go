@@ -28,7 +28,7 @@ func startWorkFixture(t *testing.T) (root, id string) {
 		t.Fatal(err)
 	}
 	t.Setenv("SPECTACKLE_AGENT", "holder-a")
-	sess := connectRoot(t, root)
+	srv, sess := connectRootWithServer(t, root)
 	id = draftID(t, sess, map[string]any{
 		"kind": "task", "title": "wipe guard fixture", "body": ambFixturePad})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
@@ -36,13 +36,19 @@ func startWorkFixture(t *testing.T) (root, id string) {
 	if !strings.Contains(out, "wt ") {
 		t.Fatalf("work start failed: %q", out)
 	}
+	// Close session AND server: the in-process SERVER keeps heartbeating
+	// holder-a on a ticker regardless of the client session, which raced
+	// the 1s TTL and flaked the orphan-adoption paths (the holder
+	// flickered alive across three fixture drafts before this).
+	_ = sess.Close()
+	_ = srv.Close()
 	return root, id
 }
 
 func TestDirtyOrphanRefusesAndPreserves(t *testing.T) {
 	root, id := startWorkFixture(t)
 	t.Setenv("SPECTACKLE_AGENT", "holder-a")
-	sess := connectRoot(t, root)
+	srv2, sess := connectRootWithServer(t, root)
 	status := callText(t, sess, "work", map[string]any{"op": "status"})
 	wtRoot := ""
 	for _, l := range strings.Split(status, "\n") {
@@ -60,9 +66,10 @@ func TestDirtyOrphanRefusesAndPreserves(t *testing.T) {
 	}
 
 	// a rotated identity tries to start: refuse, name holder + recovery,
-	// leave the file (the holder reads dead after the TTL — close its
-	// session first, in-process sessions keep heartbeating)
+	// leave the file (the holder reads dead after the TTL — close session
+	// AND server, both heartbeat)
 	_ = sess.Close()
+	_ = srv2.Close()
 	time.Sleep(1500 * time.Millisecond)
 	t.Setenv("SPECTACKLE_AGENT", "rotated-b")
 	rotated := connectRoot(t, root)
@@ -93,7 +100,7 @@ func TestDirtyOrphanRefusesAndPreserves(t *testing.T) {
 func TestHolderResumesUntouched(t *testing.T) {
 	root, id := startWorkFixture(t)
 	t.Setenv("SPECTACKLE_AGENT", "holder-a")
-	sess := connectRoot(t, root)
+	_, sess := connectRootWithServer(t, root)
 	status := callText(t, sess, "work", map[string]any{"op": "status"})
 	wtRoot := ""
 	for _, l := range strings.Split(status, "\n") {
