@@ -23,10 +23,12 @@ REPORT: the generated notes verbatim, the stamped-version proof, the tag/release
 
 ## ADR-01KYGCJ70JESXTEGZJVWF7AXN4 v0.2.0: the full chain landed early - cut the release now or hold to the planned Aug 1-2 window?
 kind: adr
-state: submitted
+state: done
 created: 2026-07-26
-status: proposed
+decision: cut now
+status: accepted
 
 kind: radio
 option: cut now
 option: hold to Aug 1-2
+choice: cut now
