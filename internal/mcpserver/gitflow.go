@@ -932,6 +932,13 @@ func (s *Server) gitFlowFor(it item.Item, to string) *gitFlowResult {
 		switch to {
 		case item.StateActive, item.StateDone, item.StateArchived:
 			res.addf("g git %s", reason)
+			// The divergence note renders on the refusal path too — the
+			// gate failing BECAUSE of a diverging field (ws disabled, main
+			// enabled) is precisely the case that must not stay silent
+			// (cross-val-modesplit hole: the line was success-path-only).
+			if d := s.gitDivergence(); d != "" {
+				res.lines = append([]string{d}, res.lines...)
+			}
 		}
 		return res
 	}

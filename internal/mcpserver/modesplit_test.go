@@ -118,6 +118,12 @@ func TestGitGateAndEdgeCommitsAgreeOnEnabled(t *testing.T) {
 	if !strings.Contains(out, "g git off: disabled in config") {
 		t.Fatalf("gitflow gate must honor the serving root's disable:\n%s", out)
 	}
+	// the divergence must be said on the REFUSAL path too — the gate
+	// failing because of the diverging field is the case that must not
+	// stay silent
+	if !strings.Contains(out, "w git config diverges") || !strings.Contains(out, "enabled ws=false main=true -> false") {
+		t.Fatalf("divergence line missing on the gate-refusal path:\n%s", out)
+	}
 	post := strings.Count(closureGit(t, mainRoot, "log", "--oneline", "--all"), "\n")
 	if post != pre {
 		t.Fatalf("edge-commit engine committed despite the serving root's disable: %d -> %d commits", pre, post)
