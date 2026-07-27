@@ -29,12 +29,3 @@ VERIFY: build/test -race/vet/gofmt; lint; check ok; the offline lifecycle commit
 SCOPE: gitflow offline arms + docs + test migration. No forge interface changes.
 ROLLBACK: revert.
 REPORT: the commit-log paste, the per-test migration table, anything the single-branch model makes impossible (say it, do not approximate).
-
-## B-01KYHBV5QBEJWRW3MJ96JD2M7Y releasenotes renders an item once per archive event: a reopened-and-rearchived item appears twice
-kind: bug
-state: done
-created: 2026-07-27
-grilled: 2026-07-27 open=0
-targets: internal/relnotes/relnotes.go
-
-OBSERVED (v0.2.1 prep, 2026-07-27): spectackle releasenotes -since v0.2.0 lists T-01KYGX9P twice under Features. MECHANISM (grill round): there is no reopen event kind - the only producer of a second EvArchive for one ID is the atomic-archive compensation path in internal/mcpserver/tools.go (~1748-1762): a failed closure merge compensates archived->done, a later retry re-archives. relnotes.Render (internal/relnotes/relnotes.go:50-60) appends raw EvArchive events into byKind with no dedup by ID, so both render. EXPECTED: one line per item; LATEST T wins (Sum is a full snapshot, and the compensation code itself documents final-state-wins replay; earliest would surface the failed attempts note). POLICY DETAILS: compare by T VALUE, never by slice position (journal.ReadAll concatenates per-context files in directory order, replay preserves original T - later-T events can appear earlier in the slice); tie-break equal T (whole-second truncation makes ties real under immediate retry) by Eid string comparison for determinism. FIX: dedupe in Render before sorting, keeping max(T, then Eid) per ID. TEST (TestRenderGolden extensions): (1) two EvArchive for one ID, the WINNING later-T event placed EARLIER in the fixture slice than the losing one - exactly one line, later Sum; (2) equal-T pair asserting the Eid tie-break deterministically; (3) three events for one ID, monotonically increasing T - one line, last Sum (N-way, not pairwise). NON-GOAL (flagged, separate item if it bites): Render never inspects post-archive events, so an item compensated BACK to done after its last EvArchive still renders a stale tombstone. VERIFY: go build ./... && go test ./internal/relnotes/ -count=1 && gofmt -l . empty. SCOPE: relnotes.go only. ROLLBACK: revert.
