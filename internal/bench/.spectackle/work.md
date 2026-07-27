@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYGZNT0WEZ4V5B7VTVWADFDR meter shim sequence check false-disqualifies judges that batch parallel tool calls
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/bench/agent.go
