@@ -94,9 +94,12 @@ sonnet judges, config-only variants on the v0.2.0 binary, limiter fixture.
 | require-2 | require | 144 | ~8928 | 4/5 | 4/5 | 2 | valid |
 
 Efficiency REFUSED (all-valid rule): warn-2's disqualification is a
-harness artifact — the meter shim's read-count-then-append sequence is not
-atomic under a judge's PARALLEL tool calls, and out-of-order appends read
-as tampering (bug filed). Content findings stand:
+harness artifact — root-caused during the fix (B-01KYGZNT): the judge's
+draft JSON carried real newlines into the meter's argv field, each entry
+spanned several physical lines, `wc -l` overcounted and the seq chain read
+as holes. The shim now writes one sanitized line per entry (and takes a
+portable mkdir lock against genuine parallel-call races); warn-2's own log
+stays retired as ambiguous. Content findings stand:
 
 - The gate catches STRUCTURAL incompleteness: require-1's premature first
   done (0/5 hidden) was fully repaired to 5/5 across the gate's two
