@@ -16,7 +16,7 @@ choice: cut now
 
 ## T-01KYGX9PB5F7HB7C9AZB5GET80 first outcome A/B: validation warn vs require on the limiter fixture measures the gates real catch rate
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: docs/bench-curves.md, internal/bench/agent.go
