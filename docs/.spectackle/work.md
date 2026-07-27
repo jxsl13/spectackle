@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYJN4CCEFMGTGEX2M41HMHJQ dogfood: the bench-curves ledger measurements become first-class bench records
 kind: task
-state: active
+state: done
 created: 2026-07-27
 parent: P-01KYJMVX2QES89YTP3KXSJPA7J
 grilled: 2026-07-27 open=0
