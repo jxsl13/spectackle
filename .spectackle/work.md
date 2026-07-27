@@ -18,6 +18,7 @@ choice: cut now
 kind: bug
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go, internal/forge/github.go, internal/forge/offline.go, internal/forge/forge.go
 
 USER OBSERVATION (2026-07-27): unfinished pull requests are not draft-marked. ROOT CAUSE: Open creates drafts and the done edge flips ready (GraphQL, the REST no-op is documented), but the done->active REOPEN edge - every validation-fail round, every compensated archive - never converts the PR back to draft, so the entire repair tail of a task runs against a ready-for-review PR. The policy (CONTRIBUTING: draft at first push, ready AT done, stop pushing) is violated by the machinery on exactly the rounds where pushes resume.
