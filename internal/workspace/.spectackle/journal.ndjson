@@ -17,3 +17,4 @@
 {"t":"2026-07-27T20:52:29Z","eid":"1df37192cff08345","ag":"ag-cc63","ev":"move","id":"T-01KYJN4AP3E1M8MHQPDE17E89Z","dir":"internal/workspace","fr":"rejected","to":"draft"}
 {"t":"2026-07-27T20:52:30Z","eid":"fbbdc3595861a2b9","ag":"ag-1f11","ev":"revise","id":"T-01KYJN4AP3E1M8MHQPDE17E89Z","dir":"internal/workspace","note":"targets revised"}
 {"t":"2026-07-27T20:52:31Z","eid":"9e380c4b1f97bb82","ag":"ag-23f9","ev":"grill","id":"T-01KYJN4AP3E1M8MHQPDE17E89Z","dir":"internal/workspace","gr":"2026-07-27 open=1","hash":"63efdb4fdab8d1390a9058bb9ea89ea4eab1b8f256cfe1e0fcb4a252b1338977","open":1,"keys":["env:unconsumed"]}
+{"t":"2026-07-27T20:52:46Z","eid":"8094895c62bae4db","ag":"ag-68ac","ev":"grill","id":"T-01KYJN4AP3E1M8MHQPDE17E89Z","dir":"internal/workspace","gr":"2026-07-27 open=1","hash":"63efdb4fdab8d1390a9058bb9ea89ea4eab1b8f256cfe1e0fcb4a252b1338977","open":1,"keys":["env:unconsumed"]}
