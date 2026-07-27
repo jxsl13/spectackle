@@ -34,6 +34,7 @@ REPORT: the commit-log paste, the per-test migration table, anything the single-
 kind: bug
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/relnotes/relnotes.go
 
 OBSERVED (v0.2.1 prep, 2026-07-27): spectackle releasenotes -since v0.2.0 lists T-01KYGX9P twice under Features - the item was reopened and re-archived, producing two EvArchive journal events, and relnotes.Render groups raw events without deduplication by ID. EXPECTED: one line per item; the LAST archive event wins (its tombstone note is the final one). FIX: in Render, dedupe byKind entries by e.ID keeping the latest T before sorting. TEST: extend TestRenderGolden with two EvArchive events for one ID at different T carrying different Sum - exactly one line renders and it carries the later Sum. VERIFY: go build ./... && go test ./internal/relnotes/ -count=1 && gofmt -l . empty. SCOPE: relnotes.go only. ROLLBACK: revert.
