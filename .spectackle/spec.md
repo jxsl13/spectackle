@@ -325,3 +325,6 @@ WHEN an archive note claims a workflow improvement, the orchestrating agent SHAL
 
 ## RELEASE-001
 WHEN a bug items closure merges, the orchestrating agent SHALL cut a patch release tag vX.Y.(Z+1), alone or batched with sibling bugfixes, via `make release-build` and `gh release create` with notes from `spectackle releasenotes`.
+
+## ELICIT-001
+WHEN a tool call is missing agent-authorable input, the MCP server SHALL return `need` records naming the missing slots to the calling agent; `Session.Elicit` native-UI forms are reserved for `decide op=ask` user decisions.
