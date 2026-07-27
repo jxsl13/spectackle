@@ -2,7 +2,7 @@ GO         ?= go
 BIN        := bin/spectackle
 GORELEASER ?= go run github.com/goreleaser/goreleaser/v2@latest
 
-.PHONY: all build vet test cover fuzz lint-specs smoke clean release-snapshot dev dev-stop dev-status
+.PHONY: all build vet test cover fuzz lint-specs smoke clean release-snapshot dev dev-stop dev-status releasenotes release-build
 
 # Seconds of fuzzing per target in `make fuzz` (M4 linter hardening).
 FUZZTIME ?= 10s
@@ -160,3 +160,14 @@ release-snapshot:
 
 clean:
 	rm -rf bin
+
+# Release notes derived from the journal archive tombstones (T-01KYGCJ6):
+# SINCE is the previous release tag's instant. The human fronts the output
+# with an intro; the generated body IS the change log.
+releasenotes: build
+	./$(BIN) releasenotes -root . -since $(SINCE)
+
+# A version-stamped build: VERSION is normally the tag being cut. The stamp
+# lands in the MCP handshake and the CLI via internal/mcpserver.Version.
+release-build:
+	$(GO) build -ldflags "-X github.com/jxsl13/spectackle/internal/mcpserver.Version=$(VERSION)" -o $(BIN) ./cmd/spectackle
