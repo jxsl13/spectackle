@@ -662,6 +662,16 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
+		// Archived items leave work.md, so item.Get NEVER finds them —
+		// try the tombstone before the typo-corrector, exactly like the
+		// get tool does (B-01KYHQ8TQ6: nearest's FTS surfaced bare
+		// j:<dir>#<n> journal-doc refs for a legitimately-terminal item).
+		// No diff, no sections, no render event: a tombstone has none.
+		if tomb, tombOk, terr := lifecycle.Tombstone(s.ws, id); terr != nil {
+			return nil, nil, terr
+		} else if tombOk {
+			return text(sc.record(tomb) + "\ncomputed: suppressed (archived)\n")
+		}
 		return s.nearest(id)
 	}
 
@@ -780,6 +790,13 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 		return nil, nil, err
 	}
 	if !ok {
+		// same tombstone-before-nearest order as the pack path: a verdict
+		// on an archived item is a caller mistake worth an honest answer
+		if _, tombOk, terr := lifecycle.Tombstone(s.ws, id); terr != nil {
+			return nil, nil, terr
+		} else if tombOk {
+			return refuse("! ARG E - " + sc.short(id) + " is archived; verdicts bind to live items")
+		}
 		return s.nearest(id)
 	}
 	short := sc.short(it.ID)

@@ -102,22 +102,32 @@ func TestArchivedPackSuppressed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	it.State = item.StateArchived
-	if err := item.Upsert(srv.ws, it); err != nil {
+	// The REAL archive path (B-01KYHQ8TQ6): lifecycle removes the work.md
+	// block, so item.Get must read !ok — the old fixture Upserted an item
+	// with State archived still IN work.md, a state no transition
+	// produces, and exercised only a dead branch while the live path fell
+	// through to nearest()'s bare nf journal refs.
+	if _, err := lifecycle.Move(srv.ws, it.ID, item.StateArchived, "fixture closure"); err != nil {
 		t.Fatal(err)
 	}
-	out := callText(t, sess, "grill", map[string]any{"id": it.ID})
-	if !strings.Contains(out, "computed: suppressed (archived)") {
-		t.Fatalf("archived grill pack must suppress: %q", out)
+	if _, ok, _ := item.Get(srv.ws, it.ID); ok {
+		t.Fatal("fixture broken: archived item still in work.md")
 	}
-	if strings.Contains(out, "#computed") || strings.Contains(out, "g amb-") {
-		t.Fatalf("archived pack must carry no findings: %q", out)
+	srv.markDirty()
+	out := callText(t, sess, "validate", map[string]any{"id": it.ID})
+	if strings.HasPrefix(out, "nf ") || strings.Contains(out, "j:") {
+		t.Fatalf("archived pack fell through to nearest-match refs: %q", out)
 	}
-	out = callText(t, sess, "validate", map[string]any{"id": it.ID})
 	if !strings.Contains(out, "computed: suppressed (archived)") {
-		t.Fatalf("archived validate pack must suppress: %q", out)
+		t.Fatalf("archived validate pack must suppress honestly: %q", out)
 	}
 	if strings.Contains(out, "v offscope") || strings.Contains(out, "v untested") {
 		t.Fatalf("archived validate pack must carry no v classes: %q", out)
+	}
+	// op=verdict on the tombstone refuses honestly instead of nf noise
+	out = callText(t, sess, "validate", map[string]any{
+		"id": it.ID, "op": "verdict", "pass": true, "agent": "post-hoc"})
+	if !strings.Contains(out, "archived; verdicts bind to live items") {
+		t.Fatalf("verdict on a tombstone must refuse honestly: %q", out)
 	}
 }
