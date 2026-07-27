@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYJN4AP3E1M8MHQPDE17E89Z internal/benchmark: record schema, canonical frame keys, keyed store with depth-trimmed history
 kind: task
-state: draft
+state: active
 created: 2026-07-27
 parent: P-01KYJMVX2QES89YTP3KXSJPA7J
 grilled: 2026-07-27 open=2
