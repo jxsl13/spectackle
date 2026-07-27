@@ -20,7 +20,10 @@ import (
 // The git workflow, driven by the state machine instead of by the LLM
 // (P-01KYDB, ADR-01KYDB).
 //
-// The mapping is the whole feature:
+// TWO MODES (GIT-DEFAULT-001, T-01KYHAH1GJ). Offline — the default — is
+// commit-only: every edge commits code and records on the CURRENT branch
+// (gitFlowOffline), with no branches, no forge, no pushes, no base
+// checkouts. Online, the explicit `git: mode: online` opt-in, maps:
 //
 //	into active   ensure the task branch, commit code, push, open a DRAFT PR
 //	while active  commit and push, so no change is ever only local
