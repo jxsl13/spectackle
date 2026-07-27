@@ -36,8 +36,26 @@ import (
 // Version is stamped into the MCP handshake and the CLI. Pre-1.0: anything
 // may break between versions; the schema stamp and cache generation rotate
 // with it instead of migrating. A var, not a const: release builds inject
-// the tag via -ldflags "-X .../internal/mcpserver.Version=v0.x.y".
-var Version = "0.2.0-dev"
+// the tag via -ldflags "-X .../internal/mcpserver.Version=v0.x.y". When no
+// ldflags ran (go install, plain go build), ResolvedVersion falls back to
+// the module version Go embeds automatically — a go-installed v0.3.1 must
+// never introduce itself as an old dev build (B-01KYJ66TWW: the hardcoded
+// default made `go install ...@latest` look like it ignored the tag).
+var Version = "dev"
+
+// ResolvedVersion returns the version every surface should print: the
+// ldflags-injected tag when a release build set one, else the module
+// version from the embedded build info (present for `go install` and any
+// module-aware build; "(devel)" for in-tree builds), else the dev default.
+func ResolvedVersion() string {
+	if Version != "dev" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return Version
+}
 
 // instructions is the self-bootstrapping server manifest: it teaches a
 // connecting LLM the full lifecycle loop and tool order with zero extra docs.
@@ -334,7 +352,7 @@ func New(root string) (*Server, error) {
 	s.mcp = mcp.NewServer(&mcp.Implementation{
 		Name:    "spectackle",
 		Title:   "spectackle — spec-driven cross-language code intelligence",
-		Version: Version,
+		Version: ResolvedVersion(),
 	}, &mcp.ServerOptions{Instructions: manifest()})
 	s.registerTools()
 	s.registerPrompts()

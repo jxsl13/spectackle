@@ -116,7 +116,7 @@ func (s *Server) stateText(path string) (string, error) {
 		rootLabel = "wt:" + s.wtItem
 	}
 	b.WriteString("#version\n")
-	fmt.Fprintf(&b, "ok spectackle %s agent %s root %s\n", Version, s.agent, rootLabel)
+	fmt.Fprintf(&b, "ok spectackle %s agent %s root %s\n", ResolvedVersion(), s.agent, rootLabel)
 
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {

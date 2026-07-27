@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -171,11 +172,20 @@ func TestDialHTTPMatchesStdio(t *testing.T) {
 		t.Fatalf("http state output missing expected shape:\n%s", httpOut)
 	}
 
-	if stdioOut != httpOut {
-		t.Fatalf("rendered output differs by transport (must be byte-identical):\nstdio (%d bytes): %q\nhttp  (%d bytes): %q",
+	// The #version banner may legitimately differ: the stdio side execs a
+	// freshly built binary whose build info carries a VCS pseudo-version,
+	// while the http side serves in-process from the test binary
+	// (B-01KYJ66TWW made version resolution build-truthful). Transport
+	// parity is about the RENDER, not about two different builds agreeing
+	// on their version — normalize that one token before comparing.
+	reVer := regexp.MustCompile(`ok spectackle \S+ `)
+	normStdio := reVer.ReplaceAllString(stdioOut, "ok spectackle X ")
+	normHTTP := reVer.ReplaceAllString(httpOut, "ok spectackle X ")
+	if normStdio != normHTTP {
+		t.Fatalf("rendered output differs by transport (must be byte-identical modulo the version token):\nstdio (%d bytes): %q\nhttp  (%d bytes): %q",
 			len(stdioOut), stdioOut, len(httpOut), httpOut)
 	}
-	t.Logf("byte-identical output across transports (%d bytes): %q", len(stdioOut), stdioOut)
+	t.Logf("byte-identical output across transports modulo version (%d bytes): %q", len(normStdio), normStdio)
 }
 
 // TestInstructions: the server's initialize-handshake instructions manifest

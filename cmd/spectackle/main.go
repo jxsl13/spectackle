@@ -96,7 +96,7 @@ func run(args []string) int {
 		fmt.Println(mcpserver.Manifest())
 		return 0
 	case "version":
-		fmt.Println("spectackle " + mcpserver.Version)
+		fmt.Println("spectackle " + mcpserver.ResolvedVersion())
 		return 0
 	case "-h", "--help", "help":
 		usage()
@@ -171,7 +171,7 @@ func serve(args []string) int {
 			}
 			defer removePIDFile(*pidfile)
 		}
-		log.Printf("spectackle %s serving over stdio", mcpserver.Version)
+		log.Printf("spectackle %s serving over stdio", mcpserver.ResolvedVersion())
 		if err := s.MCP().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			log.Printf("serve: %v", err)
 			return 1
@@ -185,7 +185,7 @@ func serve(args []string) int {
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return s.MCP()
 	}, nil)
-	log.Printf("spectackle %s serving over http on %s", mcpserver.Version, *httpAddr)
+	log.Printf("spectackle %s serving over http on %s", mcpserver.ResolvedVersion(), *httpAddr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
