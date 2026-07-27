@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/forge"
 	"github.com/jxsl13/spectackle/internal/ids"
@@ -964,6 +967,67 @@ func (s *Server) gitFlowFor(it item.Item, to string) *gitFlowResult {
 		res.lines = append([]string{d}, res.lines...)
 	}
 	return res
+}
+
+// gitScopeRefusal is the pre-Move guard for issue 178 defect 2: a
+// transition whose git edge commits (active/done/archived, git enabled,
+// not the swarm worktree flow) refuses while the working tree holds
+// non-records changes OUTSIDE the item's declared targets — the commit
+// sweep absorbed unrelated files (a SECRET_NOTE, an entire spec-system
+// removal) under item names that gave no hint. nil = proceed.
+func (s *Server) gitScopeRefusal(id, to string) *mcp.CallToolResult {
+	switch to {
+	case item.StateActive, item.StateDone, item.StateArchived:
+	default:
+		return nil
+	}
+	if ok, _ := s.gitGate(); !ok {
+		return nil
+	}
+	it, ok, err := item.Get(s.ws, id)
+	if err != nil || !ok {
+		return nil // resolution problems are the move handler's to report
+	}
+	dirty, derr := wt.DirtyFiles(s.ws.Dir)
+	if derr != nil {
+		return nil // an unreadable tree fails later, with the git edge's own error
+	}
+	scope := normalizeTargets(it.Targets)
+	var out []string
+	for _, f := range dirty {
+		if f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/") {
+			continue // records are the server's own commit
+		}
+		if inTargetScope(f, scope) {
+			continue
+		}
+		out = append(out, f)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	list := strings.Join(out[:min(3, len(out))], ", ")
+	if len(out) > 3 {
+		list += fmt.Sprintf(", +%d more", len(out)-3)
+	}
+	r, _, _ := refuse("! GIT E " + shortDisplayID(it.ID) + " transition refused: " + fmt.Sprint(len(out)) + " changed file(s) outside the declared targets (" + list + ") — commit or stash them, or widen the item's targets")
+	return r
+}
+
+// inTargetScope reports whether a repo-relative file falls under any
+// declared target: an exact file match, or a prefix match when the target
+// names a directory.
+func inTargetScope(f string, scope []string) bool {
+	for _, t := range scope {
+		t = strings.TrimSuffix(filepath.ToSlash(t), "/")
+		if t == "" || t == "." {
+			return true // a root-dir target deliberately allows everything
+		}
+		if f == t || strings.HasPrefix(f, t+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // journalGateFail appends the machine-readable gate outcome the render

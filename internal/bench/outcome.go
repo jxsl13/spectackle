@@ -100,7 +100,18 @@ func seedOutcomeTrap(dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "util"), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "util", "legacy.go"), []byte(legacyTrapSeed), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "util", "legacy.go"), []byte(legacyTrapSeed), 0o644); err != nil {
+		return err
+	}
+	// The bait is COMMITTED fixture content, not untracked debris: the
+	// transition scope guard (issue 178 defect 2) refuses any move while
+	// out-of-scope dirt sits in the tree, so an untracked bait would stall
+	// every judge on files they never touched. The trap itself is
+	// unchanged — the fingerprint detects MODIFICATION, tracked or not.
+	_ = exec.Command("git", "-C", dir, "add", "util").Run()
+	_ = exec.Command("git", "-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@localhost",
+		"commit", "-q", "-m", "fixture: legacy util").Run()
+	return nil
 }
 
 // legacyTrapHash fingerprints the trap file at prep; scoring compares.

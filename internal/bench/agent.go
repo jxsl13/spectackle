@@ -194,6 +194,13 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 	if err := os.WriteFile(gi, append(existing, []byte(harnessIgnore)...), 0o644); err != nil {
 		return "", "", "", err
 	}
+	// The prepped tree must be CLEAN: an untracked .gitignore is exactly
+	// the out-of-scope dirt the transition guard (issue 178 defect 2)
+	// refuses on — a judge would stall on prep debris it never created.
+	// Best-effort with identity flags: a bare CI runner has no git config.
+	_ = exec.Command("git", "-C", dir, "add", ".gitignore").Run()
+	_ = exec.Command("git", "-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@localhost",
+		"commit", "-q", "-m", "bench prep: harness ignore rules").Run()
 
 	nonceBytes := make([]byte, 8)
 	if _, err := rand.Read(nonceBytes); err != nil {

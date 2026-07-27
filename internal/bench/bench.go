@@ -148,7 +148,7 @@ func Fixture(dir string) error {
 		return fmt.Errorf("bench fixture: add: %v: %s", err, out)
 	}
 	out, err := exec.Command("git", "-C", dir, "-c", "user.name=bench", "-c", "user.email=bench@localhost", "commit", "-q", "-m", "fixture").CombinedOutput()
-	if err != nil {
+	if err != nil && !strings.Contains(string(out), "nothing to commit") {
 		return fmt.Errorf("bench fixture: commit: %v: %s", err, out)
 	}
 	return nil

@@ -38,7 +38,8 @@ func TestOfflineRedGateBlocksArchiveUntilGreen(t *testing.T) {
 	root := gateFixture(t, 0)
 	sess := connectRoot(t, root)
 	id := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "red gate cannot archive", "body": ambFixturePad})
+		"kind": "task", "title": "red gate cannot archive", "body": ambFixturePad,
+		"targets": []string{"ok.txt"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
 	if !strings.Contains(out, "! GATE E") {
@@ -106,7 +107,8 @@ func TestOfflineGateSurvivesJournalFold(t *testing.T) {
 	root := gateFixture(t, 1)
 	sess := connectRoot(t, root)
 	id := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "gate survives the fold", "body": ambFixturePad})
+		"kind": "task", "title": "gate survives the fold", "body": ambFixturePad,
+		"targets": []string{"ok.txt"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "done"}) // red gate, journals the fail
 	out := callText(t, sess, "compact", map[string]any{"apply": true})
@@ -139,7 +141,8 @@ func TestValidatePackShowsGateFail(t *testing.T) {
 	root := gateFixture(t, 0)
 	sess := connectRoot(t, root)
 	id := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "pack shows the red gate", "body": ambFixturePad})
+		"kind": "task", "title": "pack shows the red gate", "body": ambFixturePad,
+		"targets": []string{"ok.txt"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
 	out := callText(t, sess, "validate", map[string]any{"op": "pack", "id": id})
