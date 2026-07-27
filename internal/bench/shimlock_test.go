@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -120,5 +121,98 @@ func TestSequenceOrderTolerantButComplete(t *testing.T) {
 	// a duplicate still disqualifies
 	if disq, _ := seqVerdict(t, []int{1, 2, 2, 3}); !disq {
 		t.Fatal("a duplicate must disqualify")
+	}
+}
+
+// Harness artifacts are git-invisible after prep (B-01KYH3SP), and an
+// interleaved drive — shim calls dirtying the logs between every
+// transition — completes the offline archive merge.
+func TestPrepIgnoresHarnessArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	for _, cmd := range [][]string{
+		{"git", "-C", dir, "init", "-q", "-b", "main"},
+		{"git", "-C", dir, "config", "user.name", "b"},
+		{"git", "-C", dir, "config", "user.email", "b@l"},
+		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v %s", cmd, err, out)
+		}
+	}
+	self := benchSelfBinary(t)
+	if _, _, _, err := AgentPrep(self, dir, false, "outcome"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"meter.log", "meter.sh", "brief.md", "journal.baseline", "trap.hash", "scenario", "transcript.log"} {
+		if strings.Contains(string(out), f) {
+			t.Fatalf("harness artifact %s is git-visible:\n%s", f, out)
+		}
+	}
+}
+
+// benchSelfBinary builds the spectackle binary once for prep-dependent
+// tests; skipped under -short.
+func benchSelfBinary(t *testing.T) string {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := filepath.Join(t.TempDir(), "spectackle")
+	if out, err := exec.Command("go", "build", "-o", bin, "github.com/jxsl13/spectackle/cmd/spectackle").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	return bin
+}
+
+// The judge's exact blocker shape (B-01KYH3SP): drive a task to archived
+// THROUGH THE SHIM — every call dirties meter/transcript — and the offline
+// merge must complete anyway now that the artifacts are ignored.
+func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
+	self := benchSelfBinary(t)
+	dir := t.TempDir()
+	for _, cmd := range [][]string{
+		{"git", "-C", dir, "init", "-q", "-b", "main"},
+		{"git", "-C", dir, "config", "user.name", "b"},
+		{"git", "-C", dir, "config", "user.email", "b@l"},
+		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v %s", cmd, err, out)
+		}
+	}
+	_, shim, _, err := AgentPrep(self, dir, false, "outcome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(tool, args string) string {
+		t.Helper()
+		out, _ := exec.Command(shim, "call", "-root", dir, tool, args).CombinedOutput()
+		return string(out)
+	}
+	out := call("draft", `{"kind":"task","title":"interleaved drive fixture","body":"`+strings.Repeat("a real sentence for the ambiguity floor. ", 12)+`"}`)
+	m := regexp.MustCompile(`\bi (T-[0-9A-HJKMNP-TV-Z]+)`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("draft failed: %s", out)
+	}
+	id := m[1]
+	call("move", `{"id":"`+id+`","to":"active"}`)
+	if err := os.WriteFile(filepath.Join(dir, "limiter", "limiter.go"),
+		[]byte("package limiter\n\n// Placeholder implements nothing yet.\nfunc Placeholder() {}\n"), 0o644); err != nil {
+		if mkErr := os.MkdirAll(filepath.Join(dir, "limiter"), 0o755); mkErr != nil {
+			t.Fatal(mkErr)
+		}
+		if wErr := os.WriteFile(filepath.Join(dir, "limiter", "limiter.go"),
+			[]byte("package limiter\n\n// Placeholder implements nothing yet.\nfunc Placeholder() {}\n"), 0o644); wErr != nil {
+			t.Fatal(wErr)
+		}
+	}
+	call("move", `{"id":"`+id+`","to":"done"}`)
+	out = call("move", `{"id":"`+id+`","to":"archived","note":"interleaved drive closure"}`)
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("archive must merge with dirty-but-ignored artifacts:\n%s", out)
 	}
 }
