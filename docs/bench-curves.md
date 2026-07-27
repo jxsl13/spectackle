@@ -197,6 +197,17 @@ SPECTACKLE_AGENT) — filed with the judge's source-confirmed root cause.
 Every machine-facing text change ships with its scripted A/B delta here;
 justification required when the delta is positive.
 
+**New measurements land as `bench` records first** (P-01KYJMVX2Q): the
+`bench` tool's keyed store (`.spectackle/bench.ndjson`) is the source of
+truth — machine-comparable, versioned, delta-journaled — and this prose
+ledger stays for narrative. A ledger row for a benchmarked measurement
+cites its `M-` record; `bench op=get id=<M-id>` renders the current values
+and winners. Records so far: the offline-collapse A/B is
+**M-01KYJWFQ8SE68** (`lifecycle-tokens`: offline-theater 3558 B / 889 tok
+vs commit-only 2765 B / 691 tok, both `-` metrics won by commit-only), and
+the outcome judge batch is **M-01KYJWG08TFRC** (`outcome-navigation`:
+3/3 navigated, 1/3 valid — the T-01KYJ58DBA caveat rides the record note).
+
 | change | delta/lifecycle | manifest | justification |
 |---|---|---|---|
 | T-01KYD94K grill verdict machinery (deleted word-checks, open= stamp) | −95B | +0B | strictly cheaper at equal validity |
@@ -205,9 +216,9 @@ justification required when the delta is positive.
 | T-01KYF3 MinRecordPrefixLen 6→13 (ADR-01KYEP) | +55B (~14 tokens) | +0B | user-decided trade: lifetime-stable displayed prefixes end the ambiguous-prefix re-disambiguation rounds (observed twice live); cost accepted in the ADR |
 | T-01KYD94MG edge-commit engine (structured decision commits per write) | +126B (~31 tokens) | +0B | the requirement is explicit: the decision trail must be readable in git log by humans, fully automatic, zero LLM git commands; the validator's redundancy dissent is recorded on the task and the default stays edges |
 | T-01KYEW memory-to-spec manifest nudge (re-landed via B-01KYFG1KEEF1S) | +0B lifecycle | +180B manifest (once per session) | user directive: standing knowledge must reach the spec, not agent-private memory |
-| T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. |
+| T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. Record: **M-01KYJWFQ8SE68**. |
 
-### Outcome batch: commit-only offline surface (T-01KYJ58DBA, 2026-07-27)
+### Outcome batch: commit-only offline surface (T-01KYJ58DBA, 2026-07-27; record M-01KYJWG08TFRC)
 
 n=3 fresh judges, scenario=outcome, v0.3.1 binary, positional nonces. All
 three reached `archived` + `check ok` with **0 reopen rounds and 0 asks** —
