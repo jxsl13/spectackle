@@ -526,3 +526,77 @@ func TestForceFrontMatterStampNeverTouchesProse(t *testing.T) {
 		t.Fatalf("prose was touched: %q", got)
 	}
 }
+
+// Round 3 (cross-val NEW-1): a column-0 prose line "schema: v0" in an item
+// body is CONTENT — the fence-scoped pipeline must migrate the bundle
+// without touching it.
+func TestMigrateNeverRewritesProseSchemaLines(t *testing.T) {
+	dir := v0Fixture(t)
+	work := filepath.Join(dir, Dot, "work.md")
+	raw, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prose := string(raw) + "\nExample config for the docs:\n\nschema: v0\nlangs: [go]\n"
+	if err := os.WriteFile(work, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "Example config for the docs:\n\nschema: v0\n") {
+		t.Fatalf("prose schema line was rewritten:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist — the prose line is not a stamp and must not withhold it")
+	}
+}
+
+// Round 3 (cross-val NEW-2): ALL THREE root probes carrying trailing-comment
+// stamps must still be DETECTED as v0 and fully migrated — the probe misses
+// skipped the migration entirely and the refusal then lied about it.
+func TestNeededDetectsCommentedStamps(t *testing.T) {
+	dir := v0Fixture(t)
+	for _, name := range []string{"config.yaml", "spec.md", "work.md"} {
+		p := filepath.Join(dir, Dot, name)
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commented := strings.Replace(string(raw), "schema: v0", "schema: v0  # legacy", 1)
+		if err := os.WriteFile(p, []byte(commented), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	need, err := Needed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !need {
+		t.Fatal("commented stamps must still read as v0 to the probe")
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("bundle must migrate")
+	}
+	for _, name := range []string{"config.yaml", "spec.md", "work.md"} {
+		after, err := os.ReadFile(filepath.Join(dir, Dot, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+			t.Fatalf("%s not stamped:\n%.200s", name, after)
+		}
+	}
+}

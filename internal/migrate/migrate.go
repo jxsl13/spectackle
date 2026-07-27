@@ -138,7 +138,7 @@ func Needed(dir string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if m := frontMatterStampRe.FindSubmatch(raw); m != nil && string(m[1]) == From {
+		if m := frontMatterStampRe.FindSubmatch(stampScope(name, raw)); m != nil && string(m[1]) == From {
 			return true, nil
 		}
 	}
@@ -344,7 +344,28 @@ func bundleFiles(dir string) ([]string, error) {
 
 // frontMatterStampRe pulls the `schema:` value out of a leading front matter
 // block or, for config.yaml, out of the top-level mapping.
-var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[ \t]*\r?$`)
+var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[^\r\n]*$`)
+
+// stampScope returns the region of raw where a schema stamp may legally
+// live: the leading front-matter fence for .md files (a schema line in
+// item PROSE is content, never a stamp — round 3 of issue 178: the global
+// restamp rewrote a column-0 documentation line), the whole file for
+// config.yaml (a YAML top-level mapping cannot carry prose). nil means
+// the file has no stamp region at all.
+func stampScope(name string, raw []byte) []byte {
+	if !strings.HasSuffix(name, ".md") {
+		return raw
+	}
+	s := string(raw)
+	if !strings.HasPrefix(s, "---") {
+		return nil
+	}
+	end := strings.Index(s[3:], "---")
+	if end < 0 {
+		return nil
+	}
+	return []byte(s[:3+end])
+}
 
 // stampsOf counts the stamps present across the bundle. Files carrying no
 // stamp at all (anchors.tsv, a hand-created spec.md) are not counted: they are
@@ -356,7 +377,7 @@ func stampsOf(dir string, files []string) (map[string]int, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m := frontMatterStampRe.FindSubmatch(raw); m != nil {
+		if m := frontMatterStampRe.FindSubmatch(stampScope(rel, raw)); m != nil {
 			out[string(m[1])]++
 		}
 	}
@@ -522,11 +543,15 @@ func (w *workspaceText) rewrite(remap map[string]string) (map[string][]byte, int
 			continue
 		}
 		raw := replaceIDs(w.content[rel], remap)
-		raw = restamp(raw)
-		if strings.HasSuffix(rel, "config.yaml") {
-			raw = forceConfigStamp(raw)
-		} else if strings.HasSuffix(rel, ".md") {
+		if strings.HasSuffix(rel, ".md") {
+			// fence-only: the global restamp must never see item prose
+			// (round 3: it rewrote a column-0 documentation line)
 			raw = forceFrontMatterStamp(raw)
+		} else {
+			raw = restamp(raw)
+			if strings.HasSuffix(rel, "config.yaml") {
+				raw = forceConfigStamp(raw)
+			}
 		}
 		if !bytesEqual(raw, w.content[rel]) {
 			out[rel] = raw
