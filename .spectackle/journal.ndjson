@@ -383,3 +383,4 @@
 {"t":"2026-07-27T15:55:09Z","eid":"7e586a8e863986fb","ag":"ag-fbd5","ev":"compact","note":"journal fold","n":335}
 {"t":"2026-07-27T16:10:36Z","eid":"bc4d0c53f6ff3cde","ag":"ag-b1c4","ev":"create","id":"T-01KYJ5FAP6FW3RF5BHD640YC4F","k":"task","ti":"mode-parity render diet: online green-path edges compress to one line each - the LLM transitions, the server narrates nothing"}
 {"t":"2026-07-27T16:10:53Z","eid":"85faaafa7a75fddd","ag":"ag-e34b","ev":"grill","id":"T-01KYJ5FAP6FW3RF5BHD640YC4F","gr":"2026-07-27 open=0","hash":"b82c870fe2770df34edcb305202fca15990360b95032a61750299e4b209f50b6"}
+{"t":"2026-07-27T16:23:26Z","eid":"f6ef9c7c3502afaf","ag":"ag-073c","ev":"create","id":"B-01KYJ66TWWEEW83KTC7PM9M5SM","k":"bug","ti":"go-installed binaries report 0.2.0-dev regardless of the actual module version"}
