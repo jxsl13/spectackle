@@ -115,6 +115,31 @@ stays retired as ambiguous. Content findings stand:
   gate. n is far too small for a rate; the estimated band survives with
   its first real data points and a rerun awaits the shim fix.
 
+## Catch-rate rerun at n=3 per side (2026-07-27, T-01KYH1GK)
+
+| Run | Gate | Calls | Surface tokens | First-pass | Final-pass | Rounds | Verdict |
+|---|---|---|---|---|---|---|---|
+| w1 | warn | 31 | ~883 | 4/5 | 4/5 | 0 | valid |
+| w2 | warn | 48 | ~1881 | 5/5 | 5/5 | 0 | valid |
+| w3 | warn | 54 | ~2201 | 5/5 | 5/5 | 0 | INVALID — vacuous-test trap (a race-smoke test with no failure call; the trap working as designed) |
+| r1 | require | 133 | ~4852 | 4/5 | 4/5 | 2 | valid |
+| r2 | require | 44 | ~1125 | 4/5 | 4/5 | 0 | valid |
+| r3 | require | 95 | ~3441 | 4/5 | 4/5 | 2 | INVALID — harness bug (B-01KYH3SP: prep leaves meter/transcript git-trackable; the judge was structurally blocked from archived and honestly stopped at done with a passing verdict) |
+
+**Measured validation catch rate across both batches: 1/4 (25%)** —
+repaired-runs over valid require-runs (batch 1: one 0/5→5/5 repair, one
+no-catch; batch 2: two no-catch). Below the estimated 30-50% band's floor.
+The structure of the misses is the finding: every no-catch held a 4/5
+whose missing case was the SEMANTIC `Allow(n<=0)` divergence (several
+judges independently hardened non-positive n to a success-no-op against
+the hidden refusal semantics) — the gate's computed classes catch
+structural incompleteness (the one repair was a premature 0/5 done) and
+are blind to semantic divergence by design. Risk-gating implication:
+`require`'s value concentrates on premature/structural dones; its 1.3-4x
+token cost buys nothing against semantic misses on a well-specified small
+feature. The estimate is hereby replaced by 25% (n=4, wide interval) with
+the structural/semantic split as the operative insight.
+
 ## Operating discipline
 
 - **n=3, all-valid gate.** One failing judge in three is a regression
