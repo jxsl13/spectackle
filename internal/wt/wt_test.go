@@ -24,7 +24,7 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 		t.Fatalf("CommonRoot(main) = %q %v %v", main, isWT, err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main", false); err != nil {
 		t.Fatal(err)
 	}
 	main2, isWT2, err := CommonRoot(wtRoot)
@@ -36,7 +36,7 @@ func TestCommonRootMainAndLinked(t *testing.T) {
 	}
 	// leftover recovery: Add over a stale dir succeeds
 	os.MkdirAll(wtRoot, 0o755)
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main", false); err != nil {
 		t.Fatalf("Add over leftover: %v", err)
 	}
 	Remove(root, wtRoot)
@@ -75,7 +75,7 @@ func TestMergeConflictAndTouched(t *testing.T) {
 	root := repo(t)
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0002")
 	base, _ := Head(root)
-	if err := Add(root, wtRoot, "spectackle/T-0002", "HEAD", "main"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0002", "HEAD", "main", false); err != nil {
 		t.Fatal(err)
 	}
 	// conflicting edits to the same file on both sides
@@ -120,7 +120,7 @@ func TestMergeMainResolvesPrimaryBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main", false); err != nil {
 		t.Fatal(err)
 	}
 	// the primary branch advances after the worktree branched
@@ -288,7 +288,7 @@ func TestMergeMainPreservesSpectackleState(t *testing.T) {
 		t.Skipf("git unavailable: %v", err)
 	}
 	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0001")
-	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main"); err != nil {
+	if err := Add(root, wtRoot, "spectackle/T-0001", "HEAD", "main", false); err != nil {
 		t.Fatal(err)
 	}
 	// the worktree's live record delta: an uncommitted local journal edit
@@ -475,4 +475,73 @@ func TestVacateRefusesItemNamespaceBase(t *testing.T) {
 	if cur != "main" {
 		t.Fatalf("vacate landed on %q, want main", cur)
 	}
+}
+
+// Stray-directory guard (B-01KYHHCFCW): a leftover at the target path with
+// no ledger row may hold a crashed agent's work — Add refuses unless the
+// stray is empty, records-only, or force is passed.
+func TestAddStrayGuard(t *testing.T) {
+	root := repo(t)
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0009")
+
+	// empty stray clears silently
+	if err := os.MkdirAll(wtRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(root, wtRoot, "spectackle/T-0009", "HEAD", "main", false); err != nil {
+		t.Fatalf("empty stray must clear: %v", err)
+	}
+	// a real worktree with an uncommitted agent file: orphan it (drop the
+	// ledgerless dir marker path by removing the admin link is overkill —
+	// Add's stray arm triggers on ANY existing dir, worktree or not), then
+	// re-Add without force must refuse naming the path
+	precious := filepath.Join(wtRoot, "precious.go")
+	if err := os.WriteFile(precious, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Add(root, wtRoot, "spectackle/T-0009", "HEAD", "main", false)
+	if err == nil || !strings.Contains(err.Error(), "uncommitted") || !strings.Contains(err.Error(), wtRoot) {
+		t.Fatalf("dirty stray worktree must refuse naming the path: %v", err)
+	}
+	if _, serr := os.Stat(precious); serr != nil {
+		t.Fatal("refused Add must not touch the stray's files")
+	}
+	// force clears deliberately
+	if err := Add(root, wtRoot, "spectackle/T-0009", "HEAD", "main", true); err != nil {
+		t.Fatalf("forced Add must clear the stray: %v", err)
+	}
+	if _, serr := os.Stat(precious); serr == nil {
+		t.Fatal("force must actually discard the stray's files")
+	}
+	Remove(root, wtRoot)
+}
+
+func TestAddStrayNonWorktreeDir(t *testing.T) {
+	root := repo(t)
+	wtRoot := filepath.Join(root, ".spectackle", "wt", "T-0010")
+
+	// records-only plain dir clears silently
+	if err := os.MkdirAll(filepath.Join(wtRoot, dotDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(root, wtRoot, "spectackle/T-0010", "HEAD", "main", false); err != nil {
+		t.Fatalf("records-only stray must clear: %v", err)
+	}
+	Remove(root, wtRoot)
+
+	// plain dir with an agent file refuses without force
+	if err := os.MkdirAll(wtRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wtRoot, "notes.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Add(root, wtRoot, "spectackle/T-0010", "HEAD", "main", false)
+	if err == nil || !strings.Contains(err.Error(), "not a worktree") {
+		t.Fatalf("non-worktree stray with files must refuse: %v", err)
+	}
+	if err := Add(root, wtRoot, "spectackle/T-0010", "HEAD", "main", true); err != nil {
+		t.Fatalf("forced Add must clear: %v", err)
+	}
+	Remove(root, wtRoot)
 }
