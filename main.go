@@ -358,7 +358,7 @@ func watchStale(ctx context.Context, repoDir, exe string, every time.Duration, r
 		// an unbounded build that completes during the drain would fill the
 		// channel and resurrect the process a supervisor just tried to stop.
 		cmd := exec.CommandContext(ctx, "go", "build",
-			"-ldflags", "-X main.buildHead="+head, "-o", tmp, "./cmd/spectackle")
+			"-ldflags", "-X main.buildHead="+head, "-o", tmp, ".")
 		cmd.Dir = snap
 		out, err := cmd.CombinedOutput()
 		os.RemoveAll(snap)

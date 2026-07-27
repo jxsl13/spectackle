@@ -61,10 +61,10 @@ func runTestMain(m *testing.M) int {
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", out, ".")
 	cmd.Dir = moduleRoot
 	if output, err := cmd.CombinedOutput(); err != nil {
-		binBuildErr = "go build ./cmd/spectackle: " + err.Error() + "\n" + string(output)
+		binBuildErr = "go build .: " + err.Error() + "\n" + string(output)
 		return m.Run()
 	}
 	binPath = out

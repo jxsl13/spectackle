@@ -61,18 +61,18 @@ func runCallBinTestMain(m *testing.M) int {
 		callBinBuildErr = "runtime.Caller: could not determine this test file's path"
 		return m.Run()
 	}
-	// cmd/spectackle/main_test.go -> repo root is two levels up. Do NOT
-	// depend on a prebuilt /home/user path: build from source here.
-	moduleRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	// main_test.go sits AT the module root since the main package moved
+	// there (T-01KYJ7AJ7B). Do NOT depend on a prebuilt path: build here.
+	moduleRoot := filepath.Dir(thisFile)
 
 	out := filepath.Join(dir, "spectackle")
 	if runtime.GOOS == "windows" {
 		out += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", out, ".")
 	cmd.Dir = moduleRoot
 	if output, err := cmd.CombinedOutput(); err != nil {
-		callBinBuildErr = "go build ./cmd/spectackle: " + err.Error() + "\n" + string(output)
+		callBinBuildErr = "go build .: " + err.Error() + "\n" + string(output)
 		return m.Run()
 	}
 	callBinPath = out
@@ -662,7 +662,7 @@ func TestWatchStaleRebuildsAndTriggers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a real go build: skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
+	repoRoot, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +719,7 @@ func TestServeSelfRestartExecSwap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("spawns a server and runs a real go build: skipped in -short")
 	}
-	srcRoot, err := filepath.Abs("../..")
+	srcRoot, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +749,7 @@ func TestServeSelfRestartExecSwap(t *testing.T) {
 	fixtureGit("commit", "-q", "-m", "fixture: working tree as HEAD")
 
 	bin := filepath.Join(t.TempDir(), "spx")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/spectackle")
+	build := exec.Command("go", "build", "-o", bin, ".")
 	build.Dir = srcRoot
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -898,7 +898,7 @@ func TestWatchStaleDefersWhileBusy(t *testing.T) {
 	if testing.Short() {
 		t.Skip("runs a real go build: skipped in -short")
 	}
-	repoRoot, err := filepath.Abs("../..")
+	repoRoot, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
 	}

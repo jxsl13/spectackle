@@ -76,7 +76,7 @@ func TestInstalledHookRunsVerifyGate(t *testing.T) {
 		t.Skip("builds the binary")
 	}
 	bindir := t.TempDir()
-	build := exec.Command("go", "build", "-o", filepath.Join(bindir, "spectackle"), "github.com/jxsl13/spectackle/cmd/spectackle")
+	build := exec.Command("go", "build", "-o", filepath.Join(bindir, "spectackle"), "github.com/jxsl13/spectackle")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
 	}
