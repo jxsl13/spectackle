@@ -6,6 +6,7 @@ schema: v1
 kind: task
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/bench/outcome.go, internal/bench/agent.go
 
 EVIDENCE (T-01KYGX9P and T-01KYH1GK judge reports, verbatim across two independent runs): the outcome briefs Available tool names line omits validate and work; both require-side judges discovered validate only when the archive refused, and one confirmed it against the public source before trusting it - a full discovery loop of tokens per judge that measures brief incompleteness, not agent skill. The basic/tricky briefs share the list shape - audit them for the same omissions while here (worktree scenario judges used work, so its brief presumably names it - verify).
