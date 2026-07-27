@@ -48,7 +48,13 @@ var kindHeadings = []struct{ kind, heading string }{
 // (zero time = everything). Deterministic: grouped by kind in a fixed
 // order, sorted by ID (mint order) within each group.
 func Render(events []journal.Event, since time.Time) string {
-	byKind := map[string][]journal.Event{}
+	// One line per item: a compensated archive retry appends a second
+	// EvArchive for the same ID (tools.go archive compensation), and the
+	// LATEST tombstone is the final one. Compare by T value — ReadAll
+	// concatenates context files in directory order and replay preserves
+	// original timestamps, so slice position proves nothing. Equal-T ties
+	// (whole-second truncation) break by Eid for determinism.
+	latest := map[string]journal.Event{}
 	for _, e := range events {
 		if e.Ev != journal.EvArchive || strings.TrimSpace(e.Sum) == "" {
 			continue
@@ -56,6 +62,13 @@ func Render(events []journal.Event, since time.Time) string {
 		if !since.IsZero() && e.T.Before(since) {
 			continue
 		}
+		if p, ok := latest[e.ID]; ok && (e.T.Before(p.T) || (e.T.Equal(p.T) && e.Eid < p.Eid)) {
+			continue
+		}
+		latest[e.ID] = e
+	}
+	byKind := map[string][]journal.Event{}
+	for _, e := range latest {
 		byKind[e.K] = append(byKind[e.K], e)
 	}
 	var b strings.Builder
