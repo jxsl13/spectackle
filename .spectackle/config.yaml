@@ -14,3 +14,7 @@ feedback:
   # require per ADR-01KYES0TM, re-armed by T-01KYD9J: per-finding waivers
   # give residuals an honest recorded path through the gate.
   validate: require
+# GIT-DEFAULT-001 migration: mode now defaults to offline; this repository's
+# lifecycle is PR-driven (CI-gated merges), so online stays the explicit choice.
+git:
+  mode: online
