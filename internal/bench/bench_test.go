@@ -470,7 +470,7 @@ func TestMeterTamperDetection(t *testing.T) {
 	// Mid-file deletion: drop line 2 — sequence gap.
 	tampered := append([]string{lines[0]}, lines[2:]...)
 	os.WriteFile(meterPath, []byte(strings.Join(tampered, "\n")+"\n"), 0o644)
-	if sc, _ = ScoreAgentRun(bin, dir); !sc.Disqualified || !strings.Contains(sc.DisqualifyReason, "sequence gap") {
+	if sc, _ = ScoreAgentRun(bin, dir); !sc.Disqualified || !strings.Contains(sc.DisqualifyReason, "sequence broken") {
 		t.Fatalf("mid-file deletion not caught:\n%s", AgentReport(sc))
 	}
 

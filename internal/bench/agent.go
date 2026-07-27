@@ -134,8 +134,25 @@ OUT=$("$REAL" "$@" 2>&1)
 rc=$?
 printf '%%s\n' "$OUT"
 printf '%%s\n' "$OUT" >> "$TRANSCRIPT"
+# read-count-then-append must be atomic under a judge's PARALLEL calls
+# (B-01KYGZNT): mkdir is the portable POSIX lock — flock(1) does not exist
+# on stock macOS. The trap frees the lock even if the shim is killed.
+LOCK="$METER.lock"
+i=0
+until mkdir "$LOCK" 2>/dev/null; do
+  i=$((i+1)); [ $i -gt 500 ] && break
+  sleep 0.01
+done
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
 if [ -f "$METER" ]; then SEQ=$(($(wc -l < "$METER") + 1)); else SEQ=1; fi
-printf '%%d %%s %%d %%d %%s\n' "$SEQ" "$NONCE" "${#OUT}" "$rc" "$*" >> "$METER"
+# argv can carry REAL newlines (a draft body in the JSON argument): written
+# verbatim it spans physical lines, wc -l overcounts, and the seq chain
+# reads as holes (the actual warn-2 incident mechanism, B-01KYGZNT).
+# One entry = one line, always.
+ARGS=$(printf '%%s' "$*" | tr '\n\r' '  ')
+printf '%%d %%s %%d %%d %%s\n' "$SEQ" "$NONCE" "${#OUT}" "$rc" "$ARGS" >> "$METER"
+rmdir "$LOCK" 2>/dev/null
+trap - EXIT
 exit $rc
 `
 
@@ -393,6 +410,7 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		sc.Disqualified = true
 		sc.DisqualifyReason = "nonce anchor mismatch: the workspace was re-prepped after the orchestrator's prep"
 	}
+	var seqs []int
 	for line := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
@@ -408,10 +426,7 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		}
 		sc.Calls++
 		sc.Bytes += n
-		if seq != sc.Calls && !sc.Disqualified {
-			sc.Disqualified = true
-			sc.DisqualifyReason = fmt.Sprintf("meter sequence gap: line %d carries seq %d", sc.Calls, seq)
-		}
+		seqs = append(seqs, seq)
 		if nonce != "" && fields[1] != nonce && !sc.Disqualified {
 			sc.Disqualified = true
 			sc.DisqualifyReason = "meter nonce mismatch: log not written by this workspace's shim"
@@ -419,6 +434,20 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		// argv is `call -root <dir> <tool> <json>`: the tool sits at index 7.
 		if len(fields) >= 8 && fields[3] == "0" && fields[4] == "call" && writeTools[fields[7]] {
 			sc.writeCalls++
+		}
+	}
+	// Sequence COMPLETENESS, order-tolerant (B-01KYGZNT): pre-lock logs
+	// from parallel-calling judges append out of order without any hole or
+	// duplicate — that is concurrency, not tampering. Sorted seqs must be
+	// exactly 1..N; a hole or duplicate still disqualifies. Tail
+	// truncation (removing the highest seqs) is hole-free by construction
+	// and is owned by the journal write-delta check below, not this one.
+	sort.Ints(seqs)
+	for i, q := range seqs {
+		if q != i+1 && !sc.Disqualified {
+			sc.Disqualified = true
+			sc.DisqualifyReason = fmt.Sprintf("meter sequence broken: sorted position %d carries seq %d (hole or duplicate)", i+1, q)
+			break
 		}
 	}
 	sc.Tokens = sc.Bytes / 4
