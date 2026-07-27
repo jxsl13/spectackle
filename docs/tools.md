@@ -608,7 +608,8 @@ Line records (`d` here is a bench delta — shape disambiguates from drift):
 m <id> v<n> <name> ...                           benchmark head/summary
 f <k>=<v> <k>=<v> ...                            frame (get)
 u <impl> <metric> <value> <unit> [*]             measured value (* = winner under the metric's dir)
-d <impl> <metric> <value> <unit> Δ<delta> [better|worse|~]  delta vs. superseded head (put) / vs. id (cmp)
+d <impl> <metric> <value> <unit> Δ<delta> [better|worse|~]            delta vs. superseded head (put)
+d <impl> <metric> <old> -> <new> <unit> Δ<delta> [better|worse|~]     delta between two entries (cmp)
 ```
 
 - **put** — parses the three grammars, derives the key, assigns the next

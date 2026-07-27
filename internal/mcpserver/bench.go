@@ -129,24 +129,23 @@ func (s *Server) bench(in benchIn) (*mcp.CallToolResult, any, error) {
 	return refuse("! ARG E - op must be put|get|ls|rm|cmp")
 }
 
-// benchResolve finds a record by (possibly short) M- ID.
-func benchResolve(st *benchmark.Store, id string) (benchmark.Record, bool) {
-	if r, ok := st.ByID(id); ok {
-		return r, true
-	}
-	// short-prefix resolution over the loaded set
-	var hits []benchmark.Record
+// benchResolve finds a record by (possibly short) M- ID. Ambiguity and
+// no-match are DISTINCT errors (cross-val finding: a prefix matching two
+// records must not read as "no benchmark record") — ids.ResolveRecordID
+// names every candidate on ambiguity.
+func benchResolve(st *benchmark.Store, id string) (benchmark.Record, error) {
+	var known []string
 	for _, key := range st.Keys() {
 		for _, r := range st.Versions(key) {
-			if strings.HasPrefix(r.ID, id) {
-				hits = append(hits, r)
-			}
+			known = append(known, r.ID)
 		}
 	}
-	if len(hits) == 1 {
-		return hits[0], true
+	full, err := ids.ResolveRecordID(id, known)
+	if err != nil {
+		return benchmark.Record{}, err
 	}
-	return benchmark.Record{}, false
+	r, _ := st.ByID(full)
+	return r, nil
 }
 
 func (s *Server) benchPut(in benchIn, st *benchmark.Store, path string) (*mcp.CallToolResult, any, error) {
@@ -287,9 +286,9 @@ func (s *Server) benchGet(in benchIn, st *benchmark.Store) (*mcp.CallToolResult,
 	if in.ID == "" {
 		return refuse("! ARG E - get needs id (M-...)")
 	}
-	r, ok := benchResolve(st, in.ID)
-	if !ok {
-		return refuse("! ARG E - no benchmark record matches " + in.ID)
+	r, err := benchResolve(st, in.ID)
+	if err != nil {
+		return refuse("! ARG E - " + err.Error())
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "m %s v%d %s %s", shortDisplayID(r.ID), r.Ver, r.Name, r.T.Format("2006-01-02"))
@@ -362,9 +361,11 @@ func (s *Server) benchLs(in benchIn, st *benchmark.Store) (*mcp.CallToolResult, 
 		lines = append(lines, fmt.Sprintf("m %s v%d %s impls=%d metrics=%d %s",
 			shortDisplayID(head.ID), head.Ver, head.Name, len(head.Impls), len(head.Metrics), head.T.Format("2006-01-02")))
 	}
-	// never silent: quarantined lines are preserved on save but SAID here
+	// never silent: quarantined lines are preserved on save but SAID here —
+	// FIRST, so budget truncation can never page the warning out of sight
+	// (cross-val finding: appended last, a fat page starved it to page N)
 	if q := len(st.Quarantine); q > 0 {
-		lines = append(lines, fmt.Sprintf("! QUAR W - %d quarantined line(s) in bench.ndjson preserved verbatim — inspect the file", q))
+		lines = append([]string{fmt.Sprintf("! QUAR W - %d quarantined line(s) in bench.ndjson preserved verbatim — inspect the file", q)}, lines...)
 	}
 	if len(lines) == 0 {
 		return text("ok no benchmarks match\n")
@@ -380,9 +381,9 @@ func (s *Server) benchRm(in benchIn, st *benchmark.Store, path string) (*mcp.Cal
 	if in.ID == "" {
 		return refuse("! ARG E - rm needs id (M-...)")
 	}
-	r, ok := benchResolve(st, in.ID)
-	if !ok {
-		return refuse("! ARG E - no benchmark record matches " + in.ID)
+	r, err := benchResolve(st, in.ID)
+	if err != nil {
+		return refuse("! ARG E - " + err.Error())
 	}
 	if s.wtItem == "" {
 		if res, out, err := s.blockedByLease([]string{dirOf(in.Dir)}); res != nil || err != nil {
@@ -408,13 +409,13 @@ func (s *Server) benchCmp(in benchIn, st *benchmark.Store) (*mcp.CallToolResult,
 	if in.ID == "" || in.ID2 == "" {
 		return refuse("! ARG E - cmp needs id and id2")
 	}
-	a, ok := benchResolve(st, in.ID)
-	if !ok {
-		return refuse("! ARG E - no benchmark record matches " + in.ID)
+	a, err := benchResolve(st, in.ID)
+	if err != nil {
+		return refuse("! ARG E - " + err.Error())
 	}
-	c, ok := benchResolve(st, in.ID2)
-	if !ok {
-		return refuse("! ARG E - no benchmark record matches " + in.ID2)
+	c, err := benchResolve(st, in.ID2)
+	if err != nil {
+		return refuse("! ARG E - " + err.Error())
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "m cmp %s v%d vs %s v%d\n", shortDisplayID(a.ID), a.Ver, shortDisplayID(c.ID), c.Ver)

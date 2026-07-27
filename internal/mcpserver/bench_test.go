@@ -6,6 +6,7 @@ package mcpserver
 // restarts versioning at v1.
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -256,11 +257,49 @@ func TestBenchGrammarRefusals(t *testing.T) {
 		Metrics: "time:ns/op:-", Results: "go: time=NaN"}); !strings.Contains(msg, "not finite") {
 		t.Fatalf("NaN must refuse at the door: %q", msg)
 	}
-	if msg := benchRefuse(t, s, benchIn{Op: "get", ID: "M-NOPE"}); !strings.Contains(msg, "no benchmark record") {
+	if msg := benchRefuse(t, s, benchIn{Op: "get", ID: "M-NOPE"}); !strings.Contains(msg, "no record matches") {
 		t.Fatalf("unknown ID must refuse: %q", msg)
 	}
 	if msg := benchRefuse(t, s, benchIn{Op: "frobnicate"}); !strings.Contains(msg, "put|get|ls|rm|cmp") {
 		t.Fatalf("unknown op must list the legal ones: %q", msg)
+	}
+}
+
+// TestBenchAmbiguousPrefixIsNotUnknown: a prefix matching several records
+// refuses NAMING the candidates — indistinguishable from "no match" was a
+// cross-validation FAIL.
+func TestBenchAmbiguousPrefixIsNotUnknown(t *testing.T) {
+	s := newTestServer(t, t.TempDir())
+	for _, n := range []string{"amb-one", "amb-two"} {
+		benchText(t, s, benchIn{Op: "put", Name: n, Frame: benchFrame,
+			Metrics: "time:ns/op:-", Results: "go: time=1"})
+	}
+	// every record ID starts with "M-" — the two-record prefix is ambiguous
+	msg := benchRefuse(t, s, benchIn{Op: "get", ID: "M-"})
+	if !strings.Contains(msg, "matches 2 records") || strings.Contains(msg, "no record matches") {
+		t.Fatalf("ambiguity must name the candidates, not read as unknown: %q", msg)
+	}
+}
+
+// TestBenchQuarantineWarningLeadsPageOne: the QUAR warning renders FIRST so
+// budget truncation can never page it out of the first response.
+func TestBenchQuarantineWarningLeadsPageOne(t *testing.T) {
+	s := newTestServer(t, t.TempDir())
+	benchText(t, s, benchIn{Op: "put", Name: "quar-bench", Frame: benchFrame,
+		Metrics: "time:ns/op:-", Results: "go: time=1"})
+	path := s.ws.BenchPath("")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("not json at all\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	out := benchText(t, s, benchIn{Op: "ls", Budget: 1})
+	first := strings.SplitN(out, "\n", 2)[0]
+	if !strings.HasPrefix(first, "! QUAR W") {
+		t.Fatalf("the quarantine warning must lead page one: %q", out)
 	}
 }
 
