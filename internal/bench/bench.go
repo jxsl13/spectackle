@@ -79,11 +79,7 @@ var coverageStates = []string{
 // recordFamilies are the promised output families whose ABSENCE from a full
 // run means the surface went silent somewhere it must not (ADR-01KYDG).
 var recordFamilies = map[string]string{
-	"item record":    "\ni ",
-	"gitflow branch": "g branch ",
-	"pr draft":       " draft offline://",
-	"pr ready":       " ready offline://",
-	"pr merged":      " merged ",
+	"item record": "\ni ",
 	// "g records " matches both "committed" and "clean": under the
 	// edge-commit engine (T-01KYD94MG) the structured edge commit lands
 	// first and the transition sweep finds the records clean — either way
@@ -91,6 +87,15 @@ var recordFamilies = map[string]string{
 	"records commit":    "g records ",
 	"refusal":           "! ARG E",
 	"rounds escalation": "! ROUNDS E",
+}
+
+// closureFamilies is the DUAL-SURFACE transition set (T-01KYHAH1GJ P2): the
+// bench fixture runs mode: offline, whose closure surface is migrating from
+// PR theater (branch/draft/ready/merged lines) to commit-only ("g offline
+// commit"). During the migration either surface satisfies never-silent —
+// the P3 collapse flips this to the commit-only family alone.
+var closureFamilies = map[string][]string{
+	"gitflow closure": {"g branch ", " draft offline://", " ready offline://", " merged ", "g offline commit "},
 }
 
 var reItemID = regexp.MustCompile(`\bi ((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+)`)
@@ -318,6 +323,18 @@ func Run(bin string) (Result, error) {
 	res.Violations = append(res.Violations, gitInstructionViolations(full)...)
 	for family, marker := range recordFamilies {
 		if !strings.Contains(full, marker) {
+			res.Violations = append(res.Violations, "record family missing: "+family)
+		}
+	}
+	for family, markers := range closureFamilies {
+		hit := false
+		for _, m := range markers {
+			if strings.Contains(full, m) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
 			res.Violations = append(res.Violations, "record family missing: "+family)
 		}
 	}
