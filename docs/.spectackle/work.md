@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYH1GK27F8PAY8BWC7FNJZ2S catch-rate rerun at n=3 per side: warn vs require on the fixed meter, the first real validation catch rate
 kind: task
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: docs/bench-curves.md
