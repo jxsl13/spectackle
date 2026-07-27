@@ -56,16 +56,6 @@ option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
 
-## T-01KYJN4BGBFX6VFNQ975J2CRZ0 the bench tool: put/get/ls/rm/cmp with dense grammars, m-renders, journaled put-deltas with raw supersession, find scope=bench
-kind: task
-state: done
-created: 2026-07-27
-parent: P-01KYJMVX2QES89YTP3KXSJPA7J
-grilled: 2026-07-27 open=1
-targets: internal/mcpserver, internal/journal, internal/sync, docs
-
-Task 2 of P-01KYJMVX2Q, builds on task 1s internal/benchmark; the wf_0ed39152 synthesis sections 5-8 are authoritative (scratchpad bench-synthesis.md). BUILD internal/mcpserver/bench.go: benchIn per the synthesis (op put|get|ls|rm|cmp; frame/results/metrics as dense k=v and colon grammars, never JSON), registered gate(s, s.bench), lease-guarded on BenchPath when wtItem empty, markDirty + cd.Emit on writes. PUT: parse, canonical key, metric declarations (inherit prior version when omitted, seed by unit else refuse), Put + trim to benchmarks.history, JOURNAL the put event: new kind EvBench in journal.go with the delta summary per shared impl-metric (better/worse/tie under Dir, ~ within Noise) AND the outgoing versions full raw metric values (ADR-01KYJMWEWQ - user chose raw supersession forensics); EvBench joins the compaction keep-list verbatim (extend the fold switch + a fold-survival test). RENDERS: prefix m; put renders d delta lines then one ok m <id> v<n> <name> summary line (RENDER-PARITY-001); get renders m header + f frame + u metric rows per impl with winner star and ~ noise suffix; ls renders m rows filtered by name/frame subset with cur pagination under budget; cmp renders d rows across two entries with unit byte-equality refusal on mismatch; rm tombstones the key (a rm event journals; a later put restarts at v1 with the journal recording the restart - no silent resurrection). ID resolution via ids.ResolveRecordID outside idScope (M- letter registered in ids kind tables if needed). FIND: scope=bench - the FTS feed indexes name, key, frame k=v tokens, impl labels, tool, note; find renders m rows. DOCS: tools.md gains the bench section with the grammars and one example per op; the record-grammar legend gains m/f/u/d. TESTS: e2e round-trip per op, grammar refusals (bad dim, unit mismatch on cmp, unknown metric), delta rendering with direction+noise cases, EvBench fold survival with raw values intact, ls pagination, rm-then-put restart. VERIFY: go build ./... && go test ./internal/mcpserver/ ./internal/journal/ ./internal/sync/ -count=1 && gofmt -l . empty. SCOPE: tool+journal+find+docs; no benchmark-package changes beyond consuming it. ROLLBACK: revert.
-
 ## B-01KYJTASR5EKWAZ50DYTDXK1M3 benchmark store silently drops collision losers and duplicate-ID variants
 kind: bug
 state: draft
