@@ -329,3 +329,6 @@ WHEN a bug items closure merges, the orchestrating agent SHALL cut a patch relea
 
 ## ELICIT-001
 WHEN a tool call is missing agent-authorable input, the MCP server SHALL return `need` records naming the missing slots to the calling agent; `Session.Elicit` native-UI forms are reserved for `decide op=ask` user decisions.
+
+## CLI-STDIO-001
+WHEN driving spectackle headlessly from a shell, the orchestrating agent SHALL invoke `spectackle call <tool>` over stdio (1 spawned server per call, identity via SPECTACKLE_AGENT); the `-http` endpoint is optional, not required.

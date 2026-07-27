@@ -2345,13 +2345,33 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		return text(b.String())
 	}
 
-	// archive done items (skipping ones with open children) — same audit
-	// gate as the move tool; the cascade is loaded once for the whole batch.
-	gateOpts := s.auditGateOpts()
+	// archive done items through the move HANDLER, never raw
+	// lifecycle.Move (B-01KYHEQG6PEB): the validate-require gate, the
+	// atomic gitFlowFor closure with its compensation, and the research
+	// consumption check live only in s.move — the raw call archived a
+	// record whose PR was open and unvalidated, stranding it with no
+	// compensation. Cost accepted: each archive runs the REAL closure
+	// (CI wait, checkout churn) — journal compaction must never close a
+	// lifecycle more cheaply than the move edge would. Guard refusals
+	// come back as res.IsError with err==nil; the item stays done and
+	// the reason renders (never-silent).
 	for _, it := range doneItems {
-		if _, err := lifecycle.Move(s.ws, it.ID, item.StateArchived, "compact", gateOpts...); err != nil {
+		res, _, err := s.move(moveIn{ID: it.ID, To: string(item.StateArchived), Note: "compact"})
+		// s.move's pre-flow flush consumes the per-call edge capture
+		// (single-shot by design); re-arm it so later iterations and the
+		// journal fold below stay under the engine's every-write-commits
+		// invariant (cross-val-compact: two archives in one sweep left
+		// the second, and the fold, uncommitted).
+		if s.edgeFlush == nil {
+			s.beginEdgeCapture()
+		}
+		switch {
+		case err != nil:
 			fmt.Fprintf(&b, "! SKIP W %s %s\n", sc.short(it.ID), err.Error())
-		} else {
+		case res != nil && res.IsError:
+			reason, _, _ := strings.Cut(resultText(res), "\n")
+			fmt.Fprintf(&b, "c %s done-item %s blocked: %s\n", orDot(it.Dir), sc.short(it.ID), reason)
+		default:
 			fmt.Fprintf(&b, "ok archived %s\n", sc.short(it.ID))
 		}
 	}
@@ -2416,6 +2436,14 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		fmt.Fprintf(&b, "ok folded %d events in %s\n", folded, orDot(ctx))
+	}
+	// Flush the (possibly re-armed) capture on the success path: the outer
+	// gate() finish was consumed by the first archive's pre-flow flush and
+	// no-ops, so this call — not gate — owns committing the fold and any
+	// post-first-archive events. Error returns above skip this, exactly
+	// like gate skips committing a failed call.
+	if s.edgeFlush != nil {
+		s.edgeFlush(false)
 	}
 	return text(b.String())
 }
