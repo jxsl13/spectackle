@@ -18,6 +18,7 @@ choice: cut now
 kind: task
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/bench/outcome.go, internal/bench/agent.go, docs/bench-curves.md
 
 ORCHESTRATOR-RUN benchmark evolution. MOTIVATION, measured: across both catch-rate batches the dominant residual defect was SEMANTIC - four independent judges hardened Allow(n<=0) into a success-no-op against the hidden refusal semantics, and no gate round touched it, because computed classes see shapes, not meaning. The workflows designed answer to unstated semantics is elicitation (P-01KYES: ask, never guess) - but benchmark judges have never been ABLE to ask (the harness says nobody answers). This run measures elicitations value directly.
