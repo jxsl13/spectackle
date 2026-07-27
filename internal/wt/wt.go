@@ -295,6 +295,27 @@ func strayGuard(wtRoot string) error {
 func Add(mainRoot, wtRoot, branch, startPoint, base string, force bool) error {
 	_, _ = git(mainRoot, "worktree", "prune")
 	if _, err := os.Stat(wtRoot); err == nil {
+		// Self-collision refuses BEFORE any removal, force notwithstanding
+		// (B-01KYHQ8A7N: Add(root, root, ...) empirically deleted the whole
+		// main checkout — self-destruction is never a valid recovery). Two
+		// discriminators: path equality after symlink/abs resolution, and a
+		// .git DIRECTORY at the target (a full checkout; linked worktrees
+		// carry a .git FILE).
+		mr, wr := mainRoot, wtRoot
+		if p, err := filepath.EvalSymlinks(mainRoot); err == nil {
+			mr = p
+		}
+		if p, err := filepath.EvalSymlinks(wtRoot); err == nil {
+			wr = p
+		}
+		if ma, err1 := filepath.Abs(mr); err1 == nil {
+			if wa, err2 := filepath.Abs(wr); err2 == nil && ma == wa {
+				return fmt.Errorf("wt: refusing to clear %s — it IS the main checkout %s", wtRoot, mainRoot)
+			}
+		}
+		if fi, err := os.Stat(filepath.Join(wtRoot, ".git")); err == nil && fi.IsDir() {
+			return fmt.Errorf("wt: refusing to clear %s — its .git is a directory (a full checkout, not a linked worktree)", wtRoot)
+		}
 		if !force {
 			if err := strayGuard(wtRoot); err != nil {
 				return err

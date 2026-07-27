@@ -545,3 +545,51 @@ func TestAddStrayNonWorktreeDir(t *testing.T) {
 	}
 	Remove(root, wtRoot)
 }
+
+// Self-collision guard (B-01KYHQ8A7N): Add with wtRoot resolving to the
+// main checkout — directly, via symlink, or any path whose .git is a
+// directory — refuses before ANY removal, force notwithstanding. The
+// pre-guard code empirically deleted an entire main checkout here.
+func TestAddRefusesSelfCollision(t *testing.T) {
+	root := repo(t)
+	sentinel := filepath.Join(root, "untracked-note.txt")
+	if err := os.WriteFile(sentinel, []byte("must survive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, force := range []bool{false, true} {
+		err := Add(root, root, "spectackle/T-0011", "HEAD", "main", force)
+		if err == nil || !strings.Contains(err.Error(), "main checkout") {
+			t.Fatalf("force=%v: self-collision must refuse naming the collision: %v", force, err)
+		}
+	}
+	// symlink alias to the main checkout
+	link := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-alias")
+	if err := os.Symlink(root, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	defer os.Remove(link)
+	if err := Add(root, link, "spectackle/T-0011", "HEAD", "main", true); err == nil {
+		t.Fatal("symlinked self-collision must refuse")
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal("untracked file destroyed by a refused Add")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		t.Fatal("the main checkout's .git was destroyed")
+	}
+}
+
+// A FULL secondary checkout (its .git is a directory) at the target path is
+// never cleared either — only linked worktrees (.git file) and plain strays
+// are Add's to manage.
+func TestAddRefusesFullCheckoutAtTarget(t *testing.T) {
+	root := repo(t)
+	second := repo(t) // an unrelated full checkout
+	err := Add(root, second, "spectackle/T-0012", "HEAD", "main", true)
+	if err == nil || !strings.Contains(err.Error(), ".git is a directory") {
+		t.Fatalf("full checkout at target must refuse: %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(second, ".git")); serr != nil {
+		t.Fatal("the second checkout was destroyed")
+	}
+}
