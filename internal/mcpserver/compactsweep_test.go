@@ -8,6 +8,7 @@ package mcpserver
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,6 +44,42 @@ func TestCompactSweepBlocksUnvalidatedDone(t *testing.T) {
 	got := callText(t, sess, "get", map[string]any{"id": task})
 	if !strings.Contains(got, " done ") {
 		t.Fatalf("blocked item must STAY done: %q", got)
+	}
+}
+
+// Two archives plus a journal fold in ONE sweep must leave the tree
+// committed: s.move's pre-flow flush consumes the per-call edge capture,
+// and without the re-arm the second archive and the fold stayed dirty in
+// the working tree (cross-val-compact regression, reproduced live).
+func TestCompactSweepMultiItemAndFoldStaysCommitted(t *testing.T) {
+	root := gitRoot(t)
+	p := filepath.Join(root, ".spectackle", "config.yaml")
+	if err := os.WriteFile(p, []byte("schema: v1\ngit:\n  mode: offline\ncompact:\n  journal_max: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	a := draftID(t, sess, map[string]any{"kind": "task", "title": "first of the batch"})
+	bID := draftID(t, sess, map[string]any{"kind": "task", "title": "second of the batch"})
+	callText(t, sess, "move", map[string]any{"id": a, "to": "done"})
+	callText(t, sess, "move", map[string]any{"id": bID, "to": "done"})
+
+	out := callText(t, sess, "compact", map[string]any{"apply": true})
+	if got := strings.Count(out, "ok archived"); got != 2 {
+		t.Fatalf("both items must archive, got %d in: %q", got, out)
+	}
+	if !strings.Contains(out, "ok folded") {
+		t.Fatalf("the low journal_max must force a fold in the same call: %q", out)
+	}
+	st := exec.Command("git", "status", "--porcelain")
+	st.Dir = root
+	dirty, err := st.CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(strings.TrimSpace(string(dirty)), "\n") {
+		if strings.Contains(l, ".spectackle") {
+			t.Fatalf("edge-commit invariant broken — uncommitted spec state after the sweep:\n%s", dirty)
+		}
 	}
 }
 

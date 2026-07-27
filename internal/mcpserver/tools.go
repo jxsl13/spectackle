@@ -2357,6 +2357,14 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	// the reason renders (never-silent).
 	for _, it := range doneItems {
 		res, _, err := s.move(moveIn{ID: it.ID, To: string(item.StateArchived), Note: "compact"})
+		// s.move's pre-flow flush consumes the per-call edge capture
+		// (single-shot by design); re-arm it so later iterations and the
+		// journal fold below stay under the engine's every-write-commits
+		// invariant (cross-val-compact: two archives in one sweep left
+		// the second, and the fold, uncommitted).
+		if s.edgeFlush == nil {
+			s.beginEdgeCapture()
+		}
 		switch {
 		case err != nil:
 			fmt.Fprintf(&b, "! SKIP W %s %s\n", sc.short(it.ID), err.Error())
@@ -2428,6 +2436,14 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		fmt.Fprintf(&b, "ok folded %d events in %s\n", folded, orDot(ctx))
+	}
+	// Flush the (possibly re-armed) capture on the success path: the outer
+	// gate() finish was consumed by the first archive's pre-flow flush and
+	// no-ops, so this call — not gate — owns committing the fold and any
+	// post-first-archive events. Error returns above skip this, exactly
+	// like gate skips committing a failed call.
+	if s.edgeFlush != nil {
+		s.edgeFlush(false)
 	}
 	return text(b.String())
 }
