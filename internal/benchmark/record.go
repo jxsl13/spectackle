@@ -177,6 +177,12 @@ func (r Record) Validate() error {
 		if math.IsNaN(m.Noise) || math.IsInf(m.Noise, 0) {
 			return fmt.Errorf("benchmark: metric %q noise is not finite", m.Name)
 		}
+		// a negative noise floor silently behaves like 0 (|delta| <= -n
+		// never holds) — refuse it as the input error it is
+		// (B-01KYJTBA25F6H)
+		if m.Noise < 0 {
+			return fmt.Errorf("benchmark: metric %q noise %v is negative (want an absolute jitter floor >= 0)", m.Name, m.Noise)
+		}
 		seen[m.Name] = true
 	}
 	if len(r.Impls) == 0 {
@@ -186,6 +192,16 @@ func (r Record) Validate() error {
 	for _, im := range r.Impls {
 		if err := validToken(im.Label); err != nil {
 			return fmt.Errorf("benchmark: impl label: %w", err)
+		}
+		// Src is provenance, not grammar — but the results grammar still
+		// parses "label@src:", so separator characters smuggled into src
+		// would corrupt any later re-render or re-parse of that form.
+		// The forbidden-characters contract covers it (B-01KYJTBA25F6H);
+		// unlike labels, src may stay empty.
+		if im.Src != "" {
+			if err := validToken(im.Src); err != nil {
+				return fmt.Errorf("benchmark: impl %q src: %w", im.Label, err)
+			}
 		}
 		if labels[im.Label] {
 			return fmt.Errorf("benchmark: impl %q listed twice", im.Label)

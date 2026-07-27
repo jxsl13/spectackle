@@ -323,6 +323,29 @@ func TestValidateRefusesNonFiniteValues(t *testing.T) {
 	}
 }
 
+// B-01KYJTBA25F6H: negative noise silently behaved like noise=0, and Src
+// bypassed the forbidden-characters contract entirely.
+func TestValidateRefusesNegativeNoiseAndSeparatorSrc(t *testing.T) {
+	r := rec("bench-g", frame(), "go", 5)
+	r.Metrics[0].Noise = -5
+	if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "negative") {
+		t.Fatalf("negative noise must refuse naming the problem: %v", err)
+	}
+	r = rec("bench-g", frame(), "go", 5)
+	r.Impls[0].Src = "sha=deadbeef|weird"
+	if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "src") {
+		t.Fatalf("separator characters in src must refuse: %v", err)
+	}
+	r.Impls[0].Src = "crates-1.2"
+	if err := r.Validate(); err != nil {
+		t.Fatalf("a clean src must pass: %v", err)
+	}
+	r.Impls[0].Src = ""
+	if err := r.Validate(); err != nil {
+		t.Fatalf("an empty src must stay legal: %v", err)
+	}
+}
+
 func TestCanonicalKeyFoldsDimKeyCase(t *testing.T) {
 	f := map[string]string{"OS": "linux", "arch": "amd64", "cpu": "x", "ram": "x", "gpu": "none"}
 	if _, err := CanonicalKey("x", f); err != nil {
