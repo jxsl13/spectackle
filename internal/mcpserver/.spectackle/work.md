@@ -4,9 +4,9 @@ schema: v1
 
 ## B-01KYH8JBBSEHYVNGSTN569N6X3 work op=start on an already-started item silently wipes the worktrees uncommitted files when the agent identity rotated
 kind: bug
-state: done
+state: active
 created: 2026-07-27
-rounds: 1
+rounds: 2
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/swarm.go
 
