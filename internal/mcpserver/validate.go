@@ -1003,7 +1003,10 @@ func (s *Server) lastGateResult(id string) string {
 		switch {
 		case strings.Contains(e.Note, "gate fail"):
 			last = "last=fail (recorded gate failure round)"
-		case e.To == item.StateDone:
+		case e.To == item.StateDone && e.Fr != item.StateArchived:
+			// Fr==archived is the closure COMPENSATION, not a done edge —
+			// counting it as a pass let the second archive attempt after a
+			// refused red one skip the gate (B-01KYHV740T interplay).
 			last = "last=pass (local gates passed at the done edge)"
 		}
 	}
