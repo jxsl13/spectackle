@@ -12,7 +12,7 @@ FOUND by cross-val-wipe2 round-2 audit of B-01KYH8JBB (H3): workAbort gates only
 
 ## B-01KYHCHRN0FYK93YJEP6JA6NAD rule slot elicitation and commands harness elicitation pop native user forms for agent-authorable input
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/tools.go, internal/mcpserver/commands.go
