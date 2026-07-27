@@ -82,3 +82,11 @@ targets: internal/workspace
 
 internal/workspace/workspace.go scaffoldConfigYAML promises to document every setting with its default value but never emits a benchmarks: block, so a fresh workspace config carries nothing about benchmarks.history (default 1) even though docs/tools.md sec 17 points users at it. TestEnsureScaffoldGeneratesSelfDocumentingConfig never checks history: nor compares got.Benchmarks vs want.Benchmarks, so the gap is untested. Hand-adding benchmarks:
   history: 3 works — only the self-documentation is broken. Expected: scaffold emits the commented benchmarks section and the scaffold test pins it. Found by the T-01KYJN4BGBFX6 cross-validation (finding 6).
+
+## B-01KYJTBA25F6HR79R08MK9MJN9 benchmark Validate accepts negative noise and unvalidated impl src
+kind: bug
+state: draft
+created: 2026-07-27
+targets: internal/benchmark
+
+internal/benchmark/record.go Validate: (1) Metric.Noise is checked for NaN/Inf but not sign — a negative noise (metrics time:ns:-:-5) is stored and silently behaves like noise=0 (abs(delta) <= -5 never holds), instead of refusing as invalid input. (2) Impl.Src bypasses validToken entirely — separators (= | ; :) land in src verbatim (results go@sha=x|y: ...). No corruption today (src is never re-parsed and not part of the key, get does not render it) but it breaks the stated forbidden-characters contract and get should arguably render provenance. Expected: Validate refuses negative noise; src passes validToken (or the contract comment names src as exempt free-form and get renders it). Found by the T-01KYJN4BGBFX6 cross-validation (findings 7+8).

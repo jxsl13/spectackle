@@ -463,3 +463,4 @@
 {"t":"2026-07-27T21:46:52Z","eid":"2d195bed5400c636","ag":"orchestrator-fable","ev":"move","id":"T-01KYJN4BGBFX6VFNQ975J2CRZ0","fr":"active","to":"done"}
 {"t":"2026-07-27T22:15:08Z","eid":"4cbb698b4453dcb1","ag":"orchestrator-fable","ev":"create","id":"B-01KYJTASR5EKWAZ50DYTDXK1M3","k":"bug","ti":"benchmark store silently drops collision losers and duplicate-ID variants"}
 {"t":"2026-07-27T22:15:24Z","eid":"0400878ecab6ef27","ag":"orchestrator-fable","ev":"create","id":"B-01KYJTB95HEPFRRBMAN2YPEE32","k":"bug","ti":"scaffolded config.yaml omits the benchmarks section"}
+{"t":"2026-07-27T22:15:24Z","eid":"2cdaf2253a20b829","ag":"orchestrator-fable","ev":"create","id":"B-01KYJTBA25F6HR79R08MK9MJN9","k":"bug","ti":"benchmark Validate accepts negative noise and unvalidated impl src"}
