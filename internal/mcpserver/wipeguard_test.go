@@ -203,6 +203,51 @@ func TestUnreadableOrphanRefuses(t *testing.T) {
 	}
 }
 
+// Foreign abort on a dead holder's dirty tree is the same loss class as a
+// silent start one habit away (B-01KYHC7APA): it refuses naming count,
+// holder, and the forced form; force discards; the holder itself may
+// always abort its own dirty tree — abort IS its explicit discard.
+func TestForeignDeadAbortRefusesAndPreserves(t *testing.T) {
+	root, id, srv, sess := startWorkFixtureLive(t, true)
+	wtRoot := wipeguardRoot(t, callText(t, sess, "work", map[string]any{"op": "status"}))
+	precious := filepath.Join(wtRoot, "precious.go")
+	if err := os.WriteFile(precious, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = sess.Close()
+	_ = srv.Close()
+	time.Sleep(1500 * time.Millisecond)
+	t.Setenv("SPECTACKLE_AGENT", "rotated-b")
+	rotated := connectRoot(t, root)
+	out := callText(t, rotated, "work", map[string]any{"op": "abort", "item": id})
+	if !strings.Contains(out, "uncommitted file") || !strings.Contains(out, "holder-a") || !strings.Contains(out, "op=abort force=true") {
+		t.Fatalf("foreign abort on a dirty dead tree must refuse naming holder and recovery: %q", out)
+	}
+	if _, err := os.Stat(precious); err != nil {
+		t.Fatal("uncommitted file destroyed by a refused abort")
+	}
+	out = callText(t, rotated, "work", map[string]any{"op": "abort", "item": id, "force": true})
+	if strings.Contains(out, "! WT E") {
+		t.Fatalf("forced abort must tear down: %q", out)
+	}
+	if _, err := os.Stat(precious); err == nil {
+		t.Fatal("forced abort must actually discard the tree")
+	}
+}
+
+func TestHolderSelfAbortSucceedsDirty(t *testing.T) {
+	_, id, srv, sess := startWorkFixtureLive(t, true)
+	defer func() { _ = sess.Close(); _ = srv.Close() }()
+	wtRoot := wipeguardRoot(t, callText(t, sess, "work", map[string]any{"op": "status"}))
+	if err := os.WriteFile(filepath.Join(wtRoot, "precious.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := callText(t, sess, "work", map[string]any{"op": "abort", "item": id})
+	if strings.Contains(out, "! WT E") {
+		t.Fatalf("the holder's own abort is its explicit discard and must succeed dirty: %q", out)
+	}
+}
+
 // Path (b): a DIFFERENT identity against a LIVE holder refuses at op=start
 // naming the reattach env var — previously only abort/submit pinned this.
 func TestLiveHolderStartRefuses(t *testing.T) {

@@ -31,9 +31,10 @@ type leaseIn struct {
 type workIn struct {
 	Op   string `json:"op" jsonschema:"start|submit|abort|status"`
 	Item string `json:"item,omitempty" jsonschema:"item ID; required for start, defaults to own active item"`
-	// Force: start only — discard a DIRTY orphaned worktree instead of
-	// refusing (B-01KYH8JBB: uncommitted work is never destroyed silently).
-	Force bool `json:"force,omitempty" jsonschema:"start: explicitly discard a dirty orphaned worktree (default refuses, naming the holder)"`
+	// Force: start and abort — discard a DIRTY orphaned worktree instead of
+	// refusing (B-01KYH8JBB, B-01KYHC7APA: uncommitted work is never
+	// destroyed silently, not even by an explicit foreign abort).
+	Force bool `json:"force,omitempty" jsonschema:"start|abort: explicitly discard a dirty orphaned worktree (default refuses, naming the holder)"`
 }
 
 type swarmIn struct{}
@@ -572,7 +573,7 @@ func (s *Server) work(in workIn) (*mcp.CallToolResult, any, error) {
 		return s.workSubmit(in.Item)
 	case "abort":
 		s.reattachOwnWorktree(in.Item)
-		return s.workAbort(in.Item)
+		return s.workAbort(in.Item, in.Force)
 	case "status":
 		wts, err := s.cd.Worktrees()
 		if err != nil {
@@ -588,6 +589,29 @@ func (s *Server) work(in workIn) (*mcp.CallToolResult, any, error) {
 		return text(b.String())
 	}
 	return refuse("! ARG E - op must be start|submit|abort|status")
+}
+
+// dirtyOrphanGuard refuses destruction of a worktree that may hold a dead
+// holder's uncommitted work (B-01KYH8JBB, B-01KYHC7APA): unreadable dirt
+// fails closed, non-.spectackle files refuse naming count, holder, and the
+// forced form of op. Server-owned records churn (.spectackle/) is replayed
+// by the flow and never "the holder's work" — only agent files guard.
+// nil result means clean: destruction may proceed.
+func dirtyOrphanGuard(id, holder, root, op string) (*mcp.CallToolResult, any, error) {
+	dirty, derr := wt.DirtyFiles(root)
+	if derr != nil {
+		return refuse("! WT E worktree for " + id + " unreadable (" + derr.Error() + ") — inspect " + root + ", or discard explicitly with work op=" + op + " force=true")
+	}
+	kept := dirty[:0]
+	for _, f := range dirty {
+		if !strings.HasPrefix(f, workspace.Dot+"/") && f != workspace.Dot {
+			kept = append(kept, f)
+		}
+	}
+	if len(kept) > 0 {
+		return refuse("! WT E worktree for " + id + " holds " + fmt.Sprint(len(kept)) + " uncommitted file(s) from " + holder + " — reattach with SPECTACKLE_AGENT=" + holder + ", or discard explicitly with work op=" + op + " force=true")
+	}
+	return nil, nil, nil
 }
 
 func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, error) {
@@ -666,24 +690,8 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 		// rewrite here): a dirty tree refuses with the recovery named;
 		// only an explicitly forced start (or a clean tree) discards.
 		if !force {
-			dirty, derr := wt.DirtyFiles(w.Root)
-			if derr != nil {
-				// unreadable dirt is not clean: broken worktree metadata
-				// with intact files must refuse, not fail open into the
-				// removal below (cross-val-wipe2 H2).
-				return refuse("! WT E worktree for " + id + " unreadable (" + derr.Error() + ") — inspect " + w.Root + ", or discard explicitly with work op=start force=true")
-			}
-			// server-owned records churn (.spectackle/) is replayed by the
-			// flow and never "the holder's work" — only agent files guard.
-			kept := dirty[:0]
-			for _, f := range dirty {
-				if !strings.HasPrefix(f, workspace.Dot+"/") && f != workspace.Dot {
-					kept = append(kept, f)
-				}
-			}
-			dirty = kept
-			if len(dirty) > 0 {
-				return refuse("! WT E worktree for " + id + " holds " + fmt.Sprint(len(dirty)) + " uncommitted file(s) from " + w.Agent + " — reattach with SPECTACKLE_AGENT=" + w.Agent + ", or discard explicitly with work op=start force=true")
+			if res, out, err := dirtyOrphanGuard(id, w.Agent, w.Root, "start"); res != nil || err != nil {
+				return res, out, err
 			}
 		}
 		// Adoption approved — but destruction waits until the lease below
@@ -906,7 +914,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	return text(b.String())
 }
 
-func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
+func (s *Server) workAbort(id string, force bool) (*mcp.CallToolResult, any, error) {
 	if id == "" {
 		id = s.wtItem
 	} else if it, ok, err := item.Get(s.ws, id); err == nil && ok {
@@ -926,6 +934,15 @@ func (s *Server) workAbort(id string) (*mcp.CallToolResult, any, error) {
 	}
 	if w.Agent != s.agent && holderAlive(s, w.Agent) {
 		return refuse("! WT E worktree held by live agent " + w.Agent)
+	}
+	// A dead-reading FOREIGN holder's tree may still carry its uncommitted
+	// work — abort is explicit discard for one's OWN tree, not a license to
+	// destroy someone else's (B-01KYHC7APA, the abort-then-start habit).
+	// The holder itself always passes; force bypasses both guard branches.
+	if w.Agent != s.agent && !force {
+		if res, out, err := dirtyOrphanGuard(id, w.Agent, w.Root, "abort"); res != nil || err != nil {
+			return res, out, err
+		}
 	}
 	// A server homed in a linked worktree returns to ITS root after the
 	// teardown, not to main — rerootBack also rehomes to main permanently
