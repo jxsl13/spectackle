@@ -16,7 +16,7 @@ choice: cut now
 
 ## T-01KYH6H9SYFZNSW666Z1NRE24Z ask-oracle benchmark: judges who ask about unstated semantics get answers, measuring whether elicitation converts semantic misses into first-pass completeness
 kind: task
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/bench/outcome.go, internal/bench/agent.go, docs/bench-curves.md
