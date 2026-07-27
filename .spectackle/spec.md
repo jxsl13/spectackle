@@ -322,3 +322,6 @@ The spectackle server SHALL render at every lifecycle state the callers judgment
 
 ## EVOLUTION-001
 WHEN an archive note claims a workflow improvement, the orchestrating agent SHALL cite its measurement (a docs/bench-curves.md entry or a rendered live metric) or label the claim unmeasured.
+
+## RELEASE-001
+WHEN a bug items closure merges, the orchestrating agent SHALL cut a patch release, alone or batched with sibling bugfixes, via make release-build and gh release with releasenotes-derived notes.
