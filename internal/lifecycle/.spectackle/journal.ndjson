@@ -38,3 +38,7 @@
 {"t":"2026-07-26T10:30:47Z","eid":"eea35872965e7270","ag":"ag-cae5","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"b93335a62dc8bd05","nh":"16300d90ae69dcf8"}
 {"t":"2026-07-26T11:38:51Z","eid":"51b7637c30e37c8f","ag":"ag-a094","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"16300d90ae69dcf8","nh":"eb86c5dea77e9e16"}
 {"t":"2026-07-26T15:34:29Z","eid":"1ece295711c0dcd6","ag":"ag-eb41","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"73ebf91d9482f80b","nh":"04fe85047ecd216c"}
+{"t":"2026-07-27T19:58:48Z","eid":"3050c6a5acfe6e45","ag":"ag-24d6","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"04fe85047ecd216c","nh":"d30d5b2602f110e4"}
+{"t":"2026-07-27T19:58:48Z","eid":"235d97a8b8d5eec8","ag":"ag-24d6","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"eb86c5dea77e9e16","nh":"354eda6dc7d4dc05"}
+{"t":"2026-07-27T20:27:38Z","eid":"a56d696328e03ec3","ag":"ag-4403","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"d30d5b2602f110e4","nh":"04e6768e27823ee1"}
+{"t":"2026-07-27T20:27:38Z","eid":"5866088c122d57ca","ag":"ag-4403","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"354eda6dc7d4dc05","nh":"757f2330d0a5148d"}

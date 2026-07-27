@@ -177,7 +177,7 @@ func (s *Scanner) feedJournal(ctx, path string) ([]cache.Doc, error) {
 			Dir:   ctx,
 			Title: strings.TrimSpace(strings.Join(fields(e.Ev, e.ID, e.Rule, e.Ti), " ")),
 			Body: strings.TrimSpace(strings.Join([]string{
-				e.Ev, e.ID, e.K, e.Ti, e.To, e.Note, e.Sum, e.Rule, e.Txt, e.Cls,
+				e.Ev, e.ID, e.K, e.Ti, e.To, e.Note, e.Sum, e.Body, e.Rule, e.Txt, e.Cls,
 			}, " ")),
 		})
 	}

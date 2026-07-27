@@ -163,3 +163,113 @@ func TestArchivedPackSuppressedAcrossUnionRoot(t *testing.T) {
 		t.Fatalf("main-root tombstone must render suppressed: %q", out)
 	}
 }
+
+// Issue 178 defect 3: a research tombstone RETAINS the finding — the body
+// is the artifact (claim, source, confidence); archiving a task still
+// compacts to a summary tombstone.
+func TestResearchTombstoneRetainsBody(t *testing.T) {
+	root := t.TempDir()
+	srv, sess := connectRootWithServer(t, root)
+	body := "BPE encode measured 28.2 MB/s.\n\nSource: https://example.org/paper-XYZ-2026\nConfidence: high" + "\n\n" + ambFixturePad
+	r, err := lifecycle.Draft(srv.ws, srv.minter(), "research", "tokenizer throughput finding", body, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// consume it so the research return-path gate passes
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "stem": "TOKENIZER", "pattern": "U",
+		"system": "tokenizer", "response": "sustain 28.2 MB/s per " + r.ID,
+	})
+	if _, err := lifecycle.Move(srv.ws, r.ID, item.StateArchived, "completed in a previous era"); err != nil {
+		t.Fatal(err)
+	}
+	srv.markDirty()
+
+	got := callText(t, sess, "get", map[string]any{"id": r.ID})
+	if !strings.Contains(got, "paper-XYZ-2026") {
+		t.Fatalf("the tombstone must retain the citation: %q", got)
+	}
+	hist := callText(t, sess, "find", map[string]any{"q": "paper-XYZ-2026", "scope": "history"})
+	if !strings.Contains(hist, r.ID[:8]) && !strings.Contains(hist, "paper-XYZ-2026") {
+		t.Fatalf("the citation must be searchable in history: %q", hist)
+	}
+
+	// the fold keeps it: EvArchive events survive compaction verbatim
+	out := callText(t, sess, "compact", map[string]any{"apply": true})
+	_ = out
+	srv.markDirty()
+	got = callText(t, sess, "get", map[string]any{"id": r.ID})
+	if !strings.Contains(got, "paper-XYZ-2026") {
+		t.Fatalf("the retained body must survive a fold: %q", got)
+	}
+
+	// a TASK tombstone stays a compact summary — no body retention
+	task, err := lifecycle.Draft(srv.ws, srv.minter(), "task", "ordinary task", "task body with a marker NOTRETAINED plus filler. "+ambFixturePad, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(srv.ws, task.ID, item.StateArchived, "done"); err != nil {
+		t.Fatal(err)
+	}
+	srv.markDirty()
+	got = callText(t, sess, "get", map[string]any{"id": task.ID})
+	if strings.Contains(got, "NOTRETAINED") {
+		t.Fatalf("task tombstones must stay compact summaries: %q", got)
+	}
+}
+
+// Round 2 (cross-val-research finding 5): a research CHILD folded into its
+// parent's archive keeps its finding — the second archive path in
+// archive() lost the citation exactly like the first used to.
+func TestResearchChildFoldedWithParentRetainsBody(t *testing.T) {
+	root := t.TempDir()
+	srv, sess := connectRootWithServer(t, root)
+	parent, err := lifecycle.Draft(srv.ws, srv.minter(), "task", "parent closure", ambFixturePad, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := lifecycle.Draft(srv.ws, srv.minter(), "research", "child finding",
+		"Latency knee at 4k batch.\n\nSource: https://example.org/paper-CHILD-9999\nConfidence: medium\n\n"+ambFixturePad,
+		"", parent.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "stem": "CHILDLAT", "pattern": "U",
+		"system": "batcher", "response": "cap batches at 4096 per " + child.ID,
+	})
+	if _, err := lifecycle.Move(srv.ws, child.ID, item.StateDone, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(srv.ws, parent.ID, item.StateArchived, "parent closed"); err != nil {
+		t.Fatal(err)
+	}
+	srv.markDirty()
+	got := callText(t, sess, "get", map[string]any{"id": child.ID})
+	if !strings.Contains(got, "paper-CHILD-9999") {
+		t.Fatalf("the folded research child must keep its citation: %q", got)
+	}
+}
+
+// Round 2 (finding 2): the worktree-homed union fallback renders the
+// retained body too — a research item archived on MAIN must not lose its
+// citation when read from a serving worktree.
+func TestResearchTombstoneBodyAcrossUnionRoot(t *testing.T) {
+	mainRoot, wtDir := servedWorktree(t, "")
+	mainSess := connectRoot(t, mainRoot)
+	rid := draftID(t, mainSess, map[string]any{
+		"kind": "research", "title": "main-root finding",
+		"body": "Cache hit rate 97 percent.\n\nSource: https://example.org/paper-UNION-1\nConfidence: high\n\n" + ambFixturePad})
+	fullRID := fullIDOf(t, mainRoot, rid)
+	callText(t, mainSess, "rule", map[string]any{
+		"op": "add", "dir": "", "stem": "CACHEHIT", "pattern": "U",
+		"system": "cache", "response": "sustain 97 percent hits per " + fullRID,
+	})
+	callText(t, mainSess, "move", map[string]any{"id": rid, "to": "archived", "note": "consumed"})
+
+	wtSess := connectRoot(t, wtDir)
+	out := callText(t, wtSess, "get", map[string]any{"id": rid})
+	if !strings.Contains(out, "paper-UNION-1") {
+		t.Fatalf("union-root get must render the retained finding: %q", out)
+	}
+}

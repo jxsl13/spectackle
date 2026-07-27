@@ -465,7 +465,13 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		if tombOk {
-			return text(sc.record(tomb) + " (archived; journal tombstone)\n")
+			out := sc.record(tomb) + " (archived; journal tombstone)\n"
+			if tomb.Kind == "research" && tomb.Body != "" {
+				// research tombstones retain the finding (issue 178
+				// defect 3) — the body IS the artifact, render it
+				out += tomb.Body + "\n"
+			}
+			return text(out)
 		}
 		// A worktree-homed server resolves the union of two record spaces;
 		// answering nf for a record that lives on main contradicts the
@@ -480,7 +486,11 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 				return text(b)
 			}
 			if mtomb, mok, merr := lifecycle.Tombstone(s.main, id); merr == nil && mok {
-				return text(sc.record(mtomb) + " root=main (archived; journal tombstone)\n")
+				out := sc.record(mtomb) + " root=main (archived; journal tombstone)\n"
+				if mtomb.Kind == "research" && mtomb.Body != "" {
+					out += mtomb.Body + "\n"
+				}
+				return text(out)
 			}
 		}
 		return s.nearest(id)
