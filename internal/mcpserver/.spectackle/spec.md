@@ -87,7 +87,8 @@ Rationale: comma-joined storage shattered comma-containing options — no byte-i
 WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL emit the definition span as `file:start-end` so agents see where a function ends without reading the file.
 
 ## MCP-003 {applies: go:mcpserver.Server.registerTools}
-WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectacle server SHALL elicit the harness choice via `Session.Elicit` (one boolean per harness) and, headless, mint an open `decision` item instead of guessing.
+WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectackle server SHALL mint an open `decision` item (need decision record) answered later via `decide op=answer`; never a `Session.Elicit` form (ELICIT-001).
+
 ## MCP-004 {applies: go:mcpserver.Server.check}
 WHEN the check tool runs, the server SHALL report each applies target of a live rule that lacks an anchors.tsv row as a single dense `g orphan <rule> <node>` record.
 ## MCP-005 {applies: go:mcpserver.Server.compact}
