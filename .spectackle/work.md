@@ -6,6 +6,7 @@ schema: v1
 kind: task
 state: draft
 created: 2026-07-26
+grilled: 2026-07-27 open=2
 targets: cmd/spectackle/main.go, internal/mcpserver/server.go, Makefile, docs/lifecycle.md
 
 IMPLEMENTER IN OWN WORKTREE. The full review chain the user gated this release on is complete and live (grill verdicts, validation gates, edge commits, never-squash, one-task-one-PR, elicitation, lens labels, risk gating, tripwire, compaction survival, atomic archive edge, short IDs, role boundary, outcome benchmarks). Timing is the users call via the linked decide.
