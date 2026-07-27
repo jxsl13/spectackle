@@ -16,7 +16,7 @@ choice: cut now
 
 ## B-01KYH5TJ69FW4T2Y2TZZYYK6D8 the reopen edge leaves the pull request ready: every validation round pushes to a non-draft PR
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go, internal/forge/github.go, internal/forge/offline.go, internal/forge/forge.go
