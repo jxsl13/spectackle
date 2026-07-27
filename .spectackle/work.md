@@ -21,7 +21,7 @@ FOUND by cross-val-mainmove (PR 177): when main.go moved to the module root, the
 
 ## P-01KYJMVX2QES89YTP3KXSJPA7J first-class benchmark records: unique frame-keyed entries, arbitrary units with direction, depth-1 versioned history
 kind: proposal
-state: draft
+state: approved
 created: 2026-07-27
 grilled: 2026-07-27 open=2
 targets: internal/mcpserver/tools.go, internal/workspace/workspace.go, internal/journal/journal.go, docs/tools.md

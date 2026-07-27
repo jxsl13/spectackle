@@ -450,3 +450,4 @@
 {"t":"2026-07-27T20:42:25Z","eid":"8272ed38d59c05c8","ag":"ag-d024","ev":"decide","id":"ADR-01KYJMWEWQE48T3PR76TYQRD3H","note":"raw values ride the journal event too"}
 {"t":"2026-07-27T20:42:26Z","eid":"479a343dbd68c97b","ag":"ag-6088","ev":"grill","id":"P-01KYJMVX2QES89YTP3KXSJPA7J","gr":"2026-07-27 open=2","hash":"85d195b96c102240a31323539b9f4438d06083e31e01c310c0159c36164920ba","open":2,"keys":["nopath:.spectackle/bench.ndjson","nopath:internal/benchmark"]}
 {"t":"2026-07-27T20:42:41Z","eid":"793537de1a66607e","ag":"ag-f185","ev":"grill","id":"P-01KYJMVX2QES89YTP3KXSJPA7J","gr":"2026-07-27 open=2","hash":"85d195b96c102240a31323539b9f4438d06083e31e01c310c0159c36164920ba","open":2,"keys":["nopath:.spectackle/bench.ndjson","nopath:internal/benchmark"]}
+{"t":"2026-07-27T20:43:01Z","eid":"1c4b68196d1faac5","ag":"ag-4d42","ev":"move","id":"P-01KYJMVX2QES89YTP3KXSJPA7J","fr":"draft","to":"approved"}
