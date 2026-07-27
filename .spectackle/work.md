@@ -13,7 +13,7 @@ USER PRINCIPLE (2026-07-27, RENDER-PARITY-001): online and offline SHOULD cost t
 
 ## B-01KYJ67S98FJDTD30539K398FV the offline checkpoint sweeps pre-existing untracked files into the items commit - scope attribution polluted by automation
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 refs: https://github.com/jxsl13/spectackle/issues/178
 grilled: 2026-07-27 open=2
