@@ -311,8 +311,8 @@ improvise.
 ### Decide: native UI, answer from anywhere
 
 Every decision that actually needs the user goes through `decide`, never
-unstructured chat. `decide op=ask` tries MCP elicitation (the same
-native-UI mechanism `rule`'s slot forms already use) — radio for
+unstructured chat. `decide op=ask` tries MCP elicitation (`Session.Elicit`
+— the only tool that may, ELICIT-001) — radio for
 enumerated choices, a confirm dialog for yes/no, free text otherwise. Two
 outcomes:
 
