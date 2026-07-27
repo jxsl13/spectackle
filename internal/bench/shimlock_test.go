@@ -216,3 +216,37 @@ func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
 		t.Fatalf("archive must merge with dirty-but-ignored artifacts:\n%s", out)
 	}
 }
+
+// Brief tool lists are honest maps (T-01KYH54H): every listed name exists
+// on the real tool surface, and the outcome brief names the tools its
+// require-configured variant legitimately needs — two judges paid a
+// refusal-driven discovery loop for validate before this.
+func TestBriefToolListsAreHonest(t *testing.T) {
+	registered := map[string]bool{
+		"state": true, "draft": true, "move": true, "get": true, "find": true,
+		"grill": true, "validate": true, "check": true, "rule": true,
+		"decide": true, "research": true, "work": true, "lease": true,
+		"swarm": true, "compact": true, "commands": true, "reindex": true,
+	}
+	briefs := map[string]string{
+		"basic": agentBrief, "tricky": trickyBrief,
+		"worktree": worktreeBrief, "outcome": outcomeBrief,
+	}
+	re := regexp.MustCompile(`Available tool names: ([a-z, ]+)\.`)
+	for name, b := range briefs {
+		m := re.FindStringSubmatch(b)
+		if m == nil {
+			t.Fatalf("%s brief has no tool list", name)
+		}
+		for _, tool := range strings.Split(m[1], ", ") {
+			if !registered[tool] {
+				t.Errorf("%s brief lists nonexistent tool %q", name, tool)
+			}
+		}
+	}
+	for _, want := range []string{"validate", "work"} {
+		if m := re.FindStringSubmatch(outcomeBrief); !strings.Contains(m[1], want) {
+			t.Errorf("outcome brief missing %s", want)
+		}
+	}
+}

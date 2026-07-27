@@ -34,7 +34,7 @@ Workspace: %s
 Command shape, the ONLY allowed way to act:
   %s call -root %s <tool> '<json-arguments>'
 
-Available tool names: state, draft, move, get, find, grill, check, rule, decide, research.
+Available tool names: state, draft, move, get, find, grill, validate, check, rule, decide, research, work.
 No other documentation is provided; the tool outputs themselves guide you.
 
 Feature to implement, driven through the workflow as a task titled "` + outcomeTaskTitle + `":
