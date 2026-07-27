@@ -481,3 +481,48 @@ func TestMigrateStampsCRLFConfig(t *testing.T) {
 		t.Fatalf("second open must be a no-op: %+v %v", rep2, err)
 	}
 }
+
+// Round 2 of the issue-178 fix: the trailing-comment escape on spec.md —
+// invisible to the regex, the rewrite, AND the count seen by the first
+// completion check — must now be force-stamped inside the front-matter
+// fence; and a schema mention in item PROSE must never be touched.
+func TestMigrateStampsCommentedSpecFrontMatter(t *testing.T) {
+	dir := v0Fixture(t)
+	spec := filepath.Join(dir, Dot, "spec.md")
+	raw, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commented := strings.Replace(string(raw), "schema: v0", "schema: v0  # legacy stamp", 1)
+	if err := os.WriteFile(spec, []byte(commented), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+		t.Fatalf("commented spec front matter not stamped:\n%.200s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist after a fully-stamped migration")
+	}
+}
+
+func TestForceFrontMatterStampNeverTouchesProse(t *testing.T) {
+	in := "---\nschema: v0  # x\n---\n\n## item\nprose about schema: v0 stays.\n"
+	got := string(forceFrontMatterStamp([]byte(in)))
+	if !strings.Contains(got, "---\nschema: v1\n---") {
+		t.Fatalf("fence not stamped: %q", got)
+	}
+	if !strings.Contains(got, "prose about schema: v0 stays.") {
+		t.Fatalf("prose was touched: %q", got)
+	}
+}

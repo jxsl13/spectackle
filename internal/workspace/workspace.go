@@ -318,7 +318,10 @@ func load(dir string) (Root, error) {
 			return Root{}, fmt.Errorf("workspace: config.yaml: %w", err)
 		}
 		if r.Cfg.Schema != "" && r.Cfg.Schema != SchemaStamp {
-			return Root{}, fmt.Errorf("workspace: %s is schema %q but this build expects %q — delete that one file and re-invoke (the server regenerates it; already-migrated data is unaffected)", filepath.Join(dir, Dot, "config.yaml"), r.Cfg.Schema, SchemaStamp)
+			if r.Cfg.Schema == "v0" {
+				return Root{}, fmt.Errorf("workspace: %s is schema %q but this build expects %q — delete that one file and re-invoke (the server regenerates it; already-migrated data is unaffected)", filepath.Join(dir, Dot, "config.yaml"), r.Cfg.Schema, SchemaStamp)
+			}
+			return Root{}, fmt.Errorf("workspace: %s is schema %q but this build expects %q — the workspace was written by a NEWER spectackle; upgrade the binary (deleting the file would discard its real settings)", filepath.Join(dir, Dot, "config.yaml"), r.Cfg.Schema, SchemaStamp)
 		}
 		for _, pat := range r.Cfg.IgnoreRegex {
 			if _, err := regexp.Compile(pat); err != nil {

@@ -230,6 +230,18 @@ func Run(dir string) (Report, error) {
 				return Report{}, fmt.Errorf("migrate: %d file(s) still stamped %q after rewrite — completion withheld, the next open rolls back and retries", n, stamp)
 			}
 		}
+		// The count catches what the regex cannot SEE: a stamp line that
+		// became unmatchable contributes nothing to the map, so equal
+		// stamped-file counts before and after are required — a shrunken
+		// count means some file's stamp escaped the rewrite entirely
+		// (the spec.md trailing-comment brick, issue 178 round 2).
+		before := 0
+		for _, n := range stamps {
+			before += n
+		}
+		if after[To] < before {
+			return Report{}, fmt.Errorf("migrate: %d of %d stamped file(s) unreadable after rewrite — completion withheld, inspect the schema lines; the backup %s holds the originals", before-after[To], before, filepath.Join(Dot, backup))
+		}
 	}
 	if err := os.WriteFile(filepath.Join(backupAbs, doneMarker), []byte(To+"\n"), 0o644); err != nil {
 		return Report{}, err
@@ -513,6 +525,8 @@ func (w *workspaceText) rewrite(remap map[string]string) (map[string][]byte, int
 		raw = restamp(raw)
 		if strings.HasSuffix(rel, "config.yaml") {
 			raw = forceConfigStamp(raw)
+		} else if strings.HasSuffix(rel, ".md") {
+			raw = forceFrontMatterStamp(raw)
 		}
 		if !bytesEqual(raw, w.content[rel]) {
 			out[rel] = raw
@@ -561,6 +575,32 @@ func forceConfigStamp(raw []byte) []byte {
 		return re.ReplaceAll(raw, []byte("schema: "+To))
 	}
 	return append([]byte("schema: "+To+"\n"), raw...)
+}
+
+// forceFrontMatterStamp is forceConfigStamp for the .md bundle files: it
+// rewrites the schema line ONLY inside the leading front-matter fence
+// (between the first two --- lines), so a "schema:" mention in item prose
+// can never be touched. The cross-validation of this fix reproduced the
+// escape on spec.md: a trailing comment made the stamp invisible to the
+// regex, the rewrite, AND the completion check at once (issue 178 round 2).
+func forceFrontMatterStamp(raw []byte) []byte {
+	s := string(raw)
+	if !strings.HasPrefix(s, "---") {
+		return raw
+	}
+	end := strings.Index(s[3:], "---")
+	if end < 0 {
+		return raw
+	}
+	head, tail := s[:3+end], s[3+end:]
+	if m := frontMatterStampRe.FindStringSubmatch(head); m != nil && m[1] == To {
+		return raw
+	}
+	re := regexp.MustCompile("(?m)^schema:[^\r\n]*")
+	if re.MatchString(head) {
+		return []byte(re.ReplaceAllString(head, "schema: "+To) + tail)
+	}
+	return raw // no schema line in the fence: not stamped, not counted
 }
 
 // rewriteJournal rewrites the ID-bearing fields of every event and re-emits
