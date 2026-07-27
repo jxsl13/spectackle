@@ -182,14 +182,6 @@ func (s *Server) forgeFor() (forge.Forge, error) {
 	return forge.NewGitHub(remote, nil)
 }
 
-// gitFlowStart runs the into-active half: branch, commit, push, draft PR.
-//
-// Idempotent at every step. EnsureBranch checks out an existing branch instead
-// of failing; CommitCode reports whether it had anything to commit; Push is
-// safe to repeat; and the PR is looked up with Find before Open, because Open
-// deliberately does not dedupe (the create endpoint 422s on a duplicate
-// head/base pair, and silently returning the existing PR would hide a caller
-// bug).
 // gitFlowOffline is the commit-only edge for mode: offline (T-01KYHAH1GJ,
 // GIT-DEFAULT-001): no branch, no forge, no push, no base checkout — code
 // and records commit on the CURRENT branch, the code commit rendered as
@@ -236,6 +228,15 @@ func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate
 	return res
 }
 
+// gitFlowStart runs the into-active half — online: branch, commit, push,
+// draft PR; offline: the commit-only edge above.
+//
+// Idempotent at every step. EnsureBranch checks out an existing branch instead
+// of failing; CommitCode reports whether it had anything to commit; Push is
+// safe to repeat; and the PR is looked up with Find before Open, because Open
+// deliberately does not dedupe (the create endpoint 422s on a duplicate
+// head/base pair, and silently returning the existing PR would hide a caller
+// bug).
 func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	res := &gitFlowResult{}
 	if !s.gitEnabled() {
