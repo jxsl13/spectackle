@@ -21,7 +21,7 @@ FOUND by cross-val-mainmove (PR 177): when main.go moved to the module root, the
 
 ## B-01KYJBMVE3EN9VH5QE2ZPZ2NRX archiving a research item discards its body - the finding is the artifact and tombstoning deletes the only copy
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 rounds: 1
 grilled: 2026-07-27 open=0
