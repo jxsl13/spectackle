@@ -16,7 +16,7 @@ choice: cut now
 
 ## T-01KYHAH1GJEFZ861R0NGT9W8PV offline mode is single-branch commits only: no PRs, no pushes, no branch dance
 kind: task
-state: approved
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go, internal/mcpserver/tools.go, internal/mcpserver/swarm.go, internal/forge/offline.go, internal/bench/bench.go, docs/lifecycle.md, docs/tools.md
