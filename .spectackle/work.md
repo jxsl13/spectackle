@@ -49,7 +49,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYJTASR5EKWAZ50DYTDXK1M3 benchmark store silently drops collision losers and duplicate-ID variants
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 targets: internal/benchmark
 
