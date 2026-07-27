@@ -23,7 +23,7 @@ FOUND by cross-val-mainmove (PR 177): when main.go moved to the module root, the
 kind: proposal
 state: draft
 created: 2026-07-27
-needs: ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ
+needs: ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ, ADR-01KYJMWEWQE48T3PR76TYQRD3H
 targets: internal/mcpserver/tools.go, internal/workspace/workspace.go, internal/journal/journal.go, docs/tools.md
 
 USER REQUIREMENT (2026-07-27): a new benchmark TYPE - benchmarks compare implementations (new/old, Go vs Python, variants) on a FRAME SYSTEM (minimum os/arch/cpu/ram/gpu; implementation dims like cuda/vulkan/simd legal), with arbitrary comparable UNITS (ops/s, alloc/op, token/s), UNIQUE KEYS derived from name+frame, versioned with DEFAULT retention 1 (latest is what the codebase cares about) and a config knob to raise it. DESIGN (three-reader recon + two independent designs + adversarial synthesis, wf_0ed39152; the full spec lives in the workflow journal and is the implementers source of truth): STORAGE - server-owned .spectackle/bench.ndjson per context, union-merged (gitattributes gains the line via ensureLines), keyed last-writer-wins map with bounded per-key history, whole read-modify-write under root.Lock with the read inside the lock, temp+rename rewrite; context discovery allowlist gains bench.ndjson; NO schema bump (additive file). SCHEMA - Record{ID M-prefixed mint per version, Name, Key (stored AND recomputed/verified at load), Ver monotonic per key, Frame map with REQUIRED os/arch/cpu/ram/gpu (sentinels none=absent any=irrelevant), Metrics[]{name,unit,dir +|-|~,noise}, Impls[] ordered, T, Ag, Tool, Note}; metric model over unit-only (two measurements may share a unit); units byte-compared, never converted. KEY - canonicalized sorted k=v dims (folded case, forbidden separators), name folded; the key IS the identity - no deterministic-ID minting (rejected: fixed-epoch seeds violate the ids package contract and lie in Time()). VERSIONING - Ver increments per key on content change; idempotent replay renders unchanged; history trimmed to benchmarks.history (default 1); the PUT-TIME DELTA against the outgoing head is journaled (better/worse/tie per shared impl-metric under its direction, noise-aware ~) so regressions survive trimming - the single best idea of the query-first design. TOOL - one bench tool, ops put|get|ls|rm|cmp, dense k=v/colon grammars never JSON, render prefix m with f/u/d sublines, winner star per metric, RENDER-PARITY-001 one-line ok on success; bench IDs resolve via ids.ResolveRecordID outside the item idScope. FIND - scope=bench via the FTS feed (name, key, frame, impl labels, note indexed). COMPACTION - bench.ndjson is not the journal (no fold interplay); the journaled put-deltas ride EvBench... (a new event kind in the keep-list) or EvArchive-class retention - implementer picks with a fold test. TWO USER DECISIONS PENDING (ADR round): the any sentinel for machine-independent benchmarks, and whether superseded raw values ride the journal or only the delta summary. CHILD TASKS at approval: (1) internal/benchmark package (record, key, store) with unit tests incl. canonicalization/collision/trim matrices; (2) the bench tool + renders + find scope + docs; (3) migration of docs/bench-curves.md ledger entries into first-class records as the acceptance fixture (the offline-collapse A/B and the judge batches become bench records - dogfood). VERIFY per task: go build ./... && go test ./... -count=1 && gofmt -l . empty; e2e: put/get/ls/cmp/rm round-trip, depth trim, union-merge conflict load, idempotent replay, fold survival of put-deltas. ROLLBACK: revert; the ndjson file is additive.
@@ -37,4 +37,15 @@ status: proposed
 kind: radio
 option: allow the any sentinel for machine-independent dims
 option: always pin real host values - no sentinel
+blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
+
+## ADR-01KYJMWEWQE48T3PR76TYQRD3H Benchmark history at default depth 1: when a new version supersedes the old, what survives? The put-time delta summary (better/worse/tie per metric) is always journaled; should the superseded RAW metric values also ride the journal event (bounded per-put growth, richer regression forensics), or is the summary enough?
+kind: adr
+state: submitted
+created: 2026-07-27
+status: proposed
+
+kind: radio
+option: summary only - raw superseded values are destroyed
+option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
