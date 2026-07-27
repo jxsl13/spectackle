@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYHHCFCWEV48MC3MHT3M0PZY wt.Add silently force-removes a stray worktree directory that has no ledger row
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=4
 targets: internal/wt/wt.go
