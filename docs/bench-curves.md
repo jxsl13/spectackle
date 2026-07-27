@@ -81,6 +81,37 @@ render when any run in the set is invalid — the all-valid rule extended to
 outcomes. Calibration is pinned by tests: the reference correct
 implementation passes 5/5, the reference shallow one exactly 2/5.
 
+## Outcome A/B: validation warn vs require (2026-07-27, T-01KYGX9P)
+
+First catch-rate measurement replacing the estimated 30-50% band. Four
+sonnet judges, config-only variants on the v0.2.0 binary, limiter fixture.
+
+| Run | Gate | Calls | Surface tokens | First-pass | Final-pass | Rounds | Verdict |
+|---|---|---|---|---|---|---|---|
+| warn-1 | warn | 43 | ~1381 | 5/5 | 5/5 | 0 | valid |
+| warn-2 | warn | 44 | ~1220 | 4/5 | 4/5 | 0 | DISQUALIFIED (shim seq race) |
+| require-1 | require | 69 | ~2051 | 0/5 | 5/5 | 2 | valid |
+| require-2 | require | 144 | ~8928 | 4/5 | 4/5 | 2 | valid |
+
+Efficiency REFUSED (all-valid rule): warn-2's disqualification is a
+harness artifact — the meter shim's read-count-then-append sequence is not
+atomic under a judge's PARALLEL tool calls, and out-of-order appends read
+as tampering (bug filed). Content findings stand:
+
+- The gate catches STRUCTURAL incompleteness: require-1's premature first
+  done (0/5 hidden) was fully repaired to 5/5 across the gate's two
+  rounds — the reopen loop doing exactly its job.
+- The gate does NOT catch SEMANTIC divergence from unstated spec:
+  require-2 deliberately made `Allow(n<=0)` a success-no-op (a defensible
+  hardening choice) against the hidden refusal semantics and held 4/5
+  through both rounds — computed classes see untested/undocumented
+  SHAPES, not meaning.
+- Cost: require ran 1.5-6.5x the warn surface tokens and 2 rounds each;
+  warn's valid run was 5/5 first-pass at 43 calls with no gate at all.
+- Provisional catch data: 1 of 2 require runs materially repaired by the
+  gate. n is far too small for a rate; the estimated band survives with
+  its first real data points and a rerun awaits the shim fix.
+
 ## Operating discipline
 
 - **n=3, all-valid gate.** One failing judge in three is a regression
