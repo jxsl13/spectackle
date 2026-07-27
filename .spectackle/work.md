@@ -15,6 +15,7 @@ USER PRINCIPLE (2026-07-27, RENDER-PARITY-001): online and offline SHOULD cost t
 kind: bug
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/mcpserver/version.go, cmd/spectackle/main.go
 
 USER REPORT (2026-07-27): go install github.com/jxsl13/spectackle/cmd/spectackle@latest appears not to install v0.3.1. DIAGNOSIS (empirical): the proxy resolves @latest to v0.3.1 correctly and a fresh install embeds mod v0.3.1 (go version -m proves it) - but the binary PRINTS spectackle 0.2.0-dev, because the version string is a hardcoded default overridden only by make release-build ldflags (-X mcpserver.Version); go install applies no ldflags, so every module-installed binary claims 0.2.0-dev forever. The user cannot distinguish a stale install from a display lie. FIX: when the ldflags value is the empty-or-dev default, fall back to debug.ReadBuildInfo().Main.Version (Go embeds the module version automatically for module builds; returns (devel) for local builds - render that honestly). Keep the ldflags override winning when set (release builds carry the exact tag). Also bump the hardcoded default to dev (no misleading semver). TEST: unit test on the resolution function (ldflags set wins; empty falls to build info; devel renders as-is); assert --version output shape. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1 -run Version && gofmt -l . empty; manual: GOBIN=tmp go install ./cmd/spectackle && tmp/spectackle --version shows the module version. SCOPE: version resolution only. ROLLBACK: revert.
