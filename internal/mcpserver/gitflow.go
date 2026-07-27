@@ -14,6 +14,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/forge"
+	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
@@ -993,6 +994,16 @@ func (s *Server) gitScopeRefusal(id, to string) *mcp.CallToolResult {
 		return nil // an unreadable tree fails later, with the git edge's own error
 	}
 	scope := normalizeTargets(it.Targets)
+	// Node-ID targets (go:pkg.Fn) resolve to their FILE: the schema
+	// advertises node targets, and an item scoped purely by nodes would
+	// otherwise have every real edit refused (cross-val-sweep finding 1).
+	for _, t := range it.Targets {
+		if _, isPath := targetPath(t); !isPath {
+			if n, ok := s.g.Node(graph.NodeID(t)); ok && n.File != "" {
+				scope = append(scope, n.File)
+			}
+		}
+	}
 	var out []string
 	for _, f := range dirty {
 		if f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/") {
@@ -1010,7 +1021,7 @@ func (s *Server) gitScopeRefusal(id, to string) *mcp.CallToolResult {
 	if len(out) > 3 {
 		list += fmt.Sprintf(", +%d more", len(out)-3)
 	}
-	r, _, _ := refuse("! GIT E " + shortDisplayID(it.ID) + " transition refused: " + fmt.Sprint(len(out)) + " changed file(s) outside the declared targets (" + list + ") — commit or stash them, or widen the item's targets")
+	r, _, _ := refuse("! GIT E " + shortDisplayID(it.ID) + " transition refused: " + fmt.Sprint(len(out)) + " changed file(s) outside the declared targets (" + list + ") — commit or stash them; targets are revisable only in draft (reject back to draft to widen them)")
 	return r
 }
 

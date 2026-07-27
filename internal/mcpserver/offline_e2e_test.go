@@ -170,3 +170,39 @@ func TestMoveRefusesOutOfScopeDirt(t *testing.T) {
 		t.Fatalf("a clean tree must transition:\n%s", out)
 	}
 }
+
+// The item's own test plan demanded this pin: a targets-less item with a
+// dirty tree refuses (empty scope allows nothing outside records), while
+// a records-only item with a CLEAN tree transitions untouched.
+func TestMoveTargetlessItemScope(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "fixture green gate")
+	sess := connectRoot(t, root)
+
+	// clean tree: a targets-less item transitions fine
+	clean := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "records only clean tree", "body": ambFixturePad})
+	if out := callText(t, sess, "move", map[string]any{"id": clean, "to": "active"}); strings.Contains(out, "transition refused") {
+		t.Fatalf("clean tree must transition without targets:\n%s", out)
+	}
+
+	// dirty tree: the same shape refuses and the message names the real
+	// recovery (targets are draft-frozen — reject back to draft)
+	dirtyItem := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "targetless with dirt", "body": ambFixturePad})
+	if err := os.WriteFile(filepath.Join(root, "stray.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := callText(t, sess, "move", map[string]any{"id": dirtyItem, "to": "active"})
+	if !strings.Contains(out, "transition refused") || !strings.Contains(out, "stray.go") {
+		t.Fatalf("targets-less item with dirt must refuse naming it:\n%s", out)
+	}
+	if !strings.Contains(out, "reject back to draft") {
+		t.Fatalf("the recovery must name the actual path (targets are draft-frozen):\n%s", out)
+	}
+}
