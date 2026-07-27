@@ -37,5 +37,5 @@ LSP-002	go:langspec.SpecParser.callEdges	internal/langspec/langspec.go	317-338	5
 MTC-API-004	objc:Renderer.buildPipeline	examples/metalcompute/Renderer.m	12-15	860a8f45c90b6f15	fc12af87c35b21f4
 MTC-API-006	msl:add_arrays	examples/metalcompute/shaders.metal	4-6	894657ad7bcbe04e	41ca46660e86a63f
 MCP-011	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-306	a39fbb610f6db3d8	081060ff3535ad7c
-ROLE-BOUNDARY-001	go:mcpserver.Server.gitFlowFor	internal/mcpserver/gitflow.go	926-956	41c71edae43d175e	d23a97e322d7aeea
+ROLE-BOUNDARY-001	go:mcpserver.Server.gitFlowFor	internal/mcpserver/gitflow.go	926-963	41c71edae43d175e	d23a97e322d7aeea
 EARS-001	go:ears.Compose	internal/ears/compose.go	58-112	53c73ccecccf14d1	f7c6a352c74c6284
