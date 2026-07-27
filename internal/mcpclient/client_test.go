@@ -139,7 +139,7 @@ func TestDialHTTPMatchesStdio(t *testing.T) {
 	}
 
 	// http side: an in-process server (same wiring as `spectackle serve
-	// -http`, see cmd/spectackle/main.go) reached over a real network
+	// -http`, see main.go) reached over a real network
 	// listener on a free port.
 	srv, err := mcpserver.New(t.TempDir())
 	if err != nil {
