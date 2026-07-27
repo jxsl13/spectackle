@@ -13,7 +13,7 @@ USER PRINCIPLE (2026-07-27, RENDER-PARITY-001): online and offline SHOULD cost t
 
 ## B-01KYJ66TWWEEW83KTC7PM9M5SM go-installed binaries report 0.2.0-dev regardless of the actual module version
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/version.go, cmd/spectackle/main.go
