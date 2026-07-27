@@ -53,6 +53,7 @@ type Config struct {
 	IgnoreRegex   []string    `yaml:"ignore_regex"` // RE2 patterns, matched against repo-relative slash paths
 	BudgetDefault int         `yaml:"budget_default"`
 	Compact       CompactCfg  `yaml:"compact"`
+	Benchmarks    BenchCfg    `yaml:"benchmarks"`
 	Verify        []string    `yaml:"verify"` // shell commands gating work-submit (e.g. "make test")
 	Swarm         SwarmCfg    `yaml:"swarm"`
 	WorktreesDir  string      `yaml:"worktrees_dir"` // override for .spectackle/wt (abs or root-relative)
@@ -142,6 +143,14 @@ func (g GitCfg) IsEnabled() bool {
 const GitMergeMethod = "merge"
 
 // CompactCfg holds the compact-due thresholds surfaced by `check`.
+// BenchCfg tunes the benchmark record store (P-01KYJMVX2Q).
+type BenchCfg struct {
+	// History caps retained versions per unique benchmark key. Default 1:
+	// the latest is what the codebase cares about (user requirement);
+	// raise it to keep a benchmark history.
+	History int `yaml:"history"`
+}
+
 type CompactCfg struct {
 	JournalMax int `yaml:"journal_max"` // journal events since last compact
 	DoneMax    int `yaml:"done_max"`    // done-but-unarchived items
@@ -154,6 +163,7 @@ func defaultConfig() Config {
 		Ignore:        []string{".git/**", "bin/**"},
 		BudgetDefault: 2000,
 		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
+		Benchmarks:    BenchCfg{History: 1},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900, PanelMax: 3},
 		Feedback:      FeedbackCfg{MaxRounds: 3, RiskFiles: 8},
 		Git:           GitCfg{Mode: "offline", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
@@ -359,6 +369,9 @@ func load(dir string) (Root, error) {
 	if r.Cfg.Swarm.AgentTTL == 0 {
 		r.Cfg.Swarm.AgentTTL = 900
 	}
+	if r.Cfg.Benchmarks.History == 0 {
+		r.Cfg.Benchmarks.History = 1
+	}
 	if r.Cfg.Feedback.MaxRounds == 0 {
 		r.Cfg.Feedback.MaxRounds = 3
 	}
@@ -402,6 +415,12 @@ func (r Root) SpectackleDir(ctx string) string {
 // context dir, repo-relative ("" = root).
 func (r Root) SpecPath(ctx string) string { return filepath.Join(r.SpectackleDir(ctx), "spec.md") }
 func (r Root) WorkPath(ctx string) string { return filepath.Join(r.SpectackleDir(ctx), "work.md") }
+
+// BenchPath is the context's benchmark record store (P-01KYJMVX2Q):
+// keyed last-writer-wins ndjson, union-merged like the journal.
+func (r Root) BenchPath(ctx string) string {
+	return filepath.Join(r.SpectackleDir(ctx), "bench.ndjson")
+}
 func (r Root) JournalPath(ctx string) string {
 	return filepath.Join(r.SpectackleDir(ctx), "journal.ndjson")
 }
@@ -598,7 +617,7 @@ func (r Root) ContextDirs() ([]string, error) {
 			if ctx == "." {
 				ctx = ""
 			}
-			for _, f := range []string{"spec.md", "work.md", "journal.ndjson"} {
+			for _, f := range []string{"spec.md", "work.md", "journal.ndjson", "bench.ndjson"} {
 				if fileExists(filepath.Join(p, f)) {
 					out = append(out, ctx)
 					break
@@ -658,7 +677,7 @@ func (r Root) EnsureScaffold(ctx string) error {
 	if err := os.MkdirAll(dot, 0o755); err != nil {
 		return err
 	}
-	if err := writeIfAbsent(filepath.Join(dot, ".gitattributes"), "journal.ndjson merge=union\n"); err != nil {
+	if err := ensureLines(filepath.Join(dot, ".gitattributes"), "journal.ndjson merge=union", "bench.ndjson merge=union"); err != nil {
 		return err
 	}
 	if ctx != "" {
