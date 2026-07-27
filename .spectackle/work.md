@@ -49,7 +49,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYJTB95HEPFRRBMAN2YPEE32 scaffolded config.yaml omits the benchmarks section
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 targets: internal/workspace
 
