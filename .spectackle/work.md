@@ -18,6 +18,7 @@ choice: cut now
 kind: task
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: docs/bench-curves.md, internal/bench/agent.go
 
 ORCHESTRATOR-RUN benchmark task (the judges are the implementers; AGENT-ISOLATION-001 holds - each judge works its own temp fixture). P-01KYEVs tombstone left this as the named follow-up: the risk-gating break-even rests on an ESTIMATED 30-50 percent validation catch rate; the outcome fixture exists to replace the estimate with a number.
