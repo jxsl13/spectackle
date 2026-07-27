@@ -73,3 +73,12 @@ created: 2026-07-27
 targets: internal/benchmark
 
 internal/benchmark/store.go Load: (1) two valid records sharing (key,ver) — the parallel-clone shape — resolve deterministically (newer T, then ID) but the LOSER is neither kept nor quarantined nor preserved on Save; it vanishes traceless. (2) seenID dedup treats a repeated ID as a union artifact without comparing content — a line reusing an existing ID with different values is silently discarded. Both contradict the never-silently-dropped contract that quarantine and the journal fold honor elsewhere. Expected: losers and content-diverging duplicates quarantine (preserved verbatim, reported by bench ls) or at minimum journal a bench event naming the discarded record. Repro: hand-append two records with equal key+ver and different id/content/T, trigger any put, grep the losing value — 0 hits, quarantine count unchanged. Found by the T-01KYJN4BGBFX6 cross-validation (findings 4+5).
+
+## B-01KYJTB95HEPFRRBMAN2YPEE32 scaffolded config.yaml omits the benchmarks section
+kind: bug
+state: draft
+created: 2026-07-27
+targets: internal/workspace
+
+internal/workspace/workspace.go scaffoldConfigYAML promises to document every setting with its default value but never emits a benchmarks: block, so a fresh workspace config carries nothing about benchmarks.history (default 1) even though docs/tools.md sec 17 points users at it. TestEnsureScaffoldGeneratesSelfDocumentingConfig never checks history: nor compares got.Benchmarks vs want.Benchmarks, so the gap is untested. Hand-adding benchmarks:
+  history: 3 works — only the self-documentation is broken. Expected: scaffold emits the commented benchmarks section and the scaffold test pins it. Found by the T-01KYJN4BGBFX6 cross-validation (finding 6).
