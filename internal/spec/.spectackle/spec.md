@@ -15,7 +15,7 @@ The `rule` tool SHALL be the only write path for `spec.md` bundles, composing ea
 IF a composed sentence produces an error-severity finding, THEN the server SHALL reject the `rule` call and write 0 bytes to the spec bundle.
 
 ## SPX-SPC-003
-WHEN `rule` lacks required slots, the server SHALL elicit the missing values from the user or return `need` records naming each missing slot.
+WHEN `rule` lacks required slots, the server SHALL return `need` records naming each missing slot plus the 1 assembled-call shape line to the calling agent; slots are agent-authored, never user-elicited (ELICIT-001).
 
 Rationale: guided input keeps end users out of EARS syntax entirely.
 

@@ -49,8 +49,9 @@ rework loop.
 
 End users never write EARS by hand. The `rule` MCP tool composes
 sentences deterministically from structured slots (system, response, and the
-pattern's condition clause), eliciting missing slots from the user through
-the MCP client where supported — see docs/spec-cascade.md, "Authoring". The
+pattern's condition clause); missing slots come back as `need` records to
+the calling agent, which authors them (ELICIT-001 — native forms are
+reserved for `decide op=ask`) — see docs/spec-cascade.md, "Authoring". The
 linter below is the gate that every composed (and every hand-smuggled)
 sentence must pass.
 

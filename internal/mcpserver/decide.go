@@ -49,8 +49,8 @@ func (s *Server) decide(ctx context.Context, req *mcp.CallToolRequest, in decide
 // the question, its kind/options and — if in.Item is set — which item it
 // blocks (appended to that item's Needs, exactly like lifecycle.Escalate
 // links its auto-minted decisions). It then tries MCP elicitation
-// (req.Session.Elicit — the same native-UI mechanism `rule`'s slot forms use
-// in production, see elicitSlots in tools.go): the host renders a
+// (req.Session.Elicit — the ONLY call site, ELICIT-001: the human is the
+// addressee of a decision, unlike agent-authored rule slots): the host renders a
 // radio/confirm/text form and, on accept, the answer resolves immediately
 // (same path as `answer`). No elicitation support, decline/cancel, or any
 // transport error leaves the ADR-item open (state=submitted) — the caller is

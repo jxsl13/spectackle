@@ -15,9 +15,9 @@ import (
 
 // connectCommands spins up a server (commands is registered in production by
 // registerTools, unlike decide — see decide_test.go's registerDecide) and
-// connects a client, optionally wired with an elicitation handler. elicit ==
-// nil reproduces the headless / no-UI case: req.Session.Elicit errors and
-// commandsElicit reports ok=false.
+// connects a client, optionally wired with an elicitation handler — kept so
+// TestCommandsGenNeverElicits can prove the capability goes UNUSED
+// (ELICIT-001); elicit == nil is the plain headless case.
 func connectCommands(t *testing.T, root string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) (*Server, *mcp.ClientSession) {
 	t.Helper()
 	s, err := New(root)
@@ -257,29 +257,29 @@ func TestCommandsGenAgentsPreservesOwnerContent(t *testing.T) {
 	}
 }
 
-// TestCommandsGenElicitationAcceptSelectsSubset: with an elicitation handler
-// that accepts {claude:true, others:false}, gen with no harness= and nothing
-// detected must write only the claude files.
-func TestCommandsGenElicitationAcceptSelectsSubset(t *testing.T) {
+// TestCommandsGenNeverElicits (B-01KYHCHRN0, ELICIT-001): even on a session
+// WITH elicitation capability, gen with no harness= and nothing detected
+// must mint the open adr decision and never pop the native form — in real
+// harnesses that form lands on the human, not the calling agent.
+func TestCommandsGenNeverElicits(t *testing.T) {
 	root := t.TempDir()
+	elicited := 0
 	_, sess := connectCommands(t, root, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		elicited++
 		return &mcp.ElicitResult{Action: "accept", Content: map[string]any{
 			"claude": true, "copilot": false, "codex": false, "kimi": false,
 		}}, nil
 	})
 
 	out := callText(t, sess, "commands", map[string]any{"op": "gen"})
-	if !strings.Contains(out, "ok gen claude") {
-		t.Fatalf("expected claude files written: %q", out)
+	if elicited != 0 {
+		t.Fatalf("commands gen elicited %d time(s); the form targets the user, not the agent", elicited)
 	}
-	if strings.Contains(out, "ok gen copilot") || strings.Contains(out, "ok gen codex") || strings.Contains(out, "ok gen kimi") {
-		t.Fatalf("only claude was selected, but other harnesses were written: %q", out)
+	if !strings.Contains(out, "need decision") {
+		t.Fatalf("expected an open adr decision instead of a form: %q", out)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".claude", "commands", "spectackle.md")); err != nil {
-		t.Fatalf("claude file missing: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".github", "prompts", "spectackle.prompt.md")); !os.IsNotExist(err) {
-		t.Fatalf("copilot file should not have been written: %v", err)
+	if _, err := os.Stat(filepath.Join(root, ".claude", "commands", "spectackle.md")); !os.IsNotExist(err) {
+		t.Fatalf("no harness was resolved, nothing may be written: %v", err)
 	}
 }
 
