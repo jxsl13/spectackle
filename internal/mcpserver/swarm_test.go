@@ -827,8 +827,9 @@ func TestWorkSubmitForeignWorktreeStaysRefused(t *testing.T) {
 func TestWorkStartAfterGitflowActivation(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "gitflow-then-worktree")
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s1, sess := connectRootWithServer(t, root)
+	inject(s1)
 
 	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "activate then start"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -904,8 +905,9 @@ func TestWorkStartAfterGitflowActivation(t *testing.T) {
 func TestAbortDiscardsGitflowBranch(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "abort-discards")
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s1, sess := connectRootWithServer(t, root)
+	inject(s1)
 
 	id := draftFullID(t, s1, sess, map[string]any{"kind": "task", "title": "abort discards"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})

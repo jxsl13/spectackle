@@ -205,6 +205,37 @@ func writeOfflineGitConfig(t *testing.T, root string) {
 	}
 }
 
+// writeOnlineGitConfig preps the hermetic ONLINE fixture (T-01KYHAH1GJ P1):
+// a local bare repo becomes origin (push and remote-ahead probes resolve),
+// config pins mode: online, and the returned inject hook installs the
+// persistent offline forge as the forge double on a connected server — the
+// full branch/PR shape runs with no network and no GitHub. This is where
+// the branch-dance coverage lives now that mode: offline is commit-only.
+func writeOnlineGitConfig(t *testing.T, root string) (inject func(*Server)) {
+	t.Helper()
+	p := filepath.Join(root, ".spectackle", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("schema: v1\ngit:\n  mode: online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bare := filepath.Join(t.TempDir(), "origin.git")
+	if out, err := exec.Command("git", "init", "--bare", "-q", bare).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v %s", err, out)
+	}
+	closureGit(t, root, "remote", "add", "origin", bare)
+	closureGit(t, root, "push", "-q", "origin", "HEAD:main")
+	statePath := filepath.Join(t.TempDir(), "forge.json")
+	return func(s *Server) {
+		s.mu.Lock()
+		s.forgeOverride = func() (forge.Forge, error) {
+			return forge.NewOfflinePersistent(root, "main", statePath), nil
+		}
+		s.mu.Unlock()
+	}
+}
+
 // scriptedForge serves awaitChecksAndMerge tests: Checks answers states in
 // order (last one repeats), Merge answers results in order.
 type scriptedForge struct {
@@ -449,8 +480,9 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 // uses, and then merge.
 func TestArchiveForwardSkipFlipsDraftReady(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
+	inject(s)
 
 	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "skip done entirely"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -524,8 +556,9 @@ func TestIdentityFallbackIsSaidOnTransition(t *testing.T) {
 // pull request marked ready while the work was declared not-finished.
 func TestReopenFlipsPullRequestBackToDraft(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
+	inject(s)
 
 	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "reopen mirror"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -563,8 +596,9 @@ func TestReopenFlipsPullRequestBackToDraft(t *testing.T) {
 // not be claimed on that path.
 func TestFreshActivationDoesNotClaimDraftFlip(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
+	inject(s)
 
 	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "fresh start"})
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -582,8 +616,9 @@ func TestFreshActivationDoesNotClaimDraftFlip(t *testing.T) {
 // sibling item's pull request.
 func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
+	inject(s)
 
 	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "stale branch closure"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -609,6 +644,9 @@ func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 		t.Fatalf("merge stale branch: %v: %s", err, out)
 	}
 
+	// online discriminator compares against origin — sync the merged main
+	// there so the feature branch reads fully merged, the stale-era premise
+	closureGit(t, root, "push", "-q", "origin", "main")
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "closed from elsewhere"})
 	if !strings.Contains(out, "-close created: stale-era item branch (fully merged)") {
 		t.Fatalf("stale-branch archive did not use a closure branch:\n%s", out)

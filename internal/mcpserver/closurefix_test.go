@@ -33,8 +33,9 @@ func closureGit(t *testing.T, dir string, args ...string) string {
 // it afterward — and never sidestep to -close.
 func TestArchiveLiveBranchNeverRecordsOnly(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
-	sess := connectRoot(t, root)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
 	id := draftID(t, sess, map[string]any{
 		"kind": "task", "title": "live branch closure fixture", "body": ambFixturePad})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
@@ -68,13 +69,17 @@ func TestArchiveLiveBranchNeverRecordsOnly(t *testing.T) {
 // main — the -close records-only path stands.
 func TestArchiveStaleEraStillClose(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
-	sess := connectRoot(t, root)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
 	id := draftID(t, sess, map[string]any{
 		"kind": "task", "title": "stale era closure fixture", "body": ambFixturePad})
 	full := fullIDOf(t, root, id)
 	// a branch at the current head: exists, zero commits ahead
 	closureGit(t, root, "branch", "spectackle/"+shortDisplayID(full))
+	// online discriminator compares against origin — sync it so the branch
+	// reads fully merged there too, matching the stale-era premise
+	closureGit(t, root, "push", "-q", "origin", "main")
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "stale era test"})
 	if !strings.Contains(out, "-close") {
 		t.Fatalf("fully-merged branch must keep the -close path: %q", out)
@@ -114,8 +119,9 @@ func TestOrphanedItemsSweep(t *testing.T) {
 // the head is green completes archive + merge.
 func TestArchiveRefusesWholeOnStrandedClosure(t *testing.T) {
 	root := gitRoot(t)
-	writeOfflineGitConfig(t, root)
+	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
+	inject(s)
 	id := draftID(t, sess, map[string]any{
 		"kind": "task", "title": "atomic archive fixture", "body": ambFixturePad})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})

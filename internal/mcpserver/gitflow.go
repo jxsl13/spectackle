@@ -161,6 +161,9 @@ func (s *Server) itemBranch(id string) string {
 // commit. That is what lets the whole lifecycle run with no network, and what
 // lets the tests exercise the mapping without standing up a forge.
 func (s *Server) forgeFor() (forge.Forge, error) {
+	if s.forgeOverride != nil {
+		return s.forgeOverride()
+	}
 	cfg := s.main.Cfg.Git
 	if cfg.Mode == "offline" {
 		base := cfg.Base
