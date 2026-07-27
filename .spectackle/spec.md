@@ -346,6 +346,6 @@ WHEN driving spectackle headlessly from a shell, the orchestrating agent SHALL i
 WHEN config.yaml carries no explicit git.mode, the spectackle server SHALL operate in offline mode (commit-only lifecycle edges); online operation requires the explicit `git: mode: online` key in `.spectackle/config.yaml`.
 
 ## PR-DRAFT-001
-WHILE git online mode is enabled and an item has an open pull request, the git flow SHALL keep the pull request draft until the archive edge, calling forge Ready exactly once before merge.
+WHILE git online mode is enabled and an item has an open pull request, the git flow SHALL keep the pull request draft until the archive edge, calling the forge Ready() exactly once before merge.
 
 Rationale: PR state churn from done/reopen cycles spams reviewers and CI; publication happens once, at archive (user directive 2026-07-28, supersedes T-01KYDKNR8KF66BSZ9W7ZPTX9BC two-way mirror).
