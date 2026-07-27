@@ -344,3 +344,8 @@ WHEN driving spectackle headlessly from a shell, the orchestrating agent SHALL i
 
 ## GIT-DEFAULT-001
 WHEN config.yaml carries no explicit git.mode, the spectackle server SHALL operate in offline mode (commit-only lifecycle edges); online operation requires the explicit `git: mode: online` key in `.spectackle/config.yaml`.
+
+## PR-DRAFT-001
+WHILE git online mode is enabled and a lifecycle item has an open pull request, the git flow SHALL keep the pull request in draft state through every lifecycle edge and reopen cycle, flipping draft to ready exactly once at the archive edge immediately before merge.
+
+Rationale: PR state churn from done/reopen cycles spams reviewers and CI; the ready flip is a publication signal and publication happens once, when the item is fully validated and archiving (user directive 2026-07-28, supersedes the two-way mirror from T-01KYDKNR8KF66BSZ9W7ZPTX9BC).
