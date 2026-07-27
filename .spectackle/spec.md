@@ -318,3 +318,6 @@ WHEN a lifecycle transition call is refused or severed, the orchestrating agent 
 
 ## NODE-EDGE-001
 The spectackle server SHALL render at every lifecycle state the callers judgment options per nextAction while executing every transition edge mechanically per gitFlowFor.
+
+## EVOLUTION-001
+WHEN an archive note claims a workflow improvement, the orchestrating agent SHALL cite its measurement (a docs/bench-curves.md entry or a rendered live metric) or label the claim unmeasured.
