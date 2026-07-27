@@ -13,7 +13,7 @@ OBSERVED (2026-07-27, B-01KYHHCFCW immediately after its archive): validate op=p
 
 ## B-01KYHV740TE8Q8KHKCV95VC3JS offline archive gate is weaker than the online draft-flip it mirrors: red-gated done reads as passing, and everActive dies with journal compaction
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go, internal/mcpserver/validate.go
