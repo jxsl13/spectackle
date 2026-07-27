@@ -374,8 +374,10 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	return res
 }
 
-// gitFlowReady flips the task's PR out of draft: the task is done, so the work
-// is up for review. Already-ready is a no-op, not an error.
+// gitFlowReady runs the done edge's git closure: local gates, head pinning
+// and the CI await — WITHOUT flipping the PR out of draft (PR-DRAFT-001:
+// the single draft->ready flip belongs to the archive edge, and a
+// human-flipped ready PR is respected untouched).
 func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	res := &gitFlowResult{}
 	if !s.gitEnabled() {
