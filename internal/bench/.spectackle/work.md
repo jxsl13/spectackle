@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYH54HE1EYZTETA37HFTNPBZ outcome brief tool list is complete: validate and work were discoverable only through refusals, costing every require judge a loop
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/bench/outcome.go, internal/bench/agent.go
