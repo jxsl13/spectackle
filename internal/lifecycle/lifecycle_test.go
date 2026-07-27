@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -912,5 +913,23 @@ func TestAuditGateSkippedWithoutOption(t *testing.T) {
 	done, err := Move(root, it.ID, item.StateDone, "")
 	if err != nil || done.State != item.StateDone {
 		t.Fatalf("move without WithAuditGate was blocked: %+v, %v", done, err)
+	}
+}
+
+// Round 2 (cross-val-research finding 1): the retention cap never cuts
+// mid-rune — a multi-byte character straddling the boundary must not leave
+// a dangling lead byte in the journal.
+func TestCapRetainedBodyRuneBoundary(t *testing.T) {
+	pad := strings.Repeat("a", retainedBodyMax-1)
+	in := pad + "—tail" // the em dash straddles the cap
+	got := capRetainedBody(in)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncation produced invalid UTF-8 near the boundary: %q", got[len(got)-60:])
+	}
+	if !strings.HasSuffix(got, "[body truncated at tombstone retention cap]") {
+		t.Fatalf("truncation marker missing: %q", got[len(got)-60:])
+	}
+	if short := "small body"; capRetainedBody(short) != short {
+		t.Fatal("under-cap bodies must pass through untouched")
 	}
 }

@@ -486,7 +486,11 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 				return text(b)
 			}
 			if mtomb, mok, merr := lifecycle.Tombstone(s.main, id); merr == nil && mok {
-				return text(sc.record(mtomb) + " root=main (archived; journal tombstone)\n")
+				out := sc.record(mtomb) + " root=main (archived; journal tombstone)\n"
+				if mtomb.Kind == "research" && mtomb.Body != "" {
+					out += mtomb.Body + "\n"
+				}
+				return text(out)
 			}
 		}
 		return s.nearest(id)

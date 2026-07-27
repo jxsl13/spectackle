@@ -29,6 +29,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -493,10 +494,18 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 	}
 	for _, ch := range all {
 		if ch.Parent == it.ID && ch.State == item.StateDone {
-			if err := journal.Append(ws, ch.Dir, journal.Event{
+			chEv := journal.Event{
 				Ev: journal.EvArchive, ID: ch.ID, K: ch.Kind, Ti: ch.Title,
 				Sum: "archived with parent " + it.ID, Dir: ch.Dir,
-			}); err != nil {
+			}
+			if ch.Kind == "research" {
+				// the same invariant through the SECOND archive path: a
+				// research child folded into its parent's closure keeps
+				// its finding (cross-val-research finding 5 reproduced
+				// the citation loss here)
+				chEv.Body = capRetainedBody(ch.Body)
+			}
+			if err := journal.Append(ws, ch.Dir, chEv); err != nil {
 				return err
 			}
 			if err := item.Remove(ws, ch); err != nil {
@@ -523,7 +532,13 @@ func capRetainedBody(b string) string {
 	if len(b) <= retainedBodyMax {
 		return b
 	}
-	return b[:retainedBodyMax] + "\n[body truncated at tombstone retention cap]"
+	// never cut mid-rune: a multi-byte character straddling the cap left a
+	// dangling lead byte in the journal (cross-val-research finding 1)
+	cut := retainedBodyMax
+	for cut > 0 && !utf8.RuneStart(b[cut]) {
+		cut--
+	}
+	return b[:cut] + "\n[body truncated at tombstone retention cap]"
 }
 
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
