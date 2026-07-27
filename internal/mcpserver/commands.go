@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"bytes"
-	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -23,10 +22,10 @@ import (
 // .claude/commands/spectackle.md pioneered — without hand-maintaining N
 // per-harness copies. detect: sniff which harnesses are already wired into
 // the repo from filesystem markers. gen: (re)write the dialect files for a
-// harness set resolved arg > detection > elicitation (MCP-003 family): the
-// user answers a native checkbox form, or — no UI, decline, or a different
-// harness — an `adr` item is minted and left open exactly like
-// decideAsk (decide.go), never blocking the caller.
+// harness set resolved arg > detection > open decision (MCP-003): when
+// neither names a harness, an `adr` item is minted and left open exactly
+// like decideAsk with no UI (decide.go), never blocking the caller — no
+// native form; elicitation is reserved for decide op=ask (ELICIT-001).
 type commandsIn struct {
 	Op      string   `json:"op" jsonschema:"detect|gen"`
 	Harness []string `json:"harness,omitempty" jsonschema:"claude|copilot|codex|kimi — omit to auto-detect"`
@@ -104,12 +103,12 @@ var commandSpecs = []commandSpec{
 		Description: "Merge several knowledge artifacts into one condensate, reporting conflicts"},
 }
 
-func (s *Server) commands(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
+func (s *Server) commands(in commandsIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
 	case "detect":
 		return s.commandsDetect()
 	case "gen":
-		return s.commandsGen(ctx, req, in)
+		return s.commandsGen(in)
 	}
 	return refuse("! ARG E - op must be detect|gen")
 }
@@ -173,7 +172,7 @@ func (s *Server) commandsDetect() (*mcp.CallToolResult, any, error) {
 
 const commandsQuestion = "which harnesses should `commands` generate for? (claude, copilot, codex, kimi)"
 
-func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
+func (s *Server) commandsGen(in commandsIn) (*mcp.CallToolResult, any, error) {
 	harnesses, err := normalizeHarnesses(in.Harness)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())
@@ -182,14 +181,10 @@ func (s *Server) commandsGen(ctx context.Context, req *mcp.CallToolRequest, in c
 		harnesses = dedupHarnessHits(detectHarnesses(s.ws.Dir))
 	}
 	if len(harnesses) == 0 {
-		selected, ok := s.commandsElicit(ctx, req)
-		if !ok {
-			return s.commandsMintDecision()
-		}
-		if len(selected) == 0 {
-			return refuse("! ARG E - no harness selected")
-		}
-		harnesses = selected
+		// No native form: the harness choice is a real user decision, so
+		// it goes through the decision machinery like decide op=ask with
+		// no UI — an open adr item answered later (ELICIT-001).
+		return s.commandsMintDecision()
 	}
 
 	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: moduleRepoURL()}
@@ -254,43 +249,12 @@ func dedupHarnessHits(hits []harnessHit) []string {
 	return out
 }
 
-// commandsElicit renders a native checkbox form (one boolean per harness) —
-// the same req.Session.Elicit mechanism elicitSlots (tools.go) and decideAsk
-// (decide.go) use — and returns the harnesses the user checked. ok is false
-// on any non-accept outcome (no elicitation capability, decline, cancel,
-// transport error): the caller falls back to minting an adr item instead of
-// blocking.
-func (s *Server) commandsElicit(ctx context.Context, req *mcp.CallToolRequest) ([]string, bool) {
-	props := map[string]any{
-		"claude":  map[string]any{"type": "boolean", "description": "Claude Code — .claude/commands/*.md"},
-		"copilot": map[string]any{"type": "boolean", "description": "GitHub Copilot — .github/prompts/*.prompt.md"},
-		"codex":   map[string]any{"type": "boolean", "description": "Codex — AGENTS.md managed section"},
-		"kimi":    map[string]any{"type": "boolean", "description": "Kimi — AGENTS.md managed section"},
-	}
-	res, err := req.Session.Elicit(ctx, &mcp.ElicitParams{
-		Message: "spectackle: " + commandsQuestion,
-		RequestedSchema: map[string]any{
-			"type": "object", "properties": props,
-		},
-	})
-	if err != nil || res.Action != "accept" {
-		return nil, false
-	}
-	var out []string
-	for _, h := range []string{"claude", "copilot", "codex", "kimi"} {
-		if b, _ := res.Content[h].(bool); b {
-			out = append(out, h)
-		}
-	}
-	return out, true
-}
-
-// commandsMintDecision is the elicitation-declined/no-UI fallback: mint a
-// free-text `adr` item and leave it open (state=submitted), exactly
-// like decideAsk (decide.go) does when its own elicitation attempt fails —
-// duplicated minimally here rather than calling decideAsk itself, since that
-// would fire a second, differently-shaped elicitation round after ours
-// already came back empty.
+// commandsMintDecision resolves the unanswerable harness choice: mint a
+// free-text `adr` item and leave it open (state=submitted), exactly like
+// decideAsk (decide.go) does when its own elicitation attempt fails —
+// duplicated minimally here rather than calling decideAsk itself, since
+// calling it would fire decide's differently-shaped elicitation round for
+// what commands already knows is a plain harness-subset question.
 func (s *Server) commandsMintDecision() (*mcp.CallToolResult, any, error) {
 	body := "kind: text\noptions: free text — comma-separated subset of claude,copilot,codex,kimi"
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", commandsQuestion, body, "", "", nil)

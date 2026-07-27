@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,7 +106,7 @@ func TestResearchContracts(t *testing.T) {
 	root := t.TempDir()
 	s := newTestServer(t, root)
 
-	rres, _, rerr := s.rule(context.Background(), nil, ruleIn{
+	rres, _, rerr := s.rule(ruleIn{
 		Op: "add", Pattern: "U", Stem: "DEMO",
 		System: "demo pkg", Response: "do the demo thing",
 	})
@@ -232,7 +231,7 @@ func TestResearchReadOnly(t *testing.T) {
 	if _, _, err := s.draft(draftIn{Kind: "task", Title: "seed"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.rule(context.Background(), nil, ruleIn{
+	if _, _, err := s.rule(ruleIn{
 		Op: "add", Pattern: "U", Stem: "DEMO", System: "demo", Response: "do the thing",
 		Applies: []string{"go:demo.Foo"},
 	}); err != nil {

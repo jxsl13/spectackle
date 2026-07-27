@@ -66,7 +66,7 @@ type ruleIn struct {
 	Op        string   `json:"op" jsonschema:"add|edit|retire"`
 	ID        string   `json:"id,omitempty" jsonschema:"rule ID (edit/retire)"`
 	Dir       string   `json:"dir,omitempty" jsonschema:"context dir (add), default root"`
-	Pattern   string   `json:"pattern,omitempty" jsonschema:"U|E|S|N|O|C; elicited if missing"`
+	Pattern   string   `json:"pattern,omitempty" jsonschema:"U|E|S|N|O|C; returned as a need record if missing"`
 	System    string   `json:"system,omitempty" jsonschema:"the acting system"`
 	Response  string   `json:"response,omitempty" jsonschema:"what it SHALL do; name something verifiable"`
 	Trigger   string   `json:"trigger,omitempty" jsonschema:"WHEN clause (E/C)"`
@@ -234,23 +234,8 @@ func (s *Server) registerTools() {
 		gate(s, s.draft))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "rule",
-		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots (missing ones elicited or returned as need records); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
-		func(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
-			// in-flight for the swap deferral (B-01KYF7): elicitation and
-			// prompt paths bypass gate() and are exactly the long-blocking
-			// calls the watcher must not sever.
-			s.inFlight.Add(1)
-			defer s.inFlight.Add(-1)
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if err := s.preCall(); err != nil {
-				return nil, nil, err
-			}
-			finish := s.beginEdgeCapture()
-			res, out, err := s.rule(ctx, req, in)
-			finish(err != nil || (res != nil && res.IsError))
-			return s.postCall(res), out, err
-		})
+		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots; missing ones come back as need records naming each slot (YOU author them — no user form); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
+		gate(s, s.rule))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "move",
 		Description: "Transition a lifecycle item. States are totally ordered (draft<submitted<approved<active<done<archived): ANY forward skip is one call (draft→active, active→archived implies done). rejected REQUIRES note (item leaves work.md; summary stays searchable via find scope=rejection) and is revocable back to draft/submitted/approved/active. archived needs no open children; merges the delta into spec.md. approve/reject only on explicit user instruction."},
@@ -316,23 +301,8 @@ func (s *Server) registerTools() {
 		gate(s, s.knowledge))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
-		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection > elicitation (native checkbox form); no UI/declined leaves an adr item open (need decision …) instead of blocking."},
-		func(ctx context.Context, req *mcp.CallToolRequest, in commandsIn) (*mcp.CallToolResult, any, error) {
-			// in-flight for the swap deferral (B-01KYF7): elicitation and
-			// prompt paths bypass gate() and are exactly the long-blocking
-			// calls the watcher must not sever.
-			s.inFlight.Add(1)
-			defer s.inFlight.Add(-1)
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if err := s.preCall(); err != nil {
-				return nil, nil, err
-			}
-			finish := s.beginEdgeCapture()
-			res, out, err := s.commands(ctx, req, in)
-			finish(err != nil || (res != nil && res.IsError))
-			return s.postCall(res), out, err
-		})
+		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection; neither naming one leaves an adr item open (need decision …) instead of blocking."},
+		gate(s, s.commands))
 }
 
 // ---- find ----
@@ -1257,47 +1227,7 @@ func slotsOf(in ruleIn) ears.Slots {
 	}
 }
 
-func elicitSlots(ctx context.Context, req *mcp.CallToolRequest, in *ruleIn, missing []string) bool {
-	props := map[string]any{}
-	for _, m := range missing {
-		p := map[string]any{"type": "string", "description": slotQuestions[m]}
-		if m == "pattern" {
-			p["enum"] = []string{"U", "E", "S", "N", "O", "C"}
-		}
-		props[m] = p
-	}
-	res, err := req.Session.Elicit(ctx, &mcp.ElicitParams{
-		Message: "spectackle: complete the EARS contract",
-		RequestedSchema: map[string]any{
-			"type": "object", "properties": props, "required": missing,
-		},
-	})
-	if err != nil || res.Action != "accept" {
-		return false
-	}
-	get := func(k string) string { v, _ := res.Content[k].(string); return v }
-	for _, m := range missing {
-		switch m {
-		case "pattern":
-			in.Pattern = get(m)
-		case "system":
-			in.System = get(m)
-		case "response":
-			in.Response = get(m)
-		case "trigger":
-			in.Trigger = get(m)
-		case "state":
-			in.State = get(m)
-		case "condition":
-			in.Condition = get(m)
-		case "feature":
-			in.Feature = get(m)
-		}
-	}
-	return true
-}
-
-func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) (*mcp.CallToolResult, any, error) {
+func (s *Server) rule(in ruleIn) (*mcp.CallToolResult, any, error) {
 	defer s.markDirty()
 	c, err := spec.Load(s.ws.Dir)
 	if err != nil {
@@ -1305,7 +1235,7 @@ func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) 
 	}
 	switch in.Op {
 	case "add":
-		return s.ruleAdd(ctx, req, in, c)
+		return s.ruleAdd(in, c)
 	case "edit":
 		return s.ruleEdit(in, c)
 	case "retire":
@@ -1314,15 +1244,13 @@ func (s *Server) rule(ctx context.Context, req *mcp.CallToolRequest, in ruleIn) 
 	return refuse("! ARG E - op must be add|edit|retire")
 }
 
-func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
-	for range 3 {
-		missing := missingSlots(in)
-		if len(missing) == 0 {
-			break
-		}
-		if elicitSlots(ctx, req, &in, missing) {
-			continue
-		}
+func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
+	// Missing slots return need records to the CALLING AGENT — the rule's
+	// author. Session.Elicit is never used here: in every real harness the
+	// native form lands on the human, who is not authoring EARS slots
+	// (ELICIT-001, B-01KYHCHRN0; decide op=ask keeps elicitation because
+	// there the human IS the addressee).
+	if missing := missingSlots(in); len(missing) > 0 {
 		var b strings.Builder
 		for _, m := range missing {
 			b.WriteString("need " + m + " " + slotQuestions[m] + "\n")
@@ -1342,9 +1270,6 @@ func (s *Server) ruleAdd(ctx context.Context, req *mcp.CallToolRequest, in ruleI
 		// successes deliberately: there the ask WAS registered and the
 		// answer legitimately arrives later.
 		return refuse(b.String())
-	}
-	if missing := missingSlots(in); len(missing) > 0 {
-		return refuse("! ARG E - still missing: " + strings.Join(missing, ", "))
 	}
 	p := ears.PatternFromString(in.Pattern)
 	sentence, err := ears.Compose(p, slotsOf(in))

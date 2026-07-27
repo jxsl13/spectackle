@@ -61,7 +61,7 @@ l <path> <agent> <item|-> <exp>m                 scope lease (time left, floored
 h <harness> <marker>                             detected harness (commands op=detect; claude|copilot|codex|kimi)
 sw <seq> <agent> <ev> <ref|-> <msg>              swarm event (sibling learning, may prefix ANY result)
 wt <item> <state> <root>                         worktree (open|gating|integrating|conflict|replaying)
-need <slot> <question>                           missing input (elicitation fallback)
+need <slot> <question>                           missing input for the calling agent to supply
 q <ref> <question>                               open question (research #open, grill #questions)
 b <id> <issue>                                   brief-quality finding (grill #briefs: child task body fails the exhaustiveness heuristic)
 nf <id> <id> <id>                                not found — nearest matches
@@ -178,8 +178,9 @@ known-false unconsumed finding per symbol with an `unconsumed-ok: <symbol>
 ```
 `add`: slots → server composes the canonical sentence, lints (errors reject,
 nothing written — SPX-SPC-002), auto-IDs (SPX-SPC-004), appends to the scoped
-spec.md, journals, anchors `applies` for drift. Missing slots are **elicited
-from the end user** (MCP elicitation form) or returned as `need` records.
+spec.md, journals, anchors `applies` for drift. Missing slots are returned
+as `need` records **to the calling agent** — the rule's author — never as a
+user form (ELICIT-001).
 `edit`: recompose/relink by id. `retire`: removed from spec.md; full text
 survives in the journal.
 
@@ -439,9 +440,10 @@ above).
   "choose":  {"type":"string","description":"answer: option text / yes|no / free text"},
   "consequences":{"type":"string","description":"answer: ADR consequences — trade-offs and follow-on effects of the decision"}}}
 ```
-`ask` tries MCP elicitation (`Session.Elicit`, the same native-UI mechanism
-`rule`'s slot forms already use in production — `elicitSlots` in
-`tools.go`) — `radio`→enum property (host renders a radio/dropdown),
+`ask` tries MCP elicitation (`Session.Elicit` — the ONLY tool that may:
+elicitation forms land on the human, and `decide op=ask` is the one call
+where the human is the addressee, ELICIT-001) — `radio`→enum property
+(host renders a radio/dropdown),
 `confirm`→boolean property (confirm dialog), `text`→string property (free
 text). Two outcomes: **the host renders it and the user answers** — the
 decision is persisted immediately (`ADR-xxxx` item → `done` with the choice),
@@ -473,13 +475,11 @@ sniff root markers and emit one `h <harness> <marker>` line per hit — `.claude
 → claude; `.github/prompts/` or `.github/copilot-instructions.md` → copilot;
 `.codex/` → codex; `.kimi/` → kimi; `AGENTS.md` → both codex and kimi (they
 share it); no hits → `nf harness — pass harness=... or answer the decision`.
-`gen`: the harness set resolves **arg > detection > elicitation** — an
-explicit `harness=` wins, else `detect`'s hits, else a native checkbox form
-(`Session.Elicit`, one boolean per harness — the same mechanism `elicitSlots`
-in `tools.go` and `decide op=ask` in `decide.go` use); no elicitation
-capability, decline, cancel, or a different harness leaves a free-text
-`decision` item open (`need decision D-x …`) exactly like `decide op=ask`'s
-own no-UI fallback — `commands gen` never blocks or guesses. Per-dialect
+`gen`: the harness set resolves **arg > detection > open decision** — an
+explicit `harness=` wins, else `detect`'s hits, else a free-text `decision`
+item is left open (`need decision ADR-x …`) exactly like `decide op=ask`'s
+no-UI fallback, answered later from any session — `commands gen` never
+blocks, guesses, or pops a form (ELICIT-001). Per-dialect
 output: **claude** → `.claude/commands/spectackle.md` +
 `spectackle-state.md` (`description:` frontmatter, as today). **copilot** →
 `.github/prompts/spectackle.prompt.md` + `spectackle-state.prompt.md`

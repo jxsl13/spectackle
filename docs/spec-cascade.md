@@ -91,8 +91,9 @@ For a file path `P` (`spec.Cascade.ForPath`):
 Contracts enter the cascade exclusively through the `rule` tool
 (SPX-SPC-001): structured slots → deterministic composition → lint gate
 (errors write nothing, SPX-SPC-002) → automatic ID (SPX-SPC-004) → scoped
-bundle write with `schema: v0` injected. Missing slots are elicited from the
-end user via the MCP client or returned as `need` records (SPX-SPC-003).
+bundle write with `schema: v0` injected. Missing slots are returned as
+`need` records to the calling agent, which authors them (SPX-SPC-003,
+ELICIT-001 — never a user form).
 `rule op=edit` and `op=retire` complete the write surface; retired rule text
 survives in the journal.
 
