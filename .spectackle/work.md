@@ -58,7 +58,7 @@ internal/workspace/workspace.go scaffoldConfigYAML promises to document every se
 
 ## B-01KYJTBA25F6HR79R08MK9MJN9 benchmark Validate accepts negative noise and unvalidated impl src
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 targets: internal/benchmark
 
