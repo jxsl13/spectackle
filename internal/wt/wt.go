@@ -705,3 +705,29 @@ func InitTestRepo(dir string) error {
 	}
 	return nil
 }
+
+// DirtyFiles lists uncommitted paths in a worktree — tracked modifications
+// plus untracked files, enumerated the CommitRecords way (name-only diff +
+// ls-files --others; porcelain's positional columns are trim-hostile, see
+// the comment there). Used by the never-destroy guard (B-01KYH8JBB): a
+// worktree holding any of these must not be recreated without an explicit
+// force.
+func DirtyFiles(wtRoot string) ([]string, error) {
+	tracked, err := git(wtRoot, "diff", "--name-only")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := git(wtRoot, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, blob := range []string{tracked, untracked} {
+		for _, l := range strings.Split(strings.TrimSpace(blob), "\n") {
+			if l != "" {
+				out = append(out, l)
+			}
+		}
+	}
+	return out, nil
+}

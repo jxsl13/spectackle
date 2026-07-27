@@ -810,8 +810,10 @@ func TestWorkSubmitForeignWorktreeStaysRefused(t *testing.T) {
 	t.Setenv("SPECTACKLE_AGENT", "intruder-agent")
 	_, sess2 := connectRootWithServer(t, root)
 	out := callText(t, sess2, "work", map[string]any{"op": "submit", "item": id})
-	if !strings.Contains(out, "no open worktree") {
-		t.Fatalf("foreign agent adopted a sibling's worktree:\n%s", out)
+	// The refusal got MORE specific (B-01KYH8JBB): it names the holder and
+	// the reattach fix instead of a bare no-open-worktree — still a refusal.
+	if !strings.Contains(out, "held by owner-agent") || !strings.Contains(out, "SPECTACKLE_AGENT=owner-agent") {
+		t.Fatalf("foreign agent adopted a sibling's worktree (or the refusal lost its holder hint):\n%s", out)
 	}
 }
 
