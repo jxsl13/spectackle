@@ -80,3 +80,11 @@ created: 2026-07-27
 targets: internal/benchmark
 
 internal/benchmark/record.go Validate: (1) Metric.Noise is checked for NaN/Inf but not sign — a negative noise (metrics time:ns:-:-5) is stored and silently behaves like noise=0 (abs(delta) <= -5 never holds), instead of refusing as invalid input. (2) Impl.Src bypasses validToken entirely — separators (= | ; :) land in src verbatim (results go@sha=x|y: ...). No corruption today (src is never re-parsed and not part of the key, get does not render it) but it breaks the stated forbidden-characters contract and get should arguably render provenance. Expected: Validate refuses negative noise; src passes validToken (or the contract comment names src as exempt free-form and get renders it). Found by the T-01KYJN4BGBFX6 cross-validation (findings 7+8).
+
+## B-01KYJW2MP8EWQS0QZ0H2VAE685 stale prose claims the PR readies at done
+kind: bug
+state: draft
+created: 2026-07-27
+targets: CONTRIBUTING.md, internal/forge
+
+Two spots still describe the pre-PR-DRAFT-001 two-way mirror after T-01KYJTQ5RRFYF landed the single archive-edge flip: (1) CONTRIBUTING.md ~116-119 says the PR flips to ready immediately when the task reaches done. (2) internal/forge doc comments — forge.go ~76 Draft interface method, github.go ~300, offline.go ~157 — describe Draft as the live reopen mirror while zero production callers remain (only forge unit tests call it); either reword as a capability kept for API completeness or retire the method. Both were outside T-01KYJTQ5RRFYF targets (internal/mcpserver, docs, README.md) so the fix could not ride that PR. Found by the PR 184 cross-validation.

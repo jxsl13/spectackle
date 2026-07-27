@@ -558,46 +558,49 @@ func TestIdentityFallbackIsSaidOnTransition(t *testing.T) {
 	}
 }
 
-// TestReopenFlipsPullRequestBackToDraft pins T-01KYDKNR8 end to end over
-// the offline lifecycle double: done readies the pull request, the reopen
-// (done -> active) converts it BACK to draft and says so, the second done
-// readies it again, and the archive merges. The draft state mirrors the
-// item state in both directions — before this, a reopened task left its
-// pull request marked ready while the work was declared not-finished.
-func TestReopenFlipsPullRequestBackToDraft(t *testing.T) {
+// TestSingleReadyFlipAtArchive pins PR-DRAFT-001 end to end over the
+// offline lifecycle double (superseding T-01KYDKNR8's two-way mirror):
+// done leaves the pull request DRAFT and says so, a reopen cycle never
+// toggles PR state, the second done still leaves it draft, and the archive
+// performs the lifecycle's single draft->ready flip immediately before the
+// merge. Review cycles must never churn the PR state back and forth.
+func TestSingleReadyFlipAtArchive(t *testing.T) {
 	root := gitRoot(t)
 	inject := writeOnlineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
 	inject(s)
 
-	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "reopen mirror", "targets": []string{"work.go"}})
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "single flip", "targets": []string{"work.go"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	firstDone := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
-	if !strings.Contains(firstDone, "ready") {
-		t.Fatalf("first done did not ready the pull request:\n%s", firstDone)
+	if !strings.Contains(firstDone, "stays draft until archive") {
+		t.Fatalf("done must leave the pull request draft:\n%s", firstDone)
+	}
+	if strings.Contains(firstDone, "pr") && strings.Contains(firstDone, " ready ") {
+		t.Fatalf("done must not flip the pull request ready:\n%s", firstDone)
 	}
 
 	reopen := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
-	if !strings.Contains(reopen, "back to draft") {
-		t.Fatalf("reopen did not flip the pull request back to draft:\n%s", reopen)
+	if strings.Contains(reopen, "back to draft") {
+		t.Fatalf("a reopen must not toggle PR state (it is already draft):\n%s", reopen)
 	}
 
-	// A second activation-shaped pass while already drafted must NOT claim
-	// another flip — checked via the second done, whose ready line proves
-	// the draft state was real, then the archive merges.
 	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n\n// v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	secondDone := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
-	if !strings.Contains(secondDone, "ready") {
-		t.Fatalf("second done did not re-ready the drafted pull request:\n%s", secondDone)
+	if !strings.Contains(secondDone, "stays draft until archive") {
+		t.Fatalf("the second done must still leave the pull request draft:\n%s", secondDone)
 	}
-	archived := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "mirror closed"})
+	archived := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "single flip closed"})
+	if !strings.Contains(archived, "ready") {
+		t.Fatalf("archive must perform the single draft->ready flip:\n%s", archived)
+	}
 	if !strings.Contains(archived, "merged") {
-		t.Fatalf("archive after reopen cycle did not merge:\n%s", archived)
+		t.Fatalf("archive after the flip did not merge:\n%s", archived)
 	}
 }
 

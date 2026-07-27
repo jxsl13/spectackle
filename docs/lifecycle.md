@@ -97,7 +97,8 @@ convention keep their full-length names; the flow falls back to them.
 commits code and records on the CURRENT branch — `g offline commit
 <short-sha> <subject>` — and creates **no branches, no pull requests, no
 pushes, no base checkouts**. Online operation (branch per item, draft PR
-at activation, ready at done, merge at archive) is the explicit opt-in
+at activation, PR held draft through every edge, the single ready flip and
+merge at archive — PR-DRAFT-001) is the explicit opt-in
 `git: mode: online`; repositories that relied on the old implicit online
 default must add that key. The swarm worktree flow is mode-exempt by
 recorded decision (ADR): its transient local branches are already push-
