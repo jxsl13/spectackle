@@ -130,4 +130,36 @@ func TestArchivedPackSuppressed(t *testing.T) {
 	if !strings.Contains(out, "archived; verdicts bind to live items") {
 		t.Fatalf("verdict on a tombstone must refuse honestly: %q", out)
 	}
+	// grill carried the identical bare-nf bug (round-2 validator finding) —
+	// its pack suppresses and its verdict refuses through the same helper
+	out = callText(t, sess, "grill", map[string]any{"id": it.ID})
+	if strings.HasPrefix(out, "nf ") || !strings.Contains(out, "computed: suppressed (archived)") {
+		t.Fatalf("archived grill pack must suppress, not nf: %q", out)
+	}
+	out = callText(t, sess, "grill", map[string]any{
+		"id": it.ID, "op": "verdict", "pass": true, "agent": "post-hoc"})
+	if !strings.Contains(out, "archived; review verdicts bind to live items") {
+		t.Fatalf("grill verdict on a tombstone must refuse honestly: %q", out)
+	}
+}
+
+// The union-root arm: a worktree-homed server must resolve a tombstone
+// that lives in MAIN's journal — every sibling lookup path already does
+// (the get tool's established fallback); without it the serving-worktree
+// topology reproduced the bare-nf bug verbatim.
+func TestArchivedPackSuppressedAcrossUnionRoot(t *testing.T) {
+	mainRoot, wtDir := servedWorktree(t, "")
+	mainSess := connectRoot(t, mainRoot)
+	id := draftID(t, mainSess, map[string]any{
+		"kind": "task", "title": "archived on main, judged from the worktree", "body": ambFixturePad})
+	callText(t, mainSess, "move", map[string]any{"id": id, "to": "archived", "note": "closed on main"})
+
+	wtSess := connectRoot(t, wtDir)
+	out := callText(t, wtSess, "validate", map[string]any{"id": id})
+	if strings.HasPrefix(out, "nf ") || strings.Contains(out, "j:") {
+		t.Fatalf("worktree-homed pack fell to nearest for a main tombstone: %q", out)
+	}
+	if !strings.Contains(out, "computed: suppressed (archived)") {
+		t.Fatalf("main-root tombstone must render suppressed: %q", out)
+	}
 }
