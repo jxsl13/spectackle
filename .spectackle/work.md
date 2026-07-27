@@ -30,7 +30,7 @@ FOUND by cross-val-mainmove (PR 177): when main.go moved to the module root, the
 
 ## B-01KYJBMSPRFXEV2BZDQFBEXST9 v0 to v1 migration never stamps config.yaml - the workspace bricks on the next startup
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 refs: https://github.com/jxsl13/spectackle/issues/178
 grilled: 2026-07-27 open=2
