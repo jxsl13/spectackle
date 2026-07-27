@@ -124,7 +124,8 @@ func TestFullLoopLeavesNothingUncommitted(t *testing.T) {
 	writeOfflineGitConfig(t, root)
 	s, sess := connectRootWithServer(t, root)
 
-	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "leave nothing behind"})
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "leave nothing behind",
+		"targets": []string{"work.go"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	// work happens: a code change AND more record writes (a second draft)
 	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
@@ -133,6 +134,11 @@ func TestFullLoopLeavesNothingUncommitted(t *testing.T) {
 	draftID(t, sess, map[string]any{"kind": "bug", "title": "left behind between transitions"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "loop closed"})
+	// the loop must actually CLOSE — a scope refusal stalling the item in
+	// active passed the old .spectackle-only assertion silently
+	if got := callText(t, sess, "get", map[string]any{"id": id}); !strings.Contains(got, "archived") {
+		t.Fatalf("lifecycle did not close: %q", got)
+	}
 
 	out, err := exec.Command("git", "-C", root, "status", "--porcelain", "-uall").Output()
 	if err != nil {
@@ -488,7 +494,7 @@ func TestArchiveForwardSkipFlipsDraftReady(t *testing.T) {
 	s, sess := connectRootWithServer(t, root)
 	inject(s)
 
-	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "skip done entirely"})
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "skip done entirely", "targets": []string{"skipped.go"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if err := os.WriteFile(filepath.Join(root, "skipped.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -564,7 +570,7 @@ func TestReopenFlipsPullRequestBackToDraft(t *testing.T) {
 	s, sess := connectRootWithServer(t, root)
 	inject(s)
 
-	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "reopen mirror"})
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "reopen mirror", "targets": []string{"work.go"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -624,7 +630,8 @@ func TestArchiveWithStaleItemBranchUsesClosureBranch(t *testing.T) {
 	s, sess := connectRootWithServer(t, root)
 	inject(s)
 
-	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "stale branch closure"})
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "stale branch closure",
+		"targets": []string{"work.go"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)

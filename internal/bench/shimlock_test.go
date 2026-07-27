@@ -193,7 +193,7 @@ func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
 		out, _ := exec.Command(shim, "call", "-root", dir, tool, args).CombinedOutput()
 		return string(out)
 	}
-	out := call("draft", `{"kind":"task","title":"interleaved drive fixture","body":"`+strings.Repeat("a real sentence for the ambiguity floor. ", 12)+`"}`)
+	out := call("draft", `{"kind":"task","title":"interleaved drive fixture","targets":["limiter"],"body":"`+strings.Repeat("a real sentence for the ambiguity floor. ", 12)+`"}`)
 	m := regexp.MustCompile(`\bi (T-[0-9A-HJKMNP-TV-Z]+)`).FindStringSubmatch(out)
 	if m == nil {
 		t.Fatalf("draft failed: %s", out)

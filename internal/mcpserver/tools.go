@@ -1599,6 +1599,15 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			}
 		}
 	}
+	// Scope preflight BEFORE the state moves (issue 178 defect 2): a
+	// transition whose git edge would commit must refuse while the tree
+	// holds changes OUTSIDE the item's declared targets — the sweep
+	// committed an entire spec-system removal and a SECRET_NOTE file under
+	// unrelated item names. Refusing pre-Move keeps the state machine and
+	// the tree in agreement; the message names the paths and the recovery.
+	if res := s.gitScopeRefusal(in.ID, in.To); res != nil {
+		return res, nil, nil
+	}
 	it, err := lifecycle.Move(s.ws, in.ID, in.To, in.Note, s.auditGateOpts()...)
 	if err != nil {
 		var rex lifecycle.ErrRoundsExhausted

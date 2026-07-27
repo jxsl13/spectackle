@@ -47,7 +47,8 @@ func TestOfflineLifecycleSingleBranchOnly(t *testing.T) {
 
 	sess := connectRoot(t, root)
 	id := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "offline single branch lifecycle", "body": ambFixturePad})
+		"kind": "task", "title": "offline single branch lifecycle", "body": ambFixturePad,
+		"targets": []string{"offline_work.go", "ok.txt"}})
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	if err := os.WriteFile(filepath.Join(root, "offline_work.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -84,7 +85,8 @@ func TestOfflineArchiveRefusesWholeOnRecordsFailure(t *testing.T) {
 	writeOfflineGitConfig(t, root)
 	sess := connectRoot(t, root)
 	id := draftID(t, sess, map[string]any{
-		"kind": "task", "title": "offline atomicity twin", "body": ambFixturePad})
+		"kind": "task", "title": "offline atomicity twin", "body": ambFixturePad,
+		"targets": []string{"ok.txt"}})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
 	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
 
@@ -117,5 +119,90 @@ func TestOfflineArchiveRefusesWholeOnRecordsFailure(t *testing.T) {
 	got = callText(t, sess, "get", map[string]any{"id": id})
 	if !strings.Contains(got, "archived") {
 		t.Fatalf("retry did not archive: %q", got)
+	}
+}
+
+// Issue 178 defect 2, the reporter's exact reproduction: unrelated dirty
+// files — an edit to a file the task's body says not to touch, and a fresh
+// SECRET_NOTE — must REFUSE the transition naming them, never be swept
+// into the item's commit; declared-target edits commit normally.
+func TestMoveRefusesOutOfScopeDirt(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "fixture green gate")
+	sess := connectRoot(t, root)
+	id := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "unrelated task about docs", "body": ambFixturePad,
+		"targets": []string{"docs"}})
+
+	// dirty the tree with things that have NOTHING to do with the task
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte("package main\n\n// unrelated edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("SECRET_NOTE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if !strings.Contains(out, "transition refused") || !strings.Contains(out, "unrelated.txt") {
+		t.Fatalf("out-of-scope dirt must refuse the transition naming the paths:\n%s", out)
+	}
+	// nothing was committed: the dirt is still sitting in the tree
+	st := closureGit(t, root, "status", "--porcelain")
+	if !strings.Contains(st, "unrelated.txt") || !strings.Contains(st, "main.go") {
+		t.Fatalf("the out-of-scope dirt must remain uncommitted:\n%s", st)
+	}
+	got := callText(t, sess, "get", map[string]any{"id": id})
+	if !strings.Contains(got, " draft ") {
+		t.Fatalf("a refused transition must not move the item: %q", got)
+	}
+
+	// clean up the unrelated dirt: the transition proceeds and commits
+	// only what the flow owns
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "operator parks the unrelated work")
+	out = callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if strings.Contains(out, "transition refused") {
+		t.Fatalf("a clean tree must transition:\n%s", out)
+	}
+}
+
+// The item's own test plan demanded this pin: a targets-less item with a
+// dirty tree refuses (empty scope allows nothing outside records), while
+// a records-only item with a CLEAN tree transitions untouched.
+func TestMoveTargetlessItemScope(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "fixture green gate")
+	sess := connectRoot(t, root)
+
+	// clean tree: a targets-less item transitions fine
+	clean := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "records only clean tree", "body": ambFixturePad})
+	if out := callText(t, sess, "move", map[string]any{"id": clean, "to": "active"}); strings.Contains(out, "transition refused") {
+		t.Fatalf("clean tree must transition without targets:\n%s", out)
+	}
+
+	// dirty tree: the same shape refuses and the message names the real
+	// recovery (targets are draft-frozen — reject back to draft)
+	dirtyItem := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "targetless with dirt", "body": ambFixturePad})
+	if err := os.WriteFile(filepath.Join(root, "stray.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := callText(t, sess, "move", map[string]any{"id": dirtyItem, "to": "active"})
+	if !strings.Contains(out, "transition refused") || !strings.Contains(out, "stray.go") {
+		t.Fatalf("targets-less item with dirt must refuse naming it:\n%s", out)
+	}
+	if !strings.Contains(out, "reject back to draft") {
+		t.Fatalf("the recovery must name the actual path (targets are draft-frozen):\n%s", out)
 	}
 }
