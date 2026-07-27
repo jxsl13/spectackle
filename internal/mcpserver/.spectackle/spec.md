@@ -125,3 +125,6 @@ Rationale: This repo develops itself with itself, so a stale binary answers plau
 
 ## MCP-011 {applies: go:mcpserver.Server.registerTools}
 The server instructions manifest SHALL carry a BACKPROP paragraph naming the three durable stores, the archive-note training signal, and the post-merge make dev rebuild.
+
+## RENDER-PARITY-001
+WHEN a lifecycle edges git automation succeeds, the MCP server SHALL render 1 line per edge naming the outcome artifact (commit SHA, PR URL, or merge SHA); full multi-line verbosity is reserved for refusals and failures - the LLM performs transitions, never narrates automation.
