@@ -89,13 +89,13 @@ var recordFamilies = map[string]string{
 	"rounds escalation": "! ROUNDS E",
 }
 
-// closureFamilies is the DUAL-SURFACE transition set (T-01KYHAH1GJ P2): the
-// bench fixture runs mode: offline, whose closure surface is migrating from
-// PR theater (branch/draft/ready/merged lines) to commit-only ("g offline
-// commit"). During the migration either surface satisfies never-silent —
-// the P3 collapse flips this to the commit-only family alone.
+// closureFamilies is the transition surface set (T-01KYHAH1GJ): the bench
+// fixture runs mode: offline, whose closure surface is commit-only — the
+// old PR-theater families (branch/draft/ready/merged) died with the
+// collapse. Kept as a one-entry any-of table so an online-fixture bench
+// variant can extend it without reshaping the scorer.
 var closureFamilies = map[string][]string{
-	"gitflow closure": {"g branch ", " draft offline://", " ready offline://", " merged ", "g offline commit "},
+	"gitflow closure": {"g offline commit ", "g records "},
 }
 
 var reItemID = regexp.MustCompile(`\bi ((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+)`)

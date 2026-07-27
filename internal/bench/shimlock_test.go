@@ -212,8 +212,10 @@ func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
 	}
 	call("move", `{"id":"`+id+`","to":"done"}`)
 	out = call("move", `{"id":"`+id+`","to":"archived","note":"interleaved drive closure"}`)
-	if !strings.Contains(out, "merged") {
-		t.Fatalf("archive must merge with dirty-but-ignored artifacts:\n%s", out)
+	// offline archive is commit-only (T-01KYHAH1GJ): the closure completes
+	// on the current branch — archived state, no git error, no PR theater.
+	if !strings.Contains(out, "archived") || strings.Contains(out, "! GIT E") {
+		t.Fatalf("archive must close cleanly with dirty-but-ignored artifacts:\n%s", out)
 	}
 }
 

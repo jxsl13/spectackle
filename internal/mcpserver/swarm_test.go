@@ -989,7 +989,7 @@ func TestSubmitOnDetachedHeadSaysSo(t *testing.T) {
 	if strings.Contains(subOut, "merged to main") {
 		t.Fatalf("detached submit still claims merged to main:\n%s", subOut)
 	}
-	if !strings.Contains(subOut, "detached head") || !strings.Contains(subOut, "archive merge lands it") {
+	if !strings.Contains(subOut, "detached head") || !strings.Contains(subOut, "check out a branch and merge") {
 		t.Fatalf("deferral not said:\n%s", subOut)
 	}
 }

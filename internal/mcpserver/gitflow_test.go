@@ -447,29 +447,33 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 	id := draftFullID(t, s, sess, map[string]any{"kind": "bug", "title": "closed on paper only"})
 	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "records-only closure"})
 
-	if !strings.Contains(out, "records-only closure of a never-active item") {
-		t.Fatalf("missing the created-branch line:\n%s", out)
-	}
-	if !strings.Contains(out, "merged") {
-		t.Fatalf("records-only closure did not merge:\n%s", out)
-	}
+	// The invariant survives the offline collapse (T-01KYHAH1GJ): the
+	// closure lands MECHANICALLY — as commits on the current branch now,
+	// with no branch dance, no PR theater, and no git error. The old
+	// "merged"/created-branch evidence lines are gone by design.
 	if strings.Contains(out, "! GIT E") {
 		t.Fatalf("closure raised a git error:\n%s", out)
 	}
+	if strings.Contains(out, "offline://") || strings.Contains(out, "g branch ") {
+		t.Fatalf("offline closure must not stage PR theater:\n%s", out)
+	}
 
-	// The archival record commit must be reachable from the default branch,
-	// not stranded: the offline forge merges into the local default.
-	logOut, err := exec.Command("git", "-C", root, "log", "--format=%s", "main", "master", "--").CombinedOutput()
+	// The archival record commit must be reachable from the CURRENT branch.
+	logOut, err := exec.Command("git", "-C", root, "log", "--format=%s").Output()
 	if err != nil {
-		// Only one of main/master exists; ask git for the current branch log instead.
-		logOut, err = exec.Command("git", "-C", root, "log", "--format=%s", "--all").Output()
-		if err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
 	}
 	if !strings.Contains(string(logOut), "spectackle(archived): "+shortDisplayID(id)+" records") &&
 		!strings.Contains(string(logOut), "spectackle(archive): "+shortDisplayID(id)) {
-		t.Fatalf("archival records commit not reachable:\n%s", logOut)
+		t.Fatalf("archival records commit not reachable from the current branch:\n%s", logOut)
+	}
+	// and zero item branches exist — the non-negotiable, worktree-less case
+	branches, err := exec.Command("git", "-C", root, "branch", "--list", "spectackle/*").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(branches)) != "" {
+		t.Fatalf("offline lifecycle minted an item branch:\n%s", branches)
 	}
 }
 

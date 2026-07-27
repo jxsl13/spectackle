@@ -105,6 +105,18 @@ func CurrentBranch(dir string) (string, error) {
 	return git(dir, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
+// HeadShortSHA returns the short hash of dir's HEAD commit — the offline
+// edge render's evidence line (T-01KYHAH1GJ). Callers invoke it right after
+// a successful commit, so a rev-parse failure is near-impossible; it
+// degrades to "?" rather than turning a successful commit into an error.
+func HeadShortSHA(dir string) string {
+	out, err := git(dir, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "?"
+	}
+	return strings.TrimSpace(out)
+}
+
 // DefaultBranch resolves the branch checked out at dir via HEAD's symbolic
 // ref rather than CurrentBranch's rev-parse: workspace.Config.Git.Base reads
 // this at config-load time, which can run before the repo has a single

@@ -91,16 +91,19 @@ type FeedbackCfg struct {
 }
 
 // GitCfg tunes the git integration between task worktrees and the shared
-// remote (the primitives it configures live in internal/wt). This is an
-// OPT-OUT feature on a released tool: every config.yaml written before this
-// field existed must go on behaving as if git integration were fully on, so
-// the zero value has to mean enabled-and-online, not disabled. See IsEnabled
-// for the one field (Enabled) where a plain bool can't express that — Mode
-// and Remote get their defaults the same zero-block way every other Cfg
-// struct in this file does, since "" is never a value a user would mean.
+// remote (the primitives it configures live in internal/wt). Git stays
+// enabled by default, but the MODE defaults to OFFLINE (GIT-DEFAULT-001,
+// user decision 2026-07-27): an absent mode key means commit-only lifecycle
+// edges on the current branch — no branches, no PRs, no pushes. Online
+// operation is the explicit opt-in `git: mode: online`. This flips the
+// original opt-out contract (zero value used to mean enabled-and-online);
+// repositories that relied on the implicit online default must add the key.
+// See IsEnabled for the one field (Enabled) where a plain bool can't express
+// omitted-vs-false — Mode and Remote get their defaults the same zero-block
+// way every other Cfg struct in this file does.
 type GitCfg struct {
 	Enabled *bool  `yaml:"enabled"` // nil (key omitted) means true; see IsEnabled — a plain bool can't tell "omitted" from "explicitly false"
-	Mode    string `yaml:"mode"`    // "online" (default: push branches to Remote) or "offline" (commit/branch locally only); an unknown value is rejected at load, see load()
+	Mode    string `yaml:"mode"`    // "offline" (default, GIT-DEFAULT-001: commit-only edges on the current branch) or "online" (explicit opt-in: branches, PRs, pushes to Remote); an unknown value is rejected at load, see load()
 	Remote  string `yaml:"remote"`  // remote name pushed to in online mode; default "origin"
 	Base    string `yaml:"base"`    // branch task branches are pushed against; default is the repository's OWN default branch, read at load (see wt.DefaultBranch) — never hardcoded "main"
 	// Commits selects the edge-commit engine (T-01KYD94MG): "edges"
@@ -153,7 +156,7 @@ func defaultConfig() Config {
 		Compact:       CompactCfg{JournalMax: 300, DoneMax: 8},
 		Swarm:         SwarmCfg{LeaseTTL: 600, AgentTTL: 900, PanelMax: 3},
 		Feedback:      FeedbackCfg{MaxRounds: 3, RiskFiles: 8},
-		Git:           GitCfg{Mode: "online", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
+		Git:           GitCfg{Mode: "offline", Remote: "origin"}, // Base is left empty here: it needs dir to read the repo, see load()
 	}
 }
 
@@ -357,7 +360,7 @@ func load(dir string) (Root, error) {
 		r.Cfg.Feedback.MaxRounds = 3
 	}
 	if r.Cfg.Git.Mode == "" {
-		r.Cfg.Git.Mode = "online"
+		r.Cfg.Git.Mode = "offline" // GIT-DEFAULT-001: online is the explicit opt-in
 	}
 	if r.Cfg.Git.Remote == "" {
 		r.Cfg.Git.Remote = "origin"
