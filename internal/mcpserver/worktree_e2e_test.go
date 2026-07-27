@@ -76,6 +76,13 @@ func commitPrimary(t *testing.T, root, msg string) string {
 func offPrimaryBranchRepo(t *testing.T) (root, staleMain string) {
 	t.Helper()
 	root = gitRoot(t) // scaffolded workspace, git repo, one commit on main
+	// explicit mode: online — this file is the no-remote ONLINE control
+	// group proving byte-identity; the GIT-DEFAULT-001 flip would demote
+	// an unpinned fixture to offline silently (T-01KYHAH1GJ P3).
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
+		[]byte("schema: v1\ngit:\n  mode: online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitAt(t, root, "checkout", "-b", "develop")
 	gitAt(t, root, "checkout", "main")
 	if err := os.WriteFile(filepath.Join(root, "stale.go"), []byte("package main // stale\n"), 0o644); err != nil {

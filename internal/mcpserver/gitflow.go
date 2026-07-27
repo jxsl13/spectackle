@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -21,7 +20,10 @@ import (
 // The git workflow, driven by the state machine instead of by the LLM
 // (P-01KYDB, ADR-01KYDB).
 //
-// The mapping is the whole feature:
+// TWO MODES (GIT-DEFAULT-001, T-01KYHAH1GJ). Offline — the default — is
+// commit-only: every edge commits code and records on the CURRENT branch
+// (gitFlowOffline), with no branches, no forge, no pushes, no base
+// checkouts. Online, the explicit `git: mode: online` opt-in, maps:
 //
 //	into active   ensure the task branch, commit code, push, open a DRAFT PR
 //	while active  commit and push, so no change is ever only local
@@ -161,20 +163,14 @@ func (s *Server) itemBranch(id string) string {
 // commit. That is what lets the whole lifecycle run with no network, and what
 // lets the tests exercise the mapping without standing up a forge.
 func (s *Server) forgeFor() (forge.Forge, error) {
-	cfg := s.main.Cfg.Git
-	if cfg.Mode == "offline" {
-		base := cfg.Base
-		if base == "" {
-			base = "main"
-		}
-		// Persistent, not the in-memory constructor: each tool call is its own
-		// process, so a PR opened by the move into active must still be there
-		// for the move into done. The cache dir is the right home — server
-		// owned, gitignored, and losing it degrades to "no PR known", which
-		// every caller already handles.
-		return forge.NewOfflinePersistent(s.main.Dir, base,
-			filepath.Join(s.main.CacheDir(), "forge-offline.json")), nil
+	if s.forgeOverride != nil {
+		return s.forgeOverride()
 	}
+	// mode: offline never reaches this — its edges are commit-only
+	// (gitFlowOffline, T-01KYHAH1GJ) and construct no forge; the offline
+	// forge type survives solely as the hermetic test double behind
+	// forgeOverride. A legacy cache/forge-offline.json is inert.
+	cfg := s.main.Cfg.Git
 	remote, err := wt.RemoteURL(s.main.Dir, cfg.Remote)
 	if err != nil {
 		// No such remote: a git repository that was never given one. Not
@@ -186,7 +182,54 @@ func (s *Server) forgeFor() (forge.Forge, error) {
 	return forge.NewGitHub(remote, nil)
 }
 
-// gitFlowStart runs the into-active half: branch, commit, push, draft PR.
+// gitFlowOffline is the commit-only edge for mode: offline (T-01KYHAH1GJ,
+// GIT-DEFAULT-001): no branch, no forge, no push, no base checkout — code
+// and records commit on the CURRENT branch, the code commit rendered as
+// `g offline commit <short-sha> <subject>`. gate runs the local verify
+// gate after the commits; closure marks the archive edge, whose
+// closureComplete follows the records commit alone — a records failure
+// leaves it false so the move handler's archived→done compensation fires
+// exactly as it does online (flowAttemptedMerge matches the records line).
+func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate, closure bool) *gitFlowResult {
+	res := &gitFlowResult{}
+	dir := s.ws.Dir
+	// A floating HEAD gets a refusal, not a silent commit onto nothing:
+	// with the branch-creating normalizer gone, unborn/detached is the
+	// caller's to resolve (mirrors the edge-commit engine's stand-down).
+	if br, err := wt.CurrentBranch(dir); err != nil || strings.TrimSpace(br) == "HEAD" {
+		res.addf("! GIT E %s offline: HEAD is unborn or detached — check out a branch, then retry", shortDisplayID(it.ID))
+		return res
+	}
+	if committed, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+subject); err != nil {
+		res.addf("! GIT E %s commit: %s", shortDisplayID(it.ID), err)
+		return res
+	} else if committed {
+		res.addf("g offline commit %s %s", wt.HeadShortSHA(dir), subject)
+	}
+	pre := len(res.lines)
+	s.gitCommitRecords(res, it, state)
+	recordsOK := true
+	for _, l := range res.lines[pre:] {
+		if strings.HasPrefix(l, "! GIT E") {
+			recordsOK = false
+		}
+	}
+	if gate {
+		if g := s.runGate(it.Goal); g != "" {
+			res.addf("%s", g)
+			res.addf("! GATE E %s local gate failed — fix and retry the move", shortDisplayID(it.ID))
+			return res
+		}
+		res.addf("g local gates passed")
+	}
+	if closure {
+		res.closureComplete = recordsOK
+	}
+	return res
+}
+
+// gitFlowStart runs the into-active half — online: branch, commit, push,
+// draft PR; offline: the commit-only edge above.
 //
 // Idempotent at every step. EnsureBranch checks out an existing branch instead
 // of failing; CommitCode reports whether it had anything to commit; Push is
@@ -198,6 +241,9 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	res := &gitFlowResult{}
 	if !s.gitEnabled() {
 		return res
+	}
+	if s.main.Cfg.Git.Mode == "offline" {
+		return s.gitFlowOffline(it, it.Title, item.StateActive, false, false)
 	}
 	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
@@ -214,11 +260,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		res.addf("! GIT E %s push: %s", it.ID, err)
 		return res
 	}
-	if s.main.Cfg.Git.Mode == "offline" {
-		res.addf("g branch %s", branch)
-	} else {
-		res.addf("g branch %s pushed", branch)
-	}
+	res.addf("g branch %s pushed", branch)
 
 	f, err := s.forgeFor()
 	if err != nil {
@@ -313,6 +355,9 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
+	if s.main.Cfg.Git.Mode == "offline" {
+		return s.gitFlowOffline(it, "checkpoint", item.StateDone, false, false)
+	}
 	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
 	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": checkpoint"); err != nil {
@@ -329,14 +374,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 		res.addf("! GIT E %s push: %s", it.ID, err)
 		return res
 	}
-	// Offline mode has nowhere to push to, so saying "pushed" would be a claim
-	// this call did not earn — the one thing this file must never do. The
-	// commit is real either way, so that is what gets reported.
-	if s.main.Cfg.Git.Mode == "offline" {
-		res.addf("g committed %s", branch)
-	} else {
-		res.addf("g pushed %s", branch)
-	}
+	res.addf("g pushed %s", branch)
 	return res
 }
 
@@ -346,6 +384,11 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	res := &gitFlowResult{}
 	if !s.gitEnabled() {
 		return res
+	}
+	if s.main.Cfg.Git.Mode == "offline" {
+		// done offline = commit + local gate verdict; no PR to flip, no
+		// checks to await. A red gate reads "fix and retry the move".
+		return s.gitFlowOffline(it, "checkpoint", item.StateDone, true, false)
 	}
 	branch := s.itemBranch(it.ID)
 	if r := s.gitFlowSync(it); r.String() != "" {
@@ -452,6 +495,17 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	res := &gitFlowResult{}
 	if !s.gitEnabled() {
 		return res
+	}
+	if s.main.Cfg.Git.Mode == "offline" {
+		// The archive edge offline is records + straggler code on the
+		// CURRENT branch — no merge exists to fail, so closureComplete
+		// follows the records commit alone. The local gate mirrors the
+		// online draft-flip arm exactly: it runs only for an item that WAS
+		// active but never passed done's gate (still-draft PR equivalent) —
+		// never-active archives (research closures, records-only items)
+		// carry no code and meet no gate, same as before.
+		gate := s.everActive(it.ID) && !strings.Contains(s.lastGateResult(it.ID), "last=pass")
+		return s.gitFlowOffline(it, "closure", item.StateArchived, gate, true)
 	}
 	// Edge atomicity includes the WORKING TREE (B-01KYGADQ): a stranded
 	// closure must leave the serving checkout on the branch it found, or

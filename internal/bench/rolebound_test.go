@@ -39,6 +39,7 @@ func TestGitInstructionViolationsNegative(t *testing.T) {
 		"g pr 12 draft offline://pr/12",
 		"g pr 12 ready offline://pr/12",
 		"g pr 12 merged abc123",
+		"g offline commit ab12cd3 checkpoint",
 		"g records committed 2 files",
 		"g records clean",
 		"h . binary stale — rebuild+restart: make dev",

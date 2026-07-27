@@ -171,7 +171,7 @@ func invScratchRoot(t *testing.T) string {
 		}
 	}
 	files := map[string]string{
-		workspace.Dot + "/config.yaml": "schema: v1\nverify: [\"true\"]\n",
+		workspace.Dot + "/config.yaml": "schema: v1\nverify: [\"true\"]\ngit:\n  mode: online\n", // pinned online: no-remote control group (GIT-DEFAULT-001 flip)
 		"main.go":                      "package main\n\nfunc main() {}\n",
 		"core/pool.go":                 "package core\n\n// Pool holds buffers.\ntype Pool struct{}\n",
 		"core/engine/run.go":           "package engine\n\n// Run drives the loop.\nfunc Run() {}\n",

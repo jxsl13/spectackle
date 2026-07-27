@@ -22,6 +22,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/coord"
+	"github.com/jxsl13/spectackle/internal/forge"
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/index"
 	"github.com/jxsl13/spectackle/internal/langspec"
@@ -140,6 +141,13 @@ type Server struct {
 	// suppressed — its advice would be a manual dirty-tree rebuild, the
 	// exact hazard ADR-01KYF5 closes. Set once at serve start.
 	selfRestartOn bool
+
+	// forgeOverride, when set, replaces forgeFor's construction — the
+	// TEST seam that lets the online branch/PR shape run hermetically
+	// (injected offline forge + a local bare remote) now that mode:
+	// offline no longer constructs a forge at all (T-01KYHAH1GJ P1).
+	// Never set in production.
+	forgeOverride func() (forge.Forge, error)
 
 	// home is the root this process was STARTED with (-root), immutable
 	// after New. It is where submit/abort re-root back to: a server homed

@@ -890,11 +890,12 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 	// A detached main checkout means the fast-forward advanced no named
 	// branch (B-01KYEEJKQ): reachable only when vacateBranch found no base
-	// at all, and self-healing at archive (the branch merges into the real
-	// base via the PR or the offline double) — but claiming "merged to
-	// main" while it lasts is a lie, and the deferral must be said.
+	// at all — and claiming "merged to main" while it lasts is a lie, so
+	// the state is said plainly. Online, the archive merge still lands the
+	// branch on the base; offline (commit-only edges, T-01KYHAH1GJ) nothing
+	// mechanical ever will — the operator checks out a branch and merges.
 	if cur, cerr := wt.CurrentBranch(s.main.Dir); cerr == nil && cur == "HEAD" {
-		fmt.Fprintf(&b, "ok %s integrated on a detached head (%d events, %d rules replayed) — no named branch advanced; the archive merge lands it on the base\n", id, rep.Events, rep.Rules)
+		fmt.Fprintf(&b, "ok %s integrated on a detached head (%d events, %d rules replayed) — no named branch advanced; check out a branch and merge %s, or (online) the archive merge lands it on the base\n", id, rep.Events, rep.Rules, w.Branch)
 	} else {
 		fmt.Fprintf(&b, "ok %s merged to main (%d events, %d rules replayed)\n", id, rep.Events, rep.Rules)
 	}

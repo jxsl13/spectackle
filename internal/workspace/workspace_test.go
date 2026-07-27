@@ -550,11 +550,33 @@ func TestGitConfigDefaults(t *testing.T) {
 	if !ws.Cfg.Git.IsEnabled() {
 		t.Fatal("Git.IsEnabled() = false, want true (opt-out default, git block omitted)")
 	}
-	if ws.Cfg.Git.Mode != "online" {
-		t.Fatalf("Git.Mode = %q, want %q", ws.Cfg.Git.Mode, "online")
+	// GIT-DEFAULT-001 (user decision 2026-07-27): an absent mode key means
+	// OFFLINE — commit-only lifecycle edges; online is the explicit opt-in.
+	if ws.Cfg.Git.Mode != "offline" {
+		t.Fatalf("Git.Mode = %q, want %q", ws.Cfg.Git.Mode, "offline")
 	}
 	if ws.Cfg.Git.Remote != "origin" {
 		t.Fatalf("Git.Remote = %q, want %q", ws.Cfg.Git.Remote, "origin")
+	}
+}
+
+// TestGitConfigExplicitOnlineHonored: the opt-in the default flip demands —
+// `git: mode: online` must survive load untouched.
+func TestGitConfigExplicitOnlineHonored(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, Dot, "config.yaml"),
+		[]byte("schema: v1\ngit:\n  mode: online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := Detect(root, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Cfg.Git.Mode != "online" {
+		t.Fatalf("Git.Mode = %q, want %q", ws.Cfg.Git.Mode, "online")
 	}
 }
 

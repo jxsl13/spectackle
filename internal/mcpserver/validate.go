@@ -974,6 +974,22 @@ func (s *Server) validateComputedForTest(diff string) []string {
 // cross-verification found omitted). A move to done means the local gates
 // passed at that edge; a same-state move noted "gate fail" is a recorded
 // failure round.
+// everActive reports whether the item's journal carries a move into
+// active — the offline archive gate's trigger condition (gitFlowMerge):
+// an item that never went active carries no code for a gate to meet.
+func (s *Server) everActive(id string) bool {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return false
+	}
+	for _, e := range events {
+		if e.ID == id && e.Ev == journal.EvMove && e.To == item.StateActive {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) lastGateResult(id string) string {
 	events, err := journal.ReadAll(s.ws)
 	if err != nil {

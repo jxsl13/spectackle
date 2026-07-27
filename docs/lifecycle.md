@@ -91,6 +91,28 @@ is full-length (inside git-managed files the form does not matter for
 humans, so the resolvable full form wins). Branches created before this
 convention keep their full-length names; the flow falls back to them.
 
+### 1.6 Git modes: offline by default
+
+`git.mode` defaults to **offline** (GIT-DEFAULT-001): every lifecycle edge
+commits code and records on the CURRENT branch — `g offline commit
+<short-sha> <subject>` — and creates **no branches, no pull requests, no
+pushes, no base checkouts**. Online operation (branch per item, draft PR
+at activation, ready at done, merge at archive) is the explicit opt-in
+`git: mode: online`; repositories that relied on the old implicit online
+default must add that key. The swarm worktree flow is mode-exempt by
+recorded decision (ADR): its transient local branches are already push-
+and forge-free and behave identically in both modes.
+
+Accepted offline losses, stated not hidden: closure records land on
+whatever branch is current — nothing merges them to the base branch, so
+records archived on a later-deleted side branch are gone with it; a
+detached-head worktree submit is no longer self-healing at archive (the
+submit result says to check out a branch and merge); the post-merge
+orchestrator sync ritual (wait for the merged line, then re-sync) is
+online-only — offline there is no merged line to wait for. Legacy offline
+workspaces may hold parked `spectackle/<id>` branches and a
+`cache/forge-offline.json` from the old PR-simulation era; both are inert.
+
 ## 2. Unified high-performance search (the persisted cache)
 
 One SQLite file (`.spectackle/cache/index.db`, `modernc.org/sqlite` — pure Go,

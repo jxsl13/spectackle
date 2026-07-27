@@ -16,10 +16,14 @@ import (
 // Offline implements Forge with no network at all: PRs are tracked
 // in-process, and Merge performs a REAL local merge into the repository's
 // default branch — a merge commit, never squash, never a bare
-// fast-forward — rather than a no-op that silently pretends. This is what
-// lets the whole item lifecycle run, and the rest of the codebase test
-// against a forge, with no network and no stub server standing in for
-// GitHub.
+// fast-forward — rather than a no-op that silently pretends.
+//
+// SINCE T-01KYHAH1GJ this type is a TEST DOUBLE only: `git: mode: offline`
+// runs commit-only edges and constructs no forge at all, so no production
+// path reaches here. It survives because the hermetic online-shape tests
+// (Server.forgeOverride + a local bare remote) exercise the full
+// branch/PR/merge mapping through it, with no network and no stub server
+// standing in for GitHub.
 type Offline struct {
 	RepoRoot string // repository checkout the merge runs against
 	Base     string // default branch merged into
