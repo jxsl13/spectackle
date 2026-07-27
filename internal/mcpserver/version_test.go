@@ -30,3 +30,17 @@ func TestResolvedVersionDevFallsToBuildInfo(t *testing.T) {
 		t.Fatalf("unexpected resolution: %q", got)
 	}
 }
+
+// The state surface prints the RESOLVED version too (cross-val-version
+// found it reading the raw var — the same lie on a fifth surface).
+func TestStateVersionLineResolved(t *testing.T) {
+	old := Version
+	defer func() { Version = old }()
+	Version = "v9.9.9-test"
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(out, "ok spectackle v9.9.9-test") {
+		t.Fatalf("state must print the resolved version: %q", out)
+	}
+}
