@@ -466,11 +466,21 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 	if err := spec.AppendIntent(ws, it.Dir, line); err != nil {
 		return err
 	}
-	if err := journal.Append(ws, it.Dir, journal.Event{
+	ev := journal.Event{
 		Ev: journal.EvArchive, ID: it.ID, K: it.Kind, Ti: it.Title,
 		Sum: summary(it) + firstOf(" note: "+note, ""), Rls: it.Rules, Dir: it.Dir,
 		Refs: it.Refs,
-	}); err != nil {
+	}
+	if it.Kind == "research" {
+		// A research item's body IS the outcome — claim, source citation,
+		// confidence. A task compacts fairly (its delta merged into
+		// spec.md); research has no delta, so tombstoning the body deleted
+		// the only copy (issue 178 defect 3: 268 findings lost every
+		// citation). The tombstone retains it, capped; the compaction
+		// keep-list already preserves EvArchive verbatim, so folds keep it.
+		ev.Body = capRetainedBody(it.Body)
+	}
+	if err := journal.Append(ws, it.Dir, ev); err != nil {
 		return err
 	}
 	if err := item.Remove(ws, it); err != nil {
@@ -505,6 +515,17 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 // item.Upsert the result — a tombstone has no work.md home. compact's fold
 // retention keeps EvArchive events forever, so tombstones survive
 // compaction.
+// retainedBodyMax caps the body a research tombstone carries: findings are
+// compact by convention, and the journal replays on every read.
+const retainedBodyMax = 8192
+
+func capRetainedBody(b string) string {
+	if len(b) <= retainedBodyMax {
+		return b
+	}
+	return b[:retainedBodyMax] + "\n[body truncated at tombstone retention cap]"
+}
+
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	events, err := journal.ReadAll(ws)
 	if err != nil {
@@ -513,9 +534,15 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
 		if e.Ev == journal.EvArchive && e.ID == id {
+			body := e.Sum
+			if e.Body != "" {
+				// research tombstones carry the retained finding; the
+				// summary stays available in the journal event itself
+				body = e.Body
+			}
 			return item.Item{
 				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
-				State: item.StateArchived, Body: e.Sum,
+				State: item.StateArchived, Body: body,
 			}, true, nil
 		}
 	}

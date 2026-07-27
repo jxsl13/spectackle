@@ -163,3 +163,57 @@ func TestArchivedPackSuppressedAcrossUnionRoot(t *testing.T) {
 		t.Fatalf("main-root tombstone must render suppressed: %q", out)
 	}
 }
+
+// Issue 178 defect 3: a research tombstone RETAINS the finding — the body
+// is the artifact (claim, source, confidence); archiving a task still
+// compacts to a summary tombstone.
+func TestResearchTombstoneRetainsBody(t *testing.T) {
+	root := t.TempDir()
+	srv, sess := connectRootWithServer(t, root)
+	body := "BPE encode measured 28.2 MB/s.\n\nSource: https://example.org/paper-XYZ-2026\nConfidence: high" + "\n\n" + ambFixturePad
+	r, err := lifecycle.Draft(srv.ws, srv.minter(), "research", "tokenizer throughput finding", body, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// consume it so the research return-path gate passes
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "stem": "TOKENIZER", "pattern": "U",
+		"system": "tokenizer", "response": "sustain 28.2 MB/s per " + r.ID,
+	})
+	if _, err := lifecycle.Move(srv.ws, r.ID, item.StateArchived, "completed in a previous era"); err != nil {
+		t.Fatal(err)
+	}
+	srv.markDirty()
+
+	got := callText(t, sess, "get", map[string]any{"id": r.ID})
+	if !strings.Contains(got, "paper-XYZ-2026") {
+		t.Fatalf("the tombstone must retain the citation: %q", got)
+	}
+	hist := callText(t, sess, "find", map[string]any{"q": "paper-XYZ-2026", "scope": "history"})
+	if !strings.Contains(hist, r.ID[:8]) && !strings.Contains(hist, "paper-XYZ-2026") {
+		t.Fatalf("the citation must be searchable in history: %q", hist)
+	}
+
+	// the fold keeps it: EvArchive events survive compaction verbatim
+	out := callText(t, sess, "compact", map[string]any{"apply": true})
+	_ = out
+	srv.markDirty()
+	got = callText(t, sess, "get", map[string]any{"id": r.ID})
+	if !strings.Contains(got, "paper-XYZ-2026") {
+		t.Fatalf("the retained body must survive a fold: %q", got)
+	}
+
+	// a TASK tombstone stays a compact summary — no body retention
+	task, err := lifecycle.Draft(srv.ws, srv.minter(), "task", "ordinary task", "task body with a marker NOTRETAINED plus filler. "+ambFixturePad, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lifecycle.Move(srv.ws, task.ID, item.StateArchived, "done"); err != nil {
+		t.Fatal(err)
+	}
+	srv.markDirty()
+	got = callText(t, sess, "get", map[string]any{"id": task.ID})
+	if strings.Contains(got, "NOTRETAINED") {
+		t.Fatalf("task tombstones must stay compact summaries: %q", got)
+	}
+}
