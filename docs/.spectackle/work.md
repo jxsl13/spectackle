@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYJ58DBAFD798A6HNDWDKAPK outcome judges on the commit-only offline surface: does the new vocabulary navigate as completely as the PR theater it replaced
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: docs/bench-curves.md
