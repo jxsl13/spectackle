@@ -25,7 +25,7 @@ LSP-001	go:langspec.SpecParser.Parse	internal/langspec/langspec.go	235-289	ee779
 MCP-002	go:graph.Node	internal/graph/graph.go	124-133	092160135b9850c0	1a52ce91c2f5ebcc
 MCP-003	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	223-306	a39fbb610f6db3d8	f0082ff8993a8ca9
 MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1812-2024	4c7c2af1328f8521	8800c929f7ba22f7
-MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2312-2421	a70ad293c07022f9	eb2b0afd3aaf585d
+MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2312-2433	c99f4324f91cb659	eb2b0afd3aaf585d
 SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	259-283	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
 SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	117-156	d36df6df89ccad2f	12a13a8c05a928ed
