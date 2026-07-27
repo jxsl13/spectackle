@@ -58,7 +58,7 @@ choice: raw values ride the journal event too
 
 ## T-01KYJN4BGBFX6VFNQ975J2CRZ0 the bench tool: put/get/ls/rm/cmp with dense grammars, m-renders, journaled put-deltas with raw supersession, find scope=bench
 kind: task
-state: draft
+state: active
 created: 2026-07-27
 parent: P-01KYJMVX2QES89YTP3KXSJPA7J
 grilled: 2026-07-27 open=1
