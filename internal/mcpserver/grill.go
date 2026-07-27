@@ -75,6 +75,11 @@ func (s *Server) grill(in grillIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
+		// tombstone before the typo-corrector, same as validate and get
+		// (B-01KYHQ8TQ6 round 2: grill carried the identical bare-nf bug)
+		if tomb, tombOk := s.tombstoneOf(in.ID); tombOk {
+			return text(sc.record(tomb) + "\ncomputed: suppressed (archived)\n")
+		}
 		return s.nearest(in.ID)
 	}
 
@@ -770,6 +775,9 @@ func (s *Server) grillVerdict(in grillIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
+		if _, tombOk := s.tombstoneOf(id); tombOk {
+			return refuse("! ARG E - " + sc.short(id) + " is archived; review verdicts bind to live items")
+		}
 		return s.nearest(id)
 	}
 	short := sc.short(it.ID)

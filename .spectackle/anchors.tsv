@@ -5,7 +5,7 @@ SPX-SWM-006	go:coord.DB.Sweep	internal/coord/coord.go	208-256	98b5195b2813ba92	a
 SPX-MCP-004	go:mcpserver.Server.draft	internal/mcpserver/tools.go	687-865	7533eee3eab65855	323843ad5b0aa462
 SPX-MCP-005	go:mcpserver.Server.state	internal/mcpserver/state.go	87-103	01b6bd873d304191	dde3039d70647c5f
 SPX-MCP-006	go:mcpserver.Server.research	internal/mcpserver/research.go	37-59	8cb8ff298f3c5e76	d123b79339b10588
-SPX-MCP-007	go:mcpserver.Server.grill	internal/mcpserver/grill.go	51-223	7762f42ae072007c	93674953c9609b17
+SPX-MCP-007	go:mcpserver.Server.grill	internal/mcpserver/grill.go	51-228	3de08c7b2262005f	93674953c9609b17
 SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	352-375	9799dac75994f649	249a788d6d001a7c
 LCY-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	461-498	04fe85047ecd216c	5d9979347e50633c
 LCY-001	go:item.Get	internal/item/item.go	301-312	37437d90711a7fd0	5d9979347e50633c

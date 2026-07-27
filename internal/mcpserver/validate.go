@@ -662,6 +662,14 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 		return nil, nil, err
 	}
 	if !ok {
+		// Archived items leave work.md, so item.Get NEVER finds them —
+		// try the tombstone before the typo-corrector, exactly like the
+		// get tool does (B-01KYHQ8TQ6: nearest's FTS surfaced bare
+		// j:<dir>#<n> journal-doc refs for a legitimately-terminal item).
+		// No diff, no sections, no render event: a tombstone has none.
+		if tomb, tombOk := s.tombstoneOf(id); tombOk {
+			return text(sc.record(tomb) + "\ncomputed: suppressed (archived)\n")
+		}
 		return s.nearest(id)
 	}
 
@@ -780,6 +788,11 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 		return nil, nil, err
 	}
 	if !ok {
+		// same tombstone-before-nearest order as the pack path: a verdict
+		// on an archived item is a caller mistake worth an honest answer
+		if _, tombOk := s.tombstoneOf(id); tombOk {
+			return refuse("! ARG E - " + sc.short(id) + " is archived; verdicts bind to live items")
+		}
 		return s.nearest(id)
 	}
 	short := sc.short(it.ID)
@@ -974,6 +987,23 @@ func (s *Server) validateComputedForTest(diff string) []string {
 // cross-verification found omitted). A move to done means the local gates
 // passed at that edge; a same-state move noted "gate fail" is a recorded
 // failure round.
+// tombstoneOf resolves an ID that item.Get missed to its archive
+// tombstone, trying the serving root and — worktree-homed — main's
+// journal too: the union getItem already resolves must not disagree with
+// the judge tools (B-01KYHQ8TQ6 round 2; the sibling s.main fallback
+// pattern is established at every other lookup path).
+func (s *Server) tombstoneOf(id string) (item.Item, bool) {
+	if tomb, ok, err := lifecycle.Tombstone(s.ws, id); err == nil && ok {
+		return tomb, true
+	}
+	if s.ws.Dir != s.main.Dir {
+		if tomb, ok, err := lifecycle.Tombstone(s.main, id); err == nil && ok {
+			return tomb, true
+		}
+	}
+	return item.Item{}, false
+}
+
 // everActive reports whether the item's journal carries a move into
 // active — the offline archive gate's trigger condition (gitFlowMerge):
 // an item that never went active carries no code for a gate to meet.
