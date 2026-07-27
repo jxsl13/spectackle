@@ -53,6 +53,7 @@ d <cls> <rule> <node> <file>:<s>-<e> [item=<id>] drift (gone|stale)
 d healed <rule> <node> <file>:<s>-<e> was=<h> now=<h>  drift, mechanically healed (evolved)
 d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|diverged)
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
+m <id> v<n> <name> ...                           benchmark record (bench; f/u/d sublines — see tool 17)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED)
@@ -573,7 +574,63 @@ computations `check` itself runs (`g uncovered` + `g orphan`, without
 `check`'s side effects), so it is provably the same number a standalone
 `check` call reports afterward, never a guess.
 
-### 17. Prompts — slash-command entry points
+### 17. `bench` — benchmark records (implementations on a frame)
+
+```json
+{"type":"object","required":["op"],"properties":{
+  "op":     {"enum":["put","get","ls","rm","cmp"]},
+  "name":   {"type":"string","description":"benchmark name (put: required; ls: substring filter)"},
+  "frame":  {"type":"string","description":"k=v dims, space/comma-separated; put requires os arch cpu ram gpu"},
+  "results":{"type":"string","description":"put: impl[@src]: metric=value ...; entries ;-separated"},
+  "metrics":{"type":"string","description":"name:unit:dir[:noise] declarations; omit to inherit the prior version"},
+  "id":     {"type":"string"}, "id2": {"type":"string"},
+  "tool":   {"type":"string"}, "note": {"type":"string"}, "dir": {"type":"string"}}}
+```
+
+A benchmark entry compares implementations (new/old, Go vs. Python, cuda
+vs. cpu-native) on a **frame**: the minimum machine description `os arch
+cpu ram gpu` plus any free dims (`impl=vulkan`, `threads=8`). Sentinel
+values: `none` = hardware genuinely absent (no GPU), `any` = dimension
+irrelevant (machine-independent measurements — token counts, bytes —
+collapse into ONE key across hosts). Identity is the canonical key —
+folded name + sorted folded dims — so the same name+frame is the same
+entry: a `put` re-measures it as a new version. History keeps 1 version
+per key by default (`benchmarks.history` in config.yaml raises it); the
+superseded head's raw values ride the journal `bench` event, so
+regressions stay diagnosable after the trim. Storage is
+`.spectackle/bench.ndjson` per context, union-merged like the journal;
+unparseable or key-forged lines quarantine (reported by `ls`, preserved
+verbatim on save, never dropped).
+
+Line records (`d` here is a bench delta — shape disambiguates from drift):
+
+```
+m <id> v<n> <name> ...                           benchmark head/summary
+f <k>=<v> <k>=<v> ...                            frame (get)
+u <impl> <metric> <value> <unit> [*]             measured value (* = winner under the metric's dir)
+d <impl> <metric> <value> <unit> Δ<delta> [better|worse|~]  delta vs. superseded head (put) / vs. id (cmp)
+```
+
+- **put** — parses the three grammars, derives the key, assigns the next
+  version. Identical content is an idempotent replay (`unchanged`, nothing
+  written). A changed head renders one `d` line per (impl, metric) pair
+  shared with the outgoing head, then
+  `ok m <id> v<n> <name> impls=<n> metrics=<n> better=<n> worse=<n> tie=<n> trimmed=<ver>`.
+  Metric directions: `+` higher wins, `-` lower wins, `~` diagnostic
+  (never judged); deltas within ±noise render `~` (tie). Omitting
+  `metrics` inherits the prior version's declarations; a first `put`
+  without them refuses.
+- **get** — `m` header, `f` frame, `u` values with the per-metric winner
+  starred (only when >1 impl and the metric has a direction).
+- **ls** — heads only, filtered by `name` substring and/or `frame`
+  subset.
+- **cmp** — two entries by ID: `d` lines per shared (impl, metric) pair.
+  Units are byte-compared and **never converted** — a unit mismatch on
+  the same metric name refuses.
+- **rm** — drops every retained version of the record's key (journaled);
+  a later `put` of the same name+frame restarts at v1.
+
+### 18. Prompts — slash-command entry points
 
 Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`
