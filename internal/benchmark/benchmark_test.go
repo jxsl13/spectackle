@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,4 +226,53 @@ func jsonMarshal(r Record) (string, error) {
 	}
 	raw, err := os.ReadFile(p)
 	return strings.TrimSpace(string(raw)), err
+}
+
+// Round 2 (cross-val-bench): the four foundation holes, pinned.
+func TestValidateRefusesNonCanonicalFrame(t *testing.T) {
+	r := rec("bench-e", frame(), "go", 5)
+	r.Frame["cpu"] = "Ryzen 5800X" // unfolded — key stays consistent internally
+	r.Key, _ = CanonicalKey(r.Name, r.Frame)
+	if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "not canonical") {
+		t.Fatalf("an unfolded stored frame must refuse: %v", err)
+	}
+}
+
+func TestValidateRefusesNonFiniteValues(t *testing.T) {
+	r := rec("bench-f", frame(), "go", 5)
+	r.Impls[0].Res["time"] = math.NaN()
+	if err := r.Validate(); err == nil || !strings.Contains(err.Error(), "not finite") {
+		t.Fatalf("NaN value must refuse: %v", err)
+	}
+	r.Impls[0].Res["time"] = math.Inf(1)
+	if err := r.Validate(); err == nil {
+		t.Fatal("Inf value must refuse")
+	}
+	// and Put refuses at the door — the store never holds a Save-poisoning
+	// record (one NaN blocked persistence for the WHOLE file before)
+	st := &Store{byKey: map[string][]Record{}}
+	bad := rec("bench-f", frame(), "go", 5)
+	bad.Impls[0].Res["time"] = math.NaN()
+	if _, _, _, err := st.Put(bad, 1); err == nil {
+		t.Fatal("Put must refuse a non-finite value")
+	}
+	good := rec("bench-f", frame(), "go", 5)
+	if _, _, _, err := st.Put(good, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Save(filepath.Join(t.TempDir(), "bench.ndjson")); err != nil {
+		t.Fatalf("a clean store must save: %v", err)
+	}
+}
+
+func TestCanonicalKeyFoldsDimKeyCase(t *testing.T) {
+	f := map[string]string{"OS": "linux", "arch": "amd64", "cpu": "x", "ram": "x", "gpu": "none"}
+	if _, err := CanonicalKey("x", f); err != nil {
+		t.Fatalf("an uppercase required dim KEY must fold, not refuse: %v", err)
+	}
+	bad := frame()
+	bad["impl"] = "cu\tda"
+	if _, err := CanonicalKey("x", bad); err == nil {
+		t.Fatal("a tab inside a dim value must refuse")
+	}
 }

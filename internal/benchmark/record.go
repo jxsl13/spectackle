@@ -12,6 +12,7 @@ package benchmark
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -94,24 +95,31 @@ func CanonicalKey(name string, frame map[string]string) (string, error) {
 	if strings.ContainsAny(n, forbidden) {
 		return "", fmt.Errorf("benchmark: name %q carries a separator character", name)
 	}
-	for _, d := range RequiredDims {
-		if _, ok := frame[d]; !ok {
-			return "", fmt.Errorf("benchmark: frame is missing the required dim %q (use none for absent hardware, any for an irrelevant dim)", d)
-		}
-	}
-	dims := make([]string, 0, len(frame))
+	folded := map[string]string{}
 	for k, v := range frame {
-		fk, fv := foldToken(k), foldToken(v)
+		fk := foldToken(k)
+		fv := strings.ReplaceAll(foldToken(v), " ", "-")
 		if err := validToken(fk); err != nil {
 			return "", fmt.Errorf("benchmark: dim key: %w", err)
 		}
-		if fv == "" {
-			return "", fmt.Errorf("benchmark: dim %q has an empty value", k)
+		// the full token rules apply to VALUES too: tabs and newlines
+		// inside a value slipped the old separator-only check
+		// (cross-val-bench finding a-2)
+		if err := validToken(fv); err != nil {
+			return "", fmt.Errorf("benchmark: dim %q value: %w", k, err)
 		}
-		if strings.ContainsAny(fv, forbidden) {
-			return "", fmt.Errorf("benchmark: dim %q value %q carries a separator character", k, v)
+		folded[fk] = fv
+	}
+	// presence is checked on the FOLDED keys — a frame supplying "OS" is
+	// the same dim as "os" (cross-val-bench finding a-1)
+	for _, d := range RequiredDims {
+		if _, ok := folded[d]; !ok {
+			return "", fmt.Errorf("benchmark: frame is missing the required dim %q (use none for absent hardware, any for an irrelevant dim)", d)
 		}
-		dims = append(dims, fk+"="+strings.ReplaceAll(fv, " ", "-"))
+	}
+	dims := make([]string, 0, len(folded))
+	for fk, fv := range folded {
+		dims = append(dims, fk+"="+fv)
 	}
 	sort.Strings(dims)
 	return strings.ReplaceAll(n, " ", "-") + "|" + strings.Join(dims, "|"), nil
@@ -138,6 +146,15 @@ func (r Record) Validate() error {
 	if key != r.Key {
 		return fmt.Errorf("benchmark: stored key %q does not match name+frame (%q)", r.Key, key)
 	}
+	// the STORED frame must itself be canonical, not merely key-consistent:
+	// CanonicalKey folds internally, so an unfolded frame could carry a
+	// correct key while violating the byte-for-byte storage contract
+	// (cross-val-bench finding i)
+	for k, v := range r.Frame {
+		if fk, fv := foldToken(k), strings.ReplaceAll(foldToken(v), " ", "-"); fk != k || fv != v {
+			return fmt.Errorf("benchmark: stored frame dim %q=%q is not canonical (want %q=%q)", k, v, fk, fv)
+		}
+	}
 	if len(r.Metrics) == 0 {
 		return fmt.Errorf("benchmark: record %s declares no metrics", r.ID)
 	}
@@ -157,6 +174,9 @@ func (r Record) Validate() error {
 		if seen[m.Name] {
 			return fmt.Errorf("benchmark: metric %q declared twice", m.Name)
 		}
+		if math.IsNaN(m.Noise) || math.IsInf(m.Noise, 0) {
+			return fmt.Errorf("benchmark: metric %q noise is not finite", m.Name)
+		}
 		seen[m.Name] = true
 	}
 	if len(r.Impls) == 0 {
@@ -171,9 +191,16 @@ func (r Record) Validate() error {
 			return fmt.Errorf("benchmark: impl %q listed twice", im.Label)
 		}
 		labels[im.Label] = true
-		for mn := range im.Res {
+		for mn, v := range im.Res {
 			if !seen[mn] {
 				return fmt.Errorf("benchmark: impl %q reports undeclared metric %q", im.Label, mn)
+			}
+			// NaN/Inf refuse at the door: encoding/json cannot marshal
+			// them, and one poisoned value blocked Save for the ENTIRE
+			// store (cross-val-bench finding v - a plain divide-by-zero
+			// rate away, and ParseFloat accepts the literal text NaN)
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return fmt.Errorf("benchmark: impl %q metric %q value is not finite", im.Label, mn)
 			}
 		}
 	}
