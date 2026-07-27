@@ -13,7 +13,7 @@ OBSERVED (2026-07-27, B-01KYHHCFCW immediately after its archive): validate op=p
 
 ## B-01KYHTJ4APF9Z9ZCQR8SKERMHE git.mode resolves from the primary checkouts config while edges run on the serving root - a worktree-served repo silently runs the wrong mode
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go
