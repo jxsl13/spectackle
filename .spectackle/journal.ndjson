@@ -447,3 +447,4 @@
 {"t":"2026-07-27T20:39:55Z","eid":"2db4cf048333856b","ag":"ag-06d8","ev":"create","id":"ADR-01KYJMWEWQE48T3PR76TYQRD3H","k":"adr","ti":"Benchmark history at default depth 1: when a new version supersedes the old, what survives? The put-time delta summary (better/worse/tie per metric) is always journaled; should the superseded RAW metric values also ride the journal event (bounded per-put growth, richer regression forensics), or is the summary enough?"}
 {"t":"2026-07-27T20:39:55Z","eid":"e07bc05cefa41213","ag":"ag-06d8","ev":"move","id":"ADR-01KYJMWEWQE48T3PR76TYQRD3H","fr":"draft","to":"submitted"}
 {"t":"2026-07-27T20:42:24Z","eid":"5cded7863b5eee9c","ag":"ag-9afc","ev":"decide","id":"ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ","note":"allow the any sentinel for machine-independent dims"}
+{"t":"2026-07-27T20:42:25Z","eid":"8272ed38d59c05c8","ag":"ag-d024","ev":"decide","id":"ADR-01KYJMWEWQE48T3PR76TYQRD3H","note":"raw values ride the journal event too"}
