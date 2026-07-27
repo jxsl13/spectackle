@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYHQ8A7NFRC8RMGCDJMC6H1C wt.Add with wtRoot equal to the main checkout destroys the entire main working tree
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=4
 targets: internal/wt/wt.go
