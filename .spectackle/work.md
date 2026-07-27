@@ -21,7 +21,7 @@ FOUND by outcome judge 2 via git forensics (2026-07-27): move to=done rendered g
 
 ## T-01KYJ7AJ7BFKBS7RZ5G62D3GTV move main.go to the repo root so go install github.com/jxsl13/spectackle@latest works
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=2
 targets: cmd/spectackle/main.go, Makefile, README.md
