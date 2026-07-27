@@ -49,8 +49,10 @@ import (
 	"github.com/jxsl13/spectackle/internal/bench"
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
+	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/mcpclient"
 	"github.com/jxsl13/spectackle/internal/mcpserver"
+	"github.com/jxsl13/spectackle/internal/relnotes"
 	"github.com/jxsl13/spectackle/internal/spec"
 	"github.com/jxsl13/spectackle/internal/store"
 	syncpkg "github.com/jxsl13/spectackle/internal/sync"
@@ -84,6 +86,8 @@ func run(args []string) int {
 		return verifyCmd(args[1:])
 	case "hook":
 		return hookCmd(args[1:])
+	case "releasenotes":
+		return releaseNotesCmd(args[1:])
 	case "reindex":
 		return reindex(args[1:])
 	case "bench":
@@ -543,6 +547,38 @@ func verifyCmd(args []string) int {
 // hookCmd installs the pre-push hook on explicit operator request — the
 // consent model is recommendation over imposition; nothing here runs
 // without this command (T-01KYDNN).
+// releaseNotesCmd renders release notes from the journal archive
+// tombstones (T-01KYGCJ6) — derived, never hand-written. -since bounds the
+// window (YYYY-MM-DD); output goes to stdout for the human to front with
+// an intro and commit.
+func releaseNotesCmd(args []string) int {
+	fs := flag.NewFlagSet("releasenotes", flag.ExitOnError)
+	root := fs.String("root", ".", "workspace root")
+	since := fs.String("since", "", "include archives on/after this instant (YYYY-MM-DD or RFC3339); typically the previous release tag's date; empty = all")
+	_ = fs.Parse(args)
+	ws, err := workspace.Detect(*root, *root)
+	if err != nil {
+		log.Printf("releasenotes: %v", err)
+		return 1
+	}
+	var cut time.Time
+	if *since != "" {
+		if cut, err = time.Parse("2006-01-02", *since); err != nil {
+			if cut, err = time.Parse(time.RFC3339, *since); err != nil {
+				log.Printf("releasenotes: -since: want YYYY-MM-DD or RFC3339: %v", err)
+				return 2
+			}
+		}
+	}
+	events, err := journal.ReadAll(ws)
+	if err != nil {
+		log.Printf("releasenotes: %v", err)
+		return 1
+	}
+	fmt.Print(relnotes.Render(events, cut))
+	return 0
+}
+
 func hookCmd(args []string) int {
 	if len(args) < 1 || args[0] != "install" {
 		log.Printf("hook: usage: spectackle hook install [-root DIR]")
