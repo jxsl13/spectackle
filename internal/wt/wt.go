@@ -717,14 +717,23 @@ func DirtyFiles(wtRoot string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// staged-but-uncommitted is invisible to both the unstaged diff and
+	// --others; without --cached a `git add`ed file reads clean and dies
+	// with the tree (cross-val-wipe2 H1).
+	staged, err := git(wtRoot, "diff", "--cached", "--name-only")
+	if err != nil {
+		return nil, err
+	}
 	untracked, err := git(wtRoot, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for _, blob := range []string{tracked, untracked} {
+	seen := map[string]bool{}
+	for _, blob := range []string{tracked, staged, untracked} {
 		for _, l := range strings.Split(strings.TrimSpace(blob), "\n") {
-			if l != "" {
+			if l != "" && !seen[l] {
+				seen[l] = true
 				out = append(out, l)
 			}
 		}

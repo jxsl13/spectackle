@@ -647,6 +647,8 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	}
 	// orphaned worktree from a crashed sibling?
 	adoptWarn := ""
+	adoptNeeded := false
+	var adoptRoot, adoptBranch string
 	if w, exists, _ := s.cd.GetWorktree(id); exists {
 		if w.Agent == s.agent {
 			// The holder itself restarting: RESUME, never recreate — the
@@ -665,29 +667,30 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 		// only an explicitly forced start (or a clean tree) discards.
 		if !force {
 			dirty, derr := wt.DirtyFiles(w.Root)
+			if derr != nil {
+				// unreadable dirt is not clean: broken worktree metadata
+				// with intact files must refuse, not fail open into the
+				// removal below (cross-val-wipe2 H2).
+				return refuse("! WT E worktree for " + id + " unreadable (" + derr.Error() + ") — inspect " + w.Root + ", or discard explicitly with work op=start force=true")
+			}
 			// server-owned records churn (.spectackle/) is replayed by the
 			// flow and never "the holder's work" — only agent files guard.
-			if derr == nil {
-				kept := dirty[:0]
-				for _, f := range dirty {
-					if !strings.HasPrefix(f, workspace.Dot+"/") && f != workspace.Dot {
-						kept = append(kept, f)
-					}
+			kept := dirty[:0]
+			for _, f := range dirty {
+				if !strings.HasPrefix(f, workspace.Dot+"/") && f != workspace.Dot {
+					kept = append(kept, f)
 				}
-				dirty = kept
 			}
-			if derr == nil && len(dirty) > 0 {
+			dirty = kept
+			if len(dirty) > 0 {
 				return refuse("! WT E worktree for " + id + " holds " + fmt.Sprint(len(dirty)) + " uncommitted file(s) from " + w.Agent + " — reattach with SPECTACKLE_AGENT=" + w.Agent + ", or discard explicitly with work op=start force=true")
 			}
 		}
-		_ = wt.Remove(s.main.Dir, w.Root)
-		// A discard failure must be SAID (B-01KYEEJKE): the surviving
-		// branch is what the attach below will resume, silently changing
-		// what "a fresh start" means.
-		if err := wt.DiscardBranch(s.main.Dir, w.Branch, s.gitBase()); err != nil {
-			adoptWarn = "! WT W branch " + w.Branch + " not deleted (" + err.Error() + ") — the start below resumes its surviving commits\n"
-		}
-		_ = s.cd.DelWorktree(id)
+		// Adoption approved — but destruction waits until the lease below
+		// is OURS. Removing first and refusing on a lease conflict after
+		// (destroy-then-refuse) tore down a holder's tree the claim then
+		// proved still owned (cross-val-wipe2 follow-up).
+		adoptNeeded, adoptRoot, adoptBranch = true, w.Root, w.Branch
 	}
 	// lease item + targets, all-or-nothing
 	scopes := append([]string{id}, normalizeTargets(it.Targets)...)
@@ -697,6 +700,16 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	}
 	if conflict != nil {
 		return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s", conflict.Path, conflict.Agent, orDash(conflict.Item)))
+	}
+	if adoptNeeded {
+		_ = wt.Remove(s.main.Dir, adoptRoot)
+		// A discard failure must be SAID (B-01KYEEJKE): the surviving
+		// branch is what the attach below will resume, silently changing
+		// what "a fresh start" means.
+		if err := wt.DiscardBranch(s.main.Dir, adoptBranch, s.gitBase()); err != nil {
+			adoptWarn = "! WT W branch " + adoptBranch + " not deleted (" + err.Error() + ") — the start below resumes its surviving commits\n"
+		}
+		_ = s.cd.DelWorktree(id)
 	}
 
 	base, err := wt.Head(s.main.Dir)
