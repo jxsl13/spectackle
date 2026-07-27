@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYGCJ6P6FFHB9VJK5S4359V8 cut v0.2.0: release notes from the archive intent log, ldflags version stamp, tag, GitHub release
 kind: task
-state: draft
+state: active
 created: 2026-07-26
 grilled: 2026-07-27 open=2
 targets: cmd/spectackle/main.go, internal/mcpserver/server.go, Makefile, docs/lifecycle.md
