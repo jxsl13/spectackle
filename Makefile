@@ -26,7 +26,7 @@ DEV_READY_SLEEP ?= 0.5
 all: build vet test lint-specs smoke cover
 
 build:
-	CGO_ENABLED=0 $(GO) build -o $(BIN) ./cmd/spectackle
+	CGO_ENABLED=0 $(GO) build -o $(BIN) .
 
 # dev rebuilds the binary and (re)starts it as a resident Streamable HTTP
 # server, leaving exactly one instance running at DEV_ADDR with a stoppable
@@ -63,7 +63,7 @@ dev: build dev-stop
 	exit 1
 
 # dev-stop stops the resident dev server tracked by DEV_PIDFILE, if any.
-# Semantics match cmd/spectackle/main.go's pidfile handling: a live PID is
+# Semantics match main.go's pidfile handling: a live PID is
 # stopped (SIGTERM, falling back to SIGKILL if it won't exit) and its
 # pidfile removed; a stale pidfile (recorded PID no longer running -- serve
 # itself removes the file on clean shutdown, so a leftover file always
@@ -170,4 +170,4 @@ releasenotes: build
 # A version-stamped build: VERSION is normally the tag being cut. The stamp
 # lands in the MCP handshake and the CLI via internal/mcpserver.Version.
 release-build:
-	$(GO) build -ldflags "-X github.com/jxsl13/spectackle/internal/mcpserver.Version=$(VERSION)" -o $(BIN) ./cmd/spectackle
+	$(GO) build -ldflags "-X github.com/jxsl13/spectackle/internal/mcpserver.Version=$(VERSION)" -o $(BIN) .

@@ -378,7 +378,7 @@ func openBlobs(ws workspace.Root) store.Store {
 // resulting graph, the syntactic Stats, and the typed-call pass's outcome.
 //
 // Exported and factored out of (*Server).reindex so the `spectackle
-// reindex` CLI subcommand (cmd/spectackle/main.go) can rebuild the exact
+// reindex` CLI subcommand (main.go) can rebuild the exact
 // same symbol graph drift classification depends on, instead of silently
 // only resyncing the spec/doc cache while claiming to "reindex" (DEFECT 3 /
 // contract-pending T-0107): the two call sites sharing this one function is

@@ -47,7 +47,7 @@ func TestFullRunAgainstBuiltBinary(t *testing.T) {
 		t.Skip("full lifecycle run: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -78,7 +78,7 @@ func TestSeededFixtureRendersMultiDirCleanInventory(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -137,7 +137,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -255,7 +255,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -327,7 +327,7 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -418,7 +418,7 @@ func TestMeterTamperDetection(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -513,7 +513,7 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)
@@ -614,7 +614,7 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 		t.Skip("builds and drives the real binary: skipped in -short")
 	}
 	bin := t.TempDir() + "/spx"
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/spectackle")
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v: %s", err, out)

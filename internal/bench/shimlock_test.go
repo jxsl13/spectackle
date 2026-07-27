@@ -162,7 +162,7 @@ func benchSelfBinary(t *testing.T) string {
 		t.Skip("builds the binary")
 	}
 	bin := filepath.Join(t.TempDir(), "spectackle")
-	if out, err := exec.Command("go", "build", "-o", bin, "github.com/jxsl13/spectackle/cmd/spectackle").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", bin, "github.com/jxsl13/spectackle").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
 	}
 	return bin

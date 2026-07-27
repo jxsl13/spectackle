@@ -4,7 +4,7 @@ project_name: spectackle
 
 builds:
   - id: spectackle
-    main: ./cmd/spectackle
+    main: .
     binary: spectackle
     env:
       - CGO_ENABLED=0
