@@ -36,7 +36,10 @@ func (s *Server) beginEdgeCapture() func(failed bool) {
 	// (cross-verification, live repro). Inside a task worktree the engine
 	// stands down; replay carries the events to main, and main-side calls
 	// commit there.
-	if !s.ws.Cfg.Git.IsEnabled() || !s.ws.Cfg.Git.EdgeCommits() || s.wtItem != "" {
+	// effectiveGit, the same resolution the gitflow edges use (B-01KYHTJ4AP:
+	// this line read s.ws while gitGate read s.main, so the two engines
+	// could disagree on enabled in the serving-worktree topology).
+	if g := s.effectiveGit(); !g.IsEnabled() || !g.EdgeCommits() || s.wtItem != "" {
 		return func(bool) {}
 	}
 	type hit struct {
