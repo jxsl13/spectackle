@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYHQ8TQ6E78VP0B74VVZZ7Z5 validate op=pack on an archived item renders bare nf journal refs instead of the suppressed-pack line
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver/validate.go
