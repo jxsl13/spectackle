@@ -180,6 +180,20 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 	shimPath = filepath.Join(dir, "meter.sh")
 	briefPath = filepath.Join(dir, "brief.md")
 	meterLog := filepath.Join(dir, "meter.log")
+	// Harness artifacts must never be git-visible in the fixture
+	// (B-01KYH3SP): the first active-transition sweep tracks everything
+	// outside .spectackle, every shim call re-dirties the logs, and the
+	// offline merge's checkout then refuses FOREVER — a judge proved
+	// empirically that no sanctioned call sequence can leave the tree
+	// clean. Written before the judge's first call, appended not clobbered.
+	harnessIgnore := "# spectackle bench harness artifacts — never fixture content\n" +
+		"meter.log\ntranscript.log\nmeter.sh\nbrief.md\njournal.baseline\n" +
+		"trap.hash\nscenario\nmanifest.size\nmeter.log.lock/\n"
+	gi := filepath.Join(dir, ".gitignore")
+	existing, _ := os.ReadFile(gi)
+	if err := os.WriteFile(gi, append(existing, []byte(harnessIgnore)...), 0o644); err != nil {
+		return "", "", "", err
+	}
 
 	nonceBytes := make([]byte, 8)
 	if _, err := rand.Read(nonceBytes); err != nil {
