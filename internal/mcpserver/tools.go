@@ -2396,15 +2396,51 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		// the per-key addressal forensics (Keys/Wv) — the detail matters
 		// only while the item lives, and retention must not bloat exactly
 		// the journals compaction exists to shrink (T-01KYFXEQ).
+		// terminal is FINAL-state-wins, not any-terminal-event-ever: an
+		// archive that was compensated back to done (EvMove Fr=archived)
+		// or a revoked rejection leaves the item LIVE, and folding a live
+		// item's evidence disarmed the offline archive gate
+		// (B-01KYHV740T T5 — the naive presence check did exactly that).
 		terminal := map[string]bool{}
 		for _, e := range events {
-			if e.Ev == journal.EvArchive || e.Ev == journal.EvReject {
+			switch {
+			case e.Ev == journal.EvArchive || e.Ev == journal.EvReject:
 				terminal[e.ID] = true
+			case e.Ev == journal.EvMove &&
+				(e.Fr == item.StateArchived || e.Fr == item.StateRejected):
+				terminal[e.ID] = false
 			}
+		}
+		// Live items' gate evidence survives the fold (B-01KYHV740T H2):
+		// everActive and lastGateResult walk EvMove events, and folding a
+		// live item's activation or last gate outcome silently disarmed
+		// the offline archive gate. Keep, per NON-terminal item, the last
+		// move into active and the last gate-outcome event (a real done
+		// edge — Fr!=archived — or a same-state "gate fail" round).
+		lastActive := map[string]int{}
+		lastGate := map[string]int{}
+		for i, e := range events {
+			if e.Ev != journal.EvMove || terminal[e.ID] {
+				continue
+			}
+			if e.To == item.StateActive {
+				lastActive[e.ID] = i
+			}
+			if (e.To == item.StateDone && e.Fr != item.StateArchived) ||
+				strings.Contains(e.Note, "gate fail") {
+				lastGate[e.ID] = i
+			}
+		}
+		keepMove := map[int]bool{}
+		for _, i := range lastActive {
+			keepMove[i] = true
+		}
+		for _, i := range lastGate {
+			keepMove[i] = true
 		}
 		var keep []journal.Event
 		folded := 0
-		for _, e := range events {
+		for i, e := range events {
 			switch e.Ev {
 			case journal.EvReject, journal.EvArchive, journal.EvCompact,
 				journal.EvEscalate, journal.EvDecide:
@@ -2420,6 +2456,12 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 					e.Keys, e.Wv = nil, nil
 				}
 				keep = append(keep, e)
+			case journal.EvMove:
+				if keepMove[i] {
+					keep = append(keep, e)
+				} else {
+					folded++
+				}
 			default:
 				folded++
 			}

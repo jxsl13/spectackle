@@ -13,6 +13,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/forge"
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
@@ -218,6 +219,7 @@ func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate
 		if g := s.runGate(it.Goal); g != "" {
 			res.addf("%s", g)
 			res.addf("! GATE E %s local gate failed — fix and retry the move", shortDisplayID(it.ID))
+			s.journalGateFail(it)
 			return res
 		}
 		res.addf("g local gates passed")
@@ -427,6 +429,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	if gate := s.runGate(it.Goal); gate != "" {
 		res.addf("%s", gate)
 		res.addf("! GATE E %s local gate failed — pr %d stays draft, fix and move to done again", it.ID, pr.Number)
+		s.journalGateFail(it)
 		return res
 	}
 	res.addf("g local gates passed")
@@ -628,6 +631,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		if gate := s.runGate(it.Goal); gate != "" {
 			res.addf("%s", gate)
 			res.addf("! GATE E %s local gate failed — pr %d stays draft, merge refused", it.ID, pr.Number)
+			s.journalGateFail(it)
 			return res
 		}
 		res.addf("g local gates passed")
@@ -960,6 +964,20 @@ func (s *Server) gitFlowFor(it item.Item, to string) *gitFlowResult {
 		res.lines = append([]string{d}, res.lines...)
 	}
 	return res
+}
+
+// journalGateFail appends the machine-readable gate outcome the render
+// line alone cannot provide (B-01KYHV740T): a same-state EvMove carrying
+// the established "gate fail" note (swarm.gateFail's shape, minus its
+// rounds machinery — this is evidence, not escalation). lastGateResult
+// keys on it, so a red-gated done edge stops reading as a pass at the
+// archive gate and in the validate pack.
+func (s *Server) journalGateFail(it item.Item) {
+	_ = journal.Append(s.ws, it.Dir, journal.Event{
+		Ev: journal.EvMove, ID: it.ID, Fr: it.State, To: it.State, Dir: it.Dir,
+		Note: "gate fail",
+	})
+	s.markDirty()
 }
 
 // effectiveGit resolves the git configuration ONE way for every engine

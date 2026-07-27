@@ -35,6 +35,12 @@ func gitPushSpy(t *testing.T) (logPath string) {
 func TestOfflineLifecycleSingleBranchOnly(t *testing.T) {
 	pushLog := gitPushSpy(t)
 	root := gitRoot(t)
+	// green verify gate: this test's subject is single-branch mechanics —
+	// gitRoot's `test -f ok.txt` gate ran RED here unnoticed until the
+	// strict offline gate (B-01KYHV740T) made the archive refuse on it
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// the DEFAULT config path: no git block at all — GIT-DEFAULT-001 means
 	// this runs offline without a single mode key written
 	branchesBefore := closureGit(t, root, "branch", "--list")
