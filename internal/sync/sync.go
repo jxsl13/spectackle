@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/jxsl13/spectackle/internal/benchmark"
 	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/item"
@@ -59,6 +61,7 @@ func (s *Scanner) Refresh() error {
 			{s.Root.SpecPath(ctx), []string{"rule", "section"}, s.feedSpec},
 			{s.Root.WorkPath(ctx), []string{"proposal", "task", "bug", "research", "adr"}, s.feedWork},
 			{s.Root.JournalPath(ctx), []string{"journal", "rejection"}, s.feedJournal},
+			{s.Root.BenchPath(ctx), []string{"bench"}, s.feedBench},
 		} {
 			st, err := os.Stat(b.path)
 			if os.IsNotExist(err) {
@@ -180,6 +183,39 @@ func (s *Scanner) feedJournal(ctx, path string) ([]cache.Doc, error) {
 				e.Ev, e.ID, e.K, e.Ti, e.To, e.Note, e.Sum, e.Body, e.Rule, e.Txt, e.Cls,
 			}, " ")),
 		})
+	}
+	return docs, nil
+}
+
+// feedBench indexes benchmark records (P-01KYJMVX2Q): name, key, frame
+// dims, impl labels, tool and note are all searchable via find scope=bench.
+func (s *Scanner) feedBench(ctx, path string) ([]cache.Doc, error) {
+	st, err := benchmark.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	var docs []cache.Doc
+	for _, key := range st.Keys() {
+		for _, r := range st.Versions(key) {
+			var dims []string
+			for k, v := range r.Frame {
+				dims = append(dims, k+"="+v)
+			}
+			sort.Strings(dims)
+			var labels []string
+			for _, im := range r.Impls {
+				labels = append(labels, im.Label)
+			}
+			docs = append(docs, cache.Doc{
+				Kind:  "bench",
+				ID:    r.ID,
+				Dir:   ctx,
+				Title: r.Name,
+				Body: strings.TrimSpace(strings.Join([]string{
+					r.Name, r.Key, strings.Join(dims, " "), strings.Join(labels, " "), r.Tool, r.Note,
+				}, " ")),
+			})
+		}
 	}
 	return docs, nil
 }

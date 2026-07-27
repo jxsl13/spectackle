@@ -46,6 +46,7 @@ const (
 	EvEscalate = "escalate" // an item exhausted its feedback rounds and was blocked
 	EvReview   = "review"   // independent review verdict, identity- and body-hash-bound (T-01KYD94KP4)
 	EvValidate = "validate" // post-implementation validation: Op=render (pack, diff hash) or Op=verdict (T-01KYD94M3)
+	EvBench    = "bench"    // benchmark put delta: Sum carries the verdicts, Body the superseded raw values (P-01KYJMVX2Q, ADR-01KYJMWEWQ)
 	EvRevise   = "revise"   // draft-state body/targets revision through the draft tool (B-01KYER)
 	EvGitSkip  = "gitskip"  // edge commit skipped after retries (index contention) — journal-only warning (T-01KYD94MG)
 )

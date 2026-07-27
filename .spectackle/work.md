@@ -56,12 +56,27 @@ option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
 
-## T-01KYJN4BGBFX6VFNQ975J2CRZ0 the bench tool: put/get/ls/rm/cmp with dense grammars, m-renders, journaled put-deltas with raw supersession, find scope=bench
-kind: task
+## B-01KYJTASR5EKWAZ50DYTDXK1M3 benchmark store silently drops collision losers and duplicate-ID variants
+kind: bug
 state: draft
 created: 2026-07-27
-parent: P-01KYJMVX2QES89YTP3KXSJPA7J
-grilled: 2026-07-27 open=2
-targets: internal/mcpserver/tools.go, internal/journal/journal.go, internal/sync/sync.go, docs/tools.md
+targets: internal/benchmark
 
-Task 2 of P-01KYJMVX2Q, builds on task 1s internal/benchmark; the wf_0ed39152 synthesis sections 5-8 are authoritative (scratchpad bench-synthesis.md). BUILD internal/mcpserver/bench.go: benchIn per the synthesis (op put|get|ls|rm|cmp; frame/results/metrics as dense k=v and colon grammars, never JSON), registered gate(s, s.bench), lease-guarded on BenchPath when wtItem empty, markDirty + cd.Emit on writes. PUT: parse, canonical key, metric declarations (inherit prior version when omitted, seed by unit else refuse), Put + trim to benchmarks.history, JOURNAL the put event: new kind EvBench in journal.go with the delta summary per shared impl-metric (better/worse/tie under Dir, ~ within Noise) AND the outgoing versions full raw metric values (ADR-01KYJMWEWQ - user chose raw supersession forensics); EvBench joins the compaction keep-list verbatim (extend the fold switch + a fold-survival test). RENDERS: prefix m; put renders d delta lines then one ok m <id> v<n> <name> summary line (RENDER-PARITY-001); get renders m header + f frame + u metric rows per impl with winner star and ~ noise suffix; ls renders m rows filtered by name/frame subset with cur pagination under budget; cmp renders d rows across two entries with unit byte-equality refusal on mismatch; rm tombstones the key (a rm event journals; a later put restarts at v1 with the journal recording the restart - no silent resurrection). ID resolution via ids.ResolveRecordID outside idScope (M- letter registered in ids kind tables if needed). FIND: scope=bench - the FTS feed indexes name, key, frame k=v tokens, impl labels, tool, note; find renders m rows. DOCS: tools.md gains the bench section with the grammars and one example per op; the record-grammar legend gains m/f/u/d. TESTS: e2e round-trip per op, grammar refusals (bad dim, unit mismatch on cmp, unknown metric), delta rendering with direction+noise cases, EvBench fold survival with raw values intact, ls pagination, rm-then-put restart. VERIFY: go build ./... && go test ./internal/mcpserver/ ./internal/journal/ ./internal/sync/ -count=1 && gofmt -l . empty. SCOPE: tool+journal+find+docs; no benchmark-package changes beyond consuming it. ROLLBACK: revert.
+internal/benchmark/store.go Load: (1) two valid records sharing (key,ver) — the parallel-clone shape — resolve deterministically (newer T, then ID) but the LOSER is neither kept nor quarantined nor preserved on Save; it vanishes traceless. (2) seenID dedup treats a repeated ID as a union artifact without comparing content — a line reusing an existing ID with different values is silently discarded. Both contradict the never-silently-dropped contract that quarantine and the journal fold honor elsewhere. Expected: losers and content-diverging duplicates quarantine (preserved verbatim, reported by bench ls) or at minimum journal a bench event naming the discarded record. Repro: hand-append two records with equal key+ver and different id/content/T, trigger any put, grep the losing value — 0 hits, quarantine count unchanged. Found by the T-01KYJN4BGBFX6 cross-validation (findings 4+5).
+
+## B-01KYJTB95HEPFRRBMAN2YPEE32 scaffolded config.yaml omits the benchmarks section
+kind: bug
+state: draft
+created: 2026-07-27
+targets: internal/workspace
+
+internal/workspace/workspace.go scaffoldConfigYAML promises to document every setting with its default value but never emits a benchmarks: block, so a fresh workspace config carries nothing about benchmarks.history (default 1) even though docs/tools.md sec 17 points users at it. TestEnsureScaffoldGeneratesSelfDocumentingConfig never checks history: nor compares got.Benchmarks vs want.Benchmarks, so the gap is untested. Hand-adding benchmarks:
+  history: 3 works — only the self-documentation is broken. Expected: scaffold emits the commented benchmarks section and the scaffold test pins it. Found by the T-01KYJN4BGBFX6 cross-validation (finding 6).
+
+## B-01KYJTBA25F6HR79R08MK9MJN9 benchmark Validate accepts negative noise and unvalidated impl src
+kind: bug
+state: draft
+created: 2026-07-27
+targets: internal/benchmark
+
+internal/benchmark/record.go Validate: (1) Metric.Noise is checked for NaN/Inf but not sign — a negative noise (metrics time:ns:-:-5) is stored and silently behaves like noise=0 (abs(delta) <= -5 never holds), instead of refusing as invalid input. (2) Impl.Src bypasses validToken entirely — separators (= | ; :) land in src verbatim (results go@sha=x|y: ...). No corruption today (src is never re-parsed and not part of the key, get does not render it) but it breaks the stated forbidden-characters contract and get should arguably render provenance. Expected: Validate refuses negative noise; src passes validToken (or the contract comment names src as exempt free-form and get renders it). Found by the T-01KYJN4BGBFX6 cross-validation (findings 7+8).

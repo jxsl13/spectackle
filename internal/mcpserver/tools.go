@@ -249,6 +249,10 @@ func (s *Server) registerTools() {
 		Description: "Housekeeping. Dry-run lists candidates (c): done-unarchived items, journal folds. apply=true executes — reject events are NEVER dropped. Trigger when check emits c records."},
 		gate(s, s.compact))
 
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "bench",
+		Description: "Benchmark records: implementations compared on a FRAME (required dims os arch cpu ram gpu; none=hardware absent, any=machine-independent). put: name + frame k=v + results 'impl[@src]: metric=value ...' (;-separated) + metrics 'name:unit:dir[:noise]' (dir +|-|~; omit metrics to inherit the prior version) — same name+frame = same entry, new version (history keeps 1 by default; benchmarks.history raises), delta vs the superseded head renders d lines and journals WITH the old raw values. get: m/f/u lines, winner *. ls: heads, name/frame filters. cmp: two entries, units byte-compared never converted. rm: drop a key; a later put restarts at v1."},
+		gate(s, s.bench))
+
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "lease",
 		Description: "Scope leases stop agent collisions. claim: reserve dirs/files/item IDs (auto-refreshed each call; conflict → l line naming the holder). release: drop — do this the moment your item is done, a stale claim blocks siblings until TTL expiry. ls: all live leases. work op=start auto-claims its item+targets — explicit claims only for extra scope."},
 		gate(s, s.expandLeaseIDs(s.lease)))
@@ -318,6 +322,7 @@ var scopeKinds = map[string][]string{
 	"adr":       {"adr"},
 	"rejection": {"rejection"},
 	"history":   {"journal", "rejection"},
+	"bench":     {"bench"},
 }
 
 func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
@@ -2462,7 +2467,7 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 		for i, e := range events {
 			switch e.Ev {
 			case journal.EvReject, journal.EvArchive, journal.EvCompact,
-				journal.EvEscalate, journal.EvDecide:
+				journal.EvEscalate, journal.EvDecide, journal.EvBench:
 				keep = append(keep, e)
 			case journal.EvReview, journal.EvValidate:
 				// Verdicts survive compaction (ADR-01KYES0TT): they are
