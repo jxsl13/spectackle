@@ -83,7 +83,7 @@ internal/benchmark/record.go Validate: (1) Metric.Noise is checked for NaN/Inf b
 
 ## T-01KYJTQ5RRFYFABSE8MDN3AW1S single PR draft-to-ready flip at the archive edge (PR-DRAFT-001)
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/mcpserver, docs, README.md
