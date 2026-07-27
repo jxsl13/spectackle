@@ -127,4 +127,4 @@ Rationale: This repo develops itself with itself, so a stale binary answers plau
 The server instructions manifest SHALL carry a BACKPROP paragraph naming the three durable stores, the archive-note training signal, and the post-merge make dev rebuild.
 
 ## RENDER-PARITY-001
-WHEN a lifecycle edges git automation succeeds, the MCP server SHALL render 1 line per edge naming the outcome artifact (commit SHA, PR URL, merge SHA); multi-line verbosity is reserved for refusals and failures - the LLM transitions, never narrates automation.
+WHEN a lifecycle edges git automation succeeds, the MCP server SHALL render 1 line per edge naming the outcome artifact (commit SHA, PR URL, merge SHA); multi-line verbosity is reserved for refusals and failures.
