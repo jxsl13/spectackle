@@ -100,7 +100,7 @@ func (r *gitFlowResult) String() string {
 // and that is the tree these primitives operate on.
 func (s *Server) gitGate() (ok bool, reason string) {
 	switch {
-	case !s.main.Cfg.Git.IsEnabled():
+	case !s.effectiveGit().IsEnabled():
 		return false, "off: disabled in config"
 	case s.wtItem != "":
 		return false, "deferred: swarm worktree flow owns " + s.wtItem
@@ -170,7 +170,7 @@ func (s *Server) forgeFor() (forge.Forge, error) {
 	// (gitFlowOffline, T-01KYHAH1GJ) and construct no forge; the offline
 	// forge type survives solely as the hermetic test double behind
 	// forgeOverride. A legacy cache/forge-offline.json is inert.
-	cfg := s.main.Cfg.Git
+	cfg := s.effectiveGit()
 	remote, err := wt.RemoteURL(s.main.Dir, cfg.Remote)
 	if err != nil {
 		// No such remote: a git repository that was never given one. Not
@@ -242,7 +242,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	if s.main.Cfg.Git.Mode == "offline" {
+	if s.effectiveGit().Mode == "offline" {
 		return s.gitFlowOffline(it, it.Title, item.StateActive, false, false)
 	}
 	branch := s.itemBranch(it.ID)
@@ -265,7 +265,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	f, err := s.forgeFor()
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
-			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.addf("g git n/a: no remote %s", s.effectiveGit().Remote)
 			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
@@ -317,7 +317,7 @@ func (s *Server) gitOpenPR(f forge.Forge, it item.Item, branch string) *gitFlowR
 		res.addf("g pr %d %s (already open)", pr.Number, pr.URL)
 		return res
 	}
-	ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase())
+	ahead, err := wt.IsAheadOfRemote(s.ws.Dir, branch, s.effectiveGit().Remote, s.gitBase())
 	if err != nil {
 		// An error is not a deferral: rendering a failed probe as "not ahead
 		// yet" (B-01KYDY's reporting smell) dresses breakage up as a
@@ -355,7 +355,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	if s.main.Cfg.Git.Mode == "offline" {
+	if s.effectiveGit().Mode == "offline" {
 		return s.gitFlowOffline(it, "checkpoint", item.StateDone, false, false)
 	}
 	branch := s.itemBranch(it.ID)
@@ -365,7 +365,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 		return res
 	}
 	s.gitCommitRecords(res, it, item.StateDone)
-	unpushed, err := wt.HasUnpushedCommits(dir, s.main.Cfg.Git.Remote, branch)
+	unpushed, err := wt.HasUnpushedCommits(dir, s.effectiveGit().Remote, branch)
 	if err != nil || !unpushed {
 		res.addf("g %s up to date", branch)
 		return res
@@ -385,7 +385,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	if s.main.Cfg.Git.Mode == "offline" {
+	if s.effectiveGit().Mode == "offline" {
 		// done offline = commit + local gate verdict; no PR to flip, no
 		// checks to await. A red gate reads "fix and retry the move".
 		return s.gitFlowOffline(it, "checkpoint", item.StateDone, true, false)
@@ -397,7 +397,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	f, err := s.forgeFor()
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
-			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.addf("g git n/a: no remote %s", s.effectiveGit().Remote)
 			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
@@ -496,7 +496,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	if !s.gitEnabled() {
 		return res
 	}
-	if s.main.Cfg.Git.Mode == "offline" {
+	if s.effectiveGit().Mode == "offline" {
 		// The archive edge offline is records + straggler code on the
 		// CURRENT branch — no merge exists to fail, so closureComplete
 		// follows the records commit alone. The local gate mirrors the
@@ -552,7 +552,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		// branch out and run the normal closure on it, exactly what the
 		// lifecycle does when it is current; the rewind concern only ever
 		// applied to already-merged eras.
-		ahead, aerr := wt.IsAheadOfRemote(s.ws.Dir, branch, s.main.Cfg.Git.Remote, s.gitBase())
+		ahead, aerr := wt.IsAheadOfRemote(s.ws.Dir, branch, s.effectiveGit().Remote, s.gitBase())
 		if aerr != nil {
 			res.addf("! GIT E %s ahead check: %s — refusing the records-only sidestep on unknown branch state", it.ID, aerr)
 			return res
@@ -594,7 +594,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	f, err := s.forgeFor()
 	if err != nil {
 		if errors.Is(err, errNoRemote) {
-			res.addf("g git n/a: no remote %s", s.main.Cfg.Git.Remote)
+			res.addf("g git n/a: no remote %s", s.effectiveGit().Remote)
 			res.closureComplete = true
 		} else {
 			res.addf("! GIT E %s forge: %s", it.ID, err)
@@ -852,7 +852,7 @@ func awaitChecksReport(f forge.Forge, pr forge.PR, waitBudget, poll time.Duratio
 
 // gitBase is the branch task branches target.
 func (s *Server) gitBase() string {
-	if b := s.main.Cfg.Git.Base; b != "" {
+	if b := s.effectiveGit().Base; b != "" {
 		return b
 	}
 	return "main"
@@ -862,10 +862,10 @@ func (s *Server) gitBase() string {
 // the local repository, so there is nothing to push to and a missing remote
 // must not read as a failure.
 func (s *Server) gitPush(dir, branch string) error {
-	if s.main.Cfg.Git.Mode == "offline" {
+	if s.effectiveGit().Mode == "offline" {
 		return nil
 	}
-	return wt.Push(dir, s.main.Cfg.Git.Remote, branch)
+	return wt.Push(dir, s.effectiveGit().Remote, branch)
 }
 
 // gitPRBody is the pull request description: the item's own body, which is the
@@ -935,17 +935,62 @@ func (s *Server) gitFlowFor(it item.Item, to string) *gitFlowResult {
 		}
 		return res
 	}
+	var res *gitFlowResult
 	switch to {
 	case item.StateActive:
-		return s.gitFlowStart(it)
+		res = s.gitFlowStart(it)
 	case item.StateDone:
-		return s.gitFlowReady(it)
+		res = s.gitFlowReady(it)
 	case item.StateArchived:
-		return s.gitFlowMerge(it)
+		res = s.gitFlowMerge(it)
+	default:
+		return &gitFlowResult{}
 	}
-	return &gitFlowResult{}
+	// The divergence note is stateless and per-transition (never-silent,
+	// B-01KYHTJ4AP): a serving root whose committed config disagrees with
+	// the primary checkout's must say which one is steering.
+	if d := s.gitDivergence(); d != "" {
+		res.lines = append([]string{d}, res.lines...)
+	}
+	return res
 }
 
-// gitCfgOf is a small read helper so tests can assert the effective config
-// without reaching into the Server.
-func gitCfgOf(ws workspace.Root) workspace.GitCfg { return ws.Cfg.Git }
+// effectiveGit resolves the git configuration ONE way for every engine
+// (B-01KYHTJ4AP): behavioral fields — Mode, Enabled, Commits — come from
+// the SERVING root, because the tree the edges run on decides how they run
+// and s.ws is the convention every other feedback gate already follows;
+// repo-global plumbing — Remote, Base — stays with the primary checkout,
+// whose .git/config all linked worktrees share. The asymmetry is
+// deliberate: a branch may legitimately carry a different config ERA than
+// main, but it must never re-point pushes at a different remote or base.
+func (s *Server) effectiveGit() workspace.GitCfg {
+	g := s.ws.Cfg.Git
+	g.Remote = s.main.Cfg.Git.Remote
+	g.Base = s.main.Cfg.Git.Base
+	return g
+}
+
+// gitDivergence renders the never-silent note when the two roots'
+// behavioral git fields disagree: one stateless line naming each differing
+// field, both values, and the winner. Empty when the roots coincide or
+// agree — the common case stays byte-identical.
+func (s *Server) gitDivergence() string {
+	if s.ws.Dir == s.main.Dir {
+		return ""
+	}
+	w, m := s.ws.Cfg.Git, s.main.Cfg.Git
+	var parts []string
+	if w.Mode != m.Mode {
+		parts = append(parts, fmt.Sprintf("mode ws=%s main=%s -> %s", w.Mode, m.Mode, w.Mode))
+	}
+	if w.IsEnabled() != m.IsEnabled() {
+		parts = append(parts, fmt.Sprintf("enabled ws=%t main=%t -> %t", w.IsEnabled(), m.IsEnabled(), w.IsEnabled()))
+	}
+	if w.EdgeCommits() != m.EdgeCommits() {
+		parts = append(parts, fmt.Sprintf("commits ws=%t main=%t -> %t", w.EdgeCommits(), m.EdgeCommits(), w.EdgeCommits()))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "w git config diverges (serving root wins): " + strings.Join(parts, ", ")
+}

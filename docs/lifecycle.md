@@ -103,6 +103,14 @@ default must add that key. The swarm worktree flow is mode-exempt by
 recorded decision (ADR): its transient local branches are already push-
 and forge-free and behave identically in both modes.
 
+In the serving-worktree topology (the server rooted at a linked worktree)
+the **serving root's** committed config decides the behavioral fields —
+mode, enabled, edge commits — while remote and base stay the primary
+checkout's (linked worktrees share `.git/config`, and a branch must never
+re-point pushes). When the two configs disagree, every transition renders
+one `w git config diverges (serving root wins): …` line naming both
+values — never silently.
+
 Accepted offline losses, stated not hidden: closure records land on
 whatever branch is current — nothing merges them to the base branch, so
 records archived on a later-deleted side branch are gone with it; a
