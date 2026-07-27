@@ -63,7 +63,7 @@ type Session struct {
 func Dial(ctx context.Context, cfg Config) (*Session, error) {
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "spectackle",
-		Version: mcpserver.Version,
+		Version: mcpserver.ResolvedVersion(),
 	}, nil)
 
 	transport, desc, err := cfg.transport(ctx)
