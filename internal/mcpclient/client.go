@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -66,13 +67,20 @@ func Dial(ctx context.Context, cfg Config) (*Session, error) {
 		Version: mcpserver.ResolvedVersion(),
 	}, nil)
 
-	transport, desc, err := cfg.transport(ctx)
+	transport, desc, stderrTail, err := cfg.transport(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("mcpclient: %s: %w", desc, err)
 	}
 
 	cs, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		// A spawned server that refuses at startup (schema mismatch, bad
+		// root) dies before the handshake, and the raw error is a bare
+		// "initialize: EOF" — its stderr carried the real diagnostic and
+		// was lost in transport (issue 178). Append the captured tail.
+		if tail := stderrTail(); tail != "" {
+			return nil, fmt.Errorf("mcpclient: connect via %s: %w\nserver stderr: %s", desc, err, tail)
+		}
 		return nil, fmt.Errorf("mcpclient: connect via %s: %w", desc, err)
 	}
 	return &Session{cs: cs, desc: desc}, nil
@@ -81,17 +89,18 @@ func Dial(ctx context.Context, cfg Config) (*Session, error) {
 // transport builds the go-sdk Transport for cfg, plus a human-readable
 // description of it (used to give spawn/connect failures enough context to
 // name the transport and endpoint, per CLI-002's error requirement).
-func (cfg Config) transport(ctx context.Context) (mcp.Transport, string, error) {
+func (cfg Config) transport(ctx context.Context) (mcp.Transport, string, func() string, error) {
+	noTail := func() string { return "" }
 	if cfg.Endpoint != "" {
 		return &mcp.StreamableClientTransport{Endpoint: cfg.Endpoint},
-			fmt.Sprintf("http endpoint %s", cfg.Endpoint), nil
+			fmt.Sprintf("http endpoint %s", cfg.Endpoint), noTail, nil
 	}
 
 	bin := cfg.Command
 	if bin == "" {
 		exe, err := os.Executable()
 		if err != nil {
-			return nil, "stdio spawn (resolving current executable)",
+			return nil, "stdio spawn (resolving current executable)", noTail,
 				fmt.Errorf("resolve executable for stdio spawn: %w", err)
 		}
 		bin = exe
@@ -102,7 +111,39 @@ func (cfg Config) transport(ctx context.Context) (mcp.Transport, string, error) 
 	}
 	desc := fmt.Sprintf("stdio spawn %s serve -root %s", bin, root)
 	cmd := exec.CommandContext(ctx, bin, "serve", "-root", root)
-	return &mcp.CommandTransport{Command: cmd}, desc, nil
+	// Bounded stderr capture: a server that refuses at startup writes its
+	// diagnostic here and dies before the handshake — without the capture
+	// the caller sees only "initialize: EOF" (issue 178).
+	buf := &boundedBuf{limit: 4096}
+	cmd.Stderr = buf
+	return &mcp.CommandTransport{Command: cmd}, desc, buf.tail, nil
+}
+
+// boundedBuf keeps the FIRST limit bytes written (startup diagnostics come
+// first; anything after is log churn) and is safe for the one writer the
+// exec machinery gives it.
+type boundedBuf struct {
+	mu    sync.Mutex
+	b     []byte
+	limit int
+}
+
+func (w *boundedBuf) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if room := w.limit - len(w.b); room > 0 {
+		if len(p) < room {
+			room = len(p)
+		}
+		w.b = append(w.b, p[:room]...)
+	}
+	return len(p), nil
+}
+
+func (w *boundedBuf) tail() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return strings.TrimSpace(string(w.b))
 }
 
 // Call invokes a tool and renders its result the way every other spectackle

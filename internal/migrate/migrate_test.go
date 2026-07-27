@@ -428,3 +428,175 @@ func TestMigratePreservesUnknownJournalFields(t *testing.T) {
 		t.Fatalf("unknown field or key order not preserved.\nwant line: %s\ngot:\n%s", want, got)
 	}
 }
+
+// Issue 178 defect 1: a config.yaml whose schema line escapes the generic
+// regex (CRLF, trailing comment) must still leave the migration at To —
+// and COMPLETE must be withheld if any file would stay half-stamped.
+func TestForceConfigStampVariants(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"crlf", "schema: v0\r\nlangs: [go]\r\n", "schema: v1\r\nlangs: [go]\r\n"},
+		{"comment", "schema: v0  # old stamp\nlangs: [go]\n", "schema: v1\nlangs: [go]\n"},
+		{"plain", "schema: v0\n", "schema: v1\n"},
+		{"missing", "langs: [go]\n", "schema: v1\nlangs: [go]\n"},
+		{"already", "schema: v1\nlangs: [go]\n", "schema: v1\nlangs: [go]\n"},
+	} {
+		if got := string(forceConfigStamp([]byte(tc.in))); got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The issue-178 brick, end to end: a v0 bundle whose config.yaml carries a
+// CRLF schema line migrates to a FULLY v1 bundle with COMPLETE written —
+// and a second open is a no-op.
+func TestMigrateStampsCRLFConfig(t *testing.T) {
+	dir := v0Fixture(t)
+	cfg := filepath.Join(dir, Dot, "config.yaml")
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf := strings.ReplaceAll(string(raw), "\n", "\r\n")
+	if err := os.WriteFile(cfg, []byte(crlf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+		t.Fatalf("config not stamped to %s:\n%s", To, after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist after a fully-stamped migration")
+	}
+	if rep2, err := Run(dir); err != nil || rep2.Migrated {
+		t.Fatalf("second open must be a no-op: %+v %v", rep2, err)
+	}
+}
+
+// Round 2 of the issue-178 fix: the trailing-comment escape on spec.md —
+// invisible to the regex, the rewrite, AND the count seen by the first
+// completion check — must now be force-stamped inside the front-matter
+// fence; and a schema mention in item PROSE must never be touched.
+func TestMigrateStampsCommentedSpecFrontMatter(t *testing.T) {
+	dir := v0Fixture(t)
+	spec := filepath.Join(dir, Dot, "spec.md")
+	raw, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commented := strings.Replace(string(raw), "schema: v0", "schema: v0  # legacy stamp", 1)
+	if err := os.WriteFile(spec, []byte(commented), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+		t.Fatalf("commented spec front matter not stamped:\n%.200s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist after a fully-stamped migration")
+	}
+}
+
+func TestForceFrontMatterStampNeverTouchesProse(t *testing.T) {
+	in := "---\nschema: v0  # x\n---\n\n## item\nprose about schema: v0 stays.\n"
+	got := string(forceFrontMatterStamp([]byte(in)))
+	if !strings.Contains(got, "---\nschema: v1\n---") {
+		t.Fatalf("fence not stamped: %q", got)
+	}
+	if !strings.Contains(got, "prose about schema: v0 stays.") {
+		t.Fatalf("prose was touched: %q", got)
+	}
+}
+
+// Round 3 (cross-val NEW-1): a column-0 prose line "schema: v0" in an item
+// body is CONTENT — the fence-scoped pipeline must migrate the bundle
+// without touching it.
+func TestMigrateNeverRewritesProseSchemaLines(t *testing.T) {
+	dir := v0Fixture(t)
+	work := filepath.Join(dir, Dot, "work.md")
+	raw, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prose := string(raw) + "\nExample config for the docs:\n\nschema: v0\nlangs: [go]\n"
+	if err := os.WriteFile(work, []byte(prose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "Example config for the docs:\n\nschema: v0\n") {
+		t.Fatalf("prose schema line was rewritten:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist — the prose line is not a stamp and must not withhold it")
+	}
+}
+
+// Round 3 (cross-val NEW-2): ALL THREE root probes carrying trailing-comment
+// stamps must still be DETECTED as v0 and fully migrated — the probe misses
+// skipped the migration entirely and the refusal then lied about it.
+func TestNeededDetectsCommentedStamps(t *testing.T) {
+	dir := v0Fixture(t)
+	for _, name := range []string{"config.yaml", "spec.md", "work.md"} {
+		p := filepath.Join(dir, Dot, name)
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commented := strings.Replace(string(raw), "schema: v0", "schema: v0  # legacy", 1)
+		if err := os.WriteFile(p, []byte(commented), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	need, err := Needed(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !need {
+		t.Fatal("commented stamps must still read as v0 to the probe")
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("bundle must migrate")
+	}
+	for _, name := range []string{"config.yaml", "spec.md", "work.md"} {
+		after, err := os.ReadFile(filepath.Join(dir, Dot, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+			t.Fatalf("%s not stamped:\n%.200s", name, after)
+		}
+	}
+}

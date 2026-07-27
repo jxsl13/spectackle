@@ -382,3 +382,28 @@ func TestShapeLineFromLiveSchema(t *testing.T) {
 		t.Fatal("unknown tool must error, not fabricate a shape")
 	}
 }
+
+// Issue 178: a spawned server refusing at startup died with a bare
+// "initialize: EOF" — the stderr diagnostic must reach the error now.
+func TestDialSurfacesServerStderrOnStartupRefusal(t *testing.T) {
+	bin := requireBinary(t)
+	// a root whose config schema mismatches: serve refuses before the
+	// handshake with the workspace error on stderr
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".spectackle"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".spectackle", "config.yaml"),
+		[]byte("schema: v99\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := mcpclient.Dial(ctx, mcpclient.Config{Command: bin, Root: root})
+	if err == nil {
+		t.Fatal("dial against a refusing server must fail")
+	}
+	if !strings.Contains(err.Error(), "server stderr:") || !strings.Contains(err.Error(), "schema") {
+		t.Fatalf("the server's stderr diagnostic must reach the caller: %v", err)
+	}
+}

@@ -138,7 +138,7 @@ func Needed(dir string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if m := frontMatterStampRe.FindSubmatch(raw); m != nil && string(m[1]) == From {
+		if m := frontMatterStampRe.FindSubmatch(stampScope(name, raw)); m != nil && string(m[1]) == From {
 			return true, nil
 		}
 	}
@@ -216,6 +216,31 @@ func Run(dir string) (Report, error) {
 			// Leave the backup and its missing marker behind: the next open
 			// detects the incomplete attempt and rolls back.
 			return Report{}, fmt.Errorf("migrate: writing %s: %w", rel, err)
+		}
+	}
+	// COMPLETE is written only when every stamped file actually reads To:
+	// a completion marker over a half-stamped bundle was the brick (issue
+	// 178). Withholding it leaves the backup armed — the next open rolls
+	// back and retries from the restored originals.
+	if after, aerr := stampsOf(dir, files); aerr != nil {
+		return Report{}, aerr
+	} else {
+		for stamp, n := range after {
+			if stamp != To {
+				return Report{}, fmt.Errorf("migrate: %d file(s) still stamped %q after rewrite — completion withheld, the next open rolls back and retries", n, stamp)
+			}
+		}
+		// The count catches what the regex cannot SEE: a stamp line that
+		// became unmatchable contributes nothing to the map, so equal
+		// stamped-file counts before and after are required — a shrunken
+		// count means some file's stamp escaped the rewrite entirely
+		// (the spec.md trailing-comment brick, issue 178 round 2).
+		before := 0
+		for _, n := range stamps {
+			before += n
+		}
+		if after[To] < before {
+			return Report{}, fmt.Errorf("migrate: %d of %d stamped file(s) unreadable after rewrite — completion withheld, inspect the schema lines; the backup %s holds the originals", before-after[To], before, filepath.Join(Dot, backup))
 		}
 	}
 	if err := os.WriteFile(filepath.Join(backupAbs, doneMarker), []byte(To+"\n"), 0o644); err != nil {
@@ -319,7 +344,28 @@ func bundleFiles(dir string) ([]string, error) {
 
 // frontMatterStampRe pulls the `schema:` value out of a leading front matter
 // block or, for config.yaml, out of the top-level mapping.
-var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[ \t]*$`)
+var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[^\r\n]*$`)
+
+// stampScope returns the region of raw where a schema stamp may legally
+// live: the leading front-matter fence for .md files (a schema line in
+// item PROSE is content, never a stamp — round 3 of issue 178: the global
+// restamp rewrote a column-0 documentation line), the whole file for
+// config.yaml (a YAML top-level mapping cannot carry prose). nil means
+// the file has no stamp region at all.
+func stampScope(name string, raw []byte) []byte {
+	if !strings.HasSuffix(name, ".md") {
+		return raw
+	}
+	s := string(raw)
+	if !strings.HasPrefix(s, "---") {
+		return nil
+	}
+	end := strings.Index(s[3:], "---")
+	if end < 0 {
+		return nil
+	}
+	return []byte(s[:3+end])
+}
 
 // stampsOf counts the stamps present across the bundle. Files carrying no
 // stamp at all (anchors.tsv, a hand-created spec.md) are not counted: they are
@@ -331,7 +377,7 @@ func stampsOf(dir string, files []string) (map[string]int, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m := frontMatterStampRe.FindSubmatch(raw); m != nil {
+		if m := frontMatterStampRe.FindSubmatch(stampScope(rel, raw)); m != nil {
 			out[string(m[1])]++
 		}
 	}
@@ -497,7 +543,16 @@ func (w *workspaceText) rewrite(remap map[string]string) (map[string][]byte, int
 			continue
 		}
 		raw := replaceIDs(w.content[rel], remap)
-		raw = restamp(raw)
+		if strings.HasSuffix(rel, ".md") {
+			// fence-only: the global restamp must never see item prose
+			// (round 3: it rewrote a column-0 documentation line)
+			raw = forceFrontMatterStamp(raw)
+		} else {
+			raw = restamp(raw)
+			if strings.HasSuffix(rel, "config.yaml") {
+				raw = forceConfigStamp(raw)
+			}
+		}
 		if !bytesEqual(raw, w.content[rel]) {
 			out[rel] = raw
 		}
@@ -529,6 +584,48 @@ func restamp(raw []byte) []byte {
 		}
 		return []byte("schema: " + To)
 	})
+}
+
+// forceConfigStamp guarantees config.yaml leaves the migration at To even
+// when the generic front-matter regex misses its schema line — CRLF
+// endings or a trailing comment escaped it, the migration wrote COMPLETE
+// anyway, and the next open refused the half-stamped bundle (issue 178).
+// The whole line is replaced (any comment on it describes the OLD stamp).
+func forceConfigStamp(raw []byte) []byte {
+	if m := frontMatterStampRe.FindSubmatch(raw); m != nil && string(m[1]) == To {
+		return raw // already current, leave byte-identical
+	}
+	re := regexp.MustCompile("(?m)^schema:[^\r\n]*")
+	if re.Match(raw) {
+		return re.ReplaceAll(raw, []byte("schema: "+To))
+	}
+	return append([]byte("schema: "+To+"\n"), raw...)
+}
+
+// forceFrontMatterStamp is forceConfigStamp for the .md bundle files: it
+// rewrites the schema line ONLY inside the leading front-matter fence
+// (between the first two --- lines), so a "schema:" mention in item prose
+// can never be touched. The cross-validation of this fix reproduced the
+// escape on spec.md: a trailing comment made the stamp invisible to the
+// regex, the rewrite, AND the completion check at once (issue 178 round 2).
+func forceFrontMatterStamp(raw []byte) []byte {
+	s := string(raw)
+	if !strings.HasPrefix(s, "---") {
+		return raw
+	}
+	end := strings.Index(s[3:], "---")
+	if end < 0 {
+		return raw
+	}
+	head, tail := s[:3+end], s[3+end:]
+	if m := frontMatterStampRe.FindStringSubmatch(head); m != nil && m[1] == To {
+		return raw
+	}
+	re := regexp.MustCompile("(?m)^schema:[^\r\n]*")
+	if re.MatchString(head) {
+		return []byte(re.ReplaceAllString(head, "schema: "+To) + tail)
+	}
+	return raw // no schema line in the fence: not stamped, not counted
 }
 
 // rewriteJournal rewrites the ID-bearing fields of every event and re-emits
