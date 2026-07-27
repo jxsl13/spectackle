@@ -206,3 +206,22 @@ justification required when the delta is positive.
 | T-01KYD94MG edge-commit engine (structured decision commits per write) | +126B (~31 tokens) | +0B | the requirement is explicit: the decision trail must be readable in git log by humans, fully automatic, zero LLM git commands; the validator's redundancy dissent is recorded on the task and the default stays edges |
 | T-01KYEW memory-to-spec manifest nudge (re-landed via B-01KYFG1KEEF1S) | +0B lifecycle | +180B manifest (once per session) | user directive: standing knowledge must reach the spec, not agent-private memory |
 | T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. |
+
+### Outcome batch: commit-only offline surface (T-01KYJ58DBA, 2026-07-27)
+
+n=3 fresh judges, scenario=outcome, v0.3.1 binary, positional nonces. All
+three reached `archived` + `check ok` with **0 reopen rounds and 0 asks** —
+navigation on the new offline vocabulary held completely; no judge reported
+friction attributable to the `g offline commit` / gate-refusal lines, and
+none missed the deleted PR vocabulary. **Validity 1/3**: two runs voided by
+the vacuous-test trap (each shipped one honest assertion-free smoke test —
+no-panic/no-race by construction — which the trap counts as vacuous), so
+the completeness-per-token comparison against the pre-collapse baselines
+(T-01KYGX9P, T-01KYH1GK) is REFUSED under the all-valid gate; the one valid
+run: 38 calls, ~1325 tokens, first-pass 4/5. Single-batch n=3; confidence
+bounded. What the batch DID measure: the friction that remains is
+identity/shape discovery, not the new surface — filed as B-01KYJ66VSQ
+(start-hint omits SPECTACKLE_AGENT; hit by 3/3 judges), B-01KYJ67RF9
+(agent-score hides the violations that void a run), B-01KYJ67S98 (offline
+checkpoint sweeps pre-existing untracked files into the item's commit —
+found by a judge's git forensics).
