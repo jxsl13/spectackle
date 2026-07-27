@@ -32,7 +32,7 @@ REPORT: the commit-log paste, the per-test migration table, anything the single-
 
 ## B-01KYHBV5QBEJWRW3MJ96JD2M7Y releasenotes renders an item once per archive event: a reopened-and-rearchived item appears twice
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/relnotes/relnotes.go
