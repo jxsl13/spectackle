@@ -18,6 +18,7 @@ choice: cut now
 kind: task
 state: draft
 created: 2026-07-27
+grilled: 2026-07-27 open=0
 targets: internal/mcpserver/gitflow.go, internal/forge/offline.go, docs/lifecycle.md
 
 USER REQUIREMENT (two directives, 2026-07-27): (1) offline mode creates NO PRs and pushes NOTHING - lifecycle works commit-only on the current branch; (2) offline is the DEFAULT - online requires the explicit git: mode: online key (GIT-DEFAULT-001). SCOPE DECISION (ADR-01KYHPNG8P, user-chosen): zero-branches/zero-PRs/zero-pushes/zero-base-checkouts applies to the gitFlowFor EDGES; the swarm worktree flow is exempt BY NAME - its transient local branches and local merges are already push- and forge-free and stay byte-identical in both modes; the submit-by-commit idea is dropped (squash violates never-squash ADR-01KYDB, cherry-pick rewrites ledger SHAs); linearity assertions scope to the worktree-less lifecycle.

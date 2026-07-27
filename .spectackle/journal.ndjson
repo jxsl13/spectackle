@@ -690,3 +690,4 @@
 {"t":"2026-07-27T11:57:29Z","eid":"1dc7bad462e56560","ag":"ag-deee","ev":"decide","id":"ADR-01KYHPNG8PF41B64KTBFS0ZH0A","note":"scope zero-branches to lifecycle edges; worktree flow stays (transient local branches allowed)"}
 {"t":"2026-07-27T12:03:37Z","eid":"1f7cdf29d528c709","ag":"ag-e9ec","ev":"rule","op":"add","rule":"GIT-DEFAULT-001","txt":"WHEN config.yaml carries no explicit git.mode, the spectackle server SHALL operate in offline mode (commit-only lifecycle edges); online operation requires the explicit `git: mode: online` key in `.spectackle/config.yaml`."}
 {"t":"2026-07-27T12:04:17Z","eid":"5997ba728878e44e","ag":"ag-eaee","ev":"revise","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","note":"body revised"}
+{"t":"2026-07-27T12:04:44Z","eid":"5a4d1caf1117fd59","ag":"ag-eaa0","ev":"grill","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","gr":"2026-07-27 open=0","hash":"41e3f5693b0de2c5c977b0abf2056a5729d3c2ee80c27d6d0bfad818576ce44c"}
