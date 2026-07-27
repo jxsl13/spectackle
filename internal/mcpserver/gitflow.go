@@ -279,20 +279,10 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		return res
 	}
 	res.lines = append(res.lines, s.gitOpenPR(f, it, branch).lines...)
-	// Reopen direction (T-01KYDKNR8): an item re-entering active declares
-	// its work not-finished, so a pull request still marked ready must
-	// return to draft — the PR draft state mirrors the item state in both
-	// directions. A fresh activation's PR is a draft already (or was just
-	// opened as one above), so in effect this fires only on reopens.
-	if pr, ok, err := f.Find(branch); err != nil {
-		res.addf("! GIT E %s pr lookup for draft flip: %s", it.ID, err)
-	} else if ok && !pr.Draft {
-		if pr, err = f.Draft(pr); err != nil {
-			res.addf("! GIT E %s pr draft: %s", it.ID, err)
-		} else {
-			res.addf("g pr %d back to draft %s", pr.Number, pr.URL)
-		}
-	}
+	// No reopen draft-flip (PR-DRAFT-001, superseding T-01KYDKNR8's two-way
+	// mirror): the PR stays draft until archive, so a ready PR seen here is
+	// either human-flipped (respected, never fought) or already merged —
+	// reopen cycles must not toggle PR state back and forth.
 	return res
 }
 
@@ -437,13 +427,14 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 		return res
 	}
 	res.addf("g local gates passed")
-	if !pr.Draft {
-		res.addf("g pr %d ready (already)", pr.Number)
-	} else if pr, err = f.Ready(pr); err != nil {
-		res.addf("! GIT E %s pr ready: %s", it.ID, err)
-		return res
+	// The PR is NOT flipped to ready here (PR-DRAFT-001): draft holds
+	// through every lifecycle edge and reopen cycle, and the single
+	// draft->ready flip happens at the archive edge immediately before
+	// merge. A ready PR at done is human-flipped and stays untouched.
+	if pr.Draft {
+		res.addf("g pr %d stays draft until archive", pr.Number)
 	} else {
-		res.addf("g pr %d ready %s", pr.Number, pr.URL)
+		res.addf("g pr %d ready (human-flipped, untouched)", pr.Number)
 	}
 	// done then WAITS for the head's CI verdict and carries it in this very
 	// result — the blocking-await model (T-01KYDJC): the LLM waits on the
@@ -625,12 +616,12 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 			return res
 		}
 	}
-	// A draft pull request can never merge — GitHub answers 405, which the
-	// not-ready retry loop would burn its whole budget on. Reached with a
-	// draft in two legal ways: the records-only closure above, and an
-	// active->archived forward skip that bypassed done's ready flip. Flip it
-	// here, behind the same local gate done uses — runners fire only after
-	// local gates pass, whichever transition fronts them.
+	// THE single draft->ready flip of the whole lifecycle (PR-DRAFT-001):
+	// every PR arrives here still draft — done no longer flips, reopens
+	// never toggled — and a draft can never merge (GitHub answers 405,
+	// which the not-ready retry loop would burn its whole budget on).
+	// Flip exactly once, behind the same local gate done runs — runners
+	// fire only after local gates pass, whichever transition fronts them.
 	if pr.Draft {
 		if gate := s.runGate(it.Goal); gate != "" {
 			res.addf("%s", gate)

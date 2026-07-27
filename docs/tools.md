@@ -200,10 +200,11 @@ walk through every state in between. `rejected` is reachable from any state
 except `archived`, REQUIRES `note` (the rejection corpus), and is
 **revocable**: move the rejected ID back to `draft`/`submitted`/`approved`/
 `active` (never `done`/`archived`) — the reject event snapshots the full
-item. `done → active` (reopen) is the one backward hop outside rejection;
-in online git mode it also converts the task's pull request back to draft
-(`g pr N back to draft`), the mirror of `done`'s ready flip — the PR draft
-state follows the item state in both directions. Offline (the default,
+item. `done → active` (reopen) is the one backward hop outside rejection.
+In online git mode the pull request stays DRAFT through every edge and
+reopen cycle (`g pr N stays draft until archive`, PR-DRAFT-001): the single
+draft→ready flip happens at the archive edge immediately before merge, so
+review cycles never churn PR state. Offline (the default,
 GIT-DEFAULT-001) there is no PR: every edge is a commit on the current
 branch (`g offline commit <short-sha> <subject>`).
 `archived` requires no open children; a skip straight to `archived` implies
