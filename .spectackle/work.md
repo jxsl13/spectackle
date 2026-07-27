@@ -16,7 +16,7 @@ choice: cut now
 
 ## T-01KYHAH1GJEFZ861R0NGT9W8PV offline mode is single-branch commits only: no PRs, no pushes, no branch dance
 kind: task
-state: active
+state: done
 created: 2026-07-27
 rounds: 2
 grilled: 2026-07-27 open=0

@@ -704,3 +704,4 @@
 {"t":"2026-07-27T12:53:45Z","eid":"c115234257f4acfa","ag":"ag-60e0","ev":"move","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","fr":"done","to":"active","rnd":1}
 {"t":"2026-07-27T12:53:46Z","eid":"7dbf6c065510641b","ag":"ag-6dc0","ev":"move","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","fr":"active","to":"done","note":"Round 2: re-drive the ready edge after the draft flip stayed silent"}
 {"t":"2026-07-27T12:55:34Z","eid":"08f4c72a84f6197a","ag":"ag-1513","ev":"move","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","fr":"done","to":"active","rnd":2}
+{"t":"2026-07-27T12:55:40Z","eid":"b7254ee13deacaf2","ag":"ag-4c2c","ev":"move","id":"T-01KYHAH1GJEFZ861R0NGT9W8PV","fr":"active","to":"done","note":"Round 3: ready edge re-driven after the primary-checkout config gained the explicit online key - the serving-worktree topology reads git.mode from s.main, whose config predates the flip; the live incident is exactly the migration note applied to the wrong (worktree-only) config first"}
