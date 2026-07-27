@@ -407,3 +407,4 @@
 {"t":"2026-07-27T17:58:28Z","eid":"2b0cd48204f9b050","ag":"ag-c1a1","ev":"revise","id":"B-01KYJ67S98FJDTD30539K398FV","note":"body+refs revised"}
 {"t":"2026-07-27T17:58:29Z","eid":"4debc5f5a447a8e1","ag":"ag-c826","ev":"create","id":"B-01KYJBMVE3EN9VH5QE2ZPZ2NRX","k":"bug","ti":"archiving a research item discards its body - the finding is the artifact and tombstoning deletes the only copy"}
 {"t":"2026-07-27T17:58:44Z","eid":"ab57ff40f3273317","ag":"ag-b5f9","ev":"grill","id":"B-01KYJBMSPRFXEV2BZDQFBEXST9","gr":"2026-07-27 open=2","hash":"229cd6486315ab993c66312303a436f39d31b779db6b8d0f849ed5076e5966fb","open":2,"keys":["irreversible:internal/migrate","env:unconsumed"]}
+{"t":"2026-07-27T18:07:13Z","eid":"3d73161c940093da","ag":"ag-ff92","ev":"grill","id":"B-01KYJBMSPRFXEV2BZDQFBEXST9","gr":"2026-07-27 open=2","hash":"229cd6486315ab993c66312303a436f39d31b779db6b8d0f849ed5076e5966fb","open":2,"keys":["irreversible:internal/migrate","env:unconsumed"]}
