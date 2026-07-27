@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYJ4Q8DTFPNVDP42SQ7K5SQE bench ledger: record the offline-collapse A/B - commit-only edges save 198 tokens per lifecycle at equal validity
 kind: task
-state: active
+state: done
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: docs/bench-curves.md
