@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYHEQG6PEBFBX49MPEZMVNH6 compact apply=true archives done items bypassing the validation gate and the atomic git closure edge
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 rounds: 1
 grilled: 2026-07-27 open=0
