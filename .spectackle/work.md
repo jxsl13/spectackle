@@ -18,6 +18,7 @@ choice: cut now
 kind: task
 state: draft
 created: 2026-07-27
+needs: ADR-01KYHPNG8PF41B64KTBFS0ZH0A
 targets: internal/mcpserver/gitflow.go, internal/forge/offline.go, docs/lifecycle.md
 
 USER REQUIREMENT (2026-07-27, verbatim intent): offline mode must not create any PRs and not push any git changes - it works on a SINGLE branch and creates commits, nothing else. TODAY offline simulates the full online shape: item branches, offline:// PR records (draft/ready/merge), local base merges - a paper theater of the forge. The requirement collapses it to the honest minimum: every lifecycle edge commits directly on the current branch (edge commits + records/code sweeps as today), and the branch/PR/merge machinery is BYPASSED entirely under mode: offline.
@@ -29,3 +30,15 @@ VERIFY: build/test -race/vet/gofmt; lint; check ok; the offline lifecycle commit
 SCOPE: gitflow offline arms + docs + test migration. No forge interface changes.
 ROLLBACK: revert.
 REPORT: the commit-log paste, the per-test migration table, anything the single-branch model makes impossible (say it, do not approximate).
+
+## ADR-01KYHPNG8PF41B64KTBFS0ZH0A Offline single-branch: does the zero-branches rule apply to the swarm worktree flow too? Worktrees structurally require a transient local branch (never pushed, no PR); killing them offline removes parallel implementers there. Lifecycle edges (start/done/archive) become commit-only either way.
+kind: adr
+state: submitted
+created: 2026-07-27
+status: proposed
+
+kind: radio
+option: scope zero-branches to lifecycle edges; worktree flow stays (transient local branches allowed)
+option: offline forbids worktrees entirely - single branch means single branch
+option: decide later - implement the lifecycle collapse first
+blocks: T-01KYHAH1GJEFZ861R0NGT9W8PV
