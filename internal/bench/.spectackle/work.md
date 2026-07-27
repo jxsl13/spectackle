@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYH3SP63E3NVV5V31G2GTD6K bench prep leaves meter and transcript logs git-trackable; the first sweep commits them and the offline merge then refuses forever
 kind: bug
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-27 open=0
 targets: internal/bench/agent.go
