@@ -1006,7 +1006,7 @@ func TestSubmitOnDetachedHeadSaysSo(t *testing.T) {
 func TestWorktreeHomedServerResolvesServingRecords(t *testing.T) {
 	root := gitRoot(t)
 	home := filepath.Join(t.TempDir(), "home")
-	if err := wt.Add(root, home, "serving/home", "HEAD", "main"); err != nil {
+	if err := wt.Add(root, home, "serving/home", "HEAD", "main", false); err != nil {
 		t.Skipf("worktree unavailable: %v", err)
 	}
 
@@ -1102,7 +1102,7 @@ func TestNewCanonicalizesRelativeRootThroughAlias(t *testing.T) {
 func TestWorktreeHomedRestartReattachesMainItem(t *testing.T) {
 	root := gitRoot(t)
 	home := filepath.Join(t.TempDir(), "home")
-	if err := wt.Add(root, home, "serving/restart", "HEAD", "main"); err != nil {
+	if err := wt.Add(root, home, "serving/restart", "HEAD", "main", false); err != nil {
 		t.Skipf("worktree unavailable: %v", err)
 	}
 	t.Setenv("SPECTACKLE_AGENT", "restarter")

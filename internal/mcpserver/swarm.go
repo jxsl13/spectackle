@@ -726,7 +726,7 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	}
 	branch := s.itemBranch(id)
 	root := filepath.Join(s.main.WtDir(), id)
-	if err := wt.Add(s.main.Dir, root, branch, "HEAD", s.gitBase()); err != nil {
+	if err := wt.Add(s.main.Dir, root, branch, "HEAD", s.gitBase(), force); err != nil {
 		_ = s.cd.ReleaseItem(id)
 		return refuse("! WT E " + err.Error())
 	}

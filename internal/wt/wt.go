@@ -240,11 +240,54 @@ func HasUnpushedCommits(dir, remote, branch string) (bool, error) {
 	return n > 0, nil
 }
 
+// dotDir mirrors workspace.Dot (import cycle: workspace imports wt) — the
+// server-owned records folder whose churn never counts as an agent's work.
+const dotDir = ".spectackle"
+
+// strayGuard refuses to clear a leftover directory that may hold a crashed
+// agent's uncommitted work (B-01KYHHCFCW: the ledger row is written AFTER
+// Add succeeds, so a crash in between leaves exactly this ledgerless
+// stray). Unreadable dirt fails closed; empty or records-only strays pass.
+func strayGuard(wtRoot string) error {
+	if _, err := os.Stat(filepath.Join(wtRoot, ".git")); err == nil {
+		files, derr := DirtyFiles(wtRoot)
+		if derr != nil {
+			return fmt.Errorf("wt: stray worktree %s unreadable (%v) — inspect it, or retry with force=true", wtRoot, derr)
+		}
+		n := 0
+		for _, f := range files {
+			if f != dotDir && !strings.HasPrefix(f, dotDir+"/") {
+				n++
+			}
+		}
+		if n > 0 {
+			return fmt.Errorf("wt: stray worktree %s holds %d uncommitted file(s) with no ledger row — inspect it, or discard explicitly with force=true", wtRoot, n)
+		}
+		return nil
+	}
+	entries, err := os.ReadDir(wtRoot)
+	if err != nil {
+		return fmt.Errorf("wt: stray directory %s unreadable (%v) — inspect it, or retry with force=true", wtRoot, err)
+	}
+	for _, e := range entries {
+		if e.Name() != dotDir {
+			return fmt.Errorf("wt: stray directory %s is not a worktree and not empty — inspect it, or discard explicitly with force=true", wtRoot)
+		}
+	}
+	return nil
+}
+
 // Add creates a worktree at wtRoot on a fresh branch from startPoint,
-// recovering from leftovers of a crashed prior run.
-func Add(mainRoot, wtRoot, branch, startPoint, base string) error {
+// recovering from leftovers of a crashed prior run. force clears a dirty
+// ledgerless stray at the target path; without it such a stray refuses.
+func Add(mainRoot, wtRoot, branch, startPoint, base string, force bool) error {
 	_, _ = git(mainRoot, "worktree", "prune")
 	if _, err := os.Stat(wtRoot); err == nil {
+		if !force {
+			if err := strayGuard(wtRoot); err != nil {
+				return err
+			}
+		}
 		if _, err := git(mainRoot, "worktree", "remove", "--force", wtRoot); err != nil {
 			_ = os.RemoveAll(wtRoot)
 			_, _ = git(mainRoot, "worktree", "prune")
