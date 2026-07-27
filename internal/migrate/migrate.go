@@ -218,6 +218,19 @@ func Run(dir string) (Report, error) {
 			return Report{}, fmt.Errorf("migrate: writing %s: %w", rel, err)
 		}
 	}
+	// COMPLETE is written only when every stamped file actually reads To:
+	// a completion marker over a half-stamped bundle was the brick (issue
+	// 178). Withholding it leaves the backup armed — the next open rolls
+	// back and retries from the restored originals.
+	if after, aerr := stampsOf(dir, files); aerr != nil {
+		return Report{}, aerr
+	} else {
+		for stamp, n := range after {
+			if stamp != To {
+				return Report{}, fmt.Errorf("migrate: %d file(s) still stamped %q after rewrite — completion withheld, the next open rolls back and retries", n, stamp)
+			}
+		}
+	}
 	if err := os.WriteFile(filepath.Join(backupAbs, doneMarker), []byte(To+"\n"), 0o644); err != nil {
 		return Report{}, err
 	}
@@ -319,7 +332,7 @@ func bundleFiles(dir string) ([]string, error) {
 
 // frontMatterStampRe pulls the `schema:` value out of a leading front matter
 // block or, for config.yaml, out of the top-level mapping.
-var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[ \t]*$`)
+var frontMatterStampRe = regexp.MustCompile(`(?m)^schema:[ \t]*"?([A-Za-z0-9._-]+)"?[ \t]*\r?$`)
 
 // stampsOf counts the stamps present across the bundle. Files carrying no
 // stamp at all (anchors.tsv, a hand-created spec.md) are not counted: they are
@@ -498,6 +511,9 @@ func (w *workspaceText) rewrite(remap map[string]string) (map[string][]byte, int
 		}
 		raw := replaceIDs(w.content[rel], remap)
 		raw = restamp(raw)
+		if strings.HasSuffix(rel, "config.yaml") {
+			raw = forceConfigStamp(raw)
+		}
 		if !bytesEqual(raw, w.content[rel]) {
 			out[rel] = raw
 		}
@@ -529,6 +545,22 @@ func restamp(raw []byte) []byte {
 		}
 		return []byte("schema: " + To)
 	})
+}
+
+// forceConfigStamp guarantees config.yaml leaves the migration at To even
+// when the generic front-matter regex misses its schema line — CRLF
+// endings or a trailing comment escaped it, the migration wrote COMPLETE
+// anyway, and the next open refused the half-stamped bundle (issue 178).
+// The whole line is replaced (any comment on it describes the OLD stamp).
+func forceConfigStamp(raw []byte) []byte {
+	if m := frontMatterStampRe.FindSubmatch(raw); m != nil && string(m[1]) == To {
+		return raw // already current, leave byte-identical
+	}
+	re := regexp.MustCompile("(?m)^schema:[^\r\n]*")
+	if re.Match(raw) {
+		return re.ReplaceAll(raw, []byte("schema: "+To))
+	}
+	return append([]byte("schema: "+To+"\n"), raw...)
 }
 
 // rewriteJournal rewrites the ID-bearing fields of every event and re-emits

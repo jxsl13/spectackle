@@ -428,3 +428,56 @@ func TestMigratePreservesUnknownJournalFields(t *testing.T) {
 		t.Fatalf("unknown field or key order not preserved.\nwant line: %s\ngot:\n%s", want, got)
 	}
 }
+
+// Issue 178 defect 1: a config.yaml whose schema line escapes the generic
+// regex (CRLF, trailing comment) must still leave the migration at To —
+// and COMPLETE must be withheld if any file would stay half-stamped.
+func TestForceConfigStampVariants(t *testing.T) {
+	for _, tc := range []struct{ name, in, want string }{
+		{"crlf", "schema: v0\r\nlangs: [go]\r\n", "schema: v1\r\nlangs: [go]\r\n"},
+		{"comment", "schema: v0  # old stamp\nlangs: [go]\n", "schema: v1\nlangs: [go]\n"},
+		{"plain", "schema: v0\n", "schema: v1\n"},
+		{"missing", "langs: [go]\n", "schema: v1\nlangs: [go]\n"},
+		{"already", "schema: v1\nlangs: [go]\n", "schema: v1\nlangs: [go]\n"},
+	} {
+		if got := string(forceConfigStamp([]byte(tc.in))); got != tc.want {
+			t.Fatalf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The issue-178 brick, end to end: a v0 bundle whose config.yaml carries a
+// CRLF schema line migrates to a FULLY v1 bundle with COMPLETE written —
+// and a second open is a no-op.
+func TestMigrateStampsCRLFConfig(t *testing.T) {
+	dir := v0Fixture(t)
+	cfg := filepath.Join(dir, Dot, "config.yaml")
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf := strings.ReplaceAll(string(raw), "\n", "\r\n")
+	if err := os.WriteFile(cfg, []byte(crlf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated {
+		t.Fatal("fixture must migrate")
+	}
+	after, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(after), "schema: "+To) || strings.Contains(string(after), "schema: "+From) {
+		t.Fatalf("config not stamped to %s:\n%s", To, after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, Dot, backupPrefix+From, doneMarker)); err != nil {
+		t.Fatal("COMPLETE must exist after a fully-stamped migration")
+	}
+	if rep2, err := Run(dir); err != nil || rep2.Migrated {
+		t.Fatalf("second open must be a no-op: %+v %v", rep2, err)
+	}
+}
