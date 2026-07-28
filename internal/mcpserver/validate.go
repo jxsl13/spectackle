@@ -481,8 +481,13 @@ func vacuousTestLines(path string, src []byte) []string {
 	//   2. it is a SAME-FILE helper whose body (transitively, same-file
 	//      fixpoint) contains a genuine t-method failure call, AND the
 	//      call site passes a *testing.T identifier to it.
-	// Cross-file helpers stay outside the trace — a recorded limitation,
-	// preferable to re-opening the noop(t) bypass.
+	// Recorded limitations, each preferable to re-opening the noop(t)
+	// bypass or taking on type-checking: cross-file helpers stay outside
+	// the trace, and a deliberately constructed red-herring chain (a
+	// same-file helper reaching a non-testing method NAMED Fatal, called
+	// by a t-taking wrapper) earns unsound credit — isTFail is
+	// receiver-blind and the fixpoint is name-based, so full soundness
+	// would need data-flow tracking (cross-val-vac round 3, accepted).
 	assertPkgs := map[string]bool{}
 	for _, imp := range f.Imports {
 		p := strings.Trim(imp.Path.Value, `"`)
