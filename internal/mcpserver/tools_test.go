@@ -1939,3 +1939,44 @@ func TestValidateWarnNamesItsSoftness(t *testing.T) {
 		t.Fatalf("the advisory must not block the archive:\n%s", out)
 	}
 }
+
+// TestFindRuleLineCarriesPattern pins B-01KYMCHPF6EXZ (found by the
+// knowledge/compact gap hunt): the documented grammar is
+// `r <ruleID> <P> <scopeDir> <text>` and rule/get both emit the pattern,
+// but find dropped it — so a parser following the docs read scopeDir as
+// the pattern and the sentence's first word as scopeDir.
+func TestFindRuleLineCarriesPattern(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "demo.go"), []byte("package demo\n\nfunc F() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "PAT-TST",
+		"system": "the pattern probe", "response": "return the constant 1",
+	})
+	if !strings.Contains(out, "ok PAT-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	fieldsOf := func(src, tag string) []string {
+		for _, l := range strings.Split(src, "\n") {
+			if f := strings.Fields(l); len(f) > 1 && f[0] == tag && f[1] == "PAT-TST-001" {
+				return f
+			}
+		}
+		t.Fatalf("no %q line for the rule in:\n%s", tag, src)
+		return nil
+	}
+	// get is the reference renderer; find must agree field-for-field on
+	// the first three tokens (id, pattern, scopeDir)
+	ref := fieldsOf(callText(t, sess, "get", map[string]any{"id": "PAT-TST-001"}), "r")
+	got := fieldsOf(callText(t, sess, "find", map[string]any{"q": "pattern probe", "scope": "rule"}), "r")
+	for i := 0; i < 4; i++ {
+		if got[i] != ref[i] {
+			t.Fatalf("find r-line field %d = %q, get says %q\nfind: %v\nget:  %v", i, got[i], ref[i], got, ref)
+		}
+	}
+	if got[2] != "U" {
+		t.Fatalf("the pattern token must be the EARS pattern, got %q: %v", got[2], got)
+	}
+}
