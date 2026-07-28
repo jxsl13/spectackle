@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYKM21QFF3KAM7MRY30EYBPJ outcome judge batch on v0.6.2: does the in-loop vacuous-test finding move validity off 1/3
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
