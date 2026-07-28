@@ -1914,3 +1914,28 @@ func TestBypass(t *testing.T) {
 		t.Fatalf("both bypass shapes must flag, got %d:\n%s", got, out)
 	}
 }
+
+// TestValidateWarnNamesItsSoftness pins B-01KYKMPAFNEW3: two benchmark
+// judges could not tell whether the archive-time VALIDATE W was advisory
+// or actionable — the warning now says so itself.
+func TestValidateWarnNamesItsSoftness(t *testing.T) {
+	root := gitRoot(t)
+	writeOfflineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "warn softness probe", "targets": []string{"probe.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "probe.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "warn probe closed"})
+	if !strings.Contains(out, "! VALIDATE W") {
+		t.Fatalf("archiving without a verdict must warn:\n%s", out)
+	}
+	if !strings.Contains(out, "advisory: archive proceeds") {
+		t.Fatalf("the warn must name its softness:\n%s", out)
+	}
+	if !strings.Contains(out, "archived") {
+		t.Fatalf("the advisory must not block the archive:\n%s", out)
+	}
+}
