@@ -411,4 +411,14 @@ func TestNormalizeRepoLabelCollapsesCloneURLShapes(t *testing.T) {
 	if got := normalizeRepoLabel("  "); got != "" {
 		t.Errorf("an empty remote must yield an empty label, got %q", got)
 	}
+	// a self-hosted remote reached with and without an explicit SSH port
+	// is still ONE source (cross-val-prov WARN)
+	for _, u := range []string{
+		"ssh://git@example.com:2222/o/r.git", "ssh://git@example.com/o/r.git",
+		"git@example.com:o/r.git",
+	} {
+		if got := normalizeRepoLabel(u); got != "example.com/o/r" {
+			t.Errorf("normalizeRepoLabel(%q) = %q, want %q", u, got, "example.com/o/r")
+		}
+	}
 }

@@ -96,9 +96,29 @@ func normalizeRepoLabel(u string) string {
 	if i := strings.LastIndex(u, "@"); i >= 0 {
 		u = u[i+1:] // strip credentials or the scp-style user
 	}
-	u = strings.Replace(u, ":", "/", 1) // scp-style host:path
+	// host:path is scp style and becomes host/path; host:PORT/path is a
+	// URL port and drops entirely, so the same self-hosted remote reached
+	// with and without an explicit port still collapses to one source
+	// (cross-val-prov WARN).
+	if i := strings.IndexByte(u, ':'); i >= 0 {
+		rest := u[i+1:]
+		if j := strings.IndexByte(rest, '/'); j > 0 && isAllDigits(rest[:j]) {
+			u = u[:i] + rest[j:]
+		} else {
+			u = u[:i] + "/" + rest
+		}
+	}
 	u = strings.TrimSuffix(strings.TrimRight(u, "/"), ".git")
 	return u
+}
+
+func isAllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // ---- export ----
