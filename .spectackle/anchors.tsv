@@ -39,3 +39,5 @@ MCP-011	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	224-311	aa
 ROLE-BOUNDARY-001	go:mcpserver.Server.gitFlowFor	internal/mcpserver/gitflow.go	978-1015	41c71edae43d175e	d23a97e322d7aeea
 EARS-001	go:ears.Compose	internal/ears/compose.go	58-112	53c73ccecccf14d1	f7c6a352c74c6284
 CLI-001	go:main.main~2	main.go	67-71	ff8dc53a80235df9	70b6d48bf6223821
+KN-001	internal/knowledge/artifact.go	-	0-0	-	7ae9bc36188b7e6e
+LC-001	internal/lifecycle/lifecycle.go	-	0-0	-	4e4e0d5210ccbc52
