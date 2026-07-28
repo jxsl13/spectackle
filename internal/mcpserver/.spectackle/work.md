@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYMCKDD5FYBVW4Z3FYBTWG6E compact reports a cascade-archived child as a failure; docs omit validate and grill op=verdict
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
 targets: internal/mcpserver/tools.go, docs
