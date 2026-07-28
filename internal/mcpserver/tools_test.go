@@ -1515,3 +1515,206 @@ func TestApprovedTransitionNamesWorkFlow(t *testing.T) {
 		t.Fatalf("non-approved transition carries the pointer:\n%s", out)
 	}
 }
+
+// TestCheckRebindsAndAuditsCrossFile pins B-01KYJB3SGK at the check-flow
+// layer over a real index: two main packages collide on go:main.main, the
+// walk order assigns the tilde, and deleting one flips the assignment.
+// The anchor must follow its CONTENT (d rebound), and an ID that re-binds
+// to an unrelated file without a hash match must audit (crossfile), never
+// heal.
+func TestCheckRebindsAndAuditsCrossFile(t *testing.T) {
+	root := t.TempDir()
+	cliSrc := "package main\n\nfunc main() {\n\tprintln(\"cli\")\n}\n"
+	exSrc := "package main\n\nfunc main() {\n\tprintln(\"example\")\n}\n"
+	if err := os.MkdirAll(filepath.Join(root, "examples", "saxpy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	// discover which ID the walk gave the CLI main (examples/ sorts first,
+	// so the CLI is expected to carry the tilde — but ASK, don't assume)
+	found := callText(t, sess, "find", map[string]any{"q": "main.main", "scope": "code"})
+	cliID, exID := "", ""
+	for _, l := range strings.Split(found, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 4 || f[0] != "n" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(f[3], "main.go:"):
+			cliID = f[1]
+		case strings.HasPrefix(f[3], "examples/saxpy/main.go:"):
+			exID = f[1]
+		}
+	}
+	if cliID == "" || exID == "" || cliID == exID {
+		t.Fatalf("fixture: could not discover both main IDs:\n%s", found)
+	}
+
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "RBD-TST",
+		"system":   "the CLI entrypoint",
+		"response": "print the literal cli exactly once via println",
+		"applies":  []string{cliID},
+	})
+	if !strings.Contains(out, "ok RBD-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "d ") {
+		t.Fatalf("fresh anchor must not drift: %q", out)
+	}
+
+	// delete the example: the walk reassigns the surviving main a NEW ID
+	// (the bare stem) — the stored ID either vanishes or crosses files;
+	// only the content hash identifies the true target. The staleness
+	// probe keys on the newest .go mtime and a deletion bumps nothing
+	// (deletion-blind, filed separately), so the surviving file is
+	// re-touched to force the rebuild the deletion deserves.
+	if err := os.Remove(filepath.Join(root, "examples", "saxpy", "main.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "check", map[string]any{})
+	if !strings.Contains(out, "d rebound RBD-TST-001 "+cliID) {
+		t.Fatalf("the anchor must follow its content to the reassigned ID:\n%s", out)
+	}
+	if strings.Contains(out, "crossfile") {
+		t.Fatalf("a hash-matching rebind must not audit:\n%s", out)
+	}
+	// the rebind sticks: a second check is clean
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "d ") {
+		t.Fatalf("the rebind must persist: %q", out)
+	}
+
+	// crossfile: re-create the example, anchor IT, then delete it — the
+	// surviving CLI main takes over the stored ID with foreign content.
+	if err := os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the rescan trigger watches ANCHORED files only — touch the anchored
+	// main.go so the whole-tree rebuild runs and indexes the new file too
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "check", map[string]any{})
+	found = callText(t, sess, "find", map[string]any{"q": "main.main", "scope": "code"})
+	exID = ""
+	for _, l := range strings.Split(found, "\n") {
+		f := strings.Fields(l)
+		if len(f) >= 4 && f[0] == "n" && strings.HasPrefix(f[3], "examples/saxpy/main.go:") {
+			exID = f[1]
+		}
+	}
+	if exID == "" {
+		t.Fatalf("fixture: example ID missing after re-create:\n%s", found)
+	}
+	out = callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "XFL-TST",
+		"system":   "the example entrypoint",
+		"response": "print the literal example exactly once via println",
+		"applies":  []string{exID},
+	})
+	if !strings.Contains(out, "ok XFL-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	if err := os.Remove(filepath.Join(root, "examples", "saxpy", "main.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "check", map[string]any{})
+	if !strings.Contains(out, "d audit XFL-TST-001") || !strings.Contains(out, "crossfile now=main.go") {
+		t.Fatalf("an ID crossing files without a hash match must audit naming the impostor:\n%s", out)
+	}
+	if strings.Contains(out, "d healed XFL-TST-001") || strings.Contains(out, "d rebound XFL-TST-001") {
+		t.Fatalf("crossfile must never heal or rebind:\n%s", out)
+	}
+	if !strings.Contains(out, "audit=1") {
+		t.Fatalf("the audit counter must count crossfile:\n%s", out)
+	}
+}
+
+// TestCheckDoubleRebindSwapKeepsBothAnchors pins cross-val-rebind finding
+// 1: one rule anchoring BOTH nodes of a tilde collision, both IDs swapped
+// in one pass — the two-phase write-back must keep both rows; the inline
+// delete+Upsert interleave silently ate one.
+func TestCheckDoubleRebindSwapKeepsBothAnchors(t *testing.T) {
+	root := t.TempDir()
+	cliSrc := "package main\n\nfunc main() {\n\tprintln(\"cli\")\n}\n"
+	exSrc := "package main\n\nfunc main() {\n\tprintln(\"example\")\n}\n"
+	if err := os.MkdirAll(filepath.Join(root, "examples", "saxpy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	found := callText(t, sess, "find", map[string]any{"q": "main.main", "scope": "code"})
+	var ids []string
+	for _, l := range strings.Split(found, "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "n" {
+			ids = append(ids, f[1])
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("fixture: want the two colliding mains:\n%s", found)
+	}
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "SWP-TST",
+		"system":   "every program entrypoint",
+		"response": "call println exactly 1 time",
+		"applies":  ids,
+	})
+	if !strings.Contains(out, "ok SWP-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	// simulate the walk-order ID flip by swapping the two anchor rows'
+	// Node columns on disk — content stays where it is
+	ws := workspace.Root{Dir: root}
+	anchors, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anchors) != 2 {
+		t.Fatalf("want 2 anchors, got %d", len(anchors))
+	}
+	anchors[0].Node, anchors[1].Node = anchors[1].Node, anchors[0].Node
+	if err := drift.Save(ws, anchors); err != nil {
+		t.Fatal(err)
+	}
+
+	out = callText(t, sess, "check", map[string]any{})
+	if got := strings.Count(out, "d rebound SWP-TST-001"); got != 2 {
+		t.Fatalf("both swapped anchors must rebind, got %d:\n%s", got, out)
+	}
+	after, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("the swap rebind must keep BOTH rows, got %d: %+v", len(after), after)
+	}
+	files := map[string]bool{}
+	for _, a := range after {
+		files[a.File] = true
+	}
+	if !files["main.go"] || !files["examples/saxpy/main.go"] {
+		t.Fatalf("each file must keep its anchor: %+v", after)
+	}
+	// stable: a second check is clean
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "d ") {
+		t.Fatalf("the double rebind must persist cleanly: %q", out)
+	}
+}

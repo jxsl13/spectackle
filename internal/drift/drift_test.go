@@ -355,3 +355,88 @@ func TestClassifyFalseHealGuard(t *testing.T) {
 		t.Fatalf("stale graph over a real (but relocated) node must not classify Evolved, got %s", rs[0].Class)
 	}
 }
+
+// TestRebindByHash pins B-01KYJB3SGK end to end at the Classify layer: the
+// two-main-packages incident. Content is identity; tilde numerals and bare
+// IDs are walk-order hints that must never cross files silently.
+func TestRebindByHash(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	cliSrc := "package main\n\nfunc main() {\n\tprintln(\"cli\")\n}\n"
+	exSrc := "package main\n\nfunc main() {\n\tprintln(\"example\")\n}\n"
+	os.MkdirAll(filepath.Join(root, "examples", "saxpy"), 0o755)
+	os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644)
+	os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644)
+
+	// era 1: the CLI main owns the bare ID, the example gets ~2
+	g1 := graph.NewMem()
+	g1.Upsert([]graph.Node{
+		{ID: "go:main.main", Kind: graph.KFunc, File: "main.go", Line: 3, EndLine: 5},
+		{ID: "go:main.main~2", Kind: graph.KFunc, File: "examples/saxpy/main.go", Line: 3, EndLine: 5},
+	}, nil)
+	ruleText := "The CLI entrypoint SHALL call println exactly once."
+	a := Stamp(ws, g1, "CLI-TST-001", ruleText, "go:main.main")
+	if a.File != "main.go" {
+		t.Fatalf("stamp landed on the wrong file: %+v", a)
+	}
+	exists := func(string) (string, bool) { return ruleText, true }
+
+	// era 2: walk order flips — the EXAMPLE now owns the bare ID, the CLI
+	// main renumbered to ~2 (the exact PR 177 incident). The stored ID
+	// resolves to an unrelated file; the true target's hash is unchanged.
+	g2 := graph.NewMem()
+	g2.Upsert([]graph.Node{
+		{ID: "go:main.main", Kind: graph.KFunc, File: "examples/saxpy/main.go", Line: 3, EndLine: 5},
+		{ID: "go:main.main~2", Kind: graph.KFunc, File: "main.go", Line: 3, EndLine: 5},
+	}, nil)
+	rs := Classify(ws, g2, []Anchor{a}, exists, nil)
+	if rs[0].Class != Moved {
+		t.Fatalf("(a) hash-matching candidate exists: must rebind and class Moved, got %s", rs[0].Class)
+	}
+	if rs[0].NewNode != "go:main.main~2" {
+		t.Fatalf("(a) NewNode must carry the re-bound ID, got %q", rs[0].NewNode)
+	}
+
+	// (c) the mirror renumbering: an anchor stored with ~2 whose node now
+	// owns the bare ID rebinds the same way
+	a2 := Stamp(ws, g1, "CLI-TST-002", ruleText, "go:main.main~2")
+	g3 := graph.NewMem()
+	g3.Upsert([]graph.Node{
+		{ID: "go:main.main", Kind: graph.KFunc, File: "examples/saxpy/main.go", Line: 3, EndLine: 5},
+	}, nil)
+	rs = Classify(ws, g3, []Anchor{a2}, exists, nil)
+	if rs[0].Class != Moved || rs[0].NewNode != "go:main.main" {
+		t.Fatalf("(c) tilde anchor must rebind to the bare ID by hash: %s %q", rs[0].Class, rs[0].NewNode)
+	}
+
+	// (b) impostor only: the true target is gone, the stored ID resolves
+	// to the unrelated file, no hash match anywhere -> CrossFile audit
+	g4 := graph.NewMem()
+	g4.Upsert([]graph.Node{
+		{ID: "go:main.main", Kind: graph.KFunc, File: "examples/saxpy/main.go", Line: 3, EndLine: 5},
+	}, nil)
+	rs = Classify(ws, g4, []Anchor{a}, exists, nil)
+	if rs[0].Class != CrossFile {
+		t.Fatalf("(b) no hash match across files must audit as CrossFile, got %s", rs[0].Class)
+	}
+	if rs[0].OtherFile != "examples/saxpy/main.go" {
+		t.Fatalf("(b) the audit must name the impostor file, got %q", rs[0].OtherFile)
+	}
+
+	// (d) ambiguity: TWO hash-matching candidates under the stem — refuse
+	// to guess. The stored ID is gone entirely, both copies identical.
+	os.MkdirAll(filepath.Join(root, "cmd", "twin"), 0o755)
+	os.WriteFile(filepath.Join(root, "cmd", "twin", "main.go"), []byte(cliSrc), 0o644)
+	g5 := graph.NewMem()
+	g5.Upsert([]graph.Node{
+		{ID: "go:main.main~3", Kind: graph.KFunc, File: "main.go", Line: 3, EndLine: 5},
+		{ID: "go:main.main~4", Kind: graph.KFunc, File: "cmd/twin/main.go", Line: 3, EndLine: 5},
+	}, nil)
+	rs = Classify(ws, g5, []Anchor{a}, exists, nil)
+	if rs[0].Class != Gone {
+		t.Fatalf("(d) two identical-hash candidates must refuse the rebind (Gone), got %s", rs[0].Class)
+	}
+	if rs[0].NewNode != "" {
+		t.Fatalf("(d) an ambiguous rebind must not set NewNode: %q", rs[0].NewNode)
+	}
+}

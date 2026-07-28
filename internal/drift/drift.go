@@ -43,6 +43,14 @@ const (
 	Tightened Class = "tightened" // code identical, rule sentence changed — never healed
 	Diverged  Class = "diverged"  // both code and rule sentence changed — never healed
 
+	// CrossFile: the anchor's node ID now resolves to a DIFFERENT file
+	// whose content does not match the stored hash, and no hash-matching
+	// candidate exists anywhere under the ID stem — an ID re-binding
+	// (walk-order renumbering, B-01KYJB3SGK), not an evolution. Audited,
+	// NEVER healed: healing would silently cross files, the exact
+	// incident this class exists to prevent.
+	CrossFile Class = "crossfile"
+
 	Gone    Class = "gone"    // node no longer exists
 	Stale   Class = "stale"   // rule no longer exists but anchor does
 	Pending Class = "pending" // anchor written before the node was indexable
@@ -230,6 +238,14 @@ type Result struct {
 	Class    Class
 	NewHash  string // current code-span hash; set whenever the span could be re-hashed (i.e. not Stale)
 	NewRHash string // current rule-sentence hash; set whenever the rule still exists (i.e. not Stale)
+	// NewNode is set when hash-first re-resolution re-bound the anchor to
+	// a different node ID (the stored ID renumbered or crossed files while
+	// a hash-matching candidate existed) — the caller's Moved refresh must
+	// write it back. Empty = the stored ID still names the right node.
+	NewNode graph.NodeID
+	// OtherFile is set on CrossFile: the file the stored ID resolves to
+	// now, named in the audit render beside the anchor's own file.
+	OtherFile string
 }
 
 // Classify checks every anchor against the current graph and files, along
@@ -275,6 +291,49 @@ type Result struct {
 // anchor's recorded code hash is stale. Tightened and Diverged both involve
 // a rule-sentence change and are never auto-healed — the spec author's
 // intent may have changed the contract, so a human has to look.
+// spanHashOfNode hashes a node's current span.
+func spanHashOfNode(ws workspace.Root, n graph.Node) (string, error) {
+	end := n.EndLine
+	if end == 0 {
+		end = n.Line
+	}
+	return SpanHash(ws, n.File, n.Line, end)
+}
+
+// rebindByHash re-resolves an anchor whose node ID vanished or crossed
+// files: candidates are every graph node under the anchor's ID STEM (the
+// ID with any ~N disambiguator stripped — the numeral is walk-order
+// fragile and never trusted), and the SINGLE candidate whose current span
+// hash equals the stored CHash wins. Two or more hash matches is genuine
+// ambiguity — refuse to guess, exactly like ids.ResolveRecordID. Stale
+// candidate files are skipped: their line spans cannot be trusted (DRF-003).
+func rebindByHash(ws workspace.Root, g graph.Graph, a Anchor, stale func(file string) bool) (graph.Node, bool) {
+	stem := string(a.Node)
+	if i := strings.LastIndex(stem, "~"); i > 0 {
+		stem = stem[:i]
+	}
+	var hit graph.Node
+	hits := 0
+	for _, cand := range g.Find(stem, 32, graph.KUnknown) {
+		id := string(cand.ID)
+		// Find matches substrings; the exact stem guard is load-bearing
+		if id != stem && !strings.HasPrefix(id, stem+"~") {
+			continue
+		}
+		if stale != nil && stale(cand.File) {
+			continue
+		}
+		if h, err := spanHashOfNode(ws, cand); err == nil && h == a.CHash {
+			hit = cand
+			hits++
+		}
+	}
+	if hits != 1 {
+		return graph.Node{}, false
+	}
+	return hit, true
+}
+
 func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(string) (string, bool), stale func(file string) bool) []Result {
 	graphEmpty := len(g.Find("", 1, graph.KUnknown)) == 0
 	var out []Result
@@ -295,9 +354,33 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(
 			r.Class = Pending
 		default:
 			n, ok := g.Node(a.Node)
+			// Hash-first re-resolution (B-01KYJB3SGK): a tilde numeral is
+			// walk-order fragile and a bare ID re-binds when a same-name
+			// symbol appears, so an ID that vanished or crossed files is
+			// re-resolved by (stem, CHash) before any classification.
+			// Content is identity; the ID is a hint.
 			if !ok {
-				r.Class = Gone
-				break
+				if cand, found := rebindByHash(ws, g, a, stale); found {
+					n, ok = cand, true
+					r.NewNode = cand.ID
+				} else {
+					r.Class = Gone
+					break
+				}
+			} else if n.File != a.File {
+				if h, err := spanHashOfNode(ws, n); err != nil || h != a.CHash {
+					if cand, found := rebindByHash(ws, g, a, stale); found {
+						n = cand
+						r.NewNode = cand.ID
+					} else {
+						// the stored ID resolves to an unrelated file and
+						// no hash-matching candidate exists — audit, never
+						// heal across files
+						r.Class = CrossFile
+						r.OtherFile = n.File
+						break
+					}
+				}
 			}
 			if stale != nil && stale(n.File) {
 				// Graph older than the file: Line/EndLine cannot be trusted,
@@ -319,6 +402,14 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(
 			ruleSame := curR == a.RHash
 			switch {
 			case codeSame && ruleSame && n.File == a.File && n.Line == a.Start && end == a.End:
+				// a re-bound anchor is never OK even at an unchanged
+				// position: the stored ID is stale and OK would leave it
+				// in anchors.tsv, re-paying the rebind scan every check —
+				// Moved routes it through the caller's write-back
+				if r.NewNode != "" {
+					r.Class = Moved
+					break
+				}
 				r.Class = OK
 			case codeSame && ruleSame:
 				r.Class = Moved // position-only change (incl. end-line-only drift): caller refreshes silently
