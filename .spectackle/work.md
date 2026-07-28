@@ -32,7 +32,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYKSKMHNE2HS9H235BG6DV4B work op=start does not enforce the target lease against a live sibling worktree
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 targets: internal/mcpserver, docs
 
