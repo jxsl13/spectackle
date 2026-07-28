@@ -32,7 +32,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYKQA6N1FDQ9W8ADVHN6CV54 rule op=edit with only id claims ok while writing nothing
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 targets: internal/mcpserver
 

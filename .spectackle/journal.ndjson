@@ -585,3 +585,4 @@
 {"t":"2026-07-28T06:41:36Z","eid":"e9c89ada4df025dc","ag":"orchestrator-fable","ev":"bench","id":"M-01KYKQA5VKF6YREAT2EF5RPCKC","k":"bench","ti":"worktree-navigation","note":"worktree-navigation|arch=any|cpu=any|gpu=any|os=any|ram=any"}
 {"t":"2026-07-28T06:41:37Z","eid":"e06f44726ee1bf94","ag":"orchestrator-fable","ev":"create","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","k":"bug","ti":"rule op=edit with only id claims ok while writing nothing"}
 {"t":"2026-07-28T06:57:48Z","eid":"e6625bdab9b2c669","ag":"orchestrator-fable","ev":"move","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","fr":"draft","to":"active"}
+{"t":"2026-07-28T07:02:14Z","eid":"b16cfb9e6d5b3d08","ag":"orchestrator-fable","ev":"move","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","fr":"active","to":"done"}
