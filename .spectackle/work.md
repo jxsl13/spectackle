@@ -47,7 +47,7 @@ choice: enforce: start claims normalized targets, live foreign overlap refuses w
 
 ## B-01KYMCHNJCFBPSVBB5P4A65JK0 knowledge export stamps the spectackle binary module as source, not the exported repo
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
 targets: internal/knowledge, internal/mcpserver/knowledge.go
