@@ -521,3 +521,4 @@
 {"t":"2026-07-28T01:30:02Z","eid":"a659ea2a492fadc4","ag":"orchestrator-fable","ev":"create","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","k":"bug","ti":"SPECTACKLE_AGENT lives only in hint texts, never in the work tool description"}
 {"t":"2026-07-28T01:43:17Z","eid":"c285ee6f203218b2","ag":"orchestrator-fable","ev":"move","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","fr":"draft","to":"active"}
 {"t":"2026-07-28T01:48:31Z","eid":"4c2bc89f8a1c3609","ag":"orchestrator-fable","ev":"move","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","fr":"active","to":"done"}
+{"t":"2026-07-28T01:56:34Z","eid":"6505f41651a57e6e","ag":"orchestrator-fable","ev":"validate","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","op":"render","hash":"32cd50761cb169b4ecc554ef4e041d56756a9f8bd5ba35805a27973dc2fcbdb1"}
