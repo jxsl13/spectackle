@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYKPPZH0E1ABCBC02N8PXT5E worktree-scenario judge batch on v0.6.3: the swarm flow measured with independent agents
 kind: task
-state: active
+state: done
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
