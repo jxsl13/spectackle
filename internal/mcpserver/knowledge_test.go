@@ -422,3 +422,52 @@ func TestNormalizeRepoLabelCollapsesCloneURLShapes(t *testing.T) {
 		}
 	}
 }
+
+// TestArtifactPathsResolveAgainstTheWorkspace pins B-01KYMCJG8HFYW: a
+// relative artifact path used to hit the SERVER PROCESS's cwd, so an
+// independent gap hunt exporting with path=kb-export.md wrote the file
+// into the spectackle source repo instead of the workspace it named.
+func TestArtifactPathsResolveAgainstTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "PTH",
+		"system": "the path probe", "response": "return exactly 1",
+	})
+
+	// export with a RELATIVE path lands under the workspace, not the cwd
+	out := callText(t, sess, "knowledge", map[string]any{"op": "export", "path": "kb.md"})
+	if !strings.Contains(out, "written=kb.md") {
+		t.Fatalf("export did not report the write: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(root, "kb.md")); err != nil {
+		t.Fatalf("the artifact must land under the workspace: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if _, err := os.Stat(filepath.Join(cwd, "kb.md")); err == nil {
+		t.Fatal("the artifact leaked into the process cwd")
+	}
+	// and apply reads the same relative path back
+	if out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "path": "kb.md"}); !strings.Contains(out, "ok applied") {
+		t.Fatalf("apply must read the workspace-relative artifact: %q", out)
+	}
+	// an absolute path still works verbatim
+	abs := filepath.Join(t.TempDir(), "abs.md")
+	if out := callText(t, sess, "knowledge", map[string]any{"op": "export", "path": abs}); !strings.Contains(out, "written="+abs) {
+		t.Fatalf("absolute export: %q", out)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		t.Fatalf("the absolute artifact must land verbatim: %v", err)
+	}
+	// an empty artifact says so instead of blaming the schema version
+	empty := filepath.Join(root, "empty.md")
+	if err := os.WriteFile(empty, []byte("   \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "path": "empty.md"}); !strings.Contains(out, "empty artifact") {
+		t.Fatalf("an empty artifact must be diagnosed as empty: %q", out)
+	}
+}

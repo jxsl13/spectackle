@@ -121,6 +121,22 @@ func isAllDigits(s string) bool {
 	return s != ""
 }
 
+// rootPath resolves an artifact path the way every other spectackle path
+// works: RELATIVE to the workspace, absolute taken verbatim.
+//
+// It used to go straight to os.ReadFile/os.WriteFile, so a relative path
+// landed in whatever directory the SERVER PROCESS was started from — an
+// independent gap hunt exporting with path=kb-export.md wrote the file
+// into the spectackle source repo instead of the workspace
+// (B-01KYMCJG8HFYW). A long-lived MCP server has one cwd and serves many
+// roots over its lifetime, so cwd-relative was never the useful reading.
+func (s *Server) rootPath(p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(s.ws.Dir, filepath.FromSlash(p))
+}
+
 // ---- export ----
 
 func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, error) {
@@ -161,7 +177,7 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 		return nil, nil, err
 	}
 	if in.Path != "" {
-		if err := os.WriteFile(in.Path, out, 0o644); err != nil {
+		if err := os.WriteFile(s.rootPath(in.Path), out, 0o644); err != nil {
 			return refuse("! IO E - " + err.Error())
 		}
 	}
@@ -211,7 +227,7 @@ func knowledgeCounts(entries []knowledge.Entry) map[knowledge.EntryKind]int {
 // ---- merge ----
 
 func (s *Server) knowledgeMerge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
-	artifacts, err := knowledgeGatherArtifacts(in.Paths, in.Body)
+	artifacts, err := s.knowledgeGatherArtifacts(in.Paths, in.Body)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())
 	}
@@ -254,10 +270,10 @@ func (s *Server) knowledgeMerge(in knowledgeIn) (*mcp.CallToolResult, any, error
 // plus body as one more inline artifact when non-empty. Order is
 // paths-then-body, but Merge itself is order-independent (see its doc
 // comment), so this only affects Conflict.Entries ordering, not correctness.
-func knowledgeGatherArtifacts(paths []string, body string) ([]knowledge.Artifact, error) {
+func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowledge.Artifact, error) {
 	var out []knowledge.Artifact
 	for _, p := range paths {
-		raw, err := os.ReadFile(p)
+		raw, err := os.ReadFile(s.rootPath(p))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", p, err)
 		}
@@ -338,7 +354,7 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	var raw []byte
 	switch {
 	case in.Path != "":
-		b, err := os.ReadFile(in.Path)
+		b, err := os.ReadFile(s.rootPath(in.Path))
 		if err != nil {
 			return refuse("! ARG E - " + err.Error())
 		}
