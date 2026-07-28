@@ -219,6 +219,19 @@ the outcome judge batch is **M-01KYJWG08TFRC** (`outcome-navigation`:
 | T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. Record: **M-01KYJWFQ8SE68**. |
 | T-01KYJ5FAP6 online render diet (RENDER-PARITY-001, green edges collapse to one artifact line) | −377B (~−94 tokens) per online lifecycle | +0B | measured 2026-07-28 from the real v0.5.5 renders (PR 195/197 green paths, 15 g-lines/525B) vs the diet single lines (3 g-lines/148B, same URL/SHA lengths): activation → `g pr N draft URL`, done → `g pr N draft checks passing`, archive → `g pr N merged SHA`. Failure/warning surfaces untouched (never-silent means failures speak); parity pinned by TestOnlineRenderParity — a green online lifecycle renders at most one g-line more per edge than offline. Record: **M-01KYKCXKH2FG6**. |
 
+### Swarm contention A/B: enforcement on v0.7.0 (T-01KYM8W5TM, 2026-07-28; record M-01KYM9868MFS1 = swarm-contention v2)
+
+Identical fixture and protocol to v1 — only the binary differs (v0.6.4 →
+v0.7.0, ADR-01KYKTGGPREG2 enforcement). **All three hypotheses confirmed**:
+correctness preserved (both functions on main, both tasks done, empty
+leases); the loser recovered **from the refusal text alone** — judge-b hit
+`! LEASE E shared.go held=judge-a … (open worktree)`, did not force or
+abort the holder, checked `swarm`, saw the scope had cleared after
+judge-a's submit, and retried; and **zero git conflicts against 1 in the
+baseline**, because judge-b branched from a main that already carried FnA.
+The wasted implement-then-conflict-resolve round is gone: judge-a hit no
+refusals at all, judge-b paid one refusal plus one `swarm` check.
+
 ### Swarm contention: two concurrent judges, one target (T-01KYKS8D9K, 2026-07-28; record M-01KYKSKKPDFNT = swarm-contention v1)
 
 Custom fixture (no prep scenario exists): one repo, two approved tasks both
