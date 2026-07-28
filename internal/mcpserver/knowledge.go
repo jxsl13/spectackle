@@ -502,9 +502,10 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	// lock, the second one re-reads work.md, finds the first, and reports it
 	// instead of opening a rival. Named per conflict key, so applies over
 	// disjoint conflicts still run concurrently.
-	open := 0
+	open, settled := 0, 0
 	for _, cf := range conflicts {
 		if held[cf.Key] {
+			settled++
 			continue
 		}
 		var id string
@@ -528,7 +529,8 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 			continue
 		}
 		if id == "" {
-			continue // a concurrent apply opened it first; counted as settled
+			settled++ // a concurrent apply opened it first
+			continue
 		}
 		open++
 		fmt.Fprintf(&b, "need decision %s %s\n", id, conflictQuestion(cf))
@@ -539,18 +541,32 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	// local position stands, so there is nothing to decide, only something
 	// the caller must not be allowed to miss.
 	for _, dv := range diverged {
+		ours, theirs := divergedValue(dv.Ours), divergedValue(dv.Then)
+		if ours == theirs {
+			// The headline values agree, so the disagreement is in a field
+			// this line does not quote — rendering it anyway printed the
+			// same string twice for a real, correctly detected divergence.
+			// Name the fields instead; the record itself carries the text.
+			fmt.Fprintf(&b, "x %s %s same %q, differs in %s (kept ours)\n",
+				dv.Kind, shortKey(dv.Key), ours, strings.Join(divergedFields(dv), ","))
+			continue
+		}
 		fmt.Fprintf(&b, "x %s %s ours=%q theirs=%q (kept ours)\n",
-			dv.Kind, shortKey(dv.Key), divergedValue(dv.Ours), divergedValue(dv.Then))
+			dv.Kind, shortKey(dv.Key), ours, theirs)
 	}
 
 	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
 	if open > 0 {
 		fmt.Fprintf(&b, " conflicts=%d", open)
 	}
-	if settled := len(conflicts) - open; settled > 0 {
-		// counted separately: the sources still disagree, this workspace
+	if settled > 0 {
+		// Counted, never derived: the sources still disagree, this workspace
 		// simply already holds an answer — silence would read as "no
-		// conflict", and a second `conflicts=` would read as "decide again"
+		// conflict", and a second `conflicts=` would read as "decide again".
+		// `len(conflicts) - open` looked equivalent and was not: it folded
+		// every conflict whose mint FAILED (a lock timeout, a write error)
+		// into the count, reporting a conflict that still needs a decision
+		// as one already settled.
 		fmt.Fprintf(&b, " settled=%d", settled)
 	}
 	if len(diverged) > 0 {
@@ -742,6 +758,34 @@ func divergedValue(e knowledge.Entry) string {
 		v = v[:60] + "…"
 	}
 	return v
+}
+
+// divergedFields names the entry fields that actually differ, for the case
+// where the quoted headline value does not — the only way an `x` line can
+// say something true when ours and theirs read alike.
+func divergedFields(dv knowledge.Divergence) []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		a, b string
+	}{
+		{"text", dv.Ours.Text, dv.Then.Text},
+		{"prose", dv.Ours.Prose, dv.Then.Prose},
+		{"context", dv.Ours.Context, dv.Then.Context},
+		{"decision", dv.Ours.Decision, dv.Then.Decision},
+		{"consequences", dv.Ours.Consequences, dv.Then.Consequences},
+		{"status", dv.Ours.Status, dv.Then.Status},
+	} {
+		if strings.TrimSpace(f.a) != strings.TrimSpace(f.b) {
+			out = append(out, f.name)
+		}
+	}
+	if len(out) == 0 {
+		// substanceEqual normalizes (NormHash folds case and whitespace)
+		// where this compares raw — say so rather than print nothing
+		out = append(out, "formatting")
+	}
+	return out
 }
 
 // conflictQuestion renders the decision a conflict poses.

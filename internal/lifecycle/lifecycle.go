@@ -580,45 +580,72 @@ func RetainsBody(kind string) bool {
 	return kind == "research" || kind == "adr"
 }
 
+// outcomeFieldMax bounds each must-keep ADR field on its own, so the
+// must-keep blob has a size the rest of the budget can always be computed
+// against. A decision or a status longer than this is already prose that
+// belongs in context; truncating it is a real loss but a bounded one, and
+// far smaller than dropping the field entirely.
+const outcomeFieldMax = 2048
+
 // adrOutcome renders an ADR's substance for its tombstone: the body,
 // followed by the structured fields in work.md's own order and spelling.
 //
-// The fields are budgeted OUT of the cap rather than capped with the body.
-// capRetainedBody truncates from the end, so appending them last meant a
-// body over the cap silently amputated `decision:` — the single line that
-// says which option won, on a record whose entire purpose is to say that.
-// Reserving their length first makes the body, which is the long and
-// summarizable part, the only thing a cap can ever take.
+// Space is budgeted by IMPORTANCE, not by position. The naive version
+// joined all four fields and capped the join from the end, which only
+// looked correct because the test varied the body: `context` is emitted
+// first and nothing bounds it, so a large context amputated `decision:` —
+// exactly the loss the budgeting was introduced to prevent, one field over.
+//
+// `decision` and `status` are the outcome: what won, and whether it stands.
+// They are reserved first, each capped on its own so the reservation is
+// bounded by construction and can never starve the rest. `body`, `context`
+// and `consequences` are the narrative around that outcome — long,
+// summarizable, and therefore what a cap takes. Budgeting order and render
+// order are separate concerns; the render stays canonical either way.
 func adrOutcome(it item.Item) string {
-	var fields []string
-	for _, f := range [][2]string{
-		{"context", it.Context},
-		{"decision", it.Decision},
-		{"consequences", it.Consequences},
-		{"status", it.Status},
-	} {
-		if v := strings.TrimSpace(f[1]); v != "" {
-			fields = append(fields, f[0]+": "+v)
+	field := func(name, v string) string {
+		if v = strings.TrimSpace(v); v != "" {
+			return name + ": " + v
+		}
+		return ""
+	}
+	keep := []string{
+		capRetainedBodyTo(field("decision", it.Decision), outcomeFieldMax),
+		capRetainedBodyTo(field("status", it.Status), outcomeFieldMax),
+	}
+	reserved := 0
+	for _, k := range keep {
+		if k != "" {
+			reserved += len(k) + 1 // + the joining newline
 		}
 	}
-	tail := strings.Join(fields, "\n")
-	budget := retainedBodyMax - len(tail) - 1 // -1 for the joining newline
-	body := strings.TrimSpace(it.Body)
-	if budget < 0 {
-		// pathological: the fields alone exceed the cap. They ARE the
-		// outcome, so they win and the body goes entirely.
-		return capRetainedBody(tail)
+
+	// what is left, shared by the narrative parts in render order
+	budget := retainedBodyMax - reserved
+	narrative := func(s string) string {
+		if s == "" || budget <= 0 {
+			budget = 0
+			return ""
+		}
+		s = capRetainedBodyTo(s, budget)
+		budget -= len(s) + 1
+		return s
 	}
-	if len(body) > budget {
-		body = capRetainedBodyTo(body, budget)
+
+	parts := []string{
+		narrative(strings.TrimSpace(it.Body)),
+		narrative(field("context", it.Context)),
+		keep[0], // decision
+		narrative(field("consequences", it.Consequences)),
+		keep[1], // status
 	}
-	switch {
-	case body == "":
-		return tail
-	case tail == "":
-		return body
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
 	}
-	return body + "\n" + tail
+	return strings.Join(out, "\n")
 }
 
 // gistLine is the one-line substance of an item — the first body line for
@@ -633,11 +660,16 @@ func gistLine(it item.Item) string {
 	if d := strings.TrimSpace(it.Decision); d != "" {
 		return d
 	}
-	// Unanswered: there is no decision to report, so say that rather than
-	// echo a machine field. `kind: radio` and the conflict marker are
-	// scaffolding decide writes for itself; either one as the gist made the
-	// spec.md intent line and the journal summary indistinguishable across
-	// every parked decision the repository ever had.
+	// Unanswered. Nothing here may name a side: the first `option:` line is
+	// a candidate nobody chose, and rendering it as the gist made the
+	// spec.md intent line and the journal summary read as a confident
+	// decision FOR that option, with no trace that the others existed —
+	// worse than the `kind: radio` it replaced, which was at least visibly
+	// meaningless. Report the truth instead, with the size of the choice
+	// that was on the table.
+	if n := len(item.ParseOptions(it.Body)); n > 0 {
+		return fmt.Sprintf("undecided (%d options)", n)
+	}
 	for _, line := range strings.Split(it.Body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || isDecideScaffold(line) {
@@ -650,8 +682,10 @@ func gistLine(it item.Item) string {
 
 // isDecideScaffold reports whether a body line is machine scaffolding a
 // decide-minted ADR writes for itself rather than content a reader wants.
+// `option:`/`choice:` are in the list because they name SIDES: quoting one
+// as an item's gist asserts an outcome the record does not have.
 func isDecideScaffold(line string) bool {
-	for _, p := range []string{"kind:", "knowledge-conflict:", "status:", "item:"} {
+	for _, p := range []string{"kind:", "knowledge-conflict:", "status:", "item:", "option:", "options:", "choice:"} {
 		if strings.HasPrefix(line, p) {
 			return true
 		}

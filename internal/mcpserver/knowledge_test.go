@@ -888,3 +888,69 @@ func shortOf(id string) string {
 	}
 	return id
 }
+
+// TestDivergenceNamesTheDifferingField: when the quoted headline value
+// agrees, the disagreement is in a field the `x` line does not quote —
+// printing it anyway rendered the same string twice for a real, correctly
+// detected divergence.
+func TestDivergenceNamesTheDifferingField(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	ask := callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which serialization should the rpc layer use?",
+		"kind": "text", "context": "measured on our own traffic",
+	})
+	local := ""
+	for _, f := range strings.Fields(ask) {
+		if strings.HasPrefix(f, "ADR-") {
+			local = f
+		}
+	}
+	callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": local, "choose": "protobuf", "consequences": "schema registry needed",
+	})
+
+	// same decision, different context/consequences/status
+	incoming := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-b\n---\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\n" +
+		"decision: protobuf\ncontext: inherited from the platform team\n" +
+		"consequences: none noted\nstatus: superseded\ncount: 1\nsources:\n    - source: repo-b\n      dir: \"\"\n"
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": incoming})
+	if !strings.Contains(out, "diverged=1") {
+		t.Fatalf("a context/status-only disagreement is still a divergence:\n%s", out)
+	}
+	if strings.Contains(out, `ours="protobuf" theirs="protobuf"`) {
+		t.Fatalf("the render must not print the same value twice:\n%s", out)
+	}
+	for _, want := range []string{"context", "consequences", "status"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("the differing field %q must be named:\n%s", want, out)
+		}
+	}
+}
+
+// TestFailedMintIsNotCountedSettled: `settled` used to be derived as
+// len(conflicts)-open, which folded every conflict whose mint FAILED into
+// the count — reporting a conflict that still needs a decision as one this
+// workspace had already answered. It is counted now, never subtracted.
+func TestFailedMintIsNotCountedSettled(t *testing.T) {
+	_, sess := conflictingArtifacts(t)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	// baseline: one real conflict, minted, nothing settled
+	if !strings.Contains(out, "conflicts=1") || strings.Contains(out, "settled=") {
+		t.Fatalf("first apply mints and settles nothing:\n%s", out)
+	}
+	// second apply: genuinely settled, and counted as exactly that
+	again := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	if !strings.Contains(again, "settled=1") || strings.Contains(again, "conflicts=") {
+		t.Fatalf("second apply settles the one conflict:\n%s", again)
+	}
+	// the counts must be consistent with the lines actually rendered: a
+	// settled conflict emits no `need decision`, an open one emits exactly one
+	if n := strings.Count(again, "need decision"); n != 0 {
+		t.Fatalf("a settled conflict must not ask again (%d asks):\n%s", n, again)
+	}
+	if n := strings.Count(out, "need decision"); n != 1 {
+		t.Fatalf("conflicts=1 must correspond to exactly one ask (%d):\n%s", n, out)
+	}
+}

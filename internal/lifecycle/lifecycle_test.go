@@ -968,3 +968,78 @@ func TestLongADRBodyKeepsItsDecision(t *testing.T) {
 		t.Fatalf("a short ADR must be retained whole: %q", sg)
 	}
 }
+
+// TestOversizedFieldKeepsTheOutcome is the regression for the defect the
+// first budgeting fix missed by varying only the body: the four structured
+// fields were joined in fixed order and capped from the END, so a large
+// `context` — which nothing bounds — amputated `decision:` and `status:`
+// exactly as before. Space is budgeted by importance now, not by position.
+func TestOversizedFieldKeepsTheOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		it   item.Item
+	}{
+		{"huge context", item.Item{
+			Kind: "adr", Title: "q", Body: "kind: radio",
+			Context: strings.Repeat("C", 50000), Decision: "protobuf", Status: "accepted",
+		}},
+		{"huge consequences", item.Item{
+			Kind: "adr", Title: "q", Body: "kind: radio",
+			Consequences: strings.Repeat("K", 50000), Decision: "protobuf", Status: "accepted",
+		}},
+		{"huge body and context together", item.Item{
+			Kind: "adr", Title: "q", Body: strings.Repeat("B", 20000),
+			Context: strings.Repeat("C", 20000), Decision: "protobuf", Status: "accepted",
+		}},
+		{"huge decision itself", item.Item{
+			Kind: "adr", Title: "q", Body: "kind: radio",
+			Decision: strings.Repeat("D", 9000), Status: "accepted",
+		}},
+	} {
+		got := retainedBody(tc.it)
+		if !strings.Contains(got, "decision: ") {
+			t.Fatalf("%s: the decision must survive (len=%d)", tc.name, len(got))
+		}
+		if !strings.Contains(got, "status: accepted") {
+			t.Fatalf("%s: the status must survive (len=%d)", tc.name, len(got))
+		}
+		if len(got) > retainedBodyMax+4*len(truncationMarker) {
+			t.Fatalf("%s: cap blown: len=%d", tc.name, len(got))
+		}
+		if !utf8.ValidString(got) {
+			t.Fatalf("%s: retained body is not valid UTF-8", tc.name)
+		}
+	}
+}
+
+// TestUnansweredGistNamesNoSide: the first `option:` line is a candidate
+// nobody chose. Quoting it as an item's gist asserted an outcome the record
+// does not have — the permanent spec.md trace read as a decision FOR that
+// option, with no trace the others existed.
+func TestUnansweredGistNamesNoSide(t *testing.T) {
+	unanswered := item.Item{
+		Kind: "adr", Title: "which serialization?",
+		Body: "kind: radio\nknowledge-conflict: abcd\noption: repo-a: protobuf\noption: repo-b: json",
+	}
+	got := gistLine(unanswered)
+	for _, side := range []string{"protobuf", "json"} {
+		if strings.Contains(got, side) {
+			t.Fatalf("an unanswered decision must name no side, got %q", got)
+		}
+	}
+	if !strings.Contains(got, "undecided") || !strings.Contains(got, "2 options") {
+		t.Fatalf("it should say what is actually true, got %q", got)
+	}
+	// answered: the decision itself, not the scaffolding
+	answered := unanswered
+	answered.Decision = "repo-a: protobuf"
+	if got := gistLine(answered); got != "repo-a: protobuf" {
+		t.Fatalf("an answered decision gists as its decision, got %q", got)
+	}
+	// non-adr kinds are untouched, including a body whose first line looks
+	// like scaffolding
+	task := item.Item{Kind: "task", Body: "status: this is prose, not a field\nmore"}
+	if got := gistLine(task); got != "status: this is prose, not a field" {
+		t.Fatalf("non-adr kinds keep firstLine(Body), got %q", got)
+	}
+}
