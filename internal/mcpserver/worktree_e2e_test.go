@@ -140,6 +140,13 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 
 	// ---- open the worktree and make a real code change in it.
 	out := callText(t, alice, "work", map[string]any{"op": "start", "item": prop})
+	// The submit hint must name the identity binding inline
+	// (B-01KYJ66VSQ): "(any process)" is only true for a process carrying
+	// SPECTACKLE_AGENT=<holder>, and all three outcome judges lost a
+	// retry loop learning that from the later refusal instead of here.
+	if !strings.Contains(out, "SPECTACKLE_AGENT=") {
+		t.Fatalf("work op=start hint must name SPECTACKLE_AGENT and the holder:\n%s", out)
+	}
 	wtRoot := wtRootOf(t, out, prop)
 	if err := os.WriteFile(filepath.Join(wtRoot, "pool.go"), []byte("package main // pooled\n"), 0o644); err != nil {
 		t.Fatal(err)

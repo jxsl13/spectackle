@@ -773,7 +773,11 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(adoptWarn + fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit item=%s (any process)", sc.short(id), root, sc.short(id)))
+	// The submit hint names the identity binding INLINE (B-01KYJ66VSQ: all
+	// three outcome judges lost a retry loop learning SPECTACKLE_AGENT
+	// only from the later refusal — "(any process)" is true only WITH the
+	// env var, so the hint must carry the one fact that makes it true).
+	return text(adoptWarn + fmt.Sprintf("wt %s open %s\nok edit/build/bench ONLY under this root; check until ok, then work op=submit item=%s (any process carrying SPECTACKLE_AGENT=%s)", sc.short(id), root, sc.short(id), s.agent))
 }
 
 func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
