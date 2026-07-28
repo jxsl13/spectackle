@@ -47,7 +47,7 @@ choice: enforce: start claims normalized targets, live foreign overlap refuses w
 
 ## P-01KYMCKE8DEW7BZ3FNCMJTNSG2 knowledge conflict resolution is unreachable from the tool surface
 kind: proposal
-state: draft
+state: approved
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
 grilled: 2026-07-28 open=0
