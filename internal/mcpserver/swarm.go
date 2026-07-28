@@ -854,11 +854,11 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	// 1-in-8 under true concurrency): a racing sibling can complete its
 	// whole one-shot lifecycle — claim, worktree, exit, deregister —
 	// between my scan and my claim, so neither check sees it. My ledger
-	// row is now WRITTEN, so any racer that gets here re-reads and finds
-	// mine exactly as I find theirs; both roll back only if... they don't:
-	// the loser is decided deterministically by (Created, Item), so
-	// exactly one survives. Rollback is safe HERE and nowhere later — the
-	// worktree is seconds old and holds only copied bundles, never work.
+	// row is WRITTEN before this read, so a racer arriving later is
+	// guaranteed to see mine; seeing one is enough to yield (see the
+	// yield-always rule above — deliberately not a tiebreak). Rollback is
+	// safe HERE and nowhere later: the worktree is seconds old and holds
+	// only copied bundles, never work.
 	if racer, path, rerr := s.worktreeConflict(id, mine); rerr == nil && racer != nil {
 		_ = s.cd.DelWorktree(id)
 		_ = wt.Remove(s.main.Dir, root)
