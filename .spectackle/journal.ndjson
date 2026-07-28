@@ -623,3 +623,4 @@
 {"t":"2026-07-28T14:53:18Z","eid":"19713e9fdbfe8895","ag":"orchestrator-fable","ev":"create","id":"ADR-01KYMKEG7YE2PS8DSJZJW799P9","k":"adr","ti":"knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?"}
 {"t":"2026-07-28T14:53:18Z","eid":"9d6e5d7a65724cdc","ag":"orchestrator-fable","ev":"move","id":"ADR-01KYMKEG7YE2PS8DSJZJW799P9","fr":"draft","to":"submitted"}
 {"t":"2026-07-28T15:03:20Z","eid":"8d07e55dba32be5e","ag":"orchestrator-fable","ev":"decide","id":"ADR-01KYMKEG7YE2PS8DSJZJW799P9","note":"decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build"}
+{"t":"2026-07-28T15:48:44Z","eid":"0fc816c10e831603","ag":"orchestrator-fable","ev":"revise","id":"P-01KYMCKE8DEW7BZ3FNCMJTNSG2","note":"body+targets revised"}
