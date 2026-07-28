@@ -32,7 +32,7 @@ choice: raw values ride the journal event too
 
 ## T-01KYKGZT0SEQS8S6J12XJKSA58 check surfaces vacuous tests in dirty test files - the in-loop version of the validate detector
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: internal/mcpserver, docs
