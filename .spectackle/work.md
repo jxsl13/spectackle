@@ -41,7 +41,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYK7W45HF54VFZNG5ZV2M0SN index staleness probe is deletion-blind and new files rescan only via anchored-file staleness
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 targets: internal/mcpserver
 
