@@ -805,7 +805,17 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			}
 		}
 	}
-	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, in.Dir, in.Parent, targets, in.Refs...)
+	// Node-ID targets reach their subsystem through the graph
+	// (B-01KYMCJFC3EMN): lifecycle has no graph, so the derivation runs
+	// here with a resolver and the result is passed as the explicit dir.
+	// An unresolvable node still falls back to root, exactly as before.
+	dir := in.Dir
+	if dir == "" {
+		if d, derr := lifecycle.ScopeFor(s.ws, "", targets, s.nodeFile); derr == nil {
+			dir = d
+		}
+	}
+	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, dir, in.Parent, targets, in.Refs...)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())
 	}
@@ -2662,6 +2672,16 @@ func nodeLine(n graph.Node) string {
 		l += " sig=" + n.Sig
 	}
 	return l
+}
+
+// nodeFile resolves a node-ID target to its file — the graph lookup
+// lifecycle cannot do for itself (see lifecycle.ScopeFor).
+func (s *Server) nodeFile(t string) (string, bool) {
+	n, ok := s.g.Node(graph.NodeID(t))
+	if !ok || n.File == "" {
+		return "", false
+	}
+	return n.File, true
 }
 
 func ruleLine(r spec.ResolvedRule) string {

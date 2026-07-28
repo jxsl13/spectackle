@@ -1980,3 +1980,61 @@ func TestFindRuleLineCarriesPattern(t *testing.T) {
 		t.Fatalf("the pattern token must be the EARS pattern, got %q: %v", got[2], got)
 	}
 }
+
+// TestDraftNodeTargetLandsInItsContextDir pins B-01KYMCJFC3EMN (found by
+// the knowledge/compact gap hunt): the documented derivation is
+// "targets → deepest common context, else root", and it held for PATH
+// targets while node-ID targets — the advertised currency — silently
+// landed at root, sending their archive delta to the wrong intent.
+func TestDraftNodeTargetLandsInItsContextDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pkg", "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "foo", "foo.go"),
+		[]byte("package foo\n\nfunc Frobnicate() int { return 1 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	// a rule makes pkg/foo an unambiguous context dir
+	if out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "pkg/foo", "pattern": "U", "stem": "FOO",
+		"system": "the foo module", "response": "return the constant 1 from Frobnicate",
+	}); !strings.Contains(out, "ok FOO-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	// discover the node ID the indexer minted
+	nodeID := ""
+	for _, l := range strings.Split(callText(t, sess, "find", map[string]any{"q": "Frobnicate", "scope": "code"}), "\n") {
+		if f := strings.Fields(l); len(f) > 1 && f[0] == "n" {
+			nodeID = f[1]
+		}
+	}
+	if nodeID == "" {
+		t.Fatal("fixture: Frobnicate was not indexed")
+	}
+
+	dirOfDraft := func(args map[string]any) string {
+		t.Helper()
+		for _, l := range strings.Split(callText(t, sess, "draft", args), "\n") {
+			// i <id> <kind> <state> <dir> <title>
+			if f := strings.Fields(l); len(f) >= 5 && f[0] == "i" {
+				return f[4]
+			}
+		}
+		t.Fatal("no i record in the draft render")
+		return ""
+	}
+	byNode := dirOfDraft(map[string]any{"kind": "task", "title": "via node", "targets": []string{nodeID}})
+	byPath := dirOfDraft(map[string]any{"kind": "task", "title": "via path", "targets": []string{"pkg/foo/foo.go"}})
+	if byNode != byPath {
+		t.Fatalf("the same target as a node ID (%q) and as a path (%q) must land in the same dir", byNode, byPath)
+	}
+	if byNode != "pkg/foo" {
+		t.Fatalf("a node target must land in its context dir, got %q", byNode)
+	}
+	// an unresolvable node still falls back to root rather than erroring
+	if got := dirOfDraft(map[string]any{"kind": "task", "title": "ghost", "targets": []string{"go:nope.Missing"}}); got != "." {
+		t.Fatalf("an unresolvable node target must fall back to root, got %q", got)
+	}
+}
