@@ -196,6 +196,10 @@ type Server struct {
 	// until the first successful reindex — correct, since there is no graph
 	// yet to trust either way.
 	indexedAt time.Time
+	// dirSig is the tree-shape signature (dir count + newest dir mtime)
+	// captured at the last successful reindex — see dirSignature and
+	// treeShapeChanged (B-01KYK7W45HF54: file mtimes are deletion-blind).
+	dirSig string
 
 	// typedPass is the go/types call-edge upgrade pass's outcome on the last
 	// successful reindex (issue 28) — set alongside s.g and s.indexedAt in
@@ -426,6 +430,7 @@ func BuildGraph(ctx context.Context, ws workspace.Root, blobs store.Store) (grap
 // would create a race window where such an edit looks indexed when it isn't.
 func (s *Server) reindex() {
 	t0 := time.Now()
+	sig := s.dirSignature() // captured BEFORE the walk, same bound as indexedAt
 	g, st, tp, err := BuildGraph(context.Background(), s.ws, s.blobs)
 	if err != nil {
 		log.Printf("index: %v (keeping previous graph)", err)
@@ -433,9 +438,53 @@ func (s *Server) reindex() {
 	}
 	s.g = g
 	s.indexedAt = t0
+	s.dirSig = sig
 	s.typedPass = tp
 	log.Printf("index: %d files, %d nodes, %d edges (+%d typed calls, %d skipped)",
 		st.Files, st.Nodes, st.Edges, tp.Added, st.Skipped)
+}
+
+// dirSignature is the cheap tree-shape probe closing B-01KYK7W45HF54:
+// directory count plus the newest directory mtime under the active root
+// (SkipDir-pruned). File mtimes never see creations or deletions — the
+// PARENT DIRECTORY's mtime does, on every create, delete and rename — so
+// this signature changes exactly when the tree's shape changes, at the
+// cost of a directory-only walk (no file stats, no reads).
+func (s *Server) dirSignature() string {
+	var n int
+	var newest time.Time
+	root := s.ws.Dir
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, path)
+		if rerr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			rel = ""
+		}
+		if rel != "" && s.ws.SkipDir(rel, d.Name()) {
+			return filepath.SkipDir
+		}
+		if fi, ferr := d.Info(); ferr == nil {
+			n++
+			if fi.ModTime().After(newest) {
+				newest = fi.ModTime()
+			}
+		}
+		return nil
+	})
+	return fmt.Sprintf("%d/%d", n, newest.UnixNano())
+}
+
+// treeShapeChanged reports whether directories were created, deleted or
+// renamed since the last successful reindex — the creation/deletion
+// blindness of pure file-mtime staleness (B-01KYK7W45HF54).
+func (s *Server) treeShapeChanged() bool {
+	return s.dirSig != "" && s.dirSignature() != s.dirSig
 }
 
 // MCP returns the underlying protocol server (for transports and tests).

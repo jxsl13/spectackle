@@ -1572,14 +1572,9 @@ func TestCheckRebindsAndAuditsCrossFile(t *testing.T) {
 
 	// delete the example: the walk reassigns the surviving main a NEW ID
 	// (the bare stem) — the stored ID either vanishes or crosses files;
-	// only the content hash identifies the true target. The staleness
-	// probe keys on the newest .go mtime and a deletion bumps nothing
-	// (deletion-blind, filed separately), so the surviving file is
-	// re-touched to force the rebuild the deletion deserves.
+	// only the content hash identifies the true target. No re-touch
+	// needed: the tree-shape probe sees the deletion (B-01KYK7W45HF54).
 	if err := os.Remove(filepath.Join(root, "examples", "saxpy", "main.go")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out = callText(t, sess, "check", map[string]any{})
@@ -1599,11 +1594,8 @@ func TestCheckRebindsAndAuditsCrossFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// the rescan trigger watches ANCHORED files only — touch the anchored
-	// main.go so the whole-tree rebuild runs and indexes the new file too
-	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// the tree-shape probe sees the creation too — check rebuilds and the
+	// new file is indexed without touching any anchored file
 	callText(t, sess, "check", map[string]any{})
 	found = callText(t, sess, "find", map[string]any{"q": "main.main", "scope": "code"})
 	exID = ""
@@ -1626,9 +1618,6 @@ func TestCheckRebindsAndAuditsCrossFile(t *testing.T) {
 		t.Fatalf("rule add: %q", out)
 	}
 	if err := os.Remove(filepath.Join(root, "examples", "saxpy", "main.go")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out = callText(t, sess, "check", map[string]any{})
@@ -1716,5 +1705,53 @@ func TestCheckDoubleRebindSwapKeepsBothAnchors(t *testing.T) {
 	// stable: a second check is clean
 	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "d ") {
 		t.Fatalf("the double rebind must persist cleanly: %q", out)
+	}
+}
+
+// TestCheckSeesDeletionsAndCreations pins B-01KYK7W45HF54: file mtimes are
+// blind to creations and deletions, so the tree-shape probe (dir count +
+// newest dir mtime) must trigger the rebuild — ghost nodes drop after a
+// delete, and a brand-new file is indexed by check without any anchored
+// file being touched.
+func TestCheckSeesDeletionsAndCreations(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "keep.go"), []byte("package demo\n\nfunc Keep() int {\n\treturn 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "doomed.go"), []byte("package demo\n\nfunc Doomed() int {\n\treturn 2\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	// anchor ONLY keep.go — the deletion below must be seen without any
+	// anchored file changing
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "SHP-TST",
+		"system":   "the kept function",
+		"response": "return the constant 1 unchanged",
+		"applies":  []string{"go:demo.Keep"},
+	})
+	if !strings.Contains(out, "ok SHP-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	if out := callText(t, sess, "find", map[string]any{"q": "demo.Doomed", "scope": "code"}); !strings.Contains(out, "go:demo.Doomed") {
+		t.Fatalf("fixture: doomed not indexed: %q", out)
+	}
+
+	// deletion: no anchored file changes, only the tree shape
+	if err := os.Remove(filepath.Join(root, "doomed.go")); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "check", map[string]any{})
+	if out := callText(t, sess, "find", map[string]any{"q": "demo.Doomed", "scope": "code"}); strings.Contains(out, "go:demo.Doomed") {
+		t.Fatalf("ghost node survived the deletion: %q", out)
+	}
+
+	// creation: a brand-new file is indexed by the next check, no touches
+	if err := os.WriteFile(filepath.Join(root, "fresh.go"), []byte("package demo\n\nfunc Fresh() int {\n\treturn 3\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "check", map[string]any{})
+	if out := callText(t, sess, "find", map[string]any{"q": "demo.Fresh", "scope": "code"}); !strings.Contains(out, "go:demo.Fresh") {
+		t.Fatalf("new file not indexed after check: %q", out)
 	}
 }

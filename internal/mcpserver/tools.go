@@ -1812,7 +1812,10 @@ func (s *Server) openNeeds(it item.Item) []string {
 func (s *Server) staleFile(file string) bool {
 	fi, err := os.Stat(filepath.Join(s.ws.Dir, file))
 	if err != nil {
-		return false
+		// a deleted (or unreadable) anchored file IS stale: returning
+		// false here left ghost nodes in the graph until an unrelated
+		// edit landed (B-01KYK7W45HF54) — the rebuild is what drops them
+		return true
 	}
 	return fi.ModTime().After(s.indexedAt)
 }
@@ -1935,7 +1938,7 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// itself fails, it logs and keeps the previous graph, s.indexedAt is
 	// untouched, staleFile still reports stale, and Classify still falls
 	// back to Pending: a refusal to judge, never a false heal.
-	if s.anchorsNeedRefresh(anchors) {
+	if s.anchorsNeedRefresh(anchors) || s.treeShapeChanged() {
 		s.reindex()
 	}
 
