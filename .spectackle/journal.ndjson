@@ -560,3 +560,4 @@
 {"t":"2026-07-28T04:14:24Z","eid":"96b9d514db5eb1c7","ag":"orchestrator-fable","ev":"create","id":"B-01KYKEWMHEFW1VKRVC5ATDSYS6","k":"bug","ti":"ADR escalation hint names a nonexistent decide field and the full-length item ID"}
 {"t":"2026-07-28T04:28:19Z","eid":"81eaca9f7bccff61","ag":"orchestrator-fable","ev":"move","id":"B-01KYKEWMHEFW1VKRVC5ATDSYS6","fr":"draft","to":"active"}
 {"t":"2026-07-28T04:32:11Z","eid":"767db39df86551b2","ag":"ag-bf9a","ev":"drift","rule":"SPX-SWM-007","node":"go:lifecycle.Escalate","cls":"healed","oh":"9799dac75994f649","nh":"d14c96b6dab114fa"}
+{"t":"2026-07-28T04:36:04Z","eid":"ebbb7feaed897925","ag":"orchestrator-fable","ev":"move","id":"B-01KYKEWMHEFW1VKRVC5ATDSYS6","fr":"active","to":"done"}

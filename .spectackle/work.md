@@ -32,7 +32,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYKEWMHEFW1VKRVC5ATDSYS6 ADR escalation hint names a nonexistent decide field and the full-length item ID
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 targets: internal/mcpserver, internal/lifecycle
 
