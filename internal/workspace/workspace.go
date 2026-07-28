@@ -734,6 +734,8 @@ func scaffoldConfigYAML() []byte {
 	fmt.Fprintf(&b, "  lease_ttl: %d  # seconds a scope lease lives without refresh\n", d.Swarm.LeaseTTL)
 	fmt.Fprintf(&b, "  agent_ttl: %d  # seconds without heartbeat before an agent counts as gone\n", d.Swarm.AgentTTL)
 	fmt.Fprintf(&b, "  panel_max: %d  # cap on a per-item review panel (grill panel=n needs a live risk signal; config caps, never raises)\n", d.Swarm.PanelMax)
+	b.WriteString("benchmarks:\n")
+	fmt.Fprintf(&b, "  history: %d  # retained versions per benchmark key (bench tool); the latest is the head, older ones trim\n", d.Benchmarks.History)
 	b.WriteString("feedback:\n")
 	fmt.Fprintf(&b, "  max_rounds: %d  # reopen/gate-fail rounds before an item escalates to blocked\n", d.Feedback.MaxRounds)
 	fmt.Fprintf(&b, "  grill: %q  # optional shell command producing grill feedback on reopen (none by default)\n", d.Feedback.Grill)
