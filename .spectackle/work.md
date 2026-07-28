@@ -47,7 +47,7 @@ choice: enforce: start claims normalized targets, live foreign overlap refuses w
 
 ## R-01KYMA7EXME6KAW9B77MJQ4MSD adversarial gap hunt on the knowledge and compact surfaces - the last tools no independent agent has stressed
 kind: research
-state: active
+state: done
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: internal/mcpserver/knowledge.go, internal/knowledge
