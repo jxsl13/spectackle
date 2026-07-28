@@ -157,3 +157,4 @@
 {"t":"2026-07-27T21:39:04Z","eid":"d53d3943f1d44dbf","ag":"ag-c0e6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-011","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"a39fbb610f6db3d8","nh":"5cb1de139d8e6407"}
 {"t":"2026-07-28T00:34:39Z","eid":"5148f5b65cfc6944","ag":"orchestrator-fable","ev":"move","id":"B-01KYJ66VSQF8XVZ4PCP8XNARW9","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-28T00:36:04Z","eid":"b6dff845791c1d42","ag":"orchestrator-fable","ev":"move","id":"B-01KYJ66VSQF8XVZ4PCP8XNARW9","dir":"internal/mcpserver","fr":"active","to":"done"}
+{"t":"2026-07-28T00:44:08Z","eid":"fb3072fdb17dab31","ag":"orchestrator-fable","ev":"validate","id":"B-01KYJ66VSQF8XVZ4PCP8XNARW9","dir":"internal/mcpserver","op":"render","hash":"d87e82af1890878953fab00a819846d3863003b60cb16397318bf34a43512f08"}
