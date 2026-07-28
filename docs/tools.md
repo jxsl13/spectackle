@@ -584,6 +584,7 @@ coord `commands` emit so siblings see it happened in realtime.
 {"type":"object","required":["op"],"properties":{
   "op":     {"enum":["export","merge","apply"]},
   "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path. Relative = under the workspace root; absolute taken verbatim"},
+  "paths":  {"type":"array","items":{"type":"string"},"description":"merge: the artifacts to condense; apply: fold SEVERAL at once — conflicts between them open decisions instead of vanishing"},
   "body":   {"type":"string","description":"inline artifact text — apply: the artifact to fold in; merge: one more artifact, alongside paths"},
   "paths":  {"type":"array","items":{"type":"string"},"description":"merge: artifact file paths to parse and merge"},
   "entries":{"type":"array","items":{"type":"object","required":["kind"],"properties":{
@@ -654,6 +655,19 @@ that is intended, not a bug: the anchoring is exactly the adoption work
 computations `check` itself runs (`g uncovered` + `g orphan`, without
 `check`'s side effects), so it is provably the same number a standalone
 `check` call reports afterward, never a guess.
+
+**Conflicts become decisions, not casualties** (ADR-01KYMKEG7YE2P).
+`merge` reports every conflict as an `x` line and leaves it OUT of the
+condensate, so a single already-merged artifact can never carry one.
+Applying SEVERAL artifacts (`paths`) therefore merges them in place: the
+non-conflicting union folds in exactly as a single artifact would, and
+each conflict opens one ADR in this workspace through the same path
+`decide op=ask` uses — rendered as `need decision <ADR-id> <question>`,
+counted in the trailer as `conflicts=<n>`. Its options are the competing
+decisions labeled by source, and its body keeps every side, so answering
+it with `decide op=answer` lands the winner as an accepted ADR while the
+losing side stays readable in the record and its journal tombstone. No
+side is ever adopted automatically.
 
 ### 18. `bench` — benchmark records (implementations on a frame)
 

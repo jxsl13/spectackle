@@ -471,3 +471,84 @@ func TestArtifactPathsResolveAgainstTheWorkspace(t *testing.T) {
 		t.Fatalf("an empty artifact must be diagnosed as empty: %q", out)
 	}
 }
+
+// TestApplyMintsADecisionPerConflict implements ADR-01KYMKEG7YE2P: a
+// merge conflict between two artifacts must become an OPEN DECISION in
+// the applying workspace, never a silently dropped entry (both sides
+// used to vanish, since merge strips conflicts from its condensate).
+func TestApplyMintsADecisionPerConflict(t *testing.T) {
+	// two artifacts: one shared rule (no conflict) and one question two
+	// sources answer differently
+	art := func(src, decision string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - " + src + "\n---\n\n" +
+			"## rule 1111111111111111\ntext: The shared module SHALL return exactly 1.\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n\n" +
+			"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: " + decision + "\nstatus: accepted\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n"
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte(art("repo-a", "protobuf")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.md"), []byte(art("repo-b", "json")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	if !strings.Contains(out, "conflicts=1") {
+		t.Fatalf("the conflict must be counted in the trailer:\n%s", out)
+	}
+	if !strings.Contains(out, "need decision ") || !strings.Contains(out, "serialization") {
+		t.Fatalf("the conflict must open a decision naming its question:\n%s", out)
+	}
+	// the NON-conflicting union still applied
+	if !strings.Contains(callText(t, sess, "find", map[string]any{"q": "shared module", "scope": "rule"}), "SHALL return exactly 1") {
+		t.Fatal("the non-conflicting rule must still apply")
+	}
+	// and NEITHER decision was silently adopted
+	adrs := callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"})
+	if strings.Contains(adrs, "choice: protobuf") || strings.Contains(adrs, "choice: json") {
+		t.Fatalf("no side may be auto-adopted:\n%s", adrs)
+	}
+
+	// answering lands the winner as a real accepted ADR, loser retained
+	adrID := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "ADR-") {
+			adrID = f
+		}
+	}
+	if adrID == "" {
+		t.Fatalf("no ADR id in the render:\n%s", out)
+	}
+	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adrID, "choose": "repo-a: protobuf"}); !strings.Contains(got, "ok "+adrID) {
+		t.Fatalf("answering the conflict decision: %q", got)
+	}
+	body := callText(t, sess, "get", map[string]any{"id": adrID})
+	if !strings.Contains(body, "choice: repo-a: protobuf") {
+		t.Fatalf("the winning decision must land: %q", body)
+	}
+	if !strings.Contains(body, "repo-b: json") {
+		t.Fatalf("the LOSING side must stay readable in the record: %q", body)
+	}
+
+	// idempotency: re-applying mints no duplicate decision
+	before := strings.Count(callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"}), "ADR-")
+	callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	after := strings.Count(callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"}), "ADR-")
+	if after > before+1 {
+		t.Fatalf("re-apply must not multiply conflict decisions: %d -> %d", before, after)
+	}
+}
+
+// TestApplySingleArtifactUnchanged: the new multi-artifact branch must
+// not disturb the one-artifact path.
+func TestApplySingleArtifactUnchanged(t *testing.T) {
+	root := t.TempDir()
+	body := "---\nschema: v1\nkind: knowledge\nsources:\n    - solo\n---\n\n" +
+		"## rule 3333333333333333\ntext: The solo module SHALL return exactly 2.\ncount: 1\nsources:\n    - source: solo\n      dir: \"\"\n"
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": body})
+	if !strings.Contains(out, "ok applied added=1") || strings.Contains(out, "conflicts=") {
+		t.Fatalf("single-artifact apply must be unchanged: %q", out)
+	}
+}

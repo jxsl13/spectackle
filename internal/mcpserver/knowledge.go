@@ -40,6 +40,11 @@ import (
 // already exist for rules (rule op=add's spec.AddRule) and ADRs (the same
 // Draft/Upsert/journal primitives decide.go's own resolveDecision uses) —
 // never a new write path onto .spectackle files.
+// knowledgeConflictMarker tags an ADR minted from a merge conflict, so a
+// later reader (and the answer path) can tell it from an ordinary
+// decision.
+const knowledgeConflictMarker = "knowledge-conflict:"
+
 func (s *Server) knowledge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
 	case "export":
@@ -351,22 +356,46 @@ func knowledgeEntrySummary(e knowledge.Entry) string {
 const knowledgeImportStem = "KB"
 
 func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error) {
-	var raw []byte
-	switch {
-	case in.Path != "":
-		b, err := os.ReadFile(s.rootPath(in.Path))
+	// Apply takes the SAME inputs merge does. With more than one artifact
+	// it merges them here and mints an ADR per conflict
+	// (ADR-01KYMKEG7YE2P: decide-integration) — merge strips conflicts
+	// from its condensate, so a single already-merged artifact can never
+	// carry one, and before this both sides of every disagreement simply
+	// vanished from the target (P-01KYMCKE8DEW7).
+	var conflicts []knowledge.Conflict
+	var incoming knowledge.Artifact
+	if len(in.Paths) > 0 {
+		artifacts, err := s.knowledgeGatherArtifacts(in.Paths, in.Body)
 		if err != nil {
 			return refuse("! ARG E - " + err.Error())
 		}
-		raw = b
-	case strings.TrimSpace(in.Body) != "":
-		raw = []byte(in.Body)
-	default:
-		return refuse("! ARG E - apply requires path or body")
-	}
-	incoming, err := knowledge.Parse(raw)
-	if err != nil {
-		return refuse("! ARG E - " + err.Error())
+		if len(artifacts) == 0 {
+			return refuse("! ARG E - apply requires path, paths or body")
+		}
+		merged, cs, err := knowledge.Merge(artifacts...)
+		if err != nil {
+			return nil, nil, err
+		}
+		incoming, conflicts = merged, cs
+	} else {
+		var raw []byte
+		switch {
+		case in.Path != "":
+			b, err := os.ReadFile(s.rootPath(in.Path))
+			if err != nil {
+				return refuse("! ARG E - " + err.Error())
+			}
+			raw = b
+		case strings.TrimSpace(in.Body) != "":
+			raw = []byte(in.Body)
+		default:
+			return refuse("! ARG E - apply requires path, paths or body")
+		}
+		a, err := knowledge.Parse(raw)
+		if err != nil {
+			return refuse("! ARG E - " + err.Error())
+		}
+		incoming = a
 	}
 
 	c, err := spec.Load(s.ws.Dir)
@@ -427,7 +456,25 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 		return nil, nil, err
 	}
 
-	fmt.Fprintf(&b, "ok applied added=%d gaps=%d\n", added, gaps)
+	// Each conflict becomes an OPEN DECISION in this workspace rather than
+	// a dropped entry: the ADR carries both sides with their sources, so
+	// the loser survives in the record whatever the answer turns out to
+	// be, and answering it through decide op=answer is what lands a
+	// winner. Never auto-resolved (the merge contract), never silently
+	// discarded (the gap this closes).
+	for _, cf := range conflicts {
+		id, mErr := s.mintConflictDecision(cf)
+		if mErr != nil {
+			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, mErr.Error())
+			continue
+		}
+		fmt.Fprintf(&b, "need decision %s %s\n", id, conflictQuestion(cf))
+	}
+	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
+	if len(conflicts) > 0 {
+		fmt.Fprintf(&b, " conflicts=%d", len(conflicts))
+	}
+	b.WriteString("\n")
 	if added > 0 {
 		s.markDirty()
 	}
@@ -557,4 +604,54 @@ func (s *Server) knowledgeGapCount(c *spec.Cascade) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// conflictQuestion renders the decision a conflict poses.
+func conflictQuestion(cf knowledge.Conflict) string {
+	for _, e := range cf.Entries {
+		if strings.TrimSpace(e.Question) != "" {
+			return strings.TrimSpace(e.Question)
+		}
+	}
+	return string(cf.Kind) + " " + cf.Key + ": sources disagree"
+}
+
+// mintConflictDecision opens one ADR for one merge conflict, through the
+// SAME primitives decide op=ask uses — no new write path. The options are
+// the competing decisions labeled by source, so an answer is unambiguous
+// about WHOSE decision won; the body keeps every side verbatim so the
+// loser stays readable in the record and its journal tombstone.
+func (s *Server) mintConflictDecision(cf knowledge.Conflict) (string, error) {
+	body := []string{"kind: radio", knowledgeConflictMarker + " " + cf.Key}
+	var opts []string
+	for _, e := range cf.Entries {
+		src := "unknown"
+		if len(e.Sources) > 0 {
+			src = e.Sources[0].Source
+		}
+		decision := strings.TrimSpace(e.Decision)
+		if decision == "" {
+			decision = strings.TrimSpace(e.Text)
+		}
+		opt := src + ": " + decision
+		opts = append(opts, opt)
+		body = append(body, "option: "+opt)
+	}
+	if len(opts) < 2 {
+		return "", fmt.Errorf("conflict %s has fewer than two sides", cf.Key)
+	}
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", conflictQuestion(cf), strings.Join(body, "\n"), "", "", nil)
+	if err != nil {
+		return "", err
+	}
+	d.Context = "knowledge merge conflict: the sources above disagree; answering selects the decision this workspace adopts, and the others stay recorded here"
+	d.Status = "proposed"
+	if err := item.Upsert(s.ws, d); err != nil {
+		return "", err
+	}
+	if _, err := lifecycle.Move(s.ws, d.ID, item.StateSubmitted, ""); err != nil {
+		return "", err
+	}
+	_ = s.cd.Emit("decide", d.ID, "ask "+conflictQuestion(cf))
+	return shortDisplayID(d.ID), nil
 }
