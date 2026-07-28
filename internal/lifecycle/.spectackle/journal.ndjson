@@ -44,3 +44,4 @@
 {"t":"2026-07-27T20:27:38Z","eid":"5866088c122d57ca","ag":"ag-4403","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"354eda6dc7d4dc05","nh":"757f2330d0a5148d"}
 {"t":"2026-07-28T16:45:11Z","eid":"ac88ee4cfd296400","ag":"ag-73ce","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"04e6768e27823ee1","nh":"77d02fa88bcda696"}
 {"t":"2026-07-28T16:45:11Z","eid":"0d378e8389875887","ag":"ag-73ce","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"757f2330d0a5148d","nh":"f18bc2135993d708"}
+{"t":"2026-07-28T16:55:29Z","eid":"1a95761a5ab693b7","ag":"ag-21b6","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:mcpserver.Server.getItem","cls":"healed","oh":"f18bc2135993d708","nh":"d3e084fec48f9c8a"}
