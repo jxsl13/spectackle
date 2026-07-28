@@ -2,15 +2,6 @@
 schema: v1
 ---
 
-## B-01KYMCJG8HFYWBSFVG10KJP3NR knowledge path= resolves against the process cwd, not -root
-kind: bug
-state: done
-created: 2026-07-28
-refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
-targets: internal/mcpserver/knowledge.go, docs
-
-Found by the R-01KYMA7EXME6K gap hunt (FAIL 3 + WARN 10). knowledge op=export path=kb-export.md wrote into the directory the PROCESS was started from - during the hunt that was the spectackle source repo itself, not the -root workspace; the hunter deleted it and verified a clean tree. Same for apply path= (reads from cwd). For a tool whose stated principle is that -root is the workspace and the LLM never names host paths, an undocumented cwd exception is a hazard, and a long-lived MCP server has a fixed cwd unrelated to the -root it serves. FIX: resolve a RELATIVE path against -root (absolute paths keep working verbatim); say so in the field description and docs. Fold in WARN 10 while here: an empty or whitespace-only artifact is diagnosed as schema mismatch (schema != v1) - detect and say empty artifact. TEST: export path=x.md with a cwd elsewhere lands under -root; absolute path unchanged; apply reads the root-relative file; empty artifact refuses naming emptiness. VERIFY: go build ./... && go test ./... -count=1.
-
 ## B-01KYMCKDD5FYBVW4Z3FYBTWG6E compact reports a cascade-archived child as a failure; docs omit validate and grill op=verdict
 kind: bug
 state: draft
