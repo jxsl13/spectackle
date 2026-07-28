@@ -2531,6 +2531,16 @@ func (s *Server) compact(in compactIn) (*mcp.CallToolResult, any, error) {
 	// come back as res.IsError with err==nil; the item stays done and
 	// the reason renders (never-silent).
 	for _, it := range doneItems {
+		// The candidate list was snapshotted before any archive ran, so
+		// an earlier iteration may have CASCADE-archived this one (a
+		// task closing its linked decision ADR). Re-read the live state
+		// and say that plainly — reporting an already-correctly-archived
+		// child as "blocked: unknown item" read as a failure and sent a
+		// gap hunt into the journal to disprove it (B-01KYMCKDD5FYB).
+		if cur, ok, gerr := item.Get(s.ws, it.ID); gerr == nil && (!ok || cur.State == item.StateArchived) {
+			fmt.Fprintf(&b, "ok archived %s (with its parent)\n", sc.short(it.ID))
+			continue
+		}
 		res, _, err := s.move(moveIn{ID: it.ID, To: string(item.StateArchived), Note: "compact"})
 		// s.move's pre-flow flush consumes the per-call edge capture
 		// (single-shot by design); re-arm it so later iterations and the

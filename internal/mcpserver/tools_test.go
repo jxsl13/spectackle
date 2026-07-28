@@ -2063,3 +2063,31 @@ func TestDraftNodeTargetLandsInItsContextDir(t *testing.T) {
 		t.Fatalf("a mixed node+path set must scope like the equivalent all-path set: mixed=%q paths=%q", mixed, paths)
 	}
 }
+
+// TestDocsDocumentEveryRegisteredTool pins B-01KYMCKDD5FYB's second half:
+// docs/tools.md claims normativity (SPX-REPO-001) but had no `validate`
+// section at all and omitted `grill op=verdict` — a gap hunt could only
+// discover validate by chasing an unexplained warning into source.
+func TestDocsDocumentEveryRegisteredTool(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "docs", "tools.md"))
+	if err != nil {
+		t.Skipf("docs unavailable: %v", err)
+	}
+	doc := string(raw)
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if !strings.Contains(doc, "`"+tool.Name+"`") {
+			t.Errorf("registered tool %q has no section in docs/tools.md", tool.Name)
+		}
+	}
+	// the two ops whose absence sent the gap hunt into the source
+	for _, frag := range []string{"op=verdict", "feedback.validate"} {
+		if !strings.Contains(doc, frag) {
+			t.Errorf("docs/tools.md never mentions %q", frag)
+		}
+	}
+}

@@ -1,7 +1,7 @@
 # MCP tool surface
 
-Sixteen orthogonal tools (eleven lifecycle + three swarm + one codegen + one
-portability). The Go structs in `internal/mcpserver/tools.go` are
+Eighteen orthogonal tools (twelve lifecycle + three swarm + one codegen,
+one portability, one benchmark). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
 handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
@@ -450,10 +450,27 @@ two levels of the same activity, by design.
 
 ```json
 {"type":"object","required":["id"],"properties":{
-  "id":    {"type":"string","description":"proposal or task ID"},
-  "budget":{"type":"integer","default":1500},
-  "cur":   {"type":"string","default":""}}}
+  "id":      {"type":"string","description":"proposal or task ID"},
+  "op":      {"enum":["pack","verdict"],"default":"pack"},
+  "pass":    {"type":"boolean","description":"verdict: true = approved by the reviewer"},
+  "findings":{"type":"string","description":"verdict: required on pass=false — they become the author's next brief"},
+  "waivers": {"type":"object","description":"verdict: per-finding key→reason; every open finding is fixed or waived"},
+  "lenses":  {"type":"string","description":"verdict: comma-separated lenses walked sequentially by ONE reviewer"},
+  "panel":   {"type":"integer","description":"verdict: n-agent panel, legal only on a live risk signal, capped by swarm.panel_max"},
+  "agent":   {"type":"string","description":"verdict: reviewer identity when the session cannot carry SPECTACKLE_AGENT"},
+  "budget":  {"type":"integer","default":1500},
+  "cur":     {"type":"string","default":""}}}
 ```
+The default `op=pack` renders the evidence below and stamps
+`grilled: <date> open=<n>`. **`op=verdict` records the INDEPENDENT
+review** — a second, deliberately named `SPECTACKLE_AGENT`, never the
+shared resident identity — and `move to=approved` gates on a passing
+verdict bound to the current body hash. The reviewer judges ON the
+evidence: every open finding is addressed (fixed, or waived per key with
+a recorded reason), then a fresh identity's verdict opens the gate; the
+pack never passes or fails anything itself. Verdict events survive
+journal compaction (they are the evidence the gates rest on).
+
 Server-computed evidence for the questioning an orchestrator should do
 before approving or delegating a plan — the critique itself is LLM
 reasoning; `grill` only supplies the material: `#targets` (`nf` for
@@ -467,7 +484,33 @@ which stamps the item header field `grilled: <YYYY-MM-DD>` — the O(1),
 compact-fold-surviving evidence a forward `move` checks for (see `move`
 above).
 
-### 14. `decide` — native, persistent user decisions
+### 14. `validate` — post-implementation judge (gates archive)
+
+```json
+{"type":"object","required":["id"],"properties":{
+  "id":      {"type":"string","description":"task or bug ID"},
+  "op":      {"enum":["pack","verdict"],"default":"pack"},
+  "pass":    {"type":"boolean"},
+  "findings":{"type":"string","description":"verdict: required on pass=false — they become the implementer's next brief"},
+  "waivers": {"type":"object","description":"verdict: per-finding key→reason"},
+  "agent":   {"type":"string","description":"verdict: validator identity when the session cannot carry SPECTACKLE_AGENT"},
+  "budget":  {"type":"integer","default":1500},
+  "cur":     {"type":"string","default":""}}}
+```
+`grill` reviews the PLAN; `validate` judges the IMPLEMENTATION. The default
+`op=pack` renders the computed pack over the item's REAL diff (commits
+citing the item): `#diff` declared-vs-landed, `#computed` `v` findings
+(untouched targets, off-scope files, untested symbols, vacuous tests, fake
+benchmarks, missing docs), `#verify`. `op=verdict pass=<bool>` records the
+INDEPENDENT validation — a second deliberate identity, never the
+implementer. **`move to=archived` gates on it**: with `feedback.validate`
+at its default the gap renders as an advisory `! VALIDATE W` and the
+archive proceeds; under `feedback.validate: require`, or when the risk
+gate trips (`feedback.risk_files`, `dangerous_paths`), it becomes a
+refusing `! VALIDATE E`. A failing verdict REOPENS `done → active` with
+the findings as the next brief, and counts a round.
+
+### 15. `decide` — native, persistent user decisions
 
 ```json
 {"type":"object","required":["op"],"properties":{
@@ -499,7 +542,7 @@ on its next `swarm` (sw-piggyback) or `state`/`find` call. `ls`: lists open
 Every decision that actually needs the user goes through `decide` — never
 unstructured chat.
 
-### 15. `commands` — generate harness-native slash-command/prompt files
+### 16. `commands` — generate harness-native slash-command/prompt files
 
 ```json
 {"type":"object","required":["op"],"properties":{
@@ -535,7 +578,7 @@ output). Writes go straight to disk (`os.WriteFile`) — these are generated
 repo files, not `.spectackle/` lifecycle state: no journal event, just one
 coord `commands` emit so siblings see it happened in realtime.
 
-### 16. `knowledge` — portable knowledge (export/merge/apply)
+### 17. `knowledge` — portable knowledge (export/merge/apply)
 
 ```json
 {"type":"object","required":["op"],"properties":{
@@ -612,7 +655,7 @@ computations `check` itself runs (`g uncovered` + `g orphan`, without
 `check`'s side effects), so it is provably the same number a standalone
 `check` call reports afterward, never a guess.
 
-### 17. `bench` — benchmark records (implementations on a frame)
+### 18. `bench` — benchmark records (implementations on a frame)
 
 ```json
 {"type":"object","required":["op"],"properties":{
@@ -669,7 +712,7 @@ d <impl> <metric> <old> -> <new> <unit> Δ<delta> [better|worse|~]     delta bet
 - **rm** — drops every retained version of the record's key (journaled);
   a later `put` of the same name+frame restarts at v1.
 
-### 18. Prompts — slash-command entry points
+### 19. Prompts — slash-command entry points
 
 Three MCP prompts (`prompts/get`, no arguments unless noted) in
 `internal/mcpserver/prompts.go`, registered by `(s *Server) registerPrompts()`
