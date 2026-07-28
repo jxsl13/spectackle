@@ -147,6 +147,18 @@ func TestWorktreeSubmitEndToEndOffPrimaryBranch(t *testing.T) {
 	if !strings.Contains(out, "SPECTACKLE_AGENT=") {
 		t.Fatalf("work op=start hint must name SPECTACKLE_AGENT and the holder:\n%s", out)
 	}
+	// An item drafted on MAIN after the re-root (by a sibling session) is
+	// invisible to the worktree bundle: moving it from the re-rooted
+	// session must refuse WITH the recovery named, not just the
+	// constraint (B-01KYK5FNM4F3F — a judge needed trial and error here).
+	t.Setenv("SPECTACKLE_AGENT", "carol")
+	carol := connectRoot(t, root)
+	bystander := storedIDAfterDraft(t, root, carol, map[string]any{
+		"kind": "task", "title": "main-rooted bystander", "targets": []string{"other.go"}})
+	refusal := callText(t, alice, "move", map[string]any{"id": bystander, "to": "approved"})
+	if !strings.Contains(refusal, "lives on main") || !strings.Contains(refusal, "main-root") {
+		t.Fatalf("the lives-on-main refusal must name the recovery:\n%s", refusal)
+	}
 	wtRoot := wtRootOf(t, out, prop)
 	if err := os.WriteFile(filepath.Join(wtRoot, "pool.go"), []byte("package main // pooled\n"), 0o644); err != nil {
 		t.Fatal(err)
