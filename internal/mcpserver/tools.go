@@ -1420,6 +1420,17 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 			return refuse("! ARG E - " + err.Error())
 		}
 	}
+	// No change-carrying input at all (no slots, no rationale, no applies)
+	// used to rewrite the rule unchanged and answer ok — a no-op reported
+	// as success that cost a worktree-batch judge a discovery round
+	// (B-01KYKQA6N1FDQ). Refuse teaching BOTH the slots and the baseline.
+	if sentence == "" && in.Rationale == "" && len(in.Applies) == 0 {
+		cur, ok := c.Rule(in.ID)
+		if !ok {
+			return refuse("! ARG E - unknown rule " + in.ID)
+		}
+		return refuse("! ARG E - edit needs at least one change: EARS slots (pattern/system/response/trigger/state/condition/feature), rationale, or applies; current: " + cur.Text)
+	}
 	res, err := spec.EditRule(s.ws, c, in.ID, sentence, in.Rationale, in.Applies)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())

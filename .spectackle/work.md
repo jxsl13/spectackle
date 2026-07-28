@@ -29,11 +29,3 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
-
-## B-01KYKQA6N1FDQ9W8ADVHN6CV54 rule op=edit with only id claims ok while writing nothing
-kind: bug
-state: draft
-created: 2026-07-28
-targets: internal/mcpserver
-
-Found by worktree-batch judge 3 (2026-07-28), verbatim-compacted: rule op=edit id=API-STATUS-001 with no slot fields silently succeeded (ok API-STATUS-001 api/.spectackle/spec.md) but made no actual change - a no-op journal entry; only resupplying the full EARS field set made the edit take. A call that claims ok while writing nothing violates never-silent and burns a discovery round. FIX: rule op=edit with no recomposition input (none of pattern/system/response/trigger/state/condition/feature/rationale/applies given) refuses: ! ARG E - edit needs at least one slot to change; current: <the rule sentence> - teaching the caller the slots AND showing the baseline in one render. Editing only applies (relink) or only rationale stays legal. TEST: pin the refusal (edit with id only), pin that a single-slot edit (rationale) still succeeds, pin the unchanged-sentence case. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1. SCOPE: one refusal in the rule handler + pins. ROLLBACK: revert.

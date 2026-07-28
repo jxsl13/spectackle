@@ -188,3 +188,26 @@ func TestRuleEditExplicitPatternStillWins(t *testing.T) {
 		t.Fatalf("invalid pattern not refused clearly: %q", out)
 	}
 }
+
+// TestRuleEditIDOnlyRefusesWithBaseline pins B-01KYKQA6N1FDQ (found by a
+// worktree-batch judge): edit with only id used to rewrite the rule
+// unchanged and answer ok — a no-op reported as success. It now refuses,
+// teaching the slots AND showing the current sentence so the caller
+// learns both in one render.
+func TestRuleEditIDOnlyRefusesWithBaseline(t *testing.T) {
+	_, sess := connectRootWithServer(t, t.TempDir())
+	id := seedRule(t, sess)
+
+	out := callText(t, sess, "rule", map[string]any{"op": "edit", "id": id})
+	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "at least one change") {
+		t.Fatalf("id-only edit must refuse loudly: %q", out)
+	}
+	if !strings.Contains(out, "current: ") || !strings.Contains(out, "WHEN a rule is edited") {
+		t.Fatalf("the refusal must show the current sentence: %q", out)
+	}
+	// the rule is untouched
+	got := callText(t, sess, "get", map[string]any{"id": id})
+	if !strings.Contains(got, "WHEN a rule is edited") {
+		t.Fatalf("the refused edit must not change the rule: %q", got)
+	}
+}
