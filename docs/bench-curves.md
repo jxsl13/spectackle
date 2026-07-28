@@ -319,3 +319,35 @@ identity/shape discovery, not the new surface — filed as B-01KYJ66VSQ
 (agent-score hides the violations that void a run), B-01KYJ67S98 (offline
 checkpoint sweeps pre-existing untracked files into the item's commit —
 found by a judge's git forensics).
+
+### Curation fidelity: does a decided conflict survive being archived? (T-01KYMPN0PNEWV, 2026-07-28; record M-01KYMVV3J0E1Y v1)
+
+Two source repos answer three questions differently; both artifacts are
+exported and applied into a third workspace, each minted conflict is
+answered, each resulting ADR archived, then `compact apply=true` runs. The
+probe asks the only question the feature exists to answer: can the chosen
+AND the rejected decision still be read afterward?
+
+**Round 1 (159b802) scored 0/3 losers, 0/3 winners, 3 duplicate mints.** The
+feature worked right up to the moment a curator did the normal thing and
+archived the record. `archive()` retained a tombstone body only for
+`kind=research`, and a decide-minted ADR's first body line is the machine
+field `kind: radio`, so all three decisions compressed to the byte-identical
+contentless summary `adr <question> — kind: radio`; both sides of every
+conflict left `get`, `work.md` and `find` at once. The project's own
+housekeeping reaches this with no user intent, which is what makes the score
+zero rather than merely fragile.
+
+**Round 2 (a48205f) scores 3/3, 3/3, 0.** Losers come back through
+`find scope=history`, winners through the tombstone's `decision:` field —
+the ADR fields have no journal channel of their own, so retaining the body
+alone would still have lost which side won. The duplicate-mint axis moved in
+the same run for a different reason: entry identity is now recomputed from
+content (`contentKey`) instead of trusted off the wire, so a re-apply
+recognizes the question as already on the board and reports `settled=`.
+
+The lesson generalizes past this feature and is now spec: **a record kind
+whose body is its outcome rather than a delta merged into spec.md must
+retain that body in its tombstone** (LC-001). This is the second time the
+class has been found — research lost 268 findings their citations first —
+and both times the loss was invisible until something archived.
