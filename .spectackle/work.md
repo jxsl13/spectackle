@@ -30,10 +30,17 @@ option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
 
-## B-01KYKSKMHNE2HS9H235BG6DV4B work op=start does not enforce the target lease against a live sibling worktree
-kind: bug
-state: draft
+## ADR-01KYKTGGPREG2B7XJ1FTY25E7S Worktree contention: enforce the lease at work op=start, or keep merge-layer arbitration?
+kind: adr
+state: done
 created: 2026-07-28
-targets: internal/mcpserver, docs
+context: The swarm-contention benchmark (M-01KYKSKKPDFNT, B-01KYKSKMHNE2H) proved work op=start creates NO file-target lease despite SPX-SWM-003 documenting an auto-claim: two concurrent agents on the same declared target both start, both implement, and the slower one pays a full implement-then-resolve round at submit (measured ~20 calls wasted vs 1 refused call). Convergence is safe either way - zero lost updates. The choice is the coordination contract.
+decision: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
+status: accepted
 
-Found by the 2026-07-28 swarm-contention benchmark (record swarm-contention v1) and REPRODUCED DETERMINISTICALLY by its honesty validator in a fresh repo: two approved tasks both declaring targets=[contended.go], two identities, sequential work op=start while the first worktree stays live - the second start SUCCEEDS, and lease op=ls is EMPTY right after the first start. So this is not an overlap-check miss: the start auto-claim creates NO lease for file targets at all, despite the documented contract (work op=start auto-claims its item+targets; prefix-overlap of a live foreign lease refuses with ! LEASE E naming the holder, SPX-SWM-003). Convergence still happened through the git conflict at submit (no lost update - both functions landed), so severity is degraded-guarantee, not corruption. FIX direction: make work op=start actually claim normalized targets (the lease machinery exists - explicit lease op=claim works) so the second start refuses per the docs - or, if late-conflict convergence is the intended worktree-flow design, retire the auto-claims-targets sentence from SPX-SWM-003/the work docs and document the merge layer as the arbiter. This is a real design decision: the lease path saves the loser judge the whole wasted implementation (refuse at start), the conflict path costs a full implement-then-resolve round but never blocks. TEST: two-identity concurrent-start e2e pinning whichever contract is decided. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1.
+kind: radio
+option: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
+option: warn: start renders the l-line naming the holder but proceeds - informed parallelism, the second agent chooses
+option: redocument: leases stay advisory for the worktree flow; SPX-SWM-003 and work docs updated to name the merge layer as arbiter - never blocks
+blocks: B-01KYKSKMHNE2HS9H235BG6DV4B
+choice: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)

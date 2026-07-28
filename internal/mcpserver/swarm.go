@@ -614,6 +614,91 @@ func dirtyOrphanGuard(id, holder, root, op string) (*mcp.CallToolResult, any, er
 	return nil, nil, nil
 }
 
+// worktreeScopeRefusal is the ADR-01KYKTGGPREG2 contention guard: it
+// refuses when a live sibling worktree's item declares a target
+// overlapping mine. skipItem lets the post-claim re-check ignore my OWN
+// freshly written ledger row.
+//
+// Same-AGENT siblings are checked too (the resume path returned earlier):
+// under the one-shot CLI model a second process reuses the identity with
+// no in-process wtItem memory, so one agent really can open two
+// overlapping worktrees — measured by cross-val-enforce (c).
+//
+// The item store is loaded ONCE rather than per worktree row: item.Get
+// re-walks and re-parses every context bundle, and this loop runs on
+// every start (cross-val-enforce finding 4). A load failure is SAID, not
+// swallowed — silently skipping would disable the whole guard workspace
+// wide with no signal (finding 3).
+func (s *Server) worktreeScopeRefusal(id string, mine []string) (*mcp.CallToolResult, any, error) {
+	conflict, path, err := s.worktreeConflict(id, mine)
+	if err != nil {
+		return refuse("! LEASE E scope guard cannot read the item store (" + err.Error() + ") — the worktree contention check is blind; fix the records, then retry")
+	}
+	if conflict == nil {
+		return nil, nil, nil
+	}
+	held := "held=" + conflict.Agent
+	if conflict.Agent == s.agent {
+		held = "held by your own open worktree"
+	}
+	return refuse(fmt.Sprintf(
+		"! LEASE E %s %s item=%s (open worktree) — wait for its submit/abort; if that agent is gone, work op=abort item=%s releases it (force=true also discards its uncommitted work), or take disjoint scope",
+		path, held, shortDisplayID(conflict.Item), shortDisplayID(conflict.Item)))
+}
+
+// worktreeConflict returns the live sibling worktree whose item declares a
+// target overlapping mine, plus the contended path.
+func (s *Server) worktreeConflict(id string, mine []string) (*coord.Worktree, string, error) {
+	if len(mine) == 0 {
+		return nil, "", nil // no declared targets: nothing to contend over
+	}
+	wts, err := s.cd.Worktrees()
+	if err != nil || len(wts) == 0 {
+		return nil, "", err
+	}
+	all, lerr := item.LoadAll(s.main)
+	if lerr != nil {
+		return nil, "", lerr
+	}
+	byID := make(map[string]item.Item, len(all))
+	for _, o := range all {
+		byID[o.ID] = o
+	}
+	for i := range wts {
+		w := wts[i]
+		if w.Item == id {
+			continue
+		}
+		other, ok := byID[w.Item]
+		if !ok {
+			continue // the holder's item is gone from the records; its row is stale
+		}
+		for _, ot := range normalizeTargets(other.Targets) {
+			for _, mt := range mine {
+				if coord.Overlaps(ot, mt) {
+					return &wts[i], mt, nil
+				}
+			}
+		}
+	}
+	return nil, "", nil
+}
+
+// The post-publish rule is YIELD-ALWAYS, deliberately not a tiebreak: a
+// racer that sees a conflict rolls back, period.
+//
+// A (created, item) tiebreak looked symmetric and is not
+// (cross-val-enforce round 2, 3 both-survive hits in 49 concurrent
+// trials): whichever side's recheck runs BEFORE the other's row lands
+// sees nothing and passes without ever comparing, so the side that does
+// compare can independently conclude it won — and both survive. Only a
+// rule that needs no agreement from the other side is safe here.
+//
+// The cost is the symmetric window where both see each other and both
+// yield: two refusals instead of one, no worktree left behind, and the
+// retry that follows finds a clear field. Both-refuse is recoverable;
+// both-survive is the contention this whole guard exists to prevent.
+
 func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
 		return refuse("! WT E already in worktree for " + s.wtItem + " — submit or abort first")
@@ -700,8 +785,20 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 		// proved still owned (cross-val-wipe2 follow-up).
 		adoptNeeded, adoptRoot, adoptBranch = true, w.Root, w.Branch
 	}
+	// The decided contention contract (ADR-01KYKTGGPREG2: enforce): a live
+	// sibling WORKTREE whose item declares overlapping targets refuses
+	// this start, naming the holder. The lease table alone cannot carry
+	// the guarantee — a one-shot CLI's clean shutdown deregisters its
+	// leases while the worktree (and the contention risk) stays open
+	// (B-01KYKSKMHNE2H, proven by the swarm-contention benchmark) — so
+	// the guard reads the worktree ledger, whose rows live exactly as
+	// long as the risk does.
+	mine := normalizeTargets(it.Targets)
+	if res, out, err := s.worktreeScopeRefusal(id, mine); res != nil || err != nil {
+		return res, out, err
+	}
 	// lease item + targets, all-or-nothing
-	scopes := append([]string{id}, normalizeTargets(it.Targets)...)
+	scopes := append([]string{id}, mine...)
 	conflict, err := s.cd.Claim(scopes, id, s.leaseTTL(), s.agentTTL())
 	if err != nil {
 		return nil, nil, err
@@ -751,6 +848,25 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 		Item: id, Agent: s.agent, Branch: branch, Root: root, Base: base, State: "open",
 	}); err != nil {
 		return nil, nil, err
+	}
+	// Publish-then-recheck closes the check-then-act window the pre-claim
+	// guard alone leaves open (cross-val-enforce finding 1, reproduced
+	// 1-in-8 under true concurrency): a racing sibling can complete its
+	// whole one-shot lifecycle — claim, worktree, exit, deregister —
+	// between my scan and my claim, so neither check sees it. My ledger
+	// row is WRITTEN before this read, so a racer arriving later is
+	// guaranteed to see mine; seeing one is enough to yield (see the
+	// yield-always rule above — deliberately not a tiebreak). Rollback is
+	// safe HERE and nowhere later: the worktree is seconds old and holds
+	// only copied bundles, never work.
+	if racer, path, rerr := s.worktreeConflict(id, mine); rerr == nil && racer != nil {
+		_ = s.cd.DelWorktree(id)
+		_ = wt.Remove(s.main.Dir, root)
+		_ = wt.DiscardBranch(s.main.Dir, branch, s.gitBase())
+		_ = s.cd.ReleaseItem(id)
+		return refuse(fmt.Sprintf(
+			"! LEASE E %s held=%s item=%s (concurrent start — yours rolled back, nothing was lost) — retry: if that worktree survived, wait for its submit/abort; if it yielded too, the field is clear",
+			path, racer.Agent, shortDisplayID(racer.Item)))
 	}
 	if err := journal.Append(s.main, it.Dir, journal.Event{Ev: journal.EvStart, ID: id, Dir: it.Dir,
 		Note: "branch " + branch + " base " + base[:12]}); err != nil {

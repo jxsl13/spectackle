@@ -290,6 +290,11 @@ func overlaps(a, b string) bool {
 	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
+// Overlaps exposes the lease overlap semantics for guards that must agree
+// with them byte-for-byte — the worktree-backed target check
+// (B-01KYKSKMHNE2H) refuses on exactly the overlap a lease would have.
+func Overlaps(a, b string) bool { return overlaps(a, b) }
+
 // Blocked returns the first live foreign lease overlapping any of the paths.
 func (d *DB) Blocked(paths []string, agentTTL time.Duration) (*Lease, error) {
 	live, err := d.liveLeases(agentTTL)

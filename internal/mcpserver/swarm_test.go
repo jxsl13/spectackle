@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jxsl13/spectackle/internal/coord"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -1145,5 +1146,102 @@ func TestSelfRestartEligibilityAndHintSuppression(t *testing.T) {
 	}
 	if hint := s.staleHint(); hint != "" {
 		t.Fatalf("stale hint not suppressed under self-restart: %q", hint)
+	}
+}
+
+// TestWorkStartRefusesOverlappingTargets pins ADR-01KYKTGGPREG2 (enforce),
+// the contract the swarm-contention benchmark proved unenforced
+// (B-01KYKSKMHNE2H): two identities whose approved tasks declare the SAME
+// file target cannot both open a worktree — the second start refuses
+// naming the holder, so the loser never pays a full implement-then-resolve
+// round. The guard reads the worktree ledger, not the lease table: a
+// one-shot CLI's clean shutdown deregisters its leases while its worktree
+// (and the contention) stays open.
+func TestWorkStartRefusesOverlappingTargets(t *testing.T) {
+	root := gitRoot(t)
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice, aliceSess := connectRootWithServer(t, root)
+	first := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "alice edits the contended file", "targets": []string{"shared.go"}})
+	second := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "bob edits the contended file", "targets": []string{"shared.go"}})
+	disjoint := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "bob edits elsewhere", "targets": []string{"other.go"}})
+	for _, id := range []string{first, second, disjoint} {
+		callText(t, aliceSess, "move", map[string]any{"id": id, "to": "approved"})
+	}
+	if out := callText(t, aliceSess, "work", map[string]any{"op": "start", "item": first}); !strings.Contains(out, "wt ") {
+		t.Fatalf("alice's start must succeed: %q", out)
+	}
+
+	// a SECOND identity, its own session: the overlapping target refuses
+	t.Setenv("SPECTACKLE_AGENT", "bob")
+	_, bobSess := connectRootWithServer(t, root)
+	out := callText(t, bobSess, "work", map[string]any{"op": "start", "item": second})
+	if !strings.Contains(out, "! LEASE E") {
+		t.Fatalf("an overlapping target must refuse the second start:\n%s", out)
+	}
+	if !strings.Contains(out, "held=alice") || !strings.Contains(out, "shared.go") {
+		t.Fatalf("the refusal must name the holder and the contended path:\n%s", out)
+	}
+	if !strings.Contains(out, "open worktree") {
+		t.Fatalf("the refusal must name WHY the scope is held:\n%s", out)
+	}
+
+	// disjoint scope is unaffected — the guard blocks contention, not parallelism
+	if out := callText(t, bobSess, "work", map[string]any{"op": "start", "item": disjoint}); !strings.Contains(out, "wt ") {
+		t.Fatalf("a disjoint target must still start:\n%s", out)
+	}
+}
+
+// TestWorktreeRaceYieldsOnAnyObservedConflict pins the post-publish rule
+// after cross-val-enforce round 2 falsified the tiebreak: with both rows
+// published (the symmetric window), EACH side's conflict lookup sees the
+// other, and yield-always turns every such sighting into a rollback. The
+// property that matters is one-sided: observing a racer is sufficient to
+// refuse, so the side that saw nothing (and passed without comparing —
+// the asymmetry that let both survive) can never be contradicted.
+func TestWorktreeRaceYieldsOnAnyObservedConflict(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "racer")
+	s, sess := connectRootWithServer(t, root)
+	a := draftFullID(t, s, sess, map[string]any{
+		"kind": "task", "title": "racer a", "targets": []string{"shared.go"}})
+	b := draftFullID(t, s, sess, map[string]any{
+		"kind": "task", "title": "racer b", "targets": []string{"shared.go"}})
+	for _, id := range []string{a, b} {
+		callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+	}
+
+	// both rows in the same second: the case the retired tiebreak got
+	// wrong, since neither Created nor ID order can decide it safely
+	now := time.Now()
+	for _, w := range []coord.Worktree{
+		{Item: a, Agent: "agent-a", Branch: "wa", Root: "/tmp/wa", Base: "x", State: "open", Created: now},
+		{Item: b, Agent: "agent-b", Branch: "wb", Root: "/tmp/wb", Base: "x", State: "open", Created: now},
+	} {
+		if err := s.cd.PutWorktree(w); err != nil {
+			t.Fatal(err)
+		}
+	}
+	targets := []string{"shared.go"}
+	confA, _, errA := s.worktreeConflict(a, targets)
+	confB, _, errB := s.worktreeConflict(b, targets)
+	if errA != nil || errB != nil {
+		t.Fatalf("conflict lookup errored: %v %v", errA, errB)
+	}
+	// BOTH must see a conflict — that is what makes yield-always safe:
+	// whichever side publishes second is guaranteed to see the first, so
+	// no pair can both proceed.
+	if confA == nil || confA.Item != b {
+		t.Fatalf("a must see b: %+v", confA)
+	}
+	if confB == nil || confB.Item != a {
+		t.Fatalf("b must see a: %+v", confB)
+	}
+	// and a disjoint target sees nothing, so parallelism survives
+	if c, _, _ := s.worktreeConflict(a, []string{"elsewhere.go"}); c != nil {
+		t.Fatalf("a disjoint target must not conflict: %+v", c)
 	}
 }
