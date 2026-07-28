@@ -690,6 +690,7 @@ func TestEnsureScaffoldGeneratesSelfDocumentingConfig(t *testing.T) {
 	for _, key := range []string{
 		"schema:", "langs:", "ignore:", "ignore_regex:", "budget_default:",
 		"journal_max:", "done_max:", "lease_ttl:", "agent_ttl:",
+		"history:", // benchmarks.history (B-01KYJTB95HEPF: was missing from the scaffold)
 		"max_rounds:", "grill:", "risk_files:", "dangerous_paths:", "worktrees_dir:", "coverage_gate:",
 	} {
 		idx := strings.Index(text, key)
@@ -736,6 +737,9 @@ func TestEnsureScaffoldGeneratesSelfDocumentingConfig(t *testing.T) {
 	}
 	if got.Swarm != want.Swarm {
 		t.Errorf("Swarm = %+v, want %+v", got.Swarm, want.Swarm)
+	}
+	if got.Benchmarks != want.Benchmarks {
+		t.Errorf("Benchmarks = %+v, want %+v", got.Benchmarks, want.Benchmarks)
 	}
 	if len(got.Verify) != 0 || len(want.Verify) != 0 {
 		t.Errorf("Verify = %v, want empty (both sides)", got.Verify)
