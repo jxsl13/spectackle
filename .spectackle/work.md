@@ -29,12 +29,3 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
-
-## T-01KYKGZT0SEQS8S6J12XJKSA58 check surfaces vacuous tests in dirty test files - the in-loop version of the validate detector
-kind: task
-state: done
-created: 2026-07-28
-grilled: 2026-07-28 open=0
-targets: internal/mcpserver, docs
-
-DATA (outcome batches M-01KYJWG08TFRC v1+v2): validity is stuck at 1/3 because judges reach check ok and done with assertion-free tests; the AST vacuous-test detector exists but only in validate computed pack (post-diff) and agent-score (post-hoc) - nothing surfaces it while the agent is still in its edit loop, and the orchestrator/judge sees it only after the run is voided. FIX: check gains a warning class over the WORK IN FLIGHT: for each wt.DirtyFiles(s.ws.Dir) entry ending _test.go, run the existing vacuousTestLines AST detector (validate.go ~469 - subtests without assertions, unguarded ranges holding all assertions; NOT a fakeable word-check, which the rejection corpus killed - this reuses the accepted mechanism verbatim) and render one finding per hit: ! VAC W <file>:<line> <reason>, capped at 10 with a +n more tail exactly like validate does. Scope rationale: dirty files = the current edit loop, so brownfield repos with committed legacy tests stay quiet and check ok stays reachable; DirtyFiles errors (non-git workspace) skip silently. Placement: in the check handler after the drift block, before compact candidates. Docs: tools.md check section one sentence + VAC joins the ! code list in the output grammar. TESTS: (a) a connectRoot fixture writes a dirty _test.go with an assertion-free subtest - check renders ! VAC W with file:line; (b) git-committing the file silences it (dirty-only scope pinned); (c) a test file whose subtests all assert stays quiet; (d) the cap: 12 vacuous subtests render 10 + the +2 more tail. MEASUREMENT: the next outcome judge batch on the released binary A/Bs validity against v2 1/3 - hypothesis: in-loop visibility moves the vacuous-test class from post-hoc void to pre-done fix. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1 && gofmt -l . empty. SCOPE: check handler + docs + tests; the detector itself is untouched. ROLLBACK: revert.
