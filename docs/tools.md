@@ -584,9 +584,8 @@ coord `commands` emit so siblings see it happened in realtime.
 {"type":"object","required":["op"],"properties":{
   "op":     {"enum":["export","merge","apply"]},
   "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path. Relative = under the workspace root; absolute taken verbatim"},
-  "paths":  {"type":"array","items":{"type":"string"},"description":"merge: the artifacts to condense; apply: fold SEVERAL at once — conflicts between them open decisions instead of vanishing"},
+  "paths":  {"type":"array","items":{"type":"string"},"description":"the artifacts to parse — merge: condense them; apply: fold SEVERAL at once, and their conflicts open decisions instead of vanishing"},
   "body":   {"type":"string","description":"inline artifact text — apply: the artifact to fold in; merge: one more artifact, alongside paths"},
-  "paths":  {"type":"array","items":{"type":"string"},"description":"merge: artifact file paths to parse and merge"},
   "entries":{"type":"array","items":{"type":"object","required":["kind"],"properties":{
     "kind":"rule|adr|intent","dir":"string",
     "text":"string","rationale":"string",
@@ -625,8 +624,9 @@ answering the same question differently). Conflicts are **reported, never
 auto-resolved** — curation is a human's call, not this tool's. Trailer:
 `ok merge sources=<n> entries=<n> conflicts=<n>`.
 
-`apply`: the only writing operation — folds ONE artifact (`path` or `body`)
-into this workspace. **Additive only**: `internal/knowledge`'s `FoldInto`
+`apply`: the only writing operation — folds artifacts (`path`, `paths`
+and/or `body`, the same inputs `merge` takes) into this workspace.
+**Additive only**: `internal/knowledge`'s `FoldInto`
 (named to avoid colliding with `knowledge.Apply`, the unrelated
 conflict-resolution fold in `merge.go`) diffs the incoming artifact against
 this workspace's own current one (freshly `Extract`ed) and returns only the
@@ -658,16 +658,31 @@ computations `check` itself runs (`g uncovered` + `g orphan`, without
 
 **Conflicts become decisions, not casualties** (ADR-01KYMKEG7YE2P).
 `merge` reports every conflict as an `x` line and leaves it OUT of the
-condensate, so a single already-merged artifact can never carry one.
-Applying SEVERAL artifacts (`paths`) therefore merges them in place: the
-non-conflicting union folds in exactly as a single artifact would, and
-each conflict opens one ADR in this workspace through the same path
-`decide op=ask` uses — rendered as `need decision <ADR-id> <question>`,
-counted in the trailer as `conflicts=<n>`. Its options are the competing
-decisions labeled by source, and its body keeps every side, so answering
-it with `decide op=answer` lands the winner as an accepted ADR while the
-losing side stays readable in the record and its journal tombstone. No
-side is ever adopted automatically.
+condensate, so applying that condensate used to land NEITHER side. `apply`
+therefore merges its inputs itself, **always** — the non-conflicting union
+folds in exactly as a single artifact would, and each conflict opens one
+ADR in this workspace through the same path `decide op=ask` uses, rendered
+as `need decision <ADR-id> <question>` and counted in the trailer as
+`conflicts=<n>`. Its options are the competing decisions labeled by source,
+and its body keeps every side, so answering it with `decide op=answer`
+lands the winner as an accepted ADR while the losing side stays readable in
+the record and — because an `adr` tombstone retains its body and decision
+the way a `research` one retains its finding — in the journal after the ADR
+is archived. No side is ever adopted automatically.
+
+Merging is unconditional, not gated on how many artifacts arrived: `Merge`
+buckets entries across AND within artifacts, and `export` of a workspace
+that answered one question twice emits a single artifact carrying both, so
+an artifact count is not a conflict count. A conflict-free artifact merges
+to itself, which is why the one-artifact render is unchanged.
+
+Minting is idempotent under the same rule the rest of `apply` follows: a
+conflict whose `(adr, key)` identity this workspace already holds is
+**settled**, not re-asked — whether the decision is one an earlier `apply`
+opened, one already answered, or one this repository reached on its own.
+Those are counted separately in the trailer as `settled=<n>`, so a
+re-apply is silent about work already done without being silent about the
+disagreement still in the sources.
 
 ### 18. `bench` — benchmark records (implementations on a frame)
 

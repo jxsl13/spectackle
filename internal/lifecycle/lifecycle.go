@@ -484,7 +484,7 @@ func ResolveBlocked(ws workspace.Root, id, outcome, note string) (item.Item, err
 // children with it — the OpenSpec "delta merged on archive" moment.
 func archive(ws workspace.Root, it item.Item, note string) error {
 	line := "- " + it.ID + " " + it.Title
-	if extra := firstOf(note, firstLine(it.Body)); extra != "" {
+	if extra := firstOf(note, gistLine(it)); extra != "" {
 		line += ": " + extra
 	}
 	if err := spec.AppendIntent(ws, it.Dir, line); err != nil {
@@ -495,15 +495,7 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 		Sum: summary(it) + firstOf(" note: "+note, ""), Rls: it.Rules, Dir: it.Dir,
 		Refs: it.Refs,
 	}
-	if it.Kind == "research" {
-		// A research item's body IS the outcome — claim, source citation,
-		// confidence. A task compacts fairly (its delta merged into
-		// spec.md); research has no delta, so tombstoning the body deleted
-		// the only copy (issue 178 defect 3: 268 findings lost every
-		// citation). The tombstone retains it, capped; the compaction
-		// keep-list already preserves EvArchive verbatim, so folds keep it.
-		ev.Body = capRetainedBody(it.Body)
-	}
+	ev.Body = retainedBody(it)
 	if err := journal.Append(ws, it.Dir, ev); err != nil {
 		return err
 	}
@@ -521,13 +513,11 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 				Ev: journal.EvArchive, ID: ch.ID, K: ch.Kind, Ti: ch.Title,
 				Sum: "archived with parent " + it.ID, Dir: ch.Dir,
 			}
-			if ch.Kind == "research" {
-				// the same invariant through the SECOND archive path: a
-				// research child folded into its parent's closure keeps
-				// its finding (cross-val-research finding 5 reproduced
-				// the citation loss here)
-				chEv.Body = capRetainedBody(ch.Body)
-			}
+			// the same invariant through the SECOND archive path: a child
+			// folded into its parent's closure keeps its outcome
+			// (cross-val-research finding 5 reproduced the citation loss
+			// here for research; the adr arm closes it for decisions)
+			chEv.Body = retainedBody(ch)
 			if err := journal.Append(ws, ch.Dir, chEv); err != nil {
 				return err
 			}
@@ -550,6 +540,80 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 // retainedBodyMax caps the body a research tombstone carries: findings are
 // compact by convention, and the journal replays on every read.
 const retainedBodyMax = 8192
+
+// retainedBody is the tombstone copy of an item's substance, for the kinds
+// whose body IS the outcome. The distinction is not about kind names but
+// about the delta: a proposal, task or bug compacts fairly because its
+// change merged into spec.md and the code, so a summary suffices. research
+// and adr have no such delta — the record is the whole artifact — so
+// compressing them deleted the only copy. research was the first
+// (issue 178 defect 3: 268 findings lost every citation); adr is the
+// second, found by the same probe one class later, and worse: an ADR minted
+// by decide carries a STRUCTURED body whose first line is the machine field
+// "kind: radio", so every such record archived to the byte-identical, empty
+// summary "adr <question> — kind: radio".
+//
+// An ADR also keeps its outcome in item fields journal.Event has no channel
+// for, so retaining Body alone would still lose which option won. They are
+// folded in as text, in work.md's own field order and spelling (see
+// item.Item's Marshal), which is also the form item.Parse reads back.
+//
+// The compaction keep-list already preserves EvArchive verbatim, so folds
+// keep whatever is retained here.
+func retainedBody(it item.Item) string {
+	if !RetainsBody(it.Kind) {
+		return ""
+	}
+	if it.Kind == "adr" {
+		return capRetainedBody(adrOutcome(it))
+	}
+	return capRetainedBody(it.Body)
+}
+
+// RetainsBody reports whether a kind's archive tombstone keeps its body
+// rather than compressing to a summary — the one place that answers it, so
+// a renderer never has to restate the list. It matters to readers because
+// Tombstone falls back to the summary when no body was retained: without
+// this predicate, "the tombstone has a body" is true for every kind and
+// says nothing.
+func RetainsBody(kind string) bool {
+	return kind == "research" || kind == "adr"
+}
+
+func adrOutcome(it item.Item) string {
+	parts := []string{strings.TrimSpace(it.Body)}
+	for _, f := range [][2]string{
+		{"context", it.Context},
+		{"decision", it.Decision},
+		{"consequences", it.Consequences},
+		{"status", it.Status},
+	} {
+		if v := strings.TrimSpace(f[1]); v != "" {
+			parts = append(parts, f[0]+": "+v)
+		}
+	}
+	var out []string
+	for _, p := range parts {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// gistLine is the one-line substance of an item — the first body line for
+// most kinds, but an adr's Decision when it has one. A decide-minted ADR's
+// first body line is "kind: radio", which made both the spec.md intent line
+// and the journal summary contentless for exactly the records whose entire
+// value is the decision they carry.
+func gistLine(it item.Item) string {
+	if it.Kind == "adr" {
+		if d := strings.TrimSpace(it.Decision); d != "" {
+			return d
+		}
+	}
+	return firstLine(it.Body)
+}
 
 func capRetainedBody(b string) string {
 	if len(b) <= retainedBodyMax {
@@ -796,7 +860,7 @@ func commonDir(a, b string) string {
 
 func summary(it item.Item) string {
 	s := it.Kind + " " + it.Title
-	if b := firstLine(it.Body); b != "" {
+	if b := gistLine(it); b != "" {
 		s += " — " + b
 	}
 	if len(s) > 400 {

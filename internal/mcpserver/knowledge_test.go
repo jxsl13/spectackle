@@ -3,9 +3,13 @@ package mcpserver
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/knowledge"
@@ -479,19 +483,7 @@ func TestArtifactPathsResolveAgainstTheWorkspace(t *testing.T) {
 func TestApplyMintsADecisionPerConflict(t *testing.T) {
 	// two artifacts: one shared rule (no conflict) and one question two
 	// sources answer differently
-	art := func(src, decision string) string {
-		return "---\nschema: v1\nkind: knowledge\nsources:\n    - " + src + "\n---\n\n" +
-			"## rule 1111111111111111\ntext: The shared module SHALL return exactly 1.\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n\n" +
-			"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: " + decision + "\nstatus: accepted\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n"
-	}
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte(art("repo-a", "protobuf")), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "b.md"), []byte(art("repo-b", "json")), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	sess := connectRoot(t, root)
+	_, sess := conflictingArtifacts(t)
 
 	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
 	if !strings.Contains(out, "conflicts=1") {
@@ -531,12 +523,185 @@ func TestApplyMintsADecisionPerConflict(t *testing.T) {
 		t.Fatalf("the LOSING side must stay readable in the record: %q", body)
 	}
 
-	// idempotency: re-applying mints no duplicate decision
-	before := strings.Count(callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"}), "ADR-")
-	callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
-	after := strings.Count(callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"}), "ADR-")
-	if after > before+1 {
-		t.Fatalf("re-apply must not multiply conflict decisions: %d -> %d", before, after)
+	// Idempotency, asserted as EXACT equality of the minted-ID set. The
+	// round-1 form of this check allowed "at most one new ADR-", which is
+	// precisely what one duplicate produces — it passed while a re-apply
+	// was minting a second decision for a question already answered.
+	before := decisionIDs(t, sess, "serialization")
+	out2 := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	after := decisionIDs(t, sess, "serialization")
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("re-apply must mint no second decision: %v -> %v\n%s", before, after, out2)
+	}
+	// ...and says so: the sources still disagree, this workspace simply
+	// already holds the answer
+	if !strings.Contains(out2, "settled=1") || strings.Contains(out2, "conflicts=") {
+		t.Fatalf("a settled conflict is counted as settled, not re-asked:\n%s", out2)
+	}
+}
+
+// decisionIDs is the set of ADR ids find reports for a query — the exact
+// unit the idempotency assertion compares.
+func decisionIDs(t *testing.T, sess *mcp.ClientSession, q string) []string {
+	t.Helper()
+	var ids []string
+	for _, f := range strings.Fields(callText(t, sess, "find", map[string]any{"q": q, "scope": "adr"})) {
+		if strings.HasPrefix(f, "ADR-") {
+			ids = append(ids, f)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// TestReApplyBeforeAnsweringMintsOneDecision: the duplicate-suppression
+// must hold while the decision is still OPEN, not only once answered — the
+// re-apply case an agent actually hits, having been told to answer and
+// not yet having done it. Two unlinked ADRs asking the identical question
+// is the worst outcome available here: neither is authoritative.
+func TestReApplyBeforeAnsweringMintsOneDecision(t *testing.T) {
+	root, sess := conflictingArtifacts(t)
+	_ = root
+	first := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	if !strings.Contains(first, "conflicts=1") {
+		t.Fatalf("setup: %s", first)
+	}
+	opened := decisionIDs(t, sess, "serialization")
+	second := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	if got := decisionIDs(t, sess, "serialization"); !reflect.DeepEqual(opened, got) {
+		t.Fatalf("an unanswered decision must not be asked twice: %v -> %v\n%s", opened, got, second)
+	}
+}
+
+// TestSingleArtifactCarryingBothSidesOpensDecision: the conflict safety net
+// cannot be gated on the number of artifacts. `knowledge export` of a
+// workspace that answered the same question twice emits ONE artifact
+// carrying both answers, so an artifact count is not a conflict count —
+// and the single-artifact route dropping a side silently is this feature's
+// own bug, reached through this feature's own tool.
+func TestSingleArtifactCarryingBothSidesOpensDecision(t *testing.T) {
+	root := t.TempDir()
+	one := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n    - repo-b\n---\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: protobuf\nstatus: accepted\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: json\nstatus: accepted\ncount: 1\nsources:\n    - source: repo-b\n      dir: \"\"\n"
+	if err := os.WriteFile(filepath.Join(root, "both.md"), []byte(one), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	for _, in := range []map[string]any{
+		{"op": "apply", "path": "both.md"},
+		{"op": "apply", "body": one},
+	} {
+		fresh := connectRoot(t, t.TempDir())
+		if in["body"] == nil {
+			fresh = sess
+		}
+		out := callText(t, fresh, "knowledge", in)
+		if !strings.Contains(out, "conflicts=1") || !strings.Contains(out, "need decision ") {
+			t.Fatalf("one artifact carrying both sides must open a decision (%v):\n%s", in, out)
+		}
+		if strings.Contains(out, "choice: protobuf") || strings.Contains(out, "choice: json") {
+			t.Fatalf("no side may be adopted (%v):\n%s", in, out)
+		}
+	}
+}
+
+// TestEmptyDecisionSideIsNeverBlank: a source that asked but never answered
+// is still a side, and it must not render as a choosable-but-empty option.
+func TestEmptyDecisionSideIsNeverBlank(t *testing.T) {
+	root := t.TempDir()
+	one := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n    - repo-b\n---\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: protobuf\nstatus: accepted\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\nstatus: proposed\ncount: 1\nsources:\n    - source: repo-b\n      dir: \"\"\n"
+	if err := os.WriteFile(filepath.Join(root, "one.md"), []byte(one), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "path": "one.md"})
+	adrID := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "ADR-") {
+			adrID = f
+		}
+	}
+	if adrID == "" {
+		t.Fatalf("the conflict must open a decision:\n%s", out)
+	}
+	body := callText(t, sess, "get", map[string]any{"id": adrID})
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "option:") &&
+			strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ":")) == "option: repo-b" {
+			t.Fatalf("an undecided side must not render as a blank option: %q\n%s", line, body)
+		}
+	}
+	if !strings.Contains(body, "repo-b: (no decision recorded)") {
+		t.Fatalf("the undecided side must stay visible and named:\n%s", body)
+	}
+}
+
+// conflictingArtifacts writes the two-source fixture (one shared rule, one
+// question answered differently) and returns a session on a fresh root.
+func conflictingArtifacts(t *testing.T) (string, *mcp.ClientSession) {
+	t.Helper()
+	art := func(src, decision string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - " + src + "\n---\n\n" +
+			"## rule 1111111111111111\ntext: The shared module SHALL return exactly 1.\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n\n" +
+			"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: " + decision + "\nstatus: accepted\ncount: 1\nsources:\n    - source: " + src + "\n      dir: \"\"\n"
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte(art("repo-a", "protobuf")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "b.md"), []byte(art("repo-b", "json")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root, connectRoot(t, root)
+}
+
+// TestArchivedDecisionKeepsBothSides is the regression for the defect that
+// made this whole feature a no-op: archive() retained a tombstone body only
+// for kind=research, and a decide-minted ADR's first body line is the
+// machine field "kind: radio" — so every conflict decision archived to the
+// byte-identical, contentless summary "adr <question> — kind: radio" and
+// BOTH sides became unrecoverable from get, from work.md and from find.
+// Reachable with no user intent at all: the project's own compact
+// housekeeping archives resolved decisions.
+func TestArchivedDecisionKeepsBothSides(t *testing.T) {
+	_, sess := conflictingArtifacts(t)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	adrID := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "ADR-") {
+			adrID = f
+		}
+	}
+	if adrID == "" {
+		t.Fatalf("setup: no decision minted:\n%s", out)
+	}
+	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adrID, "choose": "repo-a: protobuf"}); !strings.Contains(got, "ok "+adrID) {
+		t.Fatalf("setup: answering: %q", got)
+	}
+	if got := callText(t, sess, "move", map[string]any{"id": adrID, "to": "archived", "note": "curated"}); strings.Contains(got, "! ") {
+		t.Fatalf("setup: archiving: %q", got)
+	}
+
+	tomb := callText(t, sess, "get", map[string]any{"id": adrID})
+	if !strings.Contains(tomb, "journal tombstone") {
+		t.Fatalf("setup: expected a tombstone: %q", tomb)
+	}
+	if !strings.Contains(tomb, "repo-a: protobuf") {
+		t.Fatalf("the WINNER must survive archiving:\n%s", tomb)
+	}
+	if !strings.Contains(tomb, "repo-b: json") {
+		t.Fatalf("the LOSER must survive archiving — that is the whole promise:\n%s", tomb)
+	}
+	if !strings.Contains(tomb, "decision: repo-a: protobuf") {
+		t.Fatalf("which side WON must survive: the ADR fields have no journal channel of their own:\n%s", tomb)
+	}
+	// and both sides stay searchable, not merely fetchable by an ID the
+	// reader would have to already know
+	if hist := callText(t, sess, "find", map[string]any{"q": "json", "scope": "history"}); !strings.Contains(hist, adrID) {
+		t.Fatalf("the losing side must stay findable in history:\n%s", hist)
 	}
 }
 

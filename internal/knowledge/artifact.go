@@ -327,11 +327,54 @@ func Parse(data []byte) (Artifact, error) {
 			return Artifact{}, fmt.Errorf("knowledge: entry %s %s: %w", m[1], m[2], err)
 		}
 		e.Kind = EntryKind(m[1])
-		e.Key = m[2]
+		// The key on the wire is a transport detail, NOT an identity a
+		// reader may trust. NewEntry refuses a caller-supplied key outright
+		// ("a caller-chosen key would break dedup") and Extract derives it
+		// from content — but Parse used to take the section heading
+		// verbatim, so every downstream identity check (FoldInto's dedup,
+		// Merge's bucketing, apply's duplicate-decision suppression) was
+		// only as sound as whatever the producing repository happened to
+		// write. A hand-authored artifact, or one from an older or newer
+		// key scheme, therefore re-added the same rule on every apply and
+		// re-asked a question already answered. Recompute here so identity
+		// means one thing everywhere: the content.
+		if k := contentKey(e); k != "" {
+			e.Key = k
+		} else {
+			// no identifying payload to hash (a structurally incomplete
+			// entry); keep the wire key rather than collapsing every
+			// such entry onto one empty identity
+			e.Key = m[2]
+		}
 		entries = append(entries, e)
 		i = j - 1
 	}
 	return Artifact{Sources: dedupSorted(fm.Sources), Entries: entries, Resolutions: resolutions}, nil
+}
+
+// contentKey is a knowledge entry's identity, and the single definition of
+// it: the normalized hash of the one field that says what the entry IS —
+// a rule's text, a decision's question, an intent's prose. Everything that
+// compares entries across repositories (FoldInto's dedup, Merge's
+// bucketing, apply's duplicate-decision suppression) compares this, which
+// is what lets the same sentence arriving from two sources, or an
+// LLM-authored generalization and an extracted rule that agree, land in
+// one bucket. It returns "" when the identifying field is empty, i.e. when
+// the entry carries nothing to be identified by.
+func contentKey(e Entry) string {
+	var identity string
+	switch e.Kind {
+	case KindRule:
+		identity = strings.TrimSpace(e.Text)
+	case KindADR:
+		identity = strings.TrimSpace(e.Question)
+	case KindIntent:
+		identity = strings.TrimSpace(e.Prose)
+	}
+	if identity == "" {
+		return ""
+	}
+	return drift.NormHash([]byte(identity))
 }
 
 // NewEntry builds and validates an entry the package itself did not lift
@@ -375,7 +418,6 @@ func NewEntry(kind EntryKind, payload Entry, assertedBy, derivedFrom []Provenanc
 			Kind:      KindRule,
 			Text:      text,
 			Rationale: strings.TrimSpace(payload.Rationale),
-			Key:       drift.NormHash([]byte(text)),
 		}
 	case KindADR:
 		question := strings.TrimSpace(payload.Question)
@@ -398,7 +440,6 @@ func NewEntry(kind EntryKind, payload Entry, assertedBy, derivedFrom []Provenanc
 			Consequences: strings.TrimSpace(payload.Consequences),
 			Status:       strings.TrimSpace(payload.Status),
 			Options:      options,
-			Key:          drift.NormHash([]byte(question)),
 		}
 	case KindIntent:
 		prose := strings.TrimSpace(payload.Prose)
@@ -408,12 +449,12 @@ func NewEntry(kind EntryKind, payload Entry, assertedBy, derivedFrom []Provenanc
 		e = Entry{
 			Kind:  KindIntent,
 			Prose: prose,
-			Key:   drift.NormHash([]byte(prose)),
 		}
 	default:
 		return Entry{}, fmt.Errorf("knowledge: unknown entry kind %q", kind)
 	}
 
+	e.Key = contentKey(e)
 	e.Sources = unionProvenance(nil, assertedBy)
 	e.DerivedFrom = unionProvenance(nil, derivedFrom)
 	e.Count = distinctSourceCount(e.Sources, e.DerivedFrom)

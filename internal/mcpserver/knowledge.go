@@ -40,9 +40,13 @@ import (
 // already exist for rules (rule op=add's spec.AddRule) and ADRs (the same
 // Draft/Upsert/journal primitives decide.go's own resolveDecision uses) —
 // never a new write path onto .spectackle files.
-// knowledgeConflictMarker tags an ADR minted from a merge conflict, so a
-// later reader (and the answer path) can tell it from an ordinary
-// decision.
+// knowledgeConflictMarker records, in the ADR body, the merge-conflict key
+// an imported decision came from — provenance for a later reader, and the
+// one line that distinguishes it from a question a human asked. It is
+// deliberately NOT the answer path's hook: decide op=answer stays fully
+// generic over ADRs, and the duplicate-suppression check keys off the
+// workspace's own artifact (knowledge.Extract's Key) rather than this
+// string, so a decision reached without an import counts just the same.
 const knowledgeConflictMarker = "knowledge-conflict:"
 
 func (s *Server) knowledge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
@@ -356,46 +360,39 @@ func knowledgeEntrySummary(e knowledge.Entry) string {
 const knowledgeImportStem = "KB"
 
 func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error) {
-	// Apply takes the SAME inputs merge does. With more than one artifact
-	// it merges them here and mints an ADR per conflict
-	// (ADR-01KYMKEG7YE2P: decide-integration) — merge strips conflicts
-	// from its condensate, so a single already-merged artifact can never
-	// carry one, and before this both sides of every disagreement simply
-	// vanished from the target (P-01KYMCKE8DEW7).
-	var conflicts []knowledge.Conflict
-	var incoming knowledge.Artifact
-	if len(in.Paths) > 0 {
-		artifacts, err := s.knowledgeGatherArtifacts(in.Paths, in.Body)
-		if err != nil {
-			return refuse("! ARG E - " + err.Error())
-		}
-		if len(artifacts) == 0 {
-			return refuse("! ARG E - apply requires path, paths or body")
-		}
-		merged, cs, err := knowledge.Merge(artifacts...)
-		if err != nil {
-			return nil, nil, err
-		}
-		incoming, conflicts = merged, cs
-	} else {
-		var raw []byte
-		switch {
-		case in.Path != "":
-			b, err := os.ReadFile(s.rootPath(in.Path))
-			if err != nil {
-				return refuse("! ARG E - " + err.Error())
-			}
-			raw = b
-		case strings.TrimSpace(in.Body) != "":
-			raw = []byte(in.Body)
-		default:
-			return refuse("! ARG E - apply requires path, paths or body")
-		}
-		a, err := knowledge.Parse(raw)
-		if err != nil {
-			return refuse("! ARG E - " + err.Error())
-		}
-		incoming = a
+	// Apply takes the SAME inputs merge does, and ALWAYS merges them —
+	// however many arrived and by whichever field. Conflicts become open
+	// decisions (ADR-01KYMKEG7YE2P: decide-integration) instead of
+	// vanishing from the target as they did before (P-01KYMCKE8DEW7).
+	//
+	// Merging unconditionally is the load-bearing part. An artifact count
+	// is NOT a conflict count: knowledge.Merge buckets entries across AND
+	// within artifacts, and `knowledge export` of a workspace that answered
+	// the same question twice emits ONE artifact carrying both answers — so
+	// gating detection on the number of artifacts (either shape of that
+	// guard) let the single-artifact route drop a side silently, which is
+	// this feature's own bug reproduced through its own tool.
+	//
+	// It is backward compatible by construction rather than by promise: a
+	// conflict-free artifact merges to itself. Parse already canonicalizes
+	// entry order with sortEntries, the same comparator Merge re-applies,
+	// and groupBySubstance only folds entries that FoldInto would dedupe by
+	// identity anyway — so the delta, the added count and the rendered
+	// lines are unchanged.
+	paths := in.Paths
+	if in.Path != "" {
+		paths = append([]string{in.Path}, paths...)
+	}
+	artifacts, err := s.knowledgeGatherArtifacts(paths, in.Body)
+	if err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
+	if len(artifacts) == 0 {
+		return refuse("! ARG E - apply requires path, paths or body")
+	}
+	incoming, conflicts, err := knowledge.Merge(artifacts...)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	c, err := spec.Load(s.ws.Dir)
@@ -462,17 +459,44 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	// be, and answering it through decide op=answer is what lands a
 	// winner. Never auto-resolved (the merge contract), never silently
 	// discarded (the gap this closes).
+	//
+	// Minting is idempotent under FoldInto's own rule: a conflict whose
+	// (KindADR, Key) identity this workspace already carries is settled
+	// here and skipped, exactly as a non-conflicting entry with a known
+	// identity is skipped. knowledge.Extract emits an entry for every adr
+	// item at any state with Key=NormHash(question), so that one check
+	// covers all three ways an opinion can already exist: a decision minted
+	// by an earlier apply and still open, one that has since been answered,
+	// and one this repository reached on its own. Without it a re-apply
+	// minted a second ADR asking a question already on the board.
+	held := map[string]bool{}
+	for _, e := range current.Entries {
+		if e.Kind == knowledge.KindADR {
+			held[e.Key] = true
+		}
+	}
+	open := 0
 	for _, cf := range conflicts {
+		if held[cf.Key] {
+			continue
+		}
 		id, mErr := s.mintConflictDecision(cf)
 		if mErr != nil {
 			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, mErr.Error())
 			continue
 		}
+		open++
 		fmt.Fprintf(&b, "need decision %s %s\n", id, conflictQuestion(cf))
 	}
 	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
-	if len(conflicts) > 0 {
-		fmt.Fprintf(&b, " conflicts=%d", len(conflicts))
+	if open > 0 {
+		fmt.Fprintf(&b, " conflicts=%d", open)
+	}
+	if settled := len(conflicts) - open; settled > 0 {
+		// counted separately: the sources still disagree, this workspace
+		// simply already holds an answer — silence would read as "no
+		// conflict", and a second `conflicts=` would read as "decide again"
+		fmt.Fprintf(&b, " settled=%d", settled)
 	}
 	b.WriteString("\n")
 	if added > 0 {
@@ -632,6 +656,15 @@ func (s *Server) mintConflictDecision(cf knowledge.Conflict) (string, error) {
 		decision := strings.TrimSpace(e.Decision)
 		if decision == "" {
 			decision = strings.TrimSpace(e.Text)
+		}
+		if decision == "" {
+			// A source that asked the question but never answered it is
+			// still a side Merge distinguished, so it must stay visible —
+			// but rendered bare it produced "option: <src>:" and
+			// decide op=answer accepted that empty string as the winning
+			// decision. Naming the absence keeps the side and makes
+			// choosing it a deliberate, legible act.
+			decision = "(no decision recorded)"
 		}
 		opt := src + ": " + decision
 		opts = append(opts, opt)

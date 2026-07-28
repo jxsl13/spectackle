@@ -496,9 +496,13 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 		}
 		if tombOk {
 			out := sc.record(tomb) + " (archived; journal tombstone)\n"
-			if tomb.Kind == "research" && tomb.Body != "" {
-				// research tombstones retain the finding (issue 178
-				// defect 3) — the body IS the artifact, render it
+			if lifecycle.RetainsBody(tomb.Kind) && tomb.Body != "" {
+				// research and adr tombstones retain their substance
+				// (issue 178 defect 3; the adr arm closes the same loss for
+				// decisions) — the body IS the artifact, render it. The kind
+				// test is load-bearing: Tombstone falls back to the archive
+				// summary when nothing was retained, so a bare non-empty
+				// check would print a task's summary back to itself.
 				out += tomb.Body + "\n"
 			}
 			return text(out)
@@ -517,7 +521,7 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 			}
 			if mtomb, mok, merr := lifecycle.Tombstone(s.main, id); merr == nil && mok {
 				out := sc.record(mtomb) + " root=main (archived; journal tombstone)\n"
-				if mtomb.Kind == "research" && mtomb.Body != "" {
+				if lifecycle.RetainsBody(mtomb.Kind) && mtomb.Body != "" {
 					out += mtomb.Body + "\n"
 				}
 				return text(out)
