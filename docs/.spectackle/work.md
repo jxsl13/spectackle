@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYK4876NF2MBZQTMBFRFRN9Y outcome judge batch on v0.5.2: A/B the judge-facing hint fixes against the 2026-07-27 baseline
 kind: task
-state: active
+state: done
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
