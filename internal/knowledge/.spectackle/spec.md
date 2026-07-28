@@ -8,7 +8,7 @@ schema: v1
 - P-01KYB005M0EJFTDXRSKJ3YAKDB knowledge extraction is LLM-driven end to end, including from repos with no records at all: delivered by T-01KYB02KR0EW59ZJR2BRKKDX89. Remaining from P-01KYAYT4TGE4WV41VCKBRF3H9J/P-01KYB005M0EJFTDXRSKJ3YAKDB: the apply step and the single tool with extract|merge|apply operations, plus direct LLM authoring against a repo with no bundle at all.
 - P-01KYAYT4TGE4WV41VCKBRF3H9J cross-repo knowledge: extract portable records, condense by recurrence, apply additively: foundation delivered by T-01KYAYYKD0EM383K2ZZKYZWMTV and T-01KYB02KR0EW59ZJR2BRKKDX89; the human-curation premise it recorded was superseded by P-01KYB005M0EJFTDXRSKJ3YAKDB before any of it shipped. Apply plus tool surface continue as new work.
 
-## KN-001 {applies: internal/knowledge/artifact.go}
+## KN-001 {applies: go:knowledge.Parse,go:knowledge.contentKey}
 The knowledge artifact parser SHALL recompute every Entry.Key with contentKey from the entry payload instead of trusting the key written in the section heading.
 
 Rationale: NewEntry refuses a caller-supplied key because a caller-chosen key breaks dedup, and Extract derives it from content; Parse trusting the section heading gave the format a second, contradictory identity rule that silently won. Every cross-repository comparison - FoldInto dedup, Merge bucketing, duplicate-decision suppression - is only as sound as the weakest producer of a key.
