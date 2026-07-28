@@ -32,7 +32,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYKMPAFNEW39VEGPBTKX38MG the archive-time VALIDATE W reads ambiguous - advisory or actionable
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 targets: internal/mcpserver
 

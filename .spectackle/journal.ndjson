@@ -577,3 +577,4 @@
 {"t":"2026-07-28T05:55:21Z","eid":"00dbc68ab453e510","ag":"orchestrator-fable","ev":"bench","id":"M-01KYKMNFN2EQKB983DNB2EA36A","k":"bench","ti":"outcome-navigation","note":"outcome-navigation|arch=any|cpu=any|gpu=any|os=any|ram=any","sum":"d judge-batch navigated 3 count Δ+0 ~; d judge-batch valid 3 count Δ+2 better","body":"superseded v2 (M-01KYK5ETQ2F2290TAC6YKKS2XD): judge-batch navigated=3; judge-batch valid=1"}
 {"t":"2026-07-28T05:55:48Z","eid":"2a29287996a6a2cd","ag":"orchestrable","ev":"create","id":"B-01KYKMPAFNEW39VEGPBTKX38MG","k":"bug","ti":"the archive-time VALIDATE W reads ambiguous - advisory or actionable"}
 {"t":"2026-07-28T06:10:58Z","eid":"1edfc9258709884f","ag":"orchestrator-fable","ev":"move","id":"B-01KYKMPAFNEW39VEGPBTKX38MG","fr":"draft","to":"active"}
+{"t":"2026-07-28T06:15:15Z","eid":"323b5ac52e96caa2","ag":"orchestrator-fable","ev":"move","id":"B-01KYKMPAFNEW39VEGPBTKX38MG","fr":"active","to":"done"}
