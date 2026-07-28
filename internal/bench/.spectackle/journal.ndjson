@@ -107,3 +107,4 @@
 {"t":"2026-07-27T16:23:57Z","eid":"f071f881a0d9aa7a","ag":"ag-3dd7","ev":"create","id":"B-01KYJ67RF9ERESZKRFK30SMN12","k":"bug","ti":"agent-score hides the violations that flipped a run INVALID and mislabels the verdict as goals not reached","dir":"internal/bench"}
 {"t":"2026-07-28T00:48:10Z","eid":"747da947d79d82d1","ag":"orchestrator-fable","ev":"move","id":"B-01KYJ67RF9ERESZKRFK30SMN12","dir":"internal/bench","fr":"draft","to":"active"}
 {"t":"2026-07-28T00:51:48Z","eid":"9babc6939f7a9c8a","ag":"orchestrator-fable","ev":"move","id":"B-01KYJ67RF9ERESZKRFK30SMN12","dir":"internal/bench","fr":"active","to":"done"}
+{"t":"2026-07-28T01:03:08Z","eid":"d9fa502ce690087f","ag":"orchestrator-fable","ev":"validate","id":"B-01KYJ67RF9ERESZKRFK30SMN12","dir":"internal/bench","op":"render","hash":"eb6b5e095b4b477e94ffb87dfddea8a5e8ce7e6d21000a60411ac0ade21cb875"}
