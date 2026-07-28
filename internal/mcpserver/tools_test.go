@@ -1834,4 +1834,39 @@ func TestReal(t *testing.T) {
 	if !strings.Contains(out, "! VAC W +2 more") {
 		t.Fatalf("the overflow tail is missing:\n%s", out)
 	}
+	if err := os.Remove(filepath.Join(root, "many_test.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	// (e)+(f) delegation is assertion (cross-val-vac findings 1+2): a
+	// subtest whose only call passes t onward — testify-style or a local
+	// helper — must stay quiet; the detector is AST-only so the testify
+	// import need not resolve.
+	delegSrc := `package demo
+
+import "testing"
+
+func assertFoo(t *testing.T, got, want int) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("got %d want %d", got, want)
+	}
+}
+
+func TestDelegated(t *testing.T) {
+	t.Run("testify style", func(t *testing.T) {
+		err := error(nil)
+		require.NoError(t, err)
+	})
+	t.Run("local helper", func(t *testing.T) {
+		assertFoo(t, 1+1, 2)
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "deleg_test.go"), []byte(delegSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "VAC") {
+		t.Fatalf("t-delegating subtests must not flag:\n%s", out)
+	}
 }

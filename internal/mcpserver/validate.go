@@ -472,25 +472,67 @@ func vacuousTestLines(path string, src []byte) []string {
 	if err != nil {
 		return nil
 	}
-	isAssert := func(n ast.Node) bool {
+	// isAssert: a t-method failure call, OR any call that passes a
+	// *testing.T identifier onward — delegating t IS asserting: the
+	// callee can fail the test, which covers testify (require.NoError(t,
+	// err)) and local assert helpers (assertFoo(t, ...)) alike. Both
+	// shapes false-positived when the detector went in-loop at check
+	// (cross-val-vac findings 1+2). tNames carries every identifier bound
+	// to a *testing.T in the enclosing scopes.
+	isAssert := func(n ast.Node, tNames map[string]bool) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return false
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return false
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			switch sel.Sel.Name {
+			case "Error", "Errorf", "Fatal", "Fatalf", "Fail", "FailNow", "Skip", "Skipf":
+				return true
+			case "Run":
+				// t.Run's own t argument is the subtest wiring, not a
+				// delegation — judged by its literal's body instead
+				return false
+			}
 		}
-		switch sel.Sel.Name {
-		case "Error", "Errorf", "Fatal", "Fatalf", "Fail", "FailNow", "Skip", "Skipf":
-			return true
+		for _, a := range call.Args {
+			if id, ok := a.(*ast.Ident); ok && tNames[id.Name] {
+				return true
+			}
 		}
 		return false
 	}
-	countAsserts := func(n ast.Node) int {
+	// tParams collects identifiers bound as *testing.T (or testing.TB)
+	// parameters of a function type — the names delegation is judged by.
+	tParams := func(ft *ast.FuncType, into map[string]bool) {
+		if ft == nil || ft.Params == nil {
+			return
+		}
+		for _, p := range ft.Params.List {
+			star, ok := p.Type.(*ast.StarExpr)
+			var sel *ast.SelectorExpr
+			if ok {
+				sel, _ = star.X.(*ast.SelectorExpr)
+			} else {
+				sel, _ = p.Type.(*ast.SelectorExpr)
+			}
+			if sel == nil {
+				continue
+			}
+			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "testing" {
+				continue
+			}
+			if sel.Sel.Name != "T" && sel.Sel.Name != "TB" {
+				continue
+			}
+			for _, name := range p.Names {
+				into[name.Name] = true
+			}
+		}
+	}
+	countAsserts := func(n ast.Node, tNames map[string]bool) int {
 		c := 0
 		ast.Inspect(n, func(x ast.Node) bool {
-			if isAssert(x) {
+			if isAssert(x, tNames) {
 				c++
 			}
 			return true
@@ -503,13 +545,22 @@ func vacuousTestLines(path string, src []byte) []string {
 		if !ok || fn.Body == nil || !strings.HasPrefix(fn.Name.Name, "Test") {
 			continue
 		}
-		total := countAsserts(fn.Body)
+		tNames := map[string]bool{}
+		tParams(fn.Type, tNames)
+		total := countAsserts(fn.Body, tNames)
 		ast.Inspect(fn.Body, func(x ast.Node) bool {
 			// t.Run(..., func(...){ no assertion }) — the empty subtest
 			if call, ok := x.(*ast.CallExpr); ok {
 				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Run" && len(call.Args) == 2 {
-					if lit, ok := call.Args[1].(*ast.FuncLit); ok && countAsserts(lit.Body) == 0 {
-						out = append(out, fmt.Sprintf("v vacuous %s:%d subtest without assertion", path, fset.Position(lit.Pos()).Line))
+					if lit, ok := call.Args[1].(*ast.FuncLit); ok {
+						subNames := map[string]bool{}
+						for k := range tNames {
+							subNames[k] = true
+						}
+						tParams(lit.Type, subNames)
+						if countAsserts(lit.Body, subNames) == 0 {
+							out = append(out, fmt.Sprintf("v vacuous %s:%d subtest without assertion", path, fset.Position(lit.Pos()).Line))
+						}
 					}
 				}
 			}
@@ -518,7 +569,7 @@ func vacuousTestLines(path string, src []byte) []string {
 			// idiom) cannot be empty and is exempt (first live landing
 			// flagged a two-entry literal table; false-positive shape).
 			if rng, ok := x.(*ast.RangeStmt); ok && total > 0 {
-				inRange := countAsserts(rng.Body)
+				inRange := countAsserts(rng.Body, tNames)
 				if inRange == total && !hasLenGuard(fn.Body, rng, fset) && !rangesOverLiteral(fn.Body, rng) {
 					out = append(out, fmt.Sprintf("v vacuous %s:%d assertions only inside a range with no emptiness guard", path, fset.Position(rng.Pos()).Line))
 				}
