@@ -72,11 +72,12 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 
 ## T-01KYMPN0PNEWVS330NKPSQNRDT knowledge apply mints an ADR per conflict instead of dropping both sides
 kind: task
-state: done
+state: blocked
 created: 2026-07-28
 parent: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
-rounds: 2
+rounds: 3
 grilled: 2026-07-28 open=0
+needs: ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ
 targets: internal/mcpserver, internal/lifecycle, internal/knowledge, docs
 
 Implements ADR-01KYMKEG7YE2P (decide-integration) for P-01KYMCKE8DEW7. Round 2 after an independent validator reproduced three defects in round 1; the round-1 brief was itself wrong on point (5) and that mistake shipped.
@@ -98,3 +99,11 @@ TESTS: (a) archiving a conflict ADR keeps BOTH sides and the chosen Decision rea
 VERIFY: go build ./... && go test ./... -count=1 && gofmt -l . empty.
 
 SCOPE: internal/mcpserver/knowledge.go, internal/mcpserver/tools.go (adr tombstone render), internal/lifecycle/lifecycle.go, internal/knowledge/{artifact,extract}.go, tests, docs/tools.md. ROLLBACK: revert.
+
+## ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ escalate T-01KYMPN0PNEWVS330NKPSQNRDT: rescope|reject|override-once
+kind: adr
+state: draft
+created: 2026-07-28
+parent: T-01KYMPN0PNEWVS330NKPSQNRDT
+
+T-01KYMPN0PNEWV exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYN001T6E2S choose=rescope|reject|override-once.
