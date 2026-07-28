@@ -658,3 +658,4 @@
 {"t":"2026-07-28T18:33:08Z","eid":"062a81cc55e347fc","ag":"ag-0140","ev":"decide","id":"ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ","note":"rescope"}
 {"t":"2026-07-28T18:33:08Z","eid":"cbb6a7487cfe5622","ag":"ag-0140","ev":"decide","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","to":"draft","note":"decide ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ: rescope"}
 {"t":"2026-07-28T18:33:44Z","eid":"3b9b59a4f3068da6","ag":"ag-4b3e","ev":"revise","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","note":"body+targets revised"}
+{"t":"2026-07-28T18:33:57Z","eid":"b57b99a3c9e9dfef","ag":"ag-4734","ev":"grill","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","gr":"2026-07-28 open=0","hash":"6014e0f7c5654aeea8d96f5eab660e7ac09db991f632a87c257b1c2a407f6651"}
