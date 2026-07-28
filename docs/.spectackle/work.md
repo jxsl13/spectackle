@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYKS8D9KEWN84MB9A10WKSDK swarm-contention benchmark: two concurrent judges collide on one lease and must both land
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
