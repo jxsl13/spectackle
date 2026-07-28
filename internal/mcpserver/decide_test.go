@@ -361,6 +361,15 @@ func TestDecideBlockedOverrideOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The escalation hint is the EXACT callable invocation
+	// (B-01KYKEWMHEFW1: a judge following the old "decide <task-id>
+	// outcome=..." text failed twice — no outcome field exists and the
+	// target is the ADR). Pin: op=answer, the ADR's SHORT id, choose=.
+	if adr, ok, _ := item.Get(s.ws, decision.ID); !ok ||
+		!strings.Contains(adr.Body, "decide op=answer id="+shortDisplayID(decision.ID)+" choose=") ||
+		strings.Contains(adr.Body, "outcome=") {
+		t.Fatalf("escalation hint must name the callable decide invocation:\n%s", adr.Body)
+	}
 	if blocked.State != item.StateBlocked {
 		t.Fatalf("setup: item not blocked: %+v", blocked)
 	}
