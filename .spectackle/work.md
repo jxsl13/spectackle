@@ -80,6 +80,7 @@ VERIFY: a test that writes every ADR field with an embedded newline, reloads, an
 kind: proposal
 state: draft
 created: 2026-07-28
+grilled: 2026-07-28 open=0
 targets: internal/lifecycle, internal/item, internal/journal, internal/replay
 
 An independent gap hunt, run after LC-001 was written, probed for more instances of the class that rule records: a record's substance compressed at a lifecycle boundary, destroying the only copy. It found seven, all at the same boundary - the moment a record LEAVES work.md - and all confirmed empirically in throwaway repos by planting a marker string and grepping the whole .spectackle tree for it afterward. item.LoadWork/writeWork round-trip every field faithfully while a record stays in work.md, so nothing here is a parse bug; the loss is entirely in what the journal event carries.
