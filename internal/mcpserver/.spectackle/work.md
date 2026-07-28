@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYMCHPF6EXZ9FHGZFX5ZNSHK find scope=rule omits the pattern field the documented r-line grammar requires
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
 targets: internal/mcpserver/tools.go
