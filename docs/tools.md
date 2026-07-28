@@ -679,8 +679,12 @@ to itself, which is why the one-artifact render is unchanged.
 Minting is idempotent under the same rule the rest of `apply` follows: a
 conflict whose `(adr, key)` identity this workspace already holds is
 **settled**, not re-asked — whether the decision is one an earlier `apply`
-opened, one already answered, or one this repository reached on its own.
-Those are counted separately in the trailer as `settled=<n>`, so a
+opened, one already answered, one this repository reached on its own, or
+one already **archived**. That last case needs a journal pass, because
+`Extract` reads `work.md` and an answered ADR's normal end is to leave it:
+without it, the one workspace that would be asked its curated questions
+again is the one that ran the lifecycle all the way through. Settled
+conflicts are counted separately in the trailer as `settled=<n>`, so a
 re-apply is silent about work already done without being silent about the
 disagreement still in the sources.
 

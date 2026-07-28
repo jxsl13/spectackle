@@ -475,6 +475,17 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 			held[e.Key] = true
 		}
 	}
+	// Archived decisions count as held too. Extract reads work.md, and an
+	// answered ADR's normal end is to leave it — so without this the ONLY
+	// workspace that gets asked its curated questions again is the one that
+	// ran the lifecycle properly all the way to archived.
+	archived, aerr := s.archivedDecisionKeys()
+	if aerr != nil {
+		return nil, nil, aerr
+	}
+	for k := range archived {
+		held[k] = true
+	}
 	open := 0
 	for _, cf := range conflicts {
 		if held[cf.Key] {
@@ -628,6 +639,34 @@ func (s *Server) knowledgeGapCount(c *spec.Cascade) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// archivedDecisionKeys is the content-key set of every decision this
+// workspace has already made AND archived. knowledge.Extract answers the
+// same question for live records by reading work.md, but an answered ADR's
+// normal end is to leave work.md for a journal tombstone — so a workspace
+// that curated its conflicts and closed them out properly would otherwise
+// look, to the next import, like one that had never decided anything.
+//
+// Built as one journal pass, mirroring exactly what lifecycle.Tombstone
+// itself looks for, in the same shape knownRefIDs uses rather than probing
+// per candidate. The key comes from knowledge.ADRKey so the hash has one
+// definition (KN-001), never a second one spelled out here.
+func (s *Server) archivedDecisionKeys() (map[string]bool, error) {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	keys := map[string]bool{}
+	for _, e := range events {
+		if e.Ev != journal.EvArchive || e.K != "adr" {
+			continue
+		}
+		if q := strings.TrimSpace(e.Ti); q != "" {
+			keys[knowledge.ADRKey(q)] = true
+		}
+	}
+	return keys, nil
 }
 
 // conflictQuestion renders the decision a conflict poses.

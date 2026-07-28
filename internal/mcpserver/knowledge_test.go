@@ -717,3 +717,37 @@ func TestApplySingleArtifactUnchanged(t *testing.T) {
 		t.Fatalf("single-artifact apply must be unchanged: %q", out)
 	}
 }
+
+// TestArchivedDecisionStaysSettled: a workspace that answered a conflict and
+// then ARCHIVED the decision — the normal, correct end of the lifecycle —
+// must not be asked the same question again on the next import. Extract
+// reads work.md, which an archived record has left, so the settled check
+// has to consult tombstones as well; without it the only workspace that
+// loops is the one that did the curation properly.
+func TestArchivedDecisionStaysSettled(t *testing.T) {
+	_, sess := conflictingArtifacts(t)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	adrID := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "ADR-") {
+			adrID = f
+		}
+	}
+	if adrID == "" {
+		t.Fatalf("setup: no decision minted:\n%s", out)
+	}
+	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adrID, "choose": "repo-a: protobuf"}); !strings.Contains(got, "ok "+adrID) {
+		t.Fatalf("setup: answering: %q", got)
+	}
+	if got := callText(t, sess, "move", map[string]any{"id": adrID, "to": "archived", "note": "curated"}); strings.Contains(got, "! ") {
+		t.Fatalf("setup: archiving: %q", got)
+	}
+
+	again := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	if strings.Contains(again, "need decision") || strings.Contains(again, "conflicts=") {
+		t.Fatalf("an archived decision must stay settled, not be re-asked:\n%s", again)
+	}
+	if !strings.Contains(again, "settled=1") {
+		t.Fatalf("the still-disagreeing sources must be reported as settled:\n%s", again)
+	}
+}

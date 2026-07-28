@@ -361,6 +361,16 @@ func Parse(data []byte) (Artifact, error) {
 // LLM-authored generalization and an extracted rule that agree, land in
 // one bucket. It returns "" when the identifying field is empty, i.e. when
 // the entry carries nothing to be identified by.
+// ADRKey is contentKey for a decision, exported for callers that hold a
+// question but no Entry — chiefly a caller asking "has this workspace
+// already decided this?" about a record that has left work.md and survives
+// only as a journal tombstone, which Extract cannot see. It exists so such
+// a caller never re-derives the hash itself: two identity rules for one
+// format is the bug KN-001 records.
+func ADRKey(question string) string {
+	return contentKey(Entry{Kind: KindADR, Question: question})
+}
+
 func contentKey(e Entry) string {
 	var identity string
 	switch e.Kind {
