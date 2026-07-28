@@ -219,6 +219,18 @@ the outcome judge batch is **M-01KYJWG08TFRC** (`outcome-navigation`:
 | T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. Record: **M-01KYJWFQ8SE68**. |
 | T-01KYJ5FAP6 online render diet (RENDER-PARITY-001, green edges collapse to one artifact line) | −377B (~−94 tokens) per online lifecycle | +0B | measured 2026-07-28 from the real v0.5.5 renders (PR 195/197 green paths, 15 g-lines/525B) vs the diet single lines (3 g-lines/148B, same URL/SHA lengths): activation → `g pr N draft URL`, done → `g pr N draft checks passing`, archive → `g pr N merged SHA`. Failure/warning surfaces untouched (never-silent means failures speak); parity pinned by TestOnlineRenderParity — a green online lifecycle renders at most one g-line more per edge than offline. Record: **M-01KYKCXKH2FG6**. |
 
+### Tricky batch: blocked/decide states on v0.6.0 (T-01KYKEJF29, 2026-07-28; record M-01KYKEWKMEEWA = tricky-navigation v1)
+
+n=3 fresh judges, scenario=tricky (rule slots, reopen loop into `blocked`,
+`decide` exit), v0.6.0 binary — the states no prior batch covered.
+**Validity 3/3, the first fully valid batch**: j1 18 calls/~570 tok, j2
+30/~1056, j3 27/~925. All three authored a lint-clean rule, drove the
+rounds exhaustion into `blocked`, resolved the auto-minted ADR via
+`decide` (rescope) and ended `check ok` — from renders alone, zero user
+asks. One friction found (filed as a bug): the ADR escalation hint names
+the full-length item ID and a `decide outcome=` field that does not exist
+in the schema (`choose` is real); judge 3 recovered via `decide op=ls`.
+
 ### Outcome batch: v0.5.2 hint fixes (T-01KYK4876N, 2026-07-28; record M-01KYK5ETQ2F22 = outcome-navigation v2)
 
 n=3 fresh judges, scenario=outcome, v0.5.2 binary (B-01KYJ66VSQ start-hint

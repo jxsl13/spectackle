@@ -29,3 +29,11 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
+
+## B-01KYKEWMHEFW1VKRVC5ATDSYS6 ADR escalation hint names a nonexistent decide field and the full-length item ID
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/mcpserver, internal/lifecycle
+
+Found by judge 3 of the 2026-07-28 tricky batch, verbatim-compacted: the rounds-exhaustion escalation text on the auto-minted ADR reads Resolve via decide <FULL-ITEM-ID> outcome=rescope|reject|override-once - two defects: (1) the decide tool schema has no outcome field; the callable field is choose (and the target is the ADR id, not the task id); (2) the hint renders the full-length item ID where every human-facing surface uses the short display form (shortDisplayID convention). Following the hint literally fails twice; the judge recovered only by cross-checking decide op=ls. FIX: the escalation text becomes Resolve via decide op=answer id=<short ADR id> choose=rescope|reject|override-once - the exact callable invocation with the correct target and field. Locate the format string (grep for exhausted its feedback rounds in internal/mcpserver or internal/lifecycle), fix, and pin the hint text in the escalation test. VERIFY: go build ./... && go test ./... -count=1; the pinned hint matches the decide schema field names.
