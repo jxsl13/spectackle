@@ -45,15 +45,6 @@ option: redocument: leases stay advisory for the worktree flow; SPX-SWM-003 and 
 blocks: B-01KYKSKMHNE2HS9H235BG6DV4B
 choice: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
 
-## B-01KYMCHNJCFBPSVBB5P4A65JK0 knowledge export stamps the spectackle binary module as source, not the exported repo
-kind: bug
-state: done
-created: 2026-07-28
-refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
-targets: internal/knowledge, internal/mcpserver/knowledge.go
-
-Found by the R-01KYMA7EXME6K gap hunt (FAIL 1+5), empirically isolated. knowledge op=export writes source: github.com/jxsl13/spectackle for EVERY repo, because moduleRepoURL/debug.ReadBuildInfo reports the RUNNING BINARY module, never the -root workspace. Two unrelated fixture repos exported byte-identical source labels. DAMAGE: (a) merge of two repos artifacts reports sources=1 instead of 2; (b) unionProvenance dedups on (Source,Dir), so a rule present independently in two repos counts 1 - the tools headline feature (genericity measured by recurrence rank, never inferred) silently undercounts whenever two repos share a dir name, which is the normal case for a fleet sharing one installed binary; (c) conflict x lines render both sides with the SAME src=, so a human cannot tell WHICH repo holds which decision - the one fact needed to adjudicate, and the Conflict doc comment explicitly promises both sides intact. FIX: derive source from the -root workspace (git remote origin URL, else the repo directory name), fall back to the module path only when the root has no identity; keep it in the artifact header. TEST: export from two fixture repos - distinct sources; merge - sources=2, a rule in both counts 2, conflict x lines name different srcs. VERIFY: go build ./... && go test ./... -count=1.
-
 ## P-01KYMCKE8DEW7BZ3FNCMJTNSG2 knowledge conflict resolution is unreachable from the tool surface
 kind: proposal
 state: draft
