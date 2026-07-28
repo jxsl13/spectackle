@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYJ67RF9ERESZKRFK30SMN12 agent-score hides the violations that flipped a run INVALID and mislabels the verdict as goals not reached
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 targets: internal/bench/agent.go
 
