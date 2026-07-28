@@ -1932,8 +1932,12 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	// NOT reintroduce the unconditional per-call reindexing P-0077
 	// explicitly rejected ("Indexing this repository costs a full file
 	// walk; paying it per tool call would undo the reason the resident
-	// service exists"): the walk only runs when anchorsNeedRefresh finds a
-	// genuinely stale file, so an unchanged workspace pays nothing extra.
+	// service exists"): the FULL parse walk only runs when a genuinely
+	// stale file or a tree-shape change demands it. An unchanged
+	// workspace pays only treeShapeChanged's directory-only probe
+	// (~13ms at 800 dirs, an order of magnitude under BuildGraph;
+	// B-01KYK7W45HF54 — file mtimes are blind to creates and deletes,
+	// so shape needs its own signal).
 	// staleFile stays wired into Classify below regardless — if reindex
 	// itself fails, it logs and keeps the previous graph, s.indexedAt is
 	// untouched, staleFile still reports stale, and Classify still falls
