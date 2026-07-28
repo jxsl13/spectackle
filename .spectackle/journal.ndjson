@@ -610,3 +610,4 @@
 {"t":"2026-07-28T12:52:42Z","eid":"60e2faa6dc9ac4c8","ag":"orchestrator-fable","ev":"create","id":"B-01KYMCHNJCFBPSVBB5P4A65JK0","k":"bug","ti":"knowledge export stamps the spectackle binary module as source, not the exported repo"}
 {"t":"2026-07-28T12:53:40Z","eid":"d57913679b2d85ab","ag":"orchestrator-fable","ev":"create","id":"P-01KYMCKE8DEW7BZ3FNCMJTNSG2","k":"proposal","ti":"knowledge conflict resolution is unreachable from the tool surface"}
 {"t":"2026-07-28T12:53:54Z","eid":"5be8047399726d53","ag":"orchestrator-fable","ev":"move","id":"R-01KYMA7EXME6KAW9B77MJQ4MSD","fr":"active","to":"done"}
+{"t":"2026-07-28T12:59:05Z","eid":"5bd1a75e35c80b4a","ag":"orchestrator-fable","ev":"validate","id":"R-01KYMA7EXME6KAW9B77MJQ4MSD","op":"render","hash":"d2d5ec6db38339dd75ed3e5a6a56dd1396c3cc2d10f6098c92e367bf42640498"}
