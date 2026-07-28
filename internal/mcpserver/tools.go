@@ -24,6 +24,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/lifecycle"
 	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // The 7-tool surface is documented in docs/tools.md; the structs below are
@@ -2102,6 +2103,33 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}
 
 	// compact-due signals
+	// Vacuous tests in DIRTY test files (T-01KYKGZT0S: two outcome judge
+	// batches reached done with assertion-free tests that only post-hoc
+	// scoring caught — validity stuck at 1/3). The validate pack's AST
+	// detector runs in-loop over the work in flight; committed legacy
+	// tests stay quiet, so a clean tree still renders bare ok.
+	if dirty, derr := wt.DirtyFiles(s.ws.Dir); derr == nil {
+		vac := 0
+		for _, f := range dirty {
+			if !strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			data, rerr := s.readWorkspaceFile(f)
+			if rerr != nil {
+				continue
+			}
+			for _, line := range vacuousTestLines(f, data) {
+				if vac < 10 {
+					lines = append(lines, "! VAC W "+strings.TrimPrefix(line, "v vacuous "))
+				}
+				vac++
+			}
+		}
+		if vac > 10 {
+			lines = append(lines, fmt.Sprintf("! VAC W +%d more", vac-10))
+		}
+	}
+
 	lines = append(lines, s.compactCandidates(in.Path)...)
 
 	if healed > 0 || audited > 0 {

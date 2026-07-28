@@ -472,7 +472,38 @@ func vacuousTestLines(path string, src []byte) []string {
 	if err != nil {
 		return nil
 	}
-	isAssert := func(n ast.Node) bool {
+	// Delegation is assertion ONLY when the callee can actually fail the
+	// test (cross-val-vac round 2: crediting ANY call that takes a t
+	// argument let noop(t) and fmt.Sprintf("%v", t) silence the
+	// detector). Two AST-only ways a callee earns credit:
+	//   1. it is a call through a KNOWN assertion package (the file's own
+	//      import specs matched by path — testify, gomega, gotest.tools);
+	//   2. it is a SAME-FILE helper whose body (transitively, same-file
+	//      fixpoint) contains a genuine t-method failure call, AND the
+	//      call site passes a *testing.T identifier to it.
+	// Recorded limitations, each preferable to re-opening the noop(t)
+	// bypass or taking on type-checking: cross-file helpers stay outside
+	// the trace, and a deliberately constructed red-herring chain (a
+	// same-file helper reaching a non-testing method NAMED Fatal, called
+	// by a t-taking wrapper) earns unsound credit — isTFail is
+	// receiver-blind and the fixpoint is name-based, so full soundness
+	// would need data-flow tracking (cross-val-vac round 3, accepted).
+	assertPkgs := map[string]bool{}
+	for _, imp := range f.Imports {
+		p := strings.Trim(imp.Path.Value, `"`)
+		if !strings.Contains(p, "testify") && !strings.Contains(p, "gomega") && !strings.Contains(p, "gotest.tools") {
+			continue
+		}
+		name := p
+		if i := strings.LastIndex(p, "/"); i >= 0 {
+			name = p[i+1:]
+		}
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		assertPkgs[name] = true
+	}
+	isTFail := func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return false
@@ -487,10 +518,100 @@ func vacuousTestLines(path string, src []byte) []string {
 		}
 		return false
 	}
-	countAsserts := func(n ast.Node) int {
+	// canFail: same-file functions whose bodies (transitively) reach a
+	// t-method failure call — the one-hop-and-beyond helper trace.
+	canFail := map[string]bool{}
+	for {
+		changed := false
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || canFail[fn.Name.Name] {
+				continue
+			}
+			hits := false
+			ast.Inspect(fn.Body, func(x ast.Node) bool {
+				if hits {
+					return false
+				}
+				if isTFail(x) {
+					hits = true
+					return false
+				}
+				if call, ok := x.(*ast.CallExpr); ok {
+					if id, ok := call.Fun.(*ast.Ident); ok && canFail[id.Name] {
+						hits = true
+						return false
+					}
+				}
+				return true
+			})
+			if hits {
+				canFail[fn.Name.Name] = true
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	isAssert := func(n ast.Node, tNames map[string]bool) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if isTFail(call) {
+				return true
+			}
+			// a call through a known assertion package: require.NoError,
+			// assert.Equal, gomega matchers — AST-only import matching
+			if pkg, ok := sel.X.(*ast.Ident); ok && assertPkgs[pkg.Name] {
+				return true
+			}
+			return false
+		}
+		// a same-file can-fail helper receiving t
+		if id, ok := call.Fun.(*ast.Ident); ok && canFail[id.Name] {
+			for _, a := range call.Args {
+				if aid, ok := a.(*ast.Ident); ok && tNames[aid.Name] {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// tParams collects identifiers bound as *testing.T (or testing.TB)
+	// parameters of a function type — the names delegation is judged by.
+	tParams := func(ft *ast.FuncType, into map[string]bool) {
+		if ft == nil || ft.Params == nil {
+			return
+		}
+		for _, p := range ft.Params.List {
+			star, ok := p.Type.(*ast.StarExpr)
+			var sel *ast.SelectorExpr
+			if ok {
+				sel, _ = star.X.(*ast.SelectorExpr)
+			} else {
+				sel, _ = p.Type.(*ast.SelectorExpr)
+			}
+			if sel == nil {
+				continue
+			}
+			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "testing" {
+				continue
+			}
+			if sel.Sel.Name != "T" && sel.Sel.Name != "TB" {
+				continue
+			}
+			for _, name := range p.Names {
+				into[name.Name] = true
+			}
+		}
+	}
+	countAsserts := func(n ast.Node, tNames map[string]bool) int {
 		c := 0
 		ast.Inspect(n, func(x ast.Node) bool {
-			if isAssert(x) {
+			if isAssert(x, tNames) {
 				c++
 			}
 			return true
@@ -503,13 +624,22 @@ func vacuousTestLines(path string, src []byte) []string {
 		if !ok || fn.Body == nil || !strings.HasPrefix(fn.Name.Name, "Test") {
 			continue
 		}
-		total := countAsserts(fn.Body)
+		tNames := map[string]bool{}
+		tParams(fn.Type, tNames)
+		total := countAsserts(fn.Body, tNames)
 		ast.Inspect(fn.Body, func(x ast.Node) bool {
 			// t.Run(..., func(...){ no assertion }) — the empty subtest
 			if call, ok := x.(*ast.CallExpr); ok {
 				if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Run" && len(call.Args) == 2 {
-					if lit, ok := call.Args[1].(*ast.FuncLit); ok && countAsserts(lit.Body) == 0 {
-						out = append(out, fmt.Sprintf("v vacuous %s:%d subtest without assertion", path, fset.Position(lit.Pos()).Line))
+					if lit, ok := call.Args[1].(*ast.FuncLit); ok {
+						subNames := map[string]bool{}
+						for k := range tNames {
+							subNames[k] = true
+						}
+						tParams(lit.Type, subNames)
+						if countAsserts(lit.Body, subNames) == 0 {
+							out = append(out, fmt.Sprintf("v vacuous %s:%d subtest without assertion", path, fset.Position(lit.Pos()).Line))
+						}
 					}
 				}
 			}
@@ -518,7 +648,7 @@ func vacuousTestLines(path string, src []byte) []string {
 			// idiom) cannot be empty and is exempt (first live landing
 			// flagged a two-entry literal table; false-positive shape).
 			if rng, ok := x.(*ast.RangeStmt); ok && total > 0 {
-				inRange := countAsserts(rng.Body)
+				inRange := countAsserts(rng.Body, tNames)
 				if inRange == total && !hasLenGuard(fn.Body, rng, fset) && !rangesOverLiteral(fn.Body, rng) {
 					out = append(out, fmt.Sprintf("v vacuous %s:%d assertions only inside a range with no emptiness guard", path, fset.Position(rng.Pos()).Line))
 				}

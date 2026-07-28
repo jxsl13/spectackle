@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1753,5 +1754,163 @@ func TestCheckSeesDeletionsAndCreations(t *testing.T) {
 	callText(t, sess, "check", map[string]any{})
 	if out := callText(t, sess, "find", map[string]any{"q": "demo.Fresh", "scope": "code"}); !strings.Contains(out, "go:demo.Fresh") {
 		t.Fatalf("new file not indexed after check: %q", out)
+	}
+}
+
+// TestCheckFlagsVacuousDirtyTests pins T-01KYKGZT0S: the validate pack's
+// AST vacuous-test detector runs in-loop at check over DIRTY test files —
+// two outcome judge batches reached done with assertion-free tests that
+// only post-hoc scoring caught. Committed legacy tests stay quiet.
+func TestCheckFlagsVacuousDirtyTests(t *testing.T) {
+	root := gitRoot(t)
+	sess := connectRoot(t, root)
+
+	vacSrc := `package demo
+
+import "testing"
+
+func TestSmoke(t *testing.T) {
+	t.Run("does not crash", func(t *testing.T) {
+		_ = 1 + 1
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "demo_test.go"), []byte(vacSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// (a) dirty + vacuous: check flags it with file:line
+	out := callText(t, sess, "check", map[string]any{})
+	if !strings.Contains(out, "! VAC W demo_test.go:") || !strings.Contains(out, "subtest without assertion") {
+		t.Fatalf("dirty vacuous test must surface at check:\n%s", out)
+	}
+
+	// (b) committed: the dirty-only scope silences it — check is bare ok
+	if err := exec.Command("git", "-C", root,
+		"-c", "user.name=t", "-c", "user.email=t@t", "add", "-A").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", root,
+		"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "legacy").Run(); err != nil {
+		t.Fatal(err)
+	}
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "VAC") {
+		t.Fatalf("committed legacy tests must stay quiet:\n%s", out)
+	}
+
+	// (c) a dirty test whose subtests assert stays quiet
+	goodSrc := `package demo
+
+import "testing"
+
+func TestReal(t *testing.T) {
+	t.Run("asserts", func(t *testing.T) {
+		if 1+1 != 2 {
+			t.Fatal("math broke")
+		}
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "good_test.go"), []byte(goodSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "VAC") {
+		t.Fatalf("an asserting dirty test must not flag:\n%s", out)
+	}
+
+	// (d) the cap: 12 vacuous subtests render 10 findings + a +2 more tail
+	var b strings.Builder
+	b.WriteString("package demo\n\nimport \"testing\"\n\nfunc TestMany(t *testing.T) {\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&b, "\tt.Run(\"c%d\", func(t *testing.T) { _ = %d })\n", i, i)
+	}
+	b.WriteString("}\n")
+	if err := os.WriteFile(filepath.Join(root, "many_test.go"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "check", map[string]any{})
+	if got := strings.Count(out, "! VAC W many_test.go:"); got != 10 {
+		t.Fatalf("cap must render 10 findings, got %d:\n%s", got, out)
+	}
+	if !strings.Contains(out, "! VAC W +2 more") {
+		t.Fatalf("the overflow tail is missing:\n%s", out)
+	}
+	if err := os.Remove(filepath.Join(root, "many_test.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	// (e)+(f) delegation is assertion (cross-val-vac findings 1+2): a
+	// subtest whose only call passes t onward — testify-style or a local
+	// helper — must stay quiet; the detector is AST-only so the testify
+	// import need not resolve.
+	delegSrc := `package demo
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func assertFoo(t *testing.T, got, want int) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("got %d want %d", got, want)
+	}
+}
+
+func viaHelper(t *testing.T, ok bool) {
+	if !ok {
+		assertFoo(t, 0, 1)
+	}
+}
+
+func TestDelegated(t *testing.T) {
+	t.Run("testify style", func(t *testing.T) {
+		err := error(nil)
+		require.NoError(t, err)
+	})
+	t.Run("local helper", func(t *testing.T) {
+		assertFoo(t, 1+1, 2)
+	})
+	t.Run("transitive helper", func(t *testing.T) {
+		viaHelper(t, true)
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "deleg_test.go"), []byte(delegSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "VAC") {
+		t.Fatalf("genuinely delegating subtests must not flag:\n%s", out)
+	}
+	if err := os.Remove(filepath.Join(root, "deleg_test.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	// (g) the round-2 bypass shapes (cross-val-vac): passing t to a
+	// no-op or a formatter earns NO credit — both must still flag.
+	bypassSrc := `package demo
+
+import (
+	"fmt"
+	"testing"
+)
+
+func noop(t *testing.T) {}
+
+func TestBypass(t *testing.T) {
+	t.Run("noop delegation", func(t *testing.T) {
+		noop(t)
+	})
+	t.Run("formatter touch", func(t *testing.T) {
+		_ = fmt.Sprintf("%v", t)
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "bypass_test.go"), []byte(bypassSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "check", map[string]any{})
+	if got := strings.Count(out, "! VAC W bypass_test.go:"); got != 2 {
+		t.Fatalf("both bypass shapes must flag, got %d:\n%s", got, out)
 	}
 }
