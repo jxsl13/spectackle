@@ -246,6 +246,14 @@ func TestToolSurface(t *testing.T) {
 			t.Errorf("tool %q not registered", name)
 		}
 	}
+	// The identity binding is discoverable BEFORE the first refusal
+	// (B-01KYK5FNM4F3F): the work tool's description names
+	// SPECTACKLE_AGENT, not only the hint/refusal renders.
+	for _, tool := range res.Tools {
+		if tool.Name == "work" && !strings.Contains(tool.Description, "SPECTACKLE_AGENT") {
+			t.Errorf("work tool description must name the SPECTACKLE_AGENT binding:\n%s", tool.Description)
+		}
+	}
 }
 
 // TestLifecycleE2E drives draft -> submit -> approve -> active -> done ->

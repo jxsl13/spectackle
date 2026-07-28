@@ -258,7 +258,7 @@ func (s *Server) registerTools() {
 		gate(s, s.expandLeaseIDs(s.lease)))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "work",
-		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectackle paths stay repo-relative). submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectackle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
+		Description: "Worktree lifecycle for an approved item. start: lease item+targets, create git worktree+branch, re-root this session (wt line = YOUR edit/build root; spectackle paths stay repo-relative). Worktrees BIND to SPECTACKLE_AGENT — export the same value to resume/submit from another process. submit: gate (config verify + item goal) → commit code → integrate main → re-gate → ff-merge → replay .spectackle state → teardown. abort: teardown, item back to approved. status: wt lines. Fix gate/merge failures in the worktree, then submit again."},
 		gate(s, s.expandWorkItem(s.work)))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "swarm",
@@ -1610,7 +1610,10 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	if s.ws.Dir != s.main.Dir {
 		if _, ok, gerr := item.Get(s.ws, in.ID); gerr == nil && !ok {
 			if _, mok, merr := item.Get(s.main, in.ID); merr == nil && mok {
-				return refuse("! ARG E - " + sc.short(in.ID) + " lives on main, not on this serving root — move it from a main-rooted session")
+				// The recovery is named, not just the constraint
+				// (B-01KYK5FNM4F3F: a judge needed trial and error here) —
+				// a worktree-rooted session cannot move a main-rooted item.
+				return refuse("! ARG E - " + sc.short(in.ID) + " lives on main, not on this serving root — run this move from a session rooted at the main repo (spectackle call -root <main-root>), or work op=start item=" + sc.short(in.ID) + " to re-enter it here")
 			}
 		}
 	}
