@@ -415,6 +415,15 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	// then, already reflects the first apply's writes.
 	toAdd := knowledge.FoldInto(current, incoming)
 
+	// FoldInto skips an incoming entry whose (kind, key) identity this
+	// workspace already carries — correct precedence (local wins, apply
+	// stays additive and idempotent) but, on its own, indistinguishable from
+	// agreement. An import that DISAGREES with a decision already held was
+	// dropped as silently as one that merely repeated it, which is the same
+	// shape as the loss this whole feature exists to close, just on the
+	// one-artifact side of it. Report the disagreements; do not adopt them.
+	diverged := knowledge.Diverging(current, incoming)
+
 	var b strings.Builder
 	added := 0
 	for _, e := range toAdd.Entries {
@@ -486,19 +495,54 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	for k := range archived {
 		held[k] = true
 	}
+	// The settle check and the mint must be ONE step. `held` is derived from
+	// an Extract taken before any writing, so two agents applying the same
+	// pair at once both saw an empty board and both minted — two unlinked
+	// ADRs asking the identical question, neither authoritative. Under the
+	// lock, the second one re-reads work.md, finds the first, and reports it
+	// instead of opening a rival. Named per conflict key, so applies over
+	// disjoint conflicts still run concurrently.
 	open := 0
 	for _, cf := range conflicts {
 		if held[cf.Key] {
 			continue
 		}
-		id, mErr := s.mintConflictDecision(cf)
+		var id string
+		var mErr error
+		lErr := s.cd.WithLock("knowledge-conflict:"+cf.Key, func() error {
+			if existing, eErr := s.existingDecisionFor(cf); eErr != nil {
+				return eErr
+			} else if existing != "" {
+				id = ""
+				return nil
+			}
+			id, mErr = s.mintConflictDecision(cf)
+			return nil
+		})
+		if lErr != nil {
+			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, lErr.Error())
+			continue
+		}
 		if mErr != nil {
 			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, mErr.Error())
 			continue
 		}
+		if id == "" {
+			continue // a concurrent apply opened it first; counted as settled
+		}
 		open++
 		fmt.Fprintf(&b, "need decision %s %s\n", id, conflictQuestion(cf))
 	}
+	// One `x` line per divergence, the same record `merge` uses for a
+	// conflict between artifacts — this is the same disagreement, with the
+	// workspace as one of the two sides. Kept out of the mint loop: the
+	// local position stands, so there is nothing to decide, only something
+	// the caller must not be allowed to miss.
+	for _, dv := range diverged {
+		fmt.Fprintf(&b, "x %s %s ours=%q theirs=%q (kept ours)\n",
+			dv.Kind, shortKey(dv.Key), divergedValue(dv.Ours), divergedValue(dv.Then))
+	}
+
 	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
 	if open > 0 {
 		fmt.Fprintf(&b, " conflicts=%d", open)
@@ -508,6 +552,9 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 		// simply already holds an answer — silence would read as "no
 		// conflict", and a second `conflicts=` would read as "decide again"
 		fmt.Fprintf(&b, " settled=%d", settled)
+	}
+	if len(diverged) > 0 {
+		fmt.Fprintf(&b, " diverged=%d", len(diverged))
 	}
 	b.WriteString("\n")
 	if added > 0 {
@@ -669,6 +716,34 @@ func (s *Server) archivedDecisionKeys() (map[string]bool, error) {
 	return keys, nil
 }
 
+// shortKey trims a content hash to the same width the `x` merge-conflict
+// record uses, so the two disagreement renders read alike.
+func shortKey(k string) string {
+	if len(k) > 8 {
+		return k[:8]
+	}
+	return k
+}
+
+// divergedValue is the one field of an entry that carries the disagreement:
+// a decision for an ADR, the sentence itself for a rule or intent. Capped,
+// because a divergence line is a pointer to go read the record, not the
+// record.
+func divergedValue(e knowledge.Entry) string {
+	v := strings.TrimSpace(e.Decision)
+	if v == "" {
+		v = strings.TrimSpace(e.Text)
+	}
+	if v == "" {
+		v = strings.TrimSpace(e.Prose)
+	}
+	v = strings.ReplaceAll(v, "\n", " ")
+	if len(v) > 60 {
+		v = v[:60] + "…"
+	}
+	return v
+}
+
 // conflictQuestion renders the decision a conflict poses.
 func conflictQuestion(cf knowledge.Conflict) string {
 	for _, e := range cf.Entries {
@@ -726,4 +801,23 @@ func (s *Server) mintConflictDecision(cf knowledge.Conflict) (string, error) {
 	}
 	_ = s.cd.Emit("decide", d.ID, "ask "+conflictQuestion(cf))
 	return shortDisplayID(d.ID), nil
+}
+
+// existingDecisionFor returns the ID of a live decision already asking this
+// question, or "" when none does. It is the inside-the-lock half of the
+// settle check: the outside-the-lock one reads knowledge.Extract, which is
+// computed before any minting and therefore cannot see a decision a
+// concurrent apply opened a millisecond ago.
+func (s *Server) existingDecisionFor(cf knowledge.Conflict) (string, error) {
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return "", err
+	}
+	key := knowledge.ADRKey(conflictQuestion(cf))
+	for _, it := range items {
+		if it.Kind == "adr" && it.State != item.StateArchived && knowledge.ADRKey(it.Title) == key {
+			return it.ID, nil
+		}
+	}
+	return "", nil
 }

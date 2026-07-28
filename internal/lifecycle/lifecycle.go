@@ -627,12 +627,36 @@ func adrOutcome(it item.Item) string {
 // and the journal summary contentless for exactly the records whose entire
 // value is the decision they carry.
 func gistLine(it item.Item) string {
-	if it.Kind == "adr" {
-		if d := strings.TrimSpace(it.Decision); d != "" {
-			return d
+	if it.Kind != "adr" {
+		return firstLine(it.Body)
+	}
+	if d := strings.TrimSpace(it.Decision); d != "" {
+		return d
+	}
+	// Unanswered: there is no decision to report, so say that rather than
+	// echo a machine field. `kind: radio` and the conflict marker are
+	// scaffolding decide writes for itself; either one as the gist made the
+	// spec.md intent line and the journal summary indistinguishable across
+	// every parked decision the repository ever had.
+	for _, line := range strings.Split(it.Body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || isDecideScaffold(line) {
+			continue
+		}
+		return line
+	}
+	return "undecided"
+}
+
+// isDecideScaffold reports whether a body line is machine scaffolding a
+// decide-minted ADR writes for itself rather than content a reader wants.
+func isDecideScaffold(line string) bool {
+	for _, p := range []string{"kind:", "knowledge-conflict:", "status:", "item:"} {
+		if strings.HasPrefix(line, p) {
+			return true
 		}
 	}
-	return firstLine(it.Body)
+	return false
 }
 
 func capRetainedBody(b string) string {

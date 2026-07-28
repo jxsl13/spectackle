@@ -55,6 +55,7 @@ d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 m <id> v<n> <name> ...                           benchmark record (bench; f/u/d sublines — see tool 17)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
+x <kind> <key> ours=".." theirs=".." (kept ours) an import disagrees with what this workspace holds (knowledge op=apply; reported, never adopted)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
 ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)
@@ -686,7 +687,19 @@ without it, the one workspace that would be asked its curated questions
 again is the one that ran the lifecycle all the way through. Settled
 conflicts are counted separately in the trailer as `settled=<n>`, so a
 re-apply is silent about work already done without being silent about the
-disagreement still in the sources.
+disagreement still in the sources. The settle check and the mint run under
+one lock per conflict key, so two agents applying the same pair at once open
+one decision rather than two unlinked rivals.
+
+**Disagreement with what this workspace already holds** is reported, never
+adopted. `FoldInto` skips an incoming entry whose `(kind, key)` identity is
+already present — correct precedence, but on its own indistinguishable from
+agreement, so an import that contradicted a decision already held used to be
+dropped as quietly as one that repeated it. Each such entry now renders as
+`x <kind> <key> ours="…" theirs="…" (kept ours)` — the same `x` record
+`merge` uses for a conflict between artifacts, with the workspace as one of
+the sides — and is counted as `diverged=<n>`. Precedence is unchanged: yours
+stands. Only the silence is gone.
 
 ### 18. `bench` — benchmark records (implementations on a frame)
 

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -550,8 +551,18 @@ func decisionIDs(t *testing.T, sess *mcp.ClientSession, q string) []string {
 			ids = append(ids, f)
 		}
 	}
+	// The render abbreviates IDs adaptively, so the same record can appear
+	// at two widths in one result; fold to the shortest prefix so the set
+	// compares records, not renderings.
 	sort.Strings(ids)
-	return ids
+	var out []string
+	for _, id := range ids {
+		if len(out) > 0 && strings.HasPrefix(id, out[len(out)-1]) {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
 }
 
 // TestReApplyBeforeAnsweringMintsOneDecision: the duplicate-suppression
@@ -750,4 +761,130 @@ func TestArchivedDecisionStaysSettled(t *testing.T) {
 	if !strings.Contains(again, "settled=1") {
 		t.Fatalf("the still-disagreeing sources must be reported as settled:\n%s", again)
 	}
+}
+
+// TestDivergingImportIsReported: FoldInto skips an incoming entry whose
+// identity the workspace already holds, which is correct precedence but on
+// its own cannot be told apart from agreement. An import that CONTRADICTS a
+// decision already held must be reported — silently dropping it is the same
+// shape as the loss this feature exists to close, on the one-artifact side.
+func TestDivergingImportIsReported(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	// the workspace reaches its own answer first
+	ask := callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which serialization should the rpc layer use?", "kind": "text",
+	})
+	local := ""
+	for _, f := range strings.Fields(ask) {
+		if strings.HasPrefix(f, "ADR-") {
+			local = f
+		}
+	}
+	if local == "" {
+		t.Fatalf("setup: %s", ask)
+	}
+	callText(t, sess, "decide", map[string]any{"op": "answer", "id": local, "choose": "protobuf"})
+
+	// an import disagrees
+	incoming := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-b\n---\n\n" +
+		"## adr 2222222222222222\nquestion: which serialization should the rpc layer use?\ndecision: json\nstatus: accepted\ncount: 1\nsources:\n    - source: repo-b\n      dir: \"\"\n"
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": incoming})
+	if !strings.Contains(out, "diverged=1") {
+		t.Fatalf("a contradicting import must not vanish without a word:\n%s", out)
+	}
+	if !strings.Contains(out, "ours=\"protobuf\"") || !strings.Contains(out, "theirs=\"json\"") {
+		t.Fatalf("the divergence must name both sides:\n%s", out)
+	}
+	// precedence is unchanged: ours still stands, theirs is NOT adopted
+	if !strings.Contains(out, "kept ours") {
+		t.Fatalf("the render must say which side stands:\n%s", out)
+	}
+	if body := callText(t, sess, "get", map[string]any{"id": local}); !strings.Contains(body, "protobuf") || strings.Contains(body, "choice: json") {
+		t.Fatalf("the local decision must stand: %q", body)
+	}
+	// an import that AGREES stays quiet
+	agreeing := strings.Replace(incoming, "decision: json", "decision: protobuf", 1)
+	quiet := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": agreeing})
+	if strings.Contains(quiet, "diverged=") || strings.Contains(quiet, "x adr") {
+		t.Fatalf("agreement is not a divergence:\n%s", quiet)
+	}
+}
+
+// TestUnansweredDecisionGistIsNotAMachineField: archiving a decision nobody
+// answered used to write "kind: radio" as the spec.md intent line and the
+// journal summary — byte-identical across every parked decision the
+// repository ever had, and therefore useless as history.
+func TestUnansweredDecisionGistIsNotAMachineField(t *testing.T) {
+	root, sess := conflictingArtifacts(t)
+	out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+	adrID := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "ADR-") {
+			adrID = f
+		}
+	}
+	if adrID == "" {
+		t.Fatalf("setup: %s", out)
+	}
+	// archive it WITHOUT answering
+	if got := callText(t, sess, "move", map[string]any{"id": adrID, "to": "archived", "note": ""}); strings.Contains(got, "! ") {
+		t.Fatalf("setup: archiving unanswered: %q", got)
+	}
+	specMD, err := os.ReadFile(filepath.Join(root, ".spectackle", "spec.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(specMD), "\n") {
+		if strings.Contains(line, adrID) && strings.Contains(line, "kind: radio") {
+			t.Fatalf("the permanent history line must not be a machine field: %q", line)
+		}
+	}
+	if hist := callText(t, sess, "find", map[string]any{"q": "kind: radio", "scope": "history"}); strings.Contains(hist, "— kind: radio") {
+		t.Fatalf("nor the journal summary:\n%s", hist)
+	}
+}
+
+// TestConcurrentApplyMintsOneDecision: the settle check and the mint are not
+// one atomic step, so two agents applying the same pair at once both found
+// the board empty and both minted — two unlinked ADRs asking the identical
+// question, neither authoritative. Resolution is yield-always and one-sided
+// (IDs are time-ordered, so "an earlier one exists, therefore mine is the
+// duplicate" needs no agreement from the other side), which is the same
+// shape the worktree-lease tiebreak uses.
+func TestConcurrentApplyMintsOneDecision(t *testing.T) {
+	root, sess := conflictingArtifacts(t)
+	_ = root
+	second := connectRoot(t, root)
+
+	var wg sync.WaitGroup
+	outs := make([]string, 2)
+	for i, s := range []*mcp.ClientSession{sess, second} {
+		wg.Add(1)
+		go func(i int, s *mcp.ClientSession) {
+			defer wg.Done()
+			outs[i] = callText(t, s, "knowledge", map[string]any{"op": "apply", "paths": []string{"a.md", "b.md"}})
+		}(i, s)
+	}
+	wg.Wait()
+
+	ids := decisionIDs(t, sess, "serialization")
+	if len(ids) != 1 {
+		t.Fatalf("two racing applies must leave exactly one decision, got %v\nA:\n%s\nB:\n%s", ids, outs[0], outs[1])
+	}
+	// and both callers were told the SAME id — the loser reports the winner
+	// rather than an id it just withdrew
+	for i, o := range outs {
+		if strings.Contains(o, "need decision") && !strings.Contains(o, shortOf(ids[0])) {
+			t.Fatalf("caller %d was told about a withdrawn decision:\n%s\nsurvivor=%s", i, o, ids[0])
+		}
+	}
+}
+
+// shortOf is the display prefix of a full record ID, as the render shows it.
+func shortOf(id string) string {
+	if len(id) > 17 {
+		return id[:17]
+	}
+	return id
 }
