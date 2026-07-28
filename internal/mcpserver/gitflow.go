@@ -57,6 +57,9 @@ import (
 // unreachable forge produces a visible note, never silence.
 type gitFlowResult struct {
 	lines []string
+	// prLine tracks the newest "g pr ..." artifact line appended — the
+	// one line a fully green edge collapses to (RENDER-PARITY-001).
+	prLine string
 	// closureComplete: an archive closure either merged, legitimately had
 	// nothing to merge, or runs without a remote. Anything else strands a
 	// tombstoned item with an open PR (B-01KYGADQ, PRs 142/149) — the move
@@ -78,6 +81,29 @@ func (r *gitFlowResult) String() string {
 		return ""
 	}
 	return strings.Join(r.lines, "\n") + "\n"
+}
+
+// dietGreen implements RENDER-PARITY-001: a fully green edge renders ONE
+// line naming its outcome artifact — the PR URL, the CI verdict, the merge
+// SHA — because everything else (branch, records, gates, flips) is MCP
+// automation the LLM does not need narrated. The collapse happens ONLY
+// when nothing on the edge warned or failed: any "!" refusal, "w " warning
+// or informational notice keeps the full surface — never-silent means
+// failures speak, not that success narrates.
+func (r *gitFlowResult) dietGreen(artifact string) {
+	if artifact == "" {
+		return
+	}
+	for _, l := range r.lines {
+		if strings.HasPrefix(l, "! ") || strings.HasPrefix(l, "w ") ||
+			strings.Contains(l, "human-flipped") || strings.Contains(l, "deferred") ||
+			strings.Contains(l, "conflict") || strings.Contains(l, "restored") ||
+			strings.Contains(l, "stranded") || strings.Contains(l, "identity fallback") ||
+			strings.Contains(l, "-close") || strings.Contains(l, "records-only closure") {
+			return
+		}
+	}
+	r.lines = []string{artifact}
 }
 
 // gitGate decides whether the automation runs for this transition, and when
@@ -283,7 +309,19 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 	// mirror): the PR stays draft until archive, so a ready PR seen here is
 	// either human-flipped (respected, never fought) or already merged —
 	// reopen cycles must not toggle PR state back and forth.
+	res.dietGreen(lastPRLine(res.lines))
 	return res
+}
+
+// lastPRLine returns the newest "g pr ..." line — the edge's outcome
+// artifact for the RENDER-PARITY-001 collapse.
+func lastPRLine(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(lines[i], "g pr ") {
+			return lines[i]
+		}
+	}
+	return ""
 }
 
 // gitOpenPR opens the draft pull request, but only once the branch actually
@@ -445,6 +483,16 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	// pinned to the exact local head just pushed (B-01KYDN).
 	s.pinHead(&pr, branch, res)
 	awaitChecksReport(f, pr, mergeWaitBudget, mergePollInterval, res)
+	// green done collapses to its outcome artifact: the CI verdict on the
+	// still-draft PR (gates passing and PR-DRAFT-001 are implied by
+	// reaching it) — any CI W/E or gate line keeps the full surface. The
+	// artifact derives from the REAL verdict line: "checks passing" gains
+	// the draft marker; a checks-none workspace keeps its honest line.
+	artifact := lastPRLine(res.lines)
+	if artifact == fmt.Sprintf("g pr %d checks passing", pr.Number) {
+		artifact = fmt.Sprintf("g pr %d draft checks passing", pr.Number)
+	}
+	res.dietGreen(artifact)
 	return res
 }
 
@@ -649,6 +697,9 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	if spr, ok, ferr := f.Find(itemRef); ferr == nil && ok && spr.Number != pr.Number {
 		res.addf("! GIT E %s stranded pr %d — validated code left unmerged on %s", it.ID, spr.Number, itemRef)
 	}
+	// green archive collapses to the merge SHA — the ORCH-SYNC-001 anchor
+	// line itself (ready flip, gates and checks are implied by the merge)
+	res.dietGreen(lastPRLine(res.lines))
 	return res
 }
 
