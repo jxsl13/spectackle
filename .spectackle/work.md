@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYJ5FAP6FW3RF5BHD640YC4F mode-parity render diet: online green-path edges compress to one line each - the LLM transitions, the server narrates nothing
 kind: task
-state: draft
+state: active
 created: 2026-07-27
 grilled: 2026-07-28 open=0
 targets: internal/mcpserver, docs/bench-curves.md
