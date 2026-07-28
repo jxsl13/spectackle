@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYJ66VSQF8XVZ4PCP8XNARW9 work op=start promises submit from any process but the lease binds to an undocumented ephemeral identity
 kind: bug
-state: active
+state: done
 created: 2026-07-27
 targets: internal/mcpserver/swarm.go
 
