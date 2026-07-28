@@ -1147,3 +1147,49 @@ func TestSelfRestartEligibilityAndHintSuppression(t *testing.T) {
 		t.Fatalf("stale hint not suppressed under self-restart: %q", hint)
 	}
 }
+
+// TestWorkStartRefusesOverlappingTargets pins ADR-01KYKTGGPREG2 (enforce),
+// the contract the swarm-contention benchmark proved unenforced
+// (B-01KYKSKMHNE2H): two identities whose approved tasks declare the SAME
+// file target cannot both open a worktree — the second start refuses
+// naming the holder, so the loser never pays a full implement-then-resolve
+// round. The guard reads the worktree ledger, not the lease table: a
+// one-shot CLI's clean shutdown deregisters its leases while its worktree
+// (and the contention) stays open.
+func TestWorkStartRefusesOverlappingTargets(t *testing.T) {
+	root := gitRoot(t)
+
+	t.Setenv("SPECTACKLE_AGENT", "alice")
+	alice, aliceSess := connectRootWithServer(t, root)
+	first := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "alice edits the contended file", "targets": []string{"shared.go"}})
+	second := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "bob edits the contended file", "targets": []string{"shared.go"}})
+	disjoint := draftFullID(t, alice, aliceSess, map[string]any{
+		"kind": "task", "title": "bob edits elsewhere", "targets": []string{"other.go"}})
+	for _, id := range []string{first, second, disjoint} {
+		callText(t, aliceSess, "move", map[string]any{"id": id, "to": "approved"})
+	}
+	if out := callText(t, aliceSess, "work", map[string]any{"op": "start", "item": first}); !strings.Contains(out, "wt ") {
+		t.Fatalf("alice's start must succeed: %q", out)
+	}
+
+	// a SECOND identity, its own session: the overlapping target refuses
+	t.Setenv("SPECTACKLE_AGENT", "bob")
+	_, bobSess := connectRootWithServer(t, root)
+	out := callText(t, bobSess, "work", map[string]any{"op": "start", "item": second})
+	if !strings.Contains(out, "! LEASE E") {
+		t.Fatalf("an overlapping target must refuse the second start:\n%s", out)
+	}
+	if !strings.Contains(out, "held=alice") || !strings.Contains(out, "shared.go") {
+		t.Fatalf("the refusal must name the holder and the contended path:\n%s", out)
+	}
+	if !strings.Contains(out, "open worktree") {
+		t.Fatalf("the refusal must name WHY the scope is held:\n%s", out)
+	}
+
+	// disjoint scope is unaffected — the guard blocks contention, not parallelism
+	if out := callText(t, bobSess, "work", map[string]any{"op": "start", "item": disjoint}); !strings.Contains(out, "wt ") {
+		t.Fatalf("a disjoint target must still start:\n%s", out)
+	}
+}

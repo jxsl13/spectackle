@@ -340,6 +340,16 @@ their leases expire and their registry rows are removed (SPX-SWM-006); a
 clean shutdown deregisters immediately. `work op=start` auto-claims its
 item + targets.
 
+**Worktree contention outlives leases** (ADR-01KYKTGGPREG2): a one-shot CLI
+deregisters its leases when the process exits, but its worktree — and the
+contention it represents — stays open. So `work op=start` additionally
+refuses when a live sibling WORKTREE's item declares an overlapping target:
+`! LEASE E <path> held=<agent> item=<id> (open worktree)`. The blocked
+agent waits for that item's submit/abort, or takes disjoint scope; it never
+pays the implement-then-conflict-resolve round the merge layer would
+otherwise bill it (measured: ~20 wasted calls vs 1 refused call,
+M-01KYKSKKPDFNT).
+
 ### 9. `work` — git-worktree lifecycle (multi-agent isolation)
 
 ```json

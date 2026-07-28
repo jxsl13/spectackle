@@ -700,8 +700,37 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 		// proved still owned (cross-val-wipe2 follow-up).
 		adoptNeeded, adoptRoot, adoptBranch = true, w.Root, w.Branch
 	}
+	// The decided contention contract (ADR-01KYKTGGPREG2: enforce): a live
+	// sibling WORKTREE whose item declares overlapping targets refuses
+	// this start, naming the holder. The lease table alone cannot carry
+	// the guarantee — a one-shot CLI's clean shutdown deregisters its
+	// leases while the worktree (and the contention risk) stays open
+	// (B-01KYKSKMHNE2H, proven by the swarm-contention benchmark) — so
+	// the guard reads the worktree ledger, whose records live exactly as
+	// long as the risk does.
+	mine := normalizeTargets(it.Targets)
+	if wts, werr := s.cd.Worktrees(); werr != nil {
+		return nil, nil, werr
+	} else {
+		for _, w := range wts {
+			if w.Item == id || w.Agent == s.agent {
+				continue
+			}
+			other, ok, _ := item.Get(s.main, w.Item)
+			if !ok {
+				continue
+			}
+			for _, ot := range normalizeTargets(other.Targets) {
+				for _, mt := range mine {
+					if coord.Overlaps(ot, mt) {
+						return refuse(fmt.Sprintf("! LEASE E %s held=%s item=%s (open worktree) — wait for its submit/abort, or work disjoint scope", mt, w.Agent, w.Item))
+					}
+				}
+			}
+		}
+	}
 	// lease item + targets, all-or-nothing
-	scopes := append([]string{id}, normalizeTargets(it.Targets)...)
+	scopes := append([]string{id}, mine...)
 	conflict, err := s.cd.Claim(scopes, id, s.leaseTTL(), s.agentTTL())
 	if err != nil {
 		return nil, nil, err
