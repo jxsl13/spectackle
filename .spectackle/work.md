@@ -46,11 +46,3 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
-
-## B-01KYJW2MP8EWQS0QZ0H2VAE685 stale prose claims the PR readies at done
-kind: bug
-state: done
-created: 2026-07-27
-targets: CONTRIBUTING.md, internal/forge
-
-Two spots still describe the pre-PR-DRAFT-001 two-way mirror after T-01KYJTQ5RRFYF landed the single archive-edge flip: (1) CONTRIBUTING.md ~116-119 says the PR flips to ready immediately when the task reaches done. (2) internal/forge doc comments — forge.go ~76 Draft interface method, github.go ~300, offline.go ~157 — describe Draft as the live reopen mirror while zero production callers remain (only forge unit tests call it); either reword as a capability kept for API completeness or retire the method. Both were outside T-01KYJTQ5RRFYF targets (internal/mcpserver, docs, README.md) so the fix could not ride that PR. Found by the PR 184 cross-validation.
