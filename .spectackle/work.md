@@ -47,15 +47,6 @@ option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
 
-## B-01KYJTB95HEPFRRBMAN2YPEE32 scaffolded config.yaml omits the benchmarks section
-kind: bug
-state: done
-created: 2026-07-27
-targets: internal/workspace
-
-internal/workspace/workspace.go scaffoldConfigYAML promises to document every setting with its default value but never emits a benchmarks: block, so a fresh workspace config carries nothing about benchmarks.history (default 1) even though docs/tools.md sec 17 points users at it. TestEnsureScaffoldGeneratesSelfDocumentingConfig never checks history: nor compares got.Benchmarks vs want.Benchmarks, so the gap is untested. Hand-adding benchmarks:
-  history: 3 works — only the self-documentation is broken. Expected: scaffold emits the commented benchmarks section and the scaffold test pins it. Found by the T-01KYJN4BGBFX6 cross-validation (finding 6).
-
 ## B-01KYJW2MP8EWQS0QZ0H2VAE685 stale prose claims the PR readies at done
 kind: bug
 state: draft
