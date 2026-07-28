@@ -49,7 +49,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYJW2MP8EWQS0QZ0H2VAE685 stale prose claims the PR readies at done
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: CONTRIBUTING.md, internal/forge, internal/mcpserver
