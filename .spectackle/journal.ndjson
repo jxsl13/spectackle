@@ -520,3 +520,4 @@
 {"t":"2026-07-28T01:29:34Z","eid":"b3c5bde7096dad92","ag":"orchestrator-fable","ev":"bench","id":"M-01KYK5ETQ2F2290TAC6YKKS2XD","k":"bench","ti":"outcome-navigation","note":"outcome-navigation|arch=any|cpu=any|gpu=any|os=any|ram=any","sum":"d judge-batch navigated 3 count Δ+0 ~; d judge-batch valid 1 count Δ+0 ~","body":"superseded v1 (M-01KYJWG08TFRC9F3B2FKN3QYWQ): judge-batch navigated=3; judge-batch valid=1"}
 {"t":"2026-07-28T01:30:02Z","eid":"a659ea2a492fadc4","ag":"orchestrator-fable","ev":"create","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","k":"bug","ti":"SPECTACKLE_AGENT lives only in hint texts, never in the work tool description"}
 {"t":"2026-07-28T01:43:17Z","eid":"c285ee6f203218b2","ag":"orchestrator-fable","ev":"move","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","fr":"draft","to":"active"}
+{"t":"2026-07-28T01:48:31Z","eid":"4c2bc89f8a1c3609","ag":"orchestrator-fable","ev":"move","id":"B-01KYK5FNM4F3FBMR7W5MGTC6ED","fr":"active","to":"done"}
