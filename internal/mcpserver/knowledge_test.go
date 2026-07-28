@@ -79,9 +79,15 @@ func TestKnowledgeExportNoEntries(t *testing.T) {
 	if !strings.Contains(out, "ok export entries=2 rule=1 adr=1 intent=0") {
 		t.Fatalf("export trailer: %q", out)
 	}
-	wantSource := strings.TrimPrefix(moduleRepoURL(), "https://")
-	if !strings.Contains(out, "sources:\n    - "+wantSource) && !strings.Contains(out, wantSource) {
-		t.Fatalf("export missing derived module-path source %q: %q", wantSource, out)
+	// the source identifies THE WORKSPACE, not the running binary's module
+	// (B-01KYMCHNJCFBP) — with no git remote it falls back to the
+	// workspace directory name, which is what this fixture exercises.
+	wantSource := filepath.Base(root)
+	if !strings.Contains(out, wantSource) {
+		t.Fatalf("export missing the workspace source %q: %q", wantSource, out)
+	}
+	if strings.Contains(out, "jxsl13/spectackle") {
+		t.Fatalf("export must not stamp the running binary's module as the source: %q", out)
 	}
 	if !strings.Contains(out, "carry this sentence into a portable artifact verbatim") {
 		t.Fatalf("export missing the rule's sentence: %q", out)
@@ -126,9 +132,9 @@ func TestKnowledgeExportBrownfieldEntries(t *testing.T) {
 	if a.Entries[0].Key != want {
 		t.Fatalf("brownfield entry key = %q, want %q (Extract's own formula)", a.Entries[0].Key, want)
 	}
-	wantSource := strings.TrimPrefix(moduleRepoURL(), "https://")
+	wantSource := filepath.Base(root)
 	if len(a.Entries[0].Sources) != 1 || a.Entries[0].Sources[0].Source != wantSource {
-		t.Fatalf("brownfield entry source = %+v, want %q", a.Entries[0].Sources, wantSource)
+		t.Fatalf("brownfield entry source = %+v, want the workspace label %q", a.Entries[0].Sources, wantSource)
 	}
 }
 
@@ -332,4 +338,87 @@ func writeTempArtifact(t *testing.T, dir, name string, raw []byte) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// TestExportSourceIdentifiesTheWorkspace pins B-01KYMCHNJCFBP (found by
+// an independent gap hunt): export used to stamp the RUNNING BINARY's
+// module path, so every repository a shared installation touched exported
+// the identical source — merges reported sources=1, a rule found in two
+// repos counted once, and both sides of a conflict rendered the same src=.
+func TestExportSourceIdentifiesTheWorkspace(t *testing.T) {
+	srcOf := func(t *testing.T, root string) string {
+		t.Helper()
+		sess := connectRoot(t, root)
+		out := callText(t, sess, "knowledge", map[string]any{"op": "export"})
+		for _, l := range strings.Split(out, "\n") {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "- "); ok && strings.Contains(l, "sources") {
+				return rest
+			}
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(l), "source: "); ok {
+				return rest
+			}
+		}
+		// the artifact renders sources as a yaml list; take the first
+		// indented entry after the sources: key
+		lines := strings.Split(out, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(strings.TrimSpace(l), "sources:") && i+1 < len(lines) {
+				return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lines[i+1]), "-"))
+			}
+		}
+		t.Fatalf("no source in the exported artifact:\n%s", out)
+		return ""
+	}
+	seed := func(t *testing.T, name string) string {
+		t.Helper()
+		root := filepath.Join(t.TempDir(), name)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sess := connectRoot(t, root)
+		callText(t, sess, "rule", map[string]any{
+			"op": "add", "dir": "", "pattern": "U", "stem": "SRC",
+			"system": "the " + name + " probe", "response": "return exactly 1",
+		})
+		return root
+	}
+	a, b := seed(t, "alpha-repo"), seed(t, "beta-repo")
+	sa, sb := srcOf(t, a), srcOf(t, b)
+	if sa == sb {
+		t.Fatalf("two unrelated workspaces exported the SAME source %q — provenance cannot distinguish them", sa)
+	}
+	if !strings.Contains(sa, "alpha-repo") || !strings.Contains(sb, "beta-repo") {
+		t.Fatalf("each source must identify its own workspace: %q / %q", sa, sb)
+	}
+}
+
+// TestNormalizeRepoLabelCollapsesCloneURLShapes: two clones of ONE
+// repository must never look like two sources.
+func TestNormalizeRepoLabelCollapsesCloneURLShapes(t *testing.T) {
+	want := "github.com/o/r"
+	for _, u := range []string{
+		"https://github.com/o/r.git", "https://github.com/o/r",
+		"git@github.com:o/r.git", "ssh://git@github.com/o/r.git",
+		"https://user:tok@github.com/o/r.git", "https://github.com/o/r/",
+	} {
+		if got := normalizeRepoLabel(u); got != want {
+			t.Errorf("normalizeRepoLabel(%q) = %q, want %q", u, got, want)
+		}
+	}
+	if got := normalizeRepoLabel("  "); got != "" {
+		t.Errorf("an empty remote must yield an empty label, got %q", got)
+	}
+	// a self-hosted remote reached with and without an explicit SSH port
+	// is still ONE source (cross-val-prov WARN)
+	for _, u := range []string{
+		"ssh://git@example.com:2222/o/r.git", "ssh://git@example.com/o/r.git",
+		"git@example.com:o/r.git",
+	} {
+		if got := normalizeRepoLabel(u); got != "example.com/o/r" {
+			t.Errorf("normalizeRepoLabel(%q) = %q, want %q", u, got, "example.com/o/r")
+		}
+	}
 }
