@@ -29,3 +29,11 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
+
+## B-01KYKSKMHNE2HS9H235BG6DV4B work op=start does not enforce the target lease against a live sibling worktree
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/mcpserver, docs
+
+Found by the 2026-07-28 swarm-contention benchmark (record swarm-contention v1) and REPRODUCED DETERMINISTICALLY by its honesty validator in a fresh repo: two approved tasks both declaring targets=[contended.go], two identities, sequential work op=start while the first worktree stays live - the second start SUCCEEDS, and lease op=ls is EMPTY right after the first start. So this is not an overlap-check miss: the start auto-claim creates NO lease for file targets at all, despite the documented contract (work op=start auto-claims its item+targets; prefix-overlap of a live foreign lease refuses with ! LEASE E naming the holder, SPX-SWM-003). Convergence still happened through the git conflict at submit (no lost update - both functions landed), so severity is degraded-guarantee, not corruption. FIX direction: make work op=start actually claim normalized targets (the lease machinery exists - explicit lease op=claim works) so the second start refuses per the docs - or, if late-conflict convergence is the intended worktree-flow design, retire the auto-claims-targets sentence from SPX-SWM-003/the work docs and document the merge layer as the arbiter. This is a real design decision: the lease path saves the loser judge the whole wasted implementation (refuse at start), the conflict path costs a full implement-then-resolve round but never blocks. TEST: two-identity concurrent-start e2e pinning whichever contract is decided. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1.
