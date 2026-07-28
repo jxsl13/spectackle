@@ -119,3 +119,25 @@ OBSERVED vs EXPECTED. Observed: identical pending render for two different condi
 DIRECTION, not a decision. Options, roughly increasing in strictness: (a) render the two states distinctly, e.g. a <rule> <anchor> unresolvable - anchors name graph nodes (go:pkg.Symbol), not paths; (b) additionally suggest the node, since find scope=code already resolves a path to the symbols declared in it; (c) refuse a path-shaped applies outright at rule op=add. Whichever is chosen, check should distinguish never-resolvable from pending in its own output too, since a permanently pending anchor is a defect while a freshly added one is not.
 
 VERIFY: a test that adds a rule with a path-shaped applies and asserts the render names it unresolvable; a test that check separates the two classes.
+
+## B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/item, internal/mcpserver
+
+Found by a researched comparison against edg-l/engram-mcp, then verified directly against this codebase.
+
+TODAY. item.Item.Status is a bare string (internal/item/item.go:92); the enum proposed|accepted|superseded|deprecated exists only in a doc comment there and in a jsonschema DESCRIPTION at internal/mcpserver/tools.go:117, which is documentation, not validation - nothing rejects an arbitrary value. The only place all four values appear in executable code is a test. find scope=adr maps to kinds {adr} (internal/mcpserver/tools.go:323) with no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one in the render. And nothing anywhere records WHICH decision replaced a retired one: supersession is an assertion an agent types into a field, with no edge, no event, and no way to ask what superseded ADR-X.
+
+WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted on answer (T-01KYMPN0PNEWV, just landed). As repositories exchange knowledge repeatedly, decisions on the same question accumulate: the workspace ends up holding several accepted ADRs for one question, ordered by nothing, with the superseding relationship recorded nowhere. The feature that just shipped to stop conflicts from vanishing therefore has no answer to which surviving decision is current. find scope=adr degrades monotonically as a repository ages, which also makes it a token-cost regression on the hottest research path.
+
+DIRECTION, decided by the comparison. Make superseded UNREACHABLE BY ASSIGNMENT: it becomes a consequence of minting a replacement that names its predecessor, never a value an agent writes. Concretely: (1) validate Status against the four values at the write path, refusing anything else; (2) refuse a direct transition to superseded, with the refusal naming the operation that IS allowed; (3) the replacement path writes ONE journal event carrying both IDs - compaction's keep-list already preserves decide forever, so the edge survives archival without new retention machinery; (4) find scope=adr excludes superseded by default with an opt-in to include them, and get on a superseded ADR names its replacement.
+
+REJECTED ALTERNATIVE, and why. engram-mcp wraps insert + status flip + edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing (superseded is a consequence), not the mechanism.
+
+TESTS: minting a replacement retires the predecessor and both IDs land in one event; a direct status=superseded write is refused and the refusal names the allowed operation; find scope=adr returns only live decisions by default and all of them with the opt-in; get on a retired ADR names its replacement; an invalid status value is refused.
+
+MEASURE BEFORE SHIPPING THE FILTER. On a workspace holding at least five retired ADRs, benchmark the find scope=adr output token delta with and without the default filter. If it sits inside the bench noise floor, ship the validation and the edge and skip the filter - it is then discipline rather than savings, and should be justified as such rather than as a token win.
+
+VERIFY: go build ./... && go test ./... -count=1 && gofmt -l . empty.
