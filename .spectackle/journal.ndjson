@@ -586,3 +586,4 @@
 {"t":"2026-07-28T06:41:37Z","eid":"e06f44726ee1bf94","ag":"orchestrator-fable","ev":"create","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","k":"bug","ti":"rule op=edit with only id claims ok while writing nothing"}
 {"t":"2026-07-28T06:57:48Z","eid":"e6625bdab9b2c669","ag":"orchestrator-fable","ev":"move","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","fr":"draft","to":"active"}
 {"t":"2026-07-28T07:02:14Z","eid":"b16cfb9e6d5b3d08","ag":"orchestrator-fable","ev":"move","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","fr":"active","to":"done"}
+{"t":"2026-07-28T07:10:29Z","eid":"9755327b7287821e","ag":"orchestrator-fable","ev":"validate","id":"B-01KYKQA6N1FDQ9W8ADVHN6CV54","op":"render","hash":"32cd50761cb169b4ecc554ef4e041d56756a9f8bd5ba35805a27973dc2fcbdb1"}
