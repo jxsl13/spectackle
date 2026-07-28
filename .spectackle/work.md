@@ -49,7 +49,7 @@ choice: raw values ride the journal event too
 
 ## B-01KYK5FNM4F3FBMR7W5MGTC6ED SPECTACKLE_AGENT lives only in hint texts, never in the work tool description
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 targets: internal/mcpserver
 
