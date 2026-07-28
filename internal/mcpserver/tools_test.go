@@ -1844,12 +1844,22 @@ func TestReal(t *testing.T) {
 	// import need not resolve.
 	delegSrc := `package demo
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func assertFoo(t *testing.T, got, want int) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("got %d want %d", got, want)
+	}
+}
+
+func viaHelper(t *testing.T, ok bool) {
+	if !ok {
+		assertFoo(t, 0, 1)
 	}
 }
 
@@ -1861,12 +1871,46 @@ func TestDelegated(t *testing.T) {
 	t.Run("local helper", func(t *testing.T) {
 		assertFoo(t, 1+1, 2)
 	})
+	t.Run("transitive helper", func(t *testing.T) {
+		viaHelper(t, true)
+	})
 }
 `
 	if err := os.WriteFile(filepath.Join(root, "deleg_test.go"), []byte(delegSrc), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "VAC") {
-		t.Fatalf("t-delegating subtests must not flag:\n%s", out)
+		t.Fatalf("genuinely delegating subtests must not flag:\n%s", out)
+	}
+	if err := os.Remove(filepath.Join(root, "deleg_test.go")); err != nil {
+		t.Fatal(err)
+	}
+
+	// (g) the round-2 bypass shapes (cross-val-vac): passing t to a
+	// no-op or a formatter earns NO credit — both must still flag.
+	bypassSrc := `package demo
+
+import (
+	"fmt"
+	"testing"
+)
+
+func noop(t *testing.T) {}
+
+func TestBypass(t *testing.T) {
+	t.Run("noop delegation", func(t *testing.T) {
+		noop(t)
+	})
+	t.Run("formatter touch", func(t *testing.T) {
+		_ = fmt.Sprintf("%v", t)
+	})
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "bypass_test.go"), []byte(bypassSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out = callText(t, sess, "check", map[string]any{})
+	if got := strings.Count(out, "! VAC W bypass_test.go:"); got != 2 {
+		t.Fatalf("both bypass shapes must flag, got %d:\n%s", got, out)
 	}
 }

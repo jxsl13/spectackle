@@ -472,31 +472,105 @@ func vacuousTestLines(path string, src []byte) []string {
 	if err != nil {
 		return nil
 	}
-	// isAssert: a t-method failure call, OR any call that passes a
-	// *testing.T identifier onward — delegating t IS asserting: the
-	// callee can fail the test, which covers testify (require.NoError(t,
-	// err)) and local assert helpers (assertFoo(t, ...)) alike. Both
-	// shapes false-positived when the detector went in-loop at check
-	// (cross-val-vac findings 1+2). tNames carries every identifier bound
-	// to a *testing.T in the enclosing scopes.
+	// Delegation is assertion ONLY when the callee can actually fail the
+	// test (cross-val-vac round 2: crediting ANY call that takes a t
+	// argument let noop(t) and fmt.Sprintf("%v", t) silence the
+	// detector). Two AST-only ways a callee earns credit:
+	//   1. it is a call through a KNOWN assertion package (the file's own
+	//      import specs matched by path — testify, gomega, gotest.tools);
+	//   2. it is a SAME-FILE helper whose body (transitively, same-file
+	//      fixpoint) contains a genuine t-method failure call, AND the
+	//      call site passes a *testing.T identifier to it.
+	// Cross-file helpers stay outside the trace — a recorded limitation,
+	// preferable to re-opening the noop(t) bypass.
+	assertPkgs := map[string]bool{}
+	for _, imp := range f.Imports {
+		p := strings.Trim(imp.Path.Value, `"`)
+		if !strings.Contains(p, "testify") && !strings.Contains(p, "gomega") && !strings.Contains(p, "gotest.tools") {
+			continue
+		}
+		name := p
+		if i := strings.LastIndex(p, "/"); i >= 0 {
+			name = p[i+1:]
+		}
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		assertPkgs[name] = true
+	}
+	isTFail := func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return false
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		switch sel.Sel.Name {
+		case "Error", "Errorf", "Fatal", "Fatalf", "Fail", "FailNow", "Skip", "Skipf":
+			return true
+		}
+		return false
+	}
+	// canFail: same-file functions whose bodies (transitively) reach a
+	// t-method failure call — the one-hop-and-beyond helper trace.
+	canFail := map[string]bool{}
+	for {
+		changed := false
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || canFail[fn.Name.Name] {
+				continue
+			}
+			hits := false
+			ast.Inspect(fn.Body, func(x ast.Node) bool {
+				if hits {
+					return false
+				}
+				if isTFail(x) {
+					hits = true
+					return false
+				}
+				if call, ok := x.(*ast.CallExpr); ok {
+					if id, ok := call.Fun.(*ast.Ident); ok && canFail[id.Name] {
+						hits = true
+						return false
+					}
+				}
+				return true
+			})
+			if hits {
+				canFail[fn.Name.Name] = true
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
 	isAssert := func(n ast.Node, tNames map[string]bool) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return false
 		}
 		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			switch sel.Sel.Name {
-			case "Error", "Errorf", "Fatal", "Fatalf", "Fail", "FailNow", "Skip", "Skipf":
+			if isTFail(call) {
 				return true
-			case "Run":
-				// t.Run's own t argument is the subtest wiring, not a
-				// delegation — judged by its literal's body instead
-				return false
 			}
-		}
-		for _, a := range call.Args {
-			if id, ok := a.(*ast.Ident); ok && tNames[id.Name] {
+			// a call through a known assertion package: require.NoError,
+			// assert.Equal, gomega matchers — AST-only import matching
+			if pkg, ok := sel.X.(*ast.Ident); ok && assertPkgs[pkg.Name] {
 				return true
+			}
+			return false
+		}
+		// a same-file can-fail helper receiving t
+		if id, ok := call.Fun.(*ast.Ident); ok && canFail[id.Name] {
+			for _, a := range call.Args {
+				if aid, ok := a.(*ast.Ident); ok && tNames[aid.Name] {
+					return true
+				}
 			}
 		}
 		return false
