@@ -154,8 +154,9 @@ func (o *Offline) Ready(pr PR) (PR, error) {
 	return cp, nil
 }
 
-// Draft converts the tracked pull request back to draft — the reopen
-// mirror of Ready. Saved like every other mutation (B-01KYDV): an unsaved
+// Draft converts the tracked pull request back to draft — the mirror of
+// Ready, kept as forge capability (no lifecycle edge calls it since
+// PR-DRAFT-001). Saved like every other mutation (B-01KYDV): an unsaved
 // flip would be invisible to the next process's Find.
 func (o *Offline) Draft(pr PR) (PR, error) {
 	o.mu.Lock()

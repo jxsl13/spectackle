@@ -1685,8 +1685,9 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		next = "next: work op=start item=" + sc.short(it.ID) + " leases the scope and opens a worktree\n"
 	}
 	// The state transition drove the git workflow (P-01KYDB): branch, commit,
-	// push and a draft pull request on the way into active; ready on done;
-	// merge on archive. Its records are appended, never substituted for the
+	// push and a draft pull request on the way into active; gates at done
+	// with the PR held draft; the single ready flip and merge at archive
+	// (PR-DRAFT-001). Its records are appended, never substituted for the
 	// item record, and a forge problem is a note here rather than a failed
 	// transition — the lifecycle state is the server's own, and an unreachable
 	// forge must not be able to stop an item from moving.
