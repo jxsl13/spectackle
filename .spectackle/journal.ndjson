@@ -657,3 +657,4 @@
 {"t":"2026-07-28T18:32:36Z","eid":"2dddfdc971cdb815","ag":"ag-2a46","ev":"escalate","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","note":"ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ","rnd":3,"nd":["ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ"]}
 {"t":"2026-07-28T18:33:08Z","eid":"062a81cc55e347fc","ag":"ag-0140","ev":"decide","id":"ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ","note":"rescope"}
 {"t":"2026-07-28T18:33:08Z","eid":"cbb6a7487cfe5622","ag":"ag-0140","ev":"decide","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","to":"draft","note":"decide ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ: rescope"}
+{"t":"2026-07-28T18:33:44Z","eid":"3b9b59a4f3068da6","ag":"ag-4b3e","ev":"revise","id":"T-01KYMPN0PNEWVS330NKPSQNRDT","note":"body+targets revised"}
