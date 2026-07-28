@@ -182,3 +182,4 @@
 {"t":"2026-07-28T13:26:03Z","eid":"13ea27d93b78d0dd","ag":"orchestrator-fable","ev":"move","id":"B-01KYMCJFC3EMNBBP3T1S1AXD66","dir":"internal/mcpserver","fr":"draft","to":"active"}
 {"t":"2026-07-28T13:30:36Z","eid":"f4d4ca1eb0bdf8a7","ag":"ag-9dfb","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"7533eee3eab65855","nh":"a69e067718f52fa4"}
 {"t":"2026-07-28T13:31:37Z","eid":"8c7b9c81fe0cbc94","ag":"orchestrator-fable","ev":"move","id":"B-01KYMCJFC3EMNBBP3T1S1AXD66","dir":"internal/mcpserver","fr":"active","to":"done"}
+{"t":"2026-07-28T14:02:20Z","eid":"ec3a6b9cb84032fe","ag":"ag-ff8b","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"a69e067718f52fa4","nh":"19b99d7fd5d976c6"}
