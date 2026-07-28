@@ -680,3 +680,5 @@
 {"t":"2026-07-28T21:29:54Z","eid":"68e84403075527c5","ag":"ag-cfb2","ev":"create","id":"B-01KYNA4PJNF5KAH6M0640ZY7ZT","k":"bug","ti":"ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr"}
 {"t":"2026-07-28T21:30:06Z","eid":"d5d5c02f3a12e338","ag":"ag-a415","ev":"grill","id":"P-01KYN5YCXGENMRNK00CQTPJM1P","gr":"2026-07-28 open=0","hash":"75b2107df4f2a6ff08bd4fd9ebc130eb31d8f3ec7bf34325f6877dd0bce5554f"}
 {"t":"2026-07-28T21:30:59Z","eid":"00aa6195033ae6f3","ag":"ag-308b","ev":"create","id":"R-01KYNA6NJ3F109VTE35QYRM64Q","k":"research","ti":"gap hunt: where else does a lifecycle boundary compress a record's substance away"}
+{"t":"2026-07-28T21:31:10Z","eid":"d5060ee2c2b97ff6","ag":"ag-ac18","ev":"create","id":"ADR-01KYNA70PQFTBSAP0QHYXMTVGT","k":"adr","ti":"Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?"}
+{"t":"2026-07-28T21:31:10Z","eid":"7f6fe0e2bdd22a34","ag":"ag-ac18","ev":"move","id":"ADR-01KYNA70PQFTBSAP0QHYXMTVGT","fr":"draft","to":"submitted"}
