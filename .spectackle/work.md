@@ -50,20 +50,21 @@ kind: proposal
 state: draft
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
-needs: ADR-01KYMKEG7YE2PS8DSJZJW799P9
 targets: internal/knowledge, internal/mcpserver/knowledge.go
 
 Capability gap from the R-01KYMA7EXME6K gap hunt (WARN 6), empirically confirmed: internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved as a resolution block, but NO MCP op reaches it - knowledge accepts export|merge|apply only. Consequence measured in the hunt: merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate; applying that condensate lands neither side, so both conflicting decisions vanish from the target and the only way to carry a curated outcome forward is hand-editing the artifact markdown - which defeats the server-is-the-only-writer model the tool otherwise holds. Not data loss (the conflict is reported first, sources keep their own copies), but the documented promise that curation is a humans call has no call. OPTIONS to weigh before implementing: (a) knowledge op=resolve key=<conflict key> choose=<source|decision> writing the winner plus a resolution block into the condensate; (b) decide-integration - each conflict mints an ADR in the applying workspace and the answer selects the winner (reuses ASK-SURFACE-001 and needs no new grammar); (c) document the exclusion as intended and point at manual curation. Needs a user decision (b is the most spectackle-shaped but the heaviest). Child tasks at approval.
 
 ## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
 kind: adr
-state: submitted
+state: done
 created: 2026-07-28
 context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
-status: proposed
+decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+status: accepted
 
 kind: radio
 option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
 option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
 option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
+choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
