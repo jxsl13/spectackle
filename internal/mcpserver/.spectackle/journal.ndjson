@@ -183,3 +183,4 @@
 {"t":"2026-07-28T13:30:36Z","eid":"f4d4ca1eb0bdf8a7","ag":"ag-9dfb","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"7533eee3eab65855","nh":"a69e067718f52fa4"}
 {"t":"2026-07-28T13:31:37Z","eid":"8c7b9c81fe0cbc94","ag":"orchestrator-fable","ev":"move","id":"B-01KYMCJFC3EMNBBP3T1S1AXD66","dir":"internal/mcpserver","fr":"active","to":"done"}
 {"t":"2026-07-28T14:02:20Z","eid":"ec3a6b9cb84032fe","ag":"ag-ff8b","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"a69e067718f52fa4","nh":"19b99d7fd5d976c6"}
+{"t":"2026-07-28T14:10:13Z","eid":"00deec6f8e015d83","ag":"orchestrator-fable","ev":"validate","id":"B-01KYMCJFC3EMNBBP3T1S1AXD66","dir":"internal/mcpserver","op":"render","hash":"676bd9c55181b3361f4330919aaf91d7c987f35a437d69fafa98c6cf154177c7"}
