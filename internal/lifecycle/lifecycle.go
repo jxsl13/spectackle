@@ -33,6 +33,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/spec"
@@ -343,6 +344,19 @@ func lastNeed(needs []string) string {
 	return needs[len(needs)-1]
 }
 
+// shortID renders the display form of a record ID: kind prefix plus the
+// first ids.MinRecordPrefixLen body characters — the same convention as
+// the server's shortDisplayID, duplicated locally because lifecycle cannot
+// import the server package (B-01KYKEWMHEFW1; promote to a shared home if
+// a third caller appears). Legacy or short IDs pass through unchanged.
+func shortID(id string) string {
+	kind, body, ok := strings.Cut(id, "-")
+	if !ok || len(body) <= ids.MinRecordPrefixLen {
+		return id
+	}
+	return kind + "-" + body[:ids.MinRecordPrefixLen]
+}
+
 // Escalate transitions a done item that has exhausted its feedback rounds
 // (see ErrRoundsExhausted) into the item.StateBlocked side state and mints an
 // adr item (kind=adr) recording the ways out: rescope, reject, or
@@ -356,11 +370,20 @@ func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Ite
 		options = append(options, "override-once")
 	}
 	optStr := strings.Join(options, "|")
-	body := fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide %s outcome=%s.",
-		it.ID, it.Rounds, it.ID, optStr)
+	// The hint is the EXACT callable invocation (B-01KYKEWMHEFW1: a judge
+	// following the old "decide <task-id> outcome=..." text failed twice —
+	// decide has no outcome field, and the target is the ADR, not the
+	// task). The ADR's own ID exists only after Draft mints it, so the
+	// body is completed in a second write.
+	body := fmt.Sprintf("%s exhausted its feedback rounds (%d).", shortID(it.ID), it.Rounds)
 	d, err := Draft(ws, mint, "adr", "escalate "+it.ID+": "+optStr, body, it.Dir, it.ID, nil)
 	if err != nil {
 		return it, item.Item{}, err
+	}
+	d.Body = fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide op=answer id=%s choose=%s.",
+		shortID(it.ID), it.Rounds, shortID(d.ID), optStr)
+	if err := item.Upsert(ws, d); err != nil {
+		return it, d, err
 	}
 	it.State = item.StateBlocked
 	it.Needs = append(it.Needs, d.ID)
