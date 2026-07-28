@@ -593,3 +593,5 @@
 {"t":"2026-07-28T07:21:42Z","eid":"149306791b49c337","ag":"orchestrator-fable","ev":"bench","id":"M-01KYKSKKPDFNTS9AJW3P19WKT0","k":"bench","ti":"swarm-contention","note":"swarm-contention|arch=any|cpu=any|gpu=any|os=any|ram=any"}
 {"t":"2026-07-28T07:21:43Z","eid":"c8b611030c778a23","ag":"orchestrator-fable","ev":"create","id":"B-01KYKSKMHNE2HS9H235BG6DV4B","k":"bug","ti":"work op=start does not enforce the target lease against a live sibling worktree"}
 {"t":"2026-07-28T07:32:21Z","eid":"c2a95478a7d2f70e","ag":"orchestrator-fable","ev":"revise","id":"B-01KYKSKMHNE2HS9H235BG6DV4B","note":"body+targets revised"}
+{"t":"2026-07-28T07:37:30Z","eid":"1f5d63e9451e3468","ag":"orchestrator-fable","ev":"create","id":"ADR-01KYKTGGPREG2B7XJ1FTY25E7S","k":"adr","ti":"Worktree contention: enforce the lease at work op=start, or keep merge-layer arbitration?"}
+{"t":"2026-07-28T07:37:30Z","eid":"a87f4e855f9f656f","ag":"orchestrator-fable","ev":"move","id":"ADR-01KYKTGGPREG2B7XJ1FTY25E7S","fr":"draft","to":"submitted"}
