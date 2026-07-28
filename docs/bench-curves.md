@@ -219,6 +219,18 @@ the outcome judge batch is **M-01KYJWG08TFRC** (`outcome-navigation`:
 | T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. Record: **M-01KYJWFQ8SE68**. |
 | T-01KYJ5FAP6 online render diet (RENDER-PARITY-001, green edges collapse to one artifact line) | −377B (~−94 tokens) per online lifecycle | +0B | measured 2026-07-28 from the real v0.5.5 renders (PR 195/197 green paths, 15 g-lines/525B) vs the diet single lines (3 g-lines/148B, same URL/SHA lengths): activation → `g pr N draft URL`, done → `g pr N draft checks passing`, archive → `g pr N merged SHA`. Failure/warning surfaces untouched (never-silent means failures speak); parity pinned by TestOnlineRenderParity — a green online lifecycle renders at most one g-line more per edge than offline. Record: **M-01KYKCXKH2FG6**. |
 
+### Worktree batch: the swarm flow on v0.6.3 (T-01KYKPPZH0, 2026-07-28; record M-01KYKQA5VKF6Y = worktree-navigation v1)
+
+n=3 fresh judges, scenario=worktree (start-lease → in-worktree edit →
+submit gate/integrate/merge/replay), v0.6.3 — the scenario matrix is now
+complete. **Validity 3/3** (second consecutive fully valid batch): j1 40
+calls/~1625 tok, j2 22/~617, j3 44/~1516; all `change=true task=done
+flow=true check=true`. Each judge hit the WT identity refusal exactly once
+and recovered in one step from its hint. j3 exceeded the brief — it
+noticed the fixture rule semantically contradicted the requested change
+and edited the rule to match — and found one real defect (filed):
+`rule op=edit` with only `id` claims ok while writing nothing.
+
 ### Outcome batch: v0.6.2 VAC finding (T-01KYKM21QF, 2026-07-28; record M-01KYKMNFN2EQK = outcome-navigation v3)
 
 n=3 fresh judges, scenario=outcome, v0.6.2 (in-loop `! VAC W` vacuous-test
