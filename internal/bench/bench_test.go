@@ -216,6 +216,40 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	}
 }
 
+// TestAgentReportViolationsNeverSilent pins B-01KYJ67RF9: a run whose
+// goals all held but which a violation voided must SHOW the violation and
+// say so in the verdict — two 2026-07-27 outcome judges scored
+// task=archived check=true first-pass 5/5 yet the report claimed "goals
+// not reached" and never rendered why.
+func TestAgentReportViolationsNeverSilent(t *testing.T) {
+	sc := AgentScore{
+		Scenario: "outcome", Calls: 10, Bytes: 100, Tokens: 25,
+		TaskState: "archived", BugState: "rejected", CheckOK: true,
+		GoalsOK:    true,
+		Violations: []string{"vacuous test: judge_test.go asserts nothing"},
+	}
+	out := AgentReport(sc)
+	if !strings.Contains(out, "agent violation vacuous test: judge_test.go asserts nothing") {
+		t.Fatalf("the violation must render before the verdict:\n%s", out)
+	}
+	if !strings.Contains(out, "INVALID — violations (1)") {
+		t.Fatalf("goals-held + violation must say violations, not goals:\n%s", out)
+	}
+	if strings.Contains(out, "goals not reached") {
+		t.Fatalf("the mislabel is back:\n%s", out)
+	}
+	// goals actually red: the old text stays
+	red := AgentScore{Scenario: "outcome", TaskState: "done", CheckOK: false}
+	if out := AgentReport(red); !strings.Contains(out, "INVALID — goals not reached") {
+		t.Fatalf("goals-red must keep the goals-not-reached verdict:\n%s", out)
+	}
+	// valid runs render no violation machinery
+	green := AgentScore{Scenario: "outcome", GoalsOK: true, Valid: true}
+	if out := AgentReport(green); !strings.Contains(out, "valid — goals reached") || strings.Contains(out, "violation") {
+		t.Fatalf("a valid run must stay clean:\n%s", out)
+	}
+}
+
 // TestAggregateReportSpreadAndExitGate pins the n-run judge summary
 // (T-01KYE2): min/median/max spreads (lower-middle median — tiny samples
 // carry no half-value precision), the validity ratio, and the all-valid

@@ -319,7 +319,8 @@ func scoreWorktree(bin, dir string, sc AgentScore, meterRaw string) (AgentScore,
 	}
 	sc.DecideOK = startOK && submitOK // reused column: the flow proof
 
-	sc.Valid = sc.RuleOK && sc.TaskState == "done" && sc.DecideOK && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
+	sc.GoalsOK = sc.RuleOK && sc.TaskState == "done" && sc.DecideOK && sc.CheckOK
+	sc.Valid = sc.GoalsOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
@@ -390,6 +391,11 @@ type AgentScore struct {
 	// Non-empty kills Valid — a surface that delegates mechanical git back
 	// to the agent fails the run regardless of cost.
 	Violations []string
+	// GoalsOK is the scenario's goal conjunction ALONE — set beside every
+	// Valid assignment so the report can tell "goals held but violations
+	// voided the run" from "goals not reached" (B-01KYJ67RF9) without
+	// re-deriving scoring in the render.
+	GoalsOK bool
 
 	// Outcome scenario (T-01KYFSQQ): hidden-acceptance results as "n/m"
 	// fractions — FirstPass at the first done edge (or "unavailable" when
@@ -549,7 +555,8 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 		sc.BugState = "rejected"
 	}
 
-	sc.Valid = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
+	sc.GoalsOK = sc.TaskState == "archived" && sc.BugState == "rejected" && sc.CheckOK
+	sc.Valid = sc.GoalsOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
@@ -589,7 +596,8 @@ func scoreTricky(bin, dir string, sc AgentScore, meterRaw string) (AgentScore, e
 	}
 	sc.Scenario = "tricky"
 	sc.RuleOK = ruleOK
-	sc.Valid = ruleOK && sc.TaskState == "draft" && sc.DecideOK && sc.CheckOK && !sc.Disqualified && len(sc.Violations) == 0
+	sc.GoalsOK = ruleOK && sc.TaskState == "draft" && sc.DecideOK && sc.CheckOK
+	sc.Valid = sc.GoalsOK && !sc.Disqualified && len(sc.Violations) == 0
 	return sc, nil
 }
 
@@ -611,11 +619,21 @@ func AgentReport(sc AgentScore) string {
 	default:
 		fmt.Fprintf(&b, "agent goal task=%s bug=%s check=%v\n", orAbsent(sc.TaskState), orAbsent(sc.BugState), sc.CheckOK)
 	}
+	// Violations render BEFORE the verdict, one line each — a run voided
+	// by a violation while every goal held used to claim "goals not
+	// reached", and the orchestrator had to re-implement the trap script
+	// to learn why (B-01KYJ67RF9). Never-silent applies to the judge
+	// harness too.
+	for _, v := range sc.Violations {
+		fmt.Fprintf(&b, "agent violation %s\n", v)
+	}
 	switch {
 	case sc.Disqualified:
 		fmt.Fprintf(&b, "agent verdict: DISQUALIFIED — %s\n", sc.DisqualifyReason)
 	case sc.Valid:
 		b.WriteString("agent verdict: valid — goals reached\n")
+	case sc.GoalsOK:
+		fmt.Fprintf(&b, "agent verdict: INVALID — violations (%d)\n", len(sc.Violations))
 	default:
 		b.WriteString("agent verdict: INVALID — goals not reached\n")
 	}
