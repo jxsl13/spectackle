@@ -597,3 +597,4 @@
 {"t":"2026-07-28T07:37:30Z","eid":"a87f4e855f9f656f","ag":"orchestrator-fable","ev":"move","id":"ADR-01KYKTGGPREG2B7XJ1FTY25E7S","fr":"draft","to":"submitted"}
 {"t":"2026-07-28T09:30:44Z","eid":"bf0e44a100ad4973","ag":"orchestrator-fable","ev":"decide","id":"ADR-01KYKTGGPREG2B7XJ1FTY25E7S","note":"enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)"}
 {"t":"2026-07-28T09:30:45Z","eid":"43da156ec81f9001","ag":"orchestrator-fable","ev":"move","id":"B-01KYKSKMHNE2HS9H235BG6DV4B","fr":"draft","to":"active"}
+{"t":"2026-07-28T10:14:19Z","eid":"f872cb5f2b25ded6","ag":"orchestrator-fable","ev":"move","id":"B-01KYKSKMHNE2HS9H235BG6DV4B","fr":"active","to":"done"}
