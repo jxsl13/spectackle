@@ -49,7 +49,7 @@ choice: raw values ride the journal event too
 
 ## T-01KYK7CBRTFEWVVGZTS7ZYDPH8 drift healer: hash-first rebind by (tilde-stem, CHash); cross-file heals without a hash match audit instead
 kind: task
-state: active
+state: done
 created: 2026-07-28
 refs: B-01KYJB3SGKFA2R6PYVE1Y0PP74
 grilled: 2026-07-28 open=1
