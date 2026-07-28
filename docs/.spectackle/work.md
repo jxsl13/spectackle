@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYKEJF29EVJVSMJVT3MDAWFK tricky-scenario judge batch on v0.6.0: blocked, decide and reopen states measured with independent agents
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
