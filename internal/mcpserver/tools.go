@@ -1972,13 +1972,34 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		case drift.Pending:
 			pending++
 		case drift.Moved:
-			n, _ := s.g.Node(r.Anchor.Node)
+			// hash-first re-resolution may have re-bound the anchor to a
+			// renumbered node ID (B-01KYJB3SGK) — the refresh follows the
+			// REBOUND node, not the stored one
+			nodeID := r.Anchor.Node
+			if r.NewNode != "" {
+				nodeID = r.NewNode
+			}
+			n, _ := s.g.Node(nodeID)
 			end := n.EndLine
 			if end == 0 {
 				end = n.Line
 			}
 			a := r.Anchor
+			a.Node = nodeID
 			a.File, a.Start, a.End = n.File, n.Line, end
+			if nodeID != r.Anchor.Node {
+				// Upsert keys on (Rule, Node), so the re-bound anchor
+				// would otherwise leave the stale-ID row behind — drop it
+				// in place first, then say what happened
+				for i := range anchors {
+					if anchors[i].Rule == a.Rule && anchors[i].Node == r.Anchor.Node {
+						anchors = append(anchors[:i], anchors[i+1:]...)
+						break
+					}
+				}
+				lines = append(lines, fmt.Sprintf("d rebound %s %s -> %s %s:%d-%d (hash match)",
+					a.Rule, r.Anchor.Node, nodeID, a.File, a.Start, a.End))
+			}
 			anchors = drift.Upsert(anchors, a)
 			changed = true
 		case drift.Evolved:
@@ -2015,6 +2036,14 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 					return nil, nil, err
 				}
 			}
+		case drift.CrossFile:
+			// the stored node ID re-bound to an unrelated file and no
+			// hash-matching candidate exists (B-01KYJB3SGK) — audited,
+			// NEVER healed: a heal here silently crosses files
+			audited++
+			lines = append(lines, fmt.Sprintf("d audit %s %s %s:%d-%d crossfile now=%s",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End, r.OtherFile))
+			remember(r.Anchor.Rule)
 		default: // Gone, Stale
 			d := fmt.Sprintf("d %s %s %s %s:%d-%d", r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End)
 			if in.Fix && r.Class == drift.Gone {

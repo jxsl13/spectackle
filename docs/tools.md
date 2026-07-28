@@ -287,6 +287,15 @@ human has to judge; these surface as
 `d audit <rule> <node> <file>:<s>-<e> <tightened|diverged>` and, with
 `fix=true`, also get a backprop proposal drafted (same as `gone`).
 
+Anchors re-resolve by CONTENT HASH when their node ID vanished or crossed
+files (B-01KYJB3SGK): tilde numerals (`go:main.main~2`) are walk-order
+fragile and never trusted — the single candidate under the ID stem whose
+span hash matches the stored one wins (`d rebound <rule> <old> -> <new>`),
+two matches refuse, and an ID that re-binds to an unrelated file with no
+hash match anywhere audits as
+`d audit <rule> <node> <file>:<s>-<e> crossfile now=<otherfile>` — never
+healed, never rebound.
+
 After the per-anchor records, `check` emits exactly one deduped
 `r <id> <pattern> <dir> <text>` line per distinct rule that appeared in a
 `d healed` or `d audit` record (never repeated even if the rule anchors
