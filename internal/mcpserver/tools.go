@@ -405,6 +405,10 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 			break
 		}
 	}
+	// the cascade is loaded at most once per call, and only when a rule
+	// doc actually needs its pattern
+	var casc *spec.Cascade
+	cascFailed := false
 	for _, d := range docs {
 		dir := d.Dir
 		if dir == "" {
@@ -412,7 +416,27 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 		}
 		switch d.Kind {
 		case "rule":
-			lines = append(lines, fmt.Sprintf("r %s %s %s", d.ID, dir, d.Title))
+			// The PATTERN belongs in the r line — the documented grammar
+			// is `r <ruleID> <P> <scopeDir> <text>` and rule/get both
+			// emit it, so find dropping it made a doc-following parser
+			// read scopeDir as the pattern (B-01KYMCHPF6EXZ, found by an
+			// independent gap hunt). The index carries no pattern, so it
+			// comes from the cascade; an unresolvable rule keeps rendering
+			// rather than vanishing from search.
+			pat := "?"
+			if casc == nil && !cascFailed {
+				if c, cerr := spec.Load(s.ws.Dir); cerr == nil {
+					casc = c
+				} else {
+					cascFailed = true
+				}
+			}
+			if casc != nil {
+				if r, ok := casc.Rule(d.ID); ok && r.Pattern != ears.PInvalid {
+					pat = r.Pattern.String()
+				}
+			}
+			lines = append(lines, fmt.Sprintf("r %s %s %s %s", d.ID, pat, dir, d.Title))
 		case "section":
 			lines = append(lines, fmt.Sprintf("s %s %s", d.ID, d.Body))
 		case "journal", "rejection":
