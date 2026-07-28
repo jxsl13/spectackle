@@ -155,3 +155,4 @@
 {"t":"2026-07-27T21:39:04Z","eid":"5ccb0cefca90d91a","ag":"ag-c0e6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-005","node":"go:mcpserver.Server.compact","cls":"healed","oh":"17a10b9cbd6c0b1f","nh":"76b5870efbdc79b7"}
 {"t":"2026-07-27T21:39:04Z","eid":"7646021536ddd468","ag":"ag-c0e6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-006","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"a39fbb610f6db3d8","nh":"5cb1de139d8e6407"}
 {"t":"2026-07-27T21:39:04Z","eid":"d53d3943f1d44dbf","ag":"ag-c0e6","ev":"drift","dir":"internal/mcpserver","rule":"MCP-011","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"a39fbb610f6db3d8","nh":"5cb1de139d8e6407"}
+{"t":"2026-07-28T00:34:39Z","eid":"5148f5b65cfc6944","ag":"orchestrator-fable","ev":"move","id":"B-01KYJ66VSQF8XVZ4PCP8XNARW9","dir":"internal/mcpserver","fr":"draft","to":"active"}
