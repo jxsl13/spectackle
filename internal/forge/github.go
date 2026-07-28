@@ -299,12 +299,12 @@ func (g *GitHub) Ready(pr PR) (PR, error) {
 }
 
 // Draft converts a ready pull request back to draft — the exact mirror of
-// Ready, for the reopen direction (T-01KYDKNR8): an item re-entering active
-// declares its work not-finished, and a pull request still marked ready
-// would misstate the review surface. Same GraphQL-only constraint as Ready
-// (REST cannot un-ready), same node-ID addressing, and the same
-// verify-don't-claim discipline: a 200 whose payload still shows isDraft
-// false is an error, never a success (B-01KYDE).
+// Ready. No lifecycle edge calls it anymore (PR-DRAFT-001 retired the
+// T-01KYDKNR8 reopen mirror); it remains forge capability. Same
+// GraphQL-only constraint as Ready (REST cannot un-ready), same node-ID
+// addressing, and the same verify-don't-claim discipline: a 200 whose
+// payload still shows isDraft false is an error, never a success
+// (B-01KYDE).
 func (g *GitHub) Draft(pr PR) (PR, error) {
 	nodeID := pr.NodeID
 	if nodeID == "" {

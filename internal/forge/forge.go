@@ -71,10 +71,12 @@ type MergeResult struct {
 type Forge interface {
 	// Open creates a draft pull request for branch onto base.
 	Open(branch, base, title, body string) (PR, error)
-	// Ready flips a draft PR to ready for review.
+	// Ready flips a draft PR to ready for review — called exactly once
+	// per lifecycle, at the archive edge (PR-DRAFT-001).
 	Ready(pr PR) (PR, error)
-	// Draft converts a ready PR back to draft — the reopen direction: the
-	// PR draft state mirrors the item state in BOTH directions.
+	// Draft converts a ready PR back to draft. No lifecycle edge calls it
+	// since PR-DRAFT-001 retired the two-way mirror (T-01KYDKNR8) — it
+	// stays as forge capability for operators and tests.
 	Draft(pr PR) (PR, error)
 	// Merge merges pr with a merge commit — never squash, never a bare
 	// fast-forward (see package doc and MergeResult).

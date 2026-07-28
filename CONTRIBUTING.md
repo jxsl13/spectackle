@@ -112,11 +112,12 @@ bisected, or re-reviewed in isolation.
 
 The mechanics, exact:
 
-- **Draft PR at first push.** Work in progress lives on its pushed task
-  branch (`spectackle/<item-id>`) under a draft pull request from the
-  first commit. When the task reaches done — checked, validated — the PR
-  flips to ready **immediately**, before the next task starts, never at
-  end of session.
+- **Draft PR at first push, ready only at archive.** Work in progress
+  lives on its pushed task branch (`spectackle/<item-id>`) under a draft
+  pull request from the first commit, and STAYS draft through every
+  lifecycle edge and reopen cycle (PR-DRAFT-001): the single draft→ready
+  flip happens at the archive edge immediately before merge, so review
+  cycles never churn the PR state.
 - **One task per PR; the title carries the short display ID** (the
   13-character floor form — stable for the repository lifetime); the PR
   body's first line carries the full ID once, so exact-ID search still
