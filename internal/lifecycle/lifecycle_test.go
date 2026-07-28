@@ -1079,3 +1079,31 @@ func TestEmptyFieldDoesNotStarveLaterFields(t *testing.T) {
 		}
 	}
 }
+
+// TestOutcomeFieldCapIsDeliberate pins the one place adrOutcome accepts a
+// bounded loss, so it stays a decision on the record rather than drifting
+// into an accident. decision and status are capped at outcomeFieldMax each
+// — that cap is what makes the must-keep reservation computable, and
+// therefore what guarantees neither field can be dropped entirely. A
+// >2KB status is not a status (the field is the four-value ADR enum), and
+// a >2KB decision is prose that belongs in context; both truncate visibly,
+// with the marker, rather than vanishing.
+func TestOutcomeFieldCapIsDeliberate(t *testing.T) {
+	got := retainedBody(item.Item{
+		Kind: "adr", Title: "q",
+		Decision: strings.Repeat("d", outcomeFieldMax*2),
+		Status:   strings.Repeat("s", outcomeFieldMax*2),
+	})
+	for _, want := range []string{"decision: ", "status: ", truncationMarker} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("an oversized outcome field truncates visibly and stays present; %q missing", want)
+		}
+	}
+	// every realistic status survives whole — the enum this field actually is
+	for _, st := range []string{"proposed", "accepted", "superseded", "deprecated"} {
+		out := retainedBody(item.Item{Kind: "adr", Title: "q", Decision: "x", Status: st})
+		if !strings.Contains(out, "status: "+st) || strings.Contains(out, truncationMarker) {
+			t.Fatalf("status %q must be retained whole and unmarked: %q", st, out)
+		}
+	}
+}
