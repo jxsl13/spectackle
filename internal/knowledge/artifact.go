@@ -273,6 +273,12 @@ type resolutionDoc struct {
 func Parse(data []byte) (Artifact, error) {
 	src := string(data)
 
+	// An empty file is diagnosed as empty, not as a schema mismatch: the
+	// version complaint sent a gap hunt looking for a regeneration
+	// problem that did not exist (B-01KYMCJG8HFYW).
+	if strings.TrimSpace(src) == "" {
+		return Artifact{}, fmt.Errorf("knowledge: empty artifact — nothing to parse")
+	}
 	var fm frontMatterDoc
 	if raw := ears.FrontMatter(src); raw != "" {
 		if err := yaml.Unmarshal([]byte(raw), &fm); err != nil {

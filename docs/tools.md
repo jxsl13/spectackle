@@ -540,7 +540,7 @@ coord `commands` emit so siblings see it happened in realtime.
 ```json
 {"type":"object","required":["op"],"properties":{
   "op":     {"enum":["export","merge","apply"]},
-  "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path"},
+  "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path. Relative = under the workspace root; absolute taken verbatim"},
   "body":   {"type":"string","description":"inline artifact text — apply: the artifact to fold in; merge: one more artifact, alongside paths"},
   "paths":  {"type":"array","items":{"type":"string"},"description":"merge: artifact file paths to parse and merge"},
   "entries":{"type":"array","items":{"type":"object","required":["kind"],"properties":{
