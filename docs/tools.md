@@ -353,9 +353,13 @@ second one-shot process reuses the name with no in-process memory of the
 first). The blocked agent never pays the implement-then-conflict-resolve
 round the merge layer would otherwise bill it (measured: ~20 wasted calls
 vs 1 refused call, M-01KYKSKKPDFNT). Two starts racing inside the
-check-then-act window both publish, then re-read and resolve by
-(created, item) — exactly one rolls its seconds-old, work-free worktree
-back and refuses.
+check-then-act window both publish their ledger row, then re-read: any
+racer that sees the other YIELDS — rolling its seconds-old, work-free
+worktree back and refusing. Yield-always rather than a tiebreak, because
+the racer whose re-read lands first sees nothing and proceeds without
+comparing; only a rule needing no agreement from the other side is safe.
+The symmetric window costs two refusals and a retry, never two worktrees
+on one target.
 
 ### 9. `work` — git-worktree lifecycle (multi-agent isolation)
 

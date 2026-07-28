@@ -684,25 +684,20 @@ func (s *Server) worktreeConflict(id string, mine []string) (*coord.Worktree, st
 	return nil, "", nil
 }
 
-// losesWorktreeRace decides, identically in both racers, whether MY
-// worktree row yields to the CONFLICTING one: older Created wins, ties
-// (the ledger stamps whole seconds) break by item ID. Both sides evaluate
-// the same total order over the same two rows, so exactly one rolls back
-// — never both, never neither.
-func (s *Server) losesWorktreeRace(id string, other *coord.Worktree) bool {
-	wts, err := s.cd.Worktrees()
-	if err != nil {
-		return false // unreadable ledger: keep what we built
-	}
-	for _, w := range wts {
-		if w.Item != id {
-			continue
-		}
-		return other.Created.Before(w.Created) ||
-			(other.Created.Equal(w.Created) && other.Item < w.Item)
-	}
-	return false
-}
+// The post-publish rule is YIELD-ALWAYS, deliberately not a tiebreak: a
+// racer that sees a conflict rolls back, period.
+//
+// A (created, item) tiebreak looked symmetric and is not
+// (cross-val-enforce round 2, 3 both-survive hits in 49 concurrent
+// trials): whichever side's recheck runs BEFORE the other's row lands
+// sees nothing and passes without ever comparing, so the side that does
+// compare can independently conclude it won — and both survive. Only a
+// rule that needs no agreement from the other side is safe here.
+//
+// The cost is the symmetric window where both see each other and both
+// yield: two refusals instead of one, no worktree left behind, and the
+// retry that follows finds a clear field. Both-refuse is recoverable;
+// both-survive is the contention this whole guard exists to prevent.
 
 func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, error) {
 	if s.wtItem != "" {
@@ -864,13 +859,13 @@ func (s *Server) workStart(id string, force bool) (*mcp.CallToolResult, any, err
 	// the loser is decided deterministically by (Created, Item), so
 	// exactly one survives. Rollback is safe HERE and nowhere later — the
 	// worktree is seconds old and holds only copied bundles, never work.
-	if racer, path, rerr := s.worktreeConflict(id, mine); rerr == nil && racer != nil && s.losesWorktreeRace(id, racer) {
+	if racer, path, rerr := s.worktreeConflict(id, mine); rerr == nil && racer != nil {
 		_ = s.cd.DelWorktree(id)
 		_ = wt.Remove(s.main.Dir, root)
 		_ = wt.DiscardBranch(s.main.Dir, branch, s.gitBase())
 		_ = s.cd.ReleaseItem(id)
 		return refuse(fmt.Sprintf(
-			"! LEASE E %s held=%s item=%s (open worktree, won the concurrent start) — retry after its submit/abort, or take disjoint scope",
+			"! LEASE E %s held=%s item=%s (concurrent start — yours rolled back, nothing was lost) — retry: if that worktree survived, wait for its submit/abort; if it yielded too, the field is clear",
 			path, racer.Agent, shortDisplayID(racer.Item)))
 	}
 	if err := journal.Append(s.main, it.Dir, journal.Event{Ev: journal.EvStart, ID: id, Dir: it.Dir,
