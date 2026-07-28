@@ -165,3 +165,4 @@
 {"t":"2026-07-28T01:47:50Z","eid":"63f66dc1b8e19abc","ag":"ag-aad7","ev":"drift","dir":"internal/mcpserver","rule":"MCP-006","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"5cb1de139d8e6407","nh":"aa936927aec5784d"}
 {"t":"2026-07-28T01:47:50Z","eid":"27d4e4a54708d8a1","ag":"ag-aad7","ev":"drift","dir":"internal/mcpserver","rule":"MCP-011","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"5cb1de139d8e6407","nh":"aa936927aec5784d"}
 {"t":"2026-07-28T02:06:22Z","eid":"f48bcd241d201348","ag":"ag-aeb2","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"4c7c2af1328f8521","nh":"a765163fcc94eab0"}
+{"t":"2026-07-28T02:38:31Z","eid":"9e5de6fd07328eba","ag":"ag-b0f7","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"a765163fcc94eab0","nh":"34c9df4b7ec5e20c"}
