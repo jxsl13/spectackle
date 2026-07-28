@@ -218,7 +218,23 @@ the outcome judge batch is **M-01KYJWG08TFRC** (`outcome-navigation`:
 | T-01KYEW memory-to-spec manifest nudge (re-landed via B-01KYFG1KEEF1S) | +0B lifecycle | +180B manifest (once per session) | user directive: standing knowledge must reach the spec, not agent-private memory |
 | T-01KYHAH1GJ offline collapse (commit-only edges, GIT-DEFAULT-001) | −793B (~−198 tokens, −22%) | +0B | measured 2026-07-27: `bench -baseline v0.2.2 -against v0.3.1`, shared v3 fixture/script, both sides valid — the PR-theater lines (branch/draft/ready/merged) died with the collapse; transition steps carry the savings (done 230B→92B, active 173B→73B, archived 271B→173B). Strictly cheaper at equal validity; every offline lifecycle now costs ~198 tokens less. Record: **M-01KYJWFQ8SE68**. |
 
-### Outcome batch: commit-only offline surface (T-01KYJ58DBA, 2026-07-27; record M-01KYJWG08TFRC)
+### Outcome batch: v0.5.2 hint fixes (T-01KYK4876N, 2026-07-28; record M-01KYK5ETQ2F22 = outcome-navigation v2)
+
+n=3 fresh judges, scenario=outcome, v0.5.2 binary (B-01KYJ66VSQ start-hint
+identity + B-01KYJ67RF9 violation-honest verdicts under test). Navigation
+3/3 (j1 60 calls/~1730 tok first-pass 5/5; j2 91/~4839 4/5 — recovered
+from the scope trap via the sanctioned reject→widen cycle; j3 49/~1713 5/5
+**VALID**, 1 ask). **Validity 1/3, unchanged**: the vacuous-test trap
+voided j1+j2 again (both also missed the bait-bug goal) — the validity
+blocker is judge test-writing habits, not surface hints. What the fixes
+DID measurably change: identity retry loops went from 3/3 judges losing
+one to ZERO (j2 hit the `WT E` refusal once and recovered in one step from
+its text); both voided runs rendered their `agent violation` line directly
+in agent-score — the hand forensics the baseline orchestrator paid twice
+are gone. New friction filed: `SPECTACKLE_AGENT` exists only in hint texts,
+never in the `work` tool description (judge 2 called this out explicitly).
+
+### Outcome batch: commit-only offline surface (T-01KYJ58DBA, 2026-07-27; record M-01KYJWG08TFRC → superseded by v2 above, raw values in the journal)
 
 n=3 fresh judges, scenario=outcome, v0.3.1 binary, positional nonces. All
 three reached `archived` + `check ok` with **0 reopen rounds and 0 asks** —
