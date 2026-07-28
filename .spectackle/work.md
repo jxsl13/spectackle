@@ -45,16 +45,6 @@ option: redocument: leases stay advisory for the worktree flow; SPX-SWM-003 and 
 blocks: B-01KYKSKMHNE2HS9H235BG6DV4B
 choice: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
 
-## P-01KYMCKE8DEW7BZ3FNCMJTNSG2 knowledge conflict resolution is unreachable from the tool surface
-kind: proposal
-state: approved
-created: 2026-07-28
-refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
-grilled: 2026-07-28 open=0
-targets: internal/knowledge, internal/mcpserver/knowledge.go
-
-Capability gap from the R-01KYMA7EXME6K gap hunt (WARN 6), empirically confirmed: internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but NO MCP op reaches it - knowledge accepts export|merge|apply only. Consequence measured: merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands neither side and both decisions vanish from the target; the only way to carry a curated outcome forward is hand-editing the artifact markdown, defeating the server-is-the-only-writer model. DECIDED SHAPE (ADR-01KYMKEG7YE2P, user): decide-integration - each conflict mints an ADR in the APPLYING workspace and answering it selects the winner. Reuses ASK-SURFACE-001 and the existing decide UI, adds no second decision channel and no new grammar; the cost is that it is the heaviest of the three options. Rejected: a knowledge op=resolve op (smallest surface but a second decision channel beside decide), and document-only (zero code but leaves the documented promise that curation is a humans call with no call). DESIGN CONSEQUENCE the implementer must respect: merge strips conflicts from the condensate, so apply of a single condensate can never see them - apply therefore accepts MULTIPLE artifacts (the same paths+body inputs merge takes), detects conflicts itself via knowledge.Merge, applies the non-conflicting union exactly as today, and mints one ADR per conflict rather than silently dropping it. Single-artifact apply keeps todays behavior byte for byte. CHILD TASK at approval: T-01KYMN (the wiring).
-
 ## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
 kind: adr
 state: done
