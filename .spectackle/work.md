@@ -72,10 +72,9 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 
 ## T-01KYMPN0PNEWVS330NKPSQNRDT knowledge apply mints an ADR per conflict instead of dropping both sides
 kind: task
-state: blocked
+state: draft
 created: 2026-07-28
 parent: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
-rounds: 3
 grilled: 2026-07-28 open=0
 needs: ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ
 targets: internal/mcpserver, internal/lifecycle, internal/knowledge, docs
@@ -102,8 +101,12 @@ SCOPE: internal/mcpserver/knowledge.go, internal/mcpserver/tools.go (adr tombsto
 
 ## ADR-01KYN001T6E2SVBX8ZJ3FGXEPJ escalate T-01KYMPN0PNEWVS330NKPSQNRDT: rescope|reject|override-once
 kind: adr
-state: draft
+state: done
 created: 2026-07-28
 parent: T-01KYMPN0PNEWVS330NKPSQNRDT
+decision: rescope
+consequences: Rescope rather than override-once: the rounds were not thrash, they were three independent validation rounds each finding real, reproduced defects, and the task genuinely outgrew its brief. It began as make knowledge apply mint an ADR per conflict and is now make conflict curation lossless end to end, which reached internal/lifecycle (tombstone retention, gist lines), internal/knowledge (entry identity) and coordination (mint under lock). override-once would have spent a bypass while leaving that mismatch on the record, and reject would abandon a change whose core is validated and whose remaining four findings are bounded fixes to code already written.
+status: accepted
 
 T-01KYMPN0PNEWV exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYN001T6E2S choose=rescope|reject|override-once.
+choice: rescope
