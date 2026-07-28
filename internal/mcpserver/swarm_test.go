@@ -12,6 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jxsl13/spectackle/internal/coord"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -1191,5 +1192,61 @@ func TestWorkStartRefusesOverlappingTargets(t *testing.T) {
 	// disjoint scope is unaffected — the guard blocks contention, not parallelism
 	if out := callText(t, bobSess, "work", map[string]any{"op": "start", "item": disjoint}); !strings.Contains(out, "wt ") {
 		t.Fatalf("a disjoint target must still start:\n%s", out)
+	}
+}
+
+// TestWorktreeRaceResolvesToExactlyOneWinner pins the publish-then-recheck
+// tiebreak (cross-val-enforce finding 1): under a true concurrent start
+// both racers can write their ledger row before either sees the other, so
+// each re-reads and asks whether IT loses. The order must be total and
+// symmetric — exactly one loses, never both (deadlock) and never neither
+// (the contention the guard exists to prevent).
+func TestWorktreeRaceResolvesToExactlyOneWinner(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "racer")
+	s, sess := connectRootWithServer(t, root)
+	a := draftFullID(t, s, sess, map[string]any{
+		"kind": "task", "title": "racer a", "targets": []string{"shared.go"}})
+	b := draftFullID(t, s, sess, map[string]any{
+		"kind": "task", "title": "racer b", "targets": []string{"shared.go"}})
+	for _, id := range []string{a, b} {
+		callText(t, sess, "move", map[string]any{"id": id, "to": "approved"})
+	}
+
+	// both rows published in the same second — the Created tie forces the
+	// ID tiebreak, the hardest case
+	now := time.Now()
+	for _, w := range []coord.Worktree{
+		{Item: a, Agent: "agent-a", Branch: "wa", Root: "/tmp/wa", Base: "x", State: "open", Created: now},
+		{Item: b, Agent: "agent-b", Branch: "wb", Root: "/tmp/wb", Base: "x", State: "open", Created: now},
+	} {
+		if err := s.cd.PutWorktree(w); err != nil {
+			t.Fatal(err)
+		}
+	}
+	targets := []string{"shared.go"}
+	confA, _, err := s.worktreeConflict(a, targets)
+	if err != nil || confA == nil || confA.Item != b {
+		t.Fatalf("a must see b as its conflict: %+v %v", confA, err)
+	}
+	confB, _, err := s.worktreeConflict(b, targets)
+	if err != nil || confB == nil || confB.Item != a {
+		t.Fatalf("b must see a as its conflict: %+v %v", confB, err)
+	}
+	aLoses, bLoses := s.losesWorktreeRace(a, confA), s.losesWorktreeRace(b, confB)
+	if aLoses == bLoses {
+		t.Fatalf("exactly one racer must lose: aLoses=%v bLoses=%v", aLoses, bLoses)
+	}
+
+	// and the same holds when Created differs: the older row always wins
+	older := coord.Worktree{Item: a, Agent: "agent-a", Branch: "wa", Root: "/tmp/wa", Base: "x", State: "open", Created: now.Add(-time.Minute)}
+	if err := s.cd.PutWorktree(older); err != nil {
+		t.Fatal(err)
+	}
+	// PutWorktree's upsert keeps the original created stamp, so re-read
+	confB2, _, _ := s.worktreeConflict(b, targets)
+	confA2, _, _ := s.worktreeConflict(a, targets)
+	if s.losesWorktreeRace(a, confA2) == s.losesWorktreeRace(b, confB2) {
+		t.Fatal("a differing-age race must still resolve to exactly one loser")
 	}
 }
