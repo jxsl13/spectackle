@@ -55,6 +55,8 @@ d audit <rule> <node> <file>:<s>-<e> <cls>       drift, never healed (tightened|
 g <kind> <ref> <msg>                             gap (uncovered|orphan)
 m <id> v<n> <name> ...                           benchmark record (bench; f/u/d sublines — see tool 17)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
+x <kind> <key> ours=".." theirs=".." (kept ours) an import disagrees with what this workspace holds (knowledge op=apply; reported, never adopted)
+x <kind> <key> same "..", differs in <f> (kept ours)  same headline value; <f> names the fields that actually differ (text|prose|context|decision|consequences|status, or "formatting" when only normalization does)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
 ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)
@@ -584,8 +586,8 @@ coord `commands` emit so siblings see it happened in realtime.
 {"type":"object","required":["op"],"properties":{
   "op":     {"enum":["export","merge","apply"]},
   "path":   {"type":"string","description":"export: also write the artifact here; apply: read the artifact from this path. Relative = under the workspace root; absolute taken verbatim"},
+  "paths":  {"type":"array","items":{"type":"string"},"description":"the artifacts to parse — merge: condense them; apply: fold SEVERAL at once, and their conflicts open decisions instead of vanishing"},
   "body":   {"type":"string","description":"inline artifact text — apply: the artifact to fold in; merge: one more artifact, alongside paths"},
-  "paths":  {"type":"array","items":{"type":"string"},"description":"merge: artifact file paths to parse and merge"},
   "entries":{"type":"array","items":{"type":"object","required":["kind"],"properties":{
     "kind":"rule|adr|intent","dir":"string",
     "text":"string","rationale":"string",
@@ -624,8 +626,9 @@ answering the same question differently). Conflicts are **reported, never
 auto-resolved** — curation is a human's call, not this tool's. Trailer:
 `ok merge sources=<n> entries=<n> conflicts=<n>`.
 
-`apply`: the only writing operation — folds ONE artifact (`path` or `body`)
-into this workspace. **Additive only**: `internal/knowledge`'s `FoldInto`
+`apply`: the only writing operation — folds artifacts (`path`, `paths`
+and/or `body`, the same inputs `merge` takes) into this workspace.
+**Additive only**: `internal/knowledge`'s `FoldInto`
 (named to avoid colliding with `knowledge.Apply`, the unrelated
 conflict-resolution fold in `merge.go`) diffs the incoming artifact against
 this workspace's own current one (freshly `Extract`ed) and returns only the
@@ -654,6 +657,50 @@ that is intended, not a bug: the anchoring is exactly the adoption work
 computations `check` itself runs (`g uncovered` + `g orphan`, without
 `check`'s side effects), so it is provably the same number a standalone
 `check` call reports afterward, never a guess.
+
+**Conflicts become decisions, not casualties** (ADR-01KYMKEG7YE2P).
+`merge` reports every conflict as an `x` line and leaves it OUT of the
+condensate, so applying that condensate used to land NEITHER side. `apply`
+therefore merges its inputs itself, **always** — the non-conflicting union
+folds in exactly as a single artifact would, and each conflict opens one
+ADR in this workspace through the same path `decide op=ask` uses, rendered
+as `need decision <ADR-id> <question>` and counted in the trailer as
+`conflicts=<n>`. Its options are the competing decisions labeled by source,
+and its body keeps every side, so answering it with `decide op=answer`
+lands the winner as an accepted ADR while the losing side stays readable in
+the record and — because an `adr` tombstone retains its body and decision
+the way a `research` one retains its finding — in the journal after the ADR
+is archived. No side is ever adopted automatically.
+
+Merging is unconditional, not gated on how many artifacts arrived: `Merge`
+buckets entries across AND within artifacts, and `export` of a workspace
+that answered one question twice emits a single artifact carrying both, so
+an artifact count is not a conflict count. A conflict-free artifact merges
+to itself, which is why the one-artifact render is unchanged.
+
+Minting is idempotent under the same rule the rest of `apply` follows: a
+conflict whose `(adr, key)` identity this workspace already holds is
+**settled**, not re-asked — whether the decision is one an earlier `apply`
+opened, one already answered, one this repository reached on its own, or
+one already **archived**. That last case needs a journal pass, because
+`Extract` reads `work.md` and an answered ADR's normal end is to leave it:
+without it, the one workspace that would be asked its curated questions
+again is the one that ran the lifecycle all the way through. Settled
+conflicts are counted separately in the trailer as `settled=<n>`, so a
+re-apply is silent about work already done without being silent about the
+disagreement still in the sources. The settle check and the mint run under
+one lock per conflict key, so two agents applying the same pair at once open
+one decision rather than two unlinked rivals.
+
+**Disagreement with what this workspace already holds** is reported, never
+adopted. `FoldInto` skips an incoming entry whose `(kind, key)` identity is
+already present — correct precedence, but on its own indistinguishable from
+agreement, so an import that contradicted a decision already held used to be
+dropped as quietly as one that repeated it. Each such entry now renders as
+`x <kind> <key> ours="…" theirs="…" (kept ours)` — the same `x` record
+`merge` uses for a conflict between artifacts, with the workspace as one of
+the sides — and is counted as `diverged=<n>`. Precedence is unchanged: yours
+stands. Only the silence is gone.
 
 ### 18. `bench` — benchmark records (implementations on a frame)
 

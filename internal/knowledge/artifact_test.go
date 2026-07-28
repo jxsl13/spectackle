@@ -26,14 +26,14 @@ func sampleArtifact() Artifact {
 				Status:       "accepted",
 				Count:        1,
 				Sources:      []Provenance{{Source: "github.com/acme/repoA", Dir: ""}},
-				Key:          "cccc3333dddd4444",
+				Key:          contentKey(Entry{Kind: KindADR, Question: "How should retries work?"}),
 			},
 			{
 				Kind:    KindIntent,
 				Prose:   "Metal shader rules.",
 				Count:   1,
 				Sources: []Provenance{{Source: "github.com/acme/repoB", Dir: "gpu/metal"}},
-				Key:     "eeee5555ffff6666",
+				Key:     contentKey(Entry{Kind: KindIntent, Prose: "Metal shader rules."}),
 			},
 			{
 				Kind:      KindRule,
@@ -44,7 +44,7 @@ func sampleArtifact() Artifact {
 					{Source: "github.com/acme/repoA", Dir: ""},
 					{Source: "github.com/acme/repoB", Dir: "gpu"},
 				},
-				Key: "aaaa1111bbbb2222",
+				Key: contentKey(Entry{Kind: KindRule, Text: "The system SHALL log to `stderr` only."}),
 			},
 		},
 	}
@@ -179,7 +179,7 @@ func TestDerivedFromProvenance(t *testing.T) {
 					{Source: "github.com/acme/repoA", Dir: ""},
 					{Source: "github.com/acme/repoB", Dir: "gpu"},
 				},
-				Key: "1111aaaa2222bbbb",
+				Key: contentKey(Entry{Kind: KindRule, Text: "Configuration SHALL live in one place."}),
 			},
 			{
 				// both kinds of evidence at once: repoA asserts it
@@ -191,7 +191,7 @@ func TestDerivedFromProvenance(t *testing.T) {
 				DerivedFrom: []Provenance{
 					{Source: "github.com/acme/repoB", Dir: ""},
 				},
-				Key: "3333cccc4444dddd",
+				Key: contentKey(Entry{Kind: KindRule, Text: "The system SHALL check errors after every syscall."}),
 			},
 		},
 	}
@@ -299,5 +299,57 @@ func TestNewEntryRejectsMalformed(t *testing.T) {
 				t.Fatalf("NewEntry(%s) accepted a malformed entry, want error", c.name)
 			}
 		})
+	}
+}
+
+// TestParseRecomputesContentKey: the key on the wire is transport, not
+// identity. NewEntry refuses a caller-supplied key outright and Extract
+// derives one from content, but Parse used to take the section heading
+// verbatim — so an artifact written by hand, by an older key scheme, or by
+// any producer that simply chose differently defeated every downstream
+// identity check at once: FoldInto re-added the same rule on every apply,
+// Merge never saw two repositories answering one question, and knowledge
+// apply re-asked a decision already on the board.
+func TestParseRecomputesContentKey(t *testing.T) {
+	raw := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" +
+		"## rule not-a-content-key\ntext: The system SHALL log to `stderr` only.\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n\n" +
+		"## adr also-not-one\nquestion: How should retries work?\ndecision: thrice\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n"
+	got, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[EntryKind]string{
+		KindRule: contentKey(Entry{Kind: KindRule, Text: "The system SHALL log to `stderr` only."}),
+		KindADR:  contentKey(Entry{Kind: KindADR, Question: "How should retries work?"}),
+	}
+	for _, e := range got.Entries {
+		if e.Key != want[e.Kind] {
+			t.Fatalf("%s key not recomputed from content: got %q want %q", e.Kind, e.Key, want[e.Kind])
+		}
+	}
+	// and the recomputed key is the SAME one this repository's own Extract
+	// would mint for that sentence — which is the whole point: it is what
+	// makes two repositories recognize one sentence as one entry.
+	if len(got.Entries) != 2 {
+		t.Fatalf("expected both entries, got %d", len(got.Entries))
+	}
+}
+
+// TestParseKeepsWireKeyWhenNothingToHash: an entry with no identifying
+// payload cannot be content-keyed, and collapsing every such entry onto one
+// empty identity would make them dedup against each other.
+func TestParseKeepsWireKeyWhenNothingToHash(t *testing.T) {
+	raw := "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" +
+		"## rule wire-key-one\nrationale: no text at all\ncount: 1\n\n" +
+		"## rule wire-key-two\nrationale: also none\ncount: 1\n"
+	got, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(got.Entries))
+	}
+	if got.Entries[0].Key == got.Entries[1].Key {
+		t.Fatalf("unhashable entries must keep distinct wire keys, both got %q", got.Entries[0].Key)
 	}
 }

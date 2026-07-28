@@ -3,7 +3,6 @@ package knowledge
 import (
 	"strings"
 
-	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/spec"
@@ -40,7 +39,7 @@ func Extract(c *spec.Cascade, items []item.Item, source string) (Artifact, error
 				Rationale: strings.TrimSpace(r.Rationale),
 				Count:     1,
 				Sources:   []Provenance{{Source: source, Dir: sf.Dir}},
-				Key:       drift.NormHash([]byte(text)),
+				Key:       contentKey(Entry{Kind: KindRule, Text: text}),
 			})
 		}
 		for _, s := range sf.Sections {
@@ -56,7 +55,7 @@ func Extract(c *spec.Cascade, items []item.Item, source string) (Artifact, error
 				Prose:   prose,
 				Count:   1,
 				Sources: []Provenance{{Source: source, Dir: sf.Dir}},
-				Key:     drift.NormHash([]byte(prose)),
+				Key:     contentKey(Entry{Kind: KindIntent, Prose: prose}),
 			})
 		}
 	}
@@ -85,7 +84,7 @@ func Extract(c *spec.Cascade, items []item.Item, source string) (Artifact, error
 			Options: item.ParseOptions(it.Body),
 			Count:   1,
 			Sources: []Provenance{{Source: source, Dir: it.Dir}},
-			Key:     drift.NormHash([]byte(question)),
+			Key:     contentKey(Entry{Kind: KindADR, Question: question}),
 		})
 	}
 

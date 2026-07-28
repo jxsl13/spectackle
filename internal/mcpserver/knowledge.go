@@ -40,6 +40,15 @@ import (
 // already exist for rules (rule op=add's spec.AddRule) and ADRs (the same
 // Draft/Upsert/journal primitives decide.go's own resolveDecision uses) —
 // never a new write path onto .spectackle files.
+// knowledgeConflictMarker records, in the ADR body, the merge-conflict key
+// an imported decision came from — provenance for a later reader, and the
+// one line that distinguishes it from a question a human asked. It is
+// deliberately NOT the answer path's hook: decide op=answer stays fully
+// generic over ADRs, and the duplicate-suppression check keys off the
+// workspace's own artifact (knowledge.Extract's Key) rather than this
+// string, so a decision reached without an import counts just the same.
+const knowledgeConflictMarker = "knowledge-conflict:"
+
 func (s *Server) knowledge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
 	switch in.Op {
 	case "export":
@@ -351,22 +360,39 @@ func knowledgeEntrySummary(e knowledge.Entry) string {
 const knowledgeImportStem = "KB"
 
 func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error) {
-	var raw []byte
-	switch {
-	case in.Path != "":
-		b, err := os.ReadFile(s.rootPath(in.Path))
-		if err != nil {
-			return refuse("! ARG E - " + err.Error())
-		}
-		raw = b
-	case strings.TrimSpace(in.Body) != "":
-		raw = []byte(in.Body)
-	default:
-		return refuse("! ARG E - apply requires path or body")
+	// Apply takes the SAME inputs merge does, and ALWAYS merges them —
+	// however many arrived and by whichever field. Conflicts become open
+	// decisions (ADR-01KYMKEG7YE2P: decide-integration) instead of
+	// vanishing from the target as they did before (P-01KYMCKE8DEW7).
+	//
+	// Merging unconditionally is the load-bearing part. An artifact count
+	// is NOT a conflict count: knowledge.Merge buckets entries across AND
+	// within artifacts, and `knowledge export` of a workspace that answered
+	// the same question twice emits ONE artifact carrying both answers — so
+	// gating detection on the number of artifacts (either shape of that
+	// guard) let the single-artifact route drop a side silently, which is
+	// this feature's own bug reproduced through its own tool.
+	//
+	// It is backward compatible by construction rather than by promise: a
+	// conflict-free artifact merges to itself. Parse already canonicalizes
+	// entry order with sortEntries, the same comparator Merge re-applies,
+	// and groupBySubstance only folds entries that FoldInto would dedupe by
+	// identity anyway — so the delta, the added count and the rendered
+	// lines are unchanged.
+	paths := in.Paths
+	if in.Path != "" {
+		paths = append([]string{in.Path}, paths...)
 	}
-	incoming, err := knowledge.Parse(raw)
+	artifacts, err := s.knowledgeGatherArtifacts(paths, in.Body)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())
+	}
+	if len(artifacts) == 0 {
+		return refuse("! ARG E - apply requires path, paths or body")
+	}
+	incoming, conflicts, err := knowledge.Merge(artifacts...)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	c, err := spec.Load(s.ws.Dir)
@@ -388,6 +414,15 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	// artifact twice sees an empty delta the second time — current, by
 	// then, already reflects the first apply's writes.
 	toAdd := knowledge.FoldInto(current, incoming)
+
+	// FoldInto skips an incoming entry whose (kind, key) identity this
+	// workspace already carries — correct precedence (local wins, apply
+	// stays additive and idempotent) but, on its own, indistinguishable from
+	// agreement. An import that DISAGREES with a decision already held was
+	// dropped as silently as one that merely repeated it, which is the same
+	// shape as the loss this whole feature exists to close, just on the
+	// one-artifact side of it. Report the disagreements; do not adopt them.
+	diverged := knowledge.Diverging(current, incoming)
 
 	var b strings.Builder
 	added := 0
@@ -427,7 +462,117 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 		return nil, nil, err
 	}
 
-	fmt.Fprintf(&b, "ok applied added=%d gaps=%d\n", added, gaps)
+	// Each conflict becomes an OPEN DECISION in this workspace rather than
+	// a dropped entry: the ADR carries both sides with their sources, so
+	// the loser survives in the record whatever the answer turns out to
+	// be, and answering it through decide op=answer is what lands a
+	// winner. Never auto-resolved (the merge contract), never silently
+	// discarded (the gap this closes).
+	//
+	// Minting is idempotent under FoldInto's own rule: a conflict whose
+	// (KindADR, Key) identity this workspace already carries is settled
+	// here and skipped, exactly as a non-conflicting entry with a known
+	// identity is skipped. knowledge.Extract emits an entry for every adr
+	// item at any state with Key=NormHash(question), so that one check
+	// covers all three ways an opinion can already exist: a decision minted
+	// by an earlier apply and still open, one that has since been answered,
+	// and one this repository reached on its own. Without it a re-apply
+	// minted a second ADR asking a question already on the board.
+	held := map[string]bool{}
+	for _, e := range current.Entries {
+		if e.Kind == knowledge.KindADR {
+			held[e.Key] = true
+		}
+	}
+	// Archived decisions count as held too. Extract reads work.md, and an
+	// answered ADR's normal end is to leave it — so without this the ONLY
+	// workspace that gets asked its curated questions again is the one that
+	// ran the lifecycle properly all the way to archived.
+	archived, aerr := s.archivedDecisionKeys()
+	if aerr != nil {
+		return nil, nil, aerr
+	}
+	for k := range archived {
+		held[k] = true
+	}
+	// The settle check and the mint must be ONE step. `held` is derived from
+	// an Extract taken before any writing, so two agents applying the same
+	// pair at once both saw an empty board and both minted — two unlinked
+	// ADRs asking the identical question, neither authoritative. Under the
+	// lock, the second one re-reads work.md, finds the first, and reports it
+	// instead of opening a rival. Named per conflict key, so applies over
+	// disjoint conflicts still run concurrently.
+	open, settled := 0, 0
+	for _, cf := range conflicts {
+		if held[cf.Key] {
+			settled++
+			continue
+		}
+		var id string
+		var mErr error
+		lErr := s.cd.WithLock("knowledge-conflict:"+cf.Key, func() error {
+			if existing, eErr := s.existingDecisionFor(cf); eErr != nil {
+				return eErr
+			} else if existing != "" {
+				id = ""
+				return nil
+			}
+			id, mErr = s.mintConflictDecision(cf)
+			return nil
+		})
+		if lErr != nil {
+			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, lErr.Error())
+			continue
+		}
+		if mErr != nil {
+			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, mErr.Error())
+			continue
+		}
+		if id == "" {
+			settled++ // a concurrent apply opened it first
+			continue
+		}
+		open++
+		fmt.Fprintf(&b, "need decision %s %s\n", id, conflictQuestion(cf))
+	}
+	// One `x` line per divergence, the same record `merge` uses for a
+	// conflict between artifacts — this is the same disagreement, with the
+	// workspace as one of the two sides. Kept out of the mint loop: the
+	// local position stands, so there is nothing to decide, only something
+	// the caller must not be allowed to miss.
+	for _, dv := range diverged {
+		ours, theirs := divergedValue(dv.Ours), divergedValue(dv.Then)
+		if ours == theirs {
+			// The headline values agree, so the disagreement is in a field
+			// this line does not quote — rendering it anyway printed the
+			// same string twice for a real, correctly detected divergence.
+			// Name the fields instead; the record itself carries the text.
+			fmt.Fprintf(&b, "x %s %s same %q, differs in %s (kept ours)\n",
+				dv.Kind, shortKey(dv.Key), ours, strings.Join(divergedFields(dv), ","))
+			continue
+		}
+		fmt.Fprintf(&b, "x %s %s ours=%q theirs=%q (kept ours)\n",
+			dv.Kind, shortKey(dv.Key), ours, theirs)
+	}
+
+	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
+	if open > 0 {
+		fmt.Fprintf(&b, " conflicts=%d", open)
+	}
+	if settled > 0 {
+		// Counted, never derived: the sources still disagree, this workspace
+		// simply already holds an answer — silence would read as "no
+		// conflict", and a second `conflicts=` would read as "decide again".
+		// `len(conflicts) - open` looked equivalent and was not: it folded
+		// every conflict whose mint FAILED (a lock timeout, a write error)
+		// into the count, reporting a conflict that still needs a decision
+		// as one already settled.
+		fmt.Fprintf(&b, " settled=%d", settled)
+	}
+	if len(diverged) > 0 {
+		fmt.Fprintf(&b, " diverged=%d", len(diverged))
+	}
+	b.WriteString("\n")
 	if added > 0 {
 		s.markDirty()
 	}
@@ -557,4 +702,175 @@ func (s *Server) knowledgeGapCount(c *spec.Cascade) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// archivedDecisionKeys is the content-key set of every decision this
+// workspace has already made AND archived. knowledge.Extract answers the
+// same question for live records by reading work.md, but an answered ADR's
+// normal end is to leave work.md for a journal tombstone — so a workspace
+// that curated its conflicts and closed them out properly would otherwise
+// look, to the next import, like one that had never decided anything.
+//
+// Built as one journal pass, mirroring exactly what lifecycle.Tombstone
+// itself looks for, in the same shape knownRefIDs uses rather than probing
+// per candidate. The key comes from knowledge.ADRKey so the hash has one
+// definition (KN-001), never a second one spelled out here.
+func (s *Server) archivedDecisionKeys() (map[string]bool, error) {
+	events, err := journal.ReadAll(s.ws)
+	if err != nil {
+		return nil, err
+	}
+	keys := map[string]bool{}
+	for _, e := range events {
+		if e.Ev != journal.EvArchive || e.K != "adr" {
+			continue
+		}
+		if q := strings.TrimSpace(e.Ti); q != "" {
+			keys[knowledge.ADRKey(q)] = true
+		}
+	}
+	return keys, nil
+}
+
+// shortKey trims a content hash to the same width the `x` merge-conflict
+// record uses, so the two disagreement renders read alike.
+func shortKey(k string) string {
+	if len(k) > 8 {
+		return k[:8]
+	}
+	return k
+}
+
+// divergedValue is the one field of an entry that carries the disagreement:
+// a decision for an ADR, the sentence itself for a rule or intent. Capped,
+// because a divergence line is a pointer to go read the record, not the
+// record.
+func divergedValue(e knowledge.Entry) string {
+	v := strings.TrimSpace(e.Decision)
+	if v == "" {
+		v = strings.TrimSpace(e.Text)
+	}
+	if v == "" {
+		v = strings.TrimSpace(e.Prose)
+	}
+	v = strings.ReplaceAll(v, "\n", " ")
+	if len(v) > 60 {
+		v = v[:60] + "…"
+	}
+	return v
+}
+
+// divergedFields names the entry fields that actually differ, for the case
+// where the quoted headline value does not — the only way an `x` line can
+// say something true when ours and theirs read alike.
+func divergedFields(dv knowledge.Divergence) []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		a, b string
+	}{
+		{"text", dv.Ours.Text, dv.Then.Text},
+		{"prose", dv.Ours.Prose, dv.Then.Prose},
+		{"context", dv.Ours.Context, dv.Then.Context},
+		{"decision", dv.Ours.Decision, dv.Then.Decision},
+		{"consequences", dv.Ours.Consequences, dv.Then.Consequences},
+		// status is compared RAW, matching substanceEqual, which uses ==
+		// on Status where it NormHashes the others. Trimming here made a
+		// whitespace-only status difference — flagged as a divergence by
+		// substanceEqual — invisible to this list, degrading a namable
+		// field to the generic "formatting" fallback.
+		{"status", dv.Ours.Status, dv.Then.Status},
+	} {
+		differs := strings.TrimSpace(f.a) != strings.TrimSpace(f.b)
+		if f.name == "status" {
+			differs = f.a != f.b
+		}
+		if differs {
+			out = append(out, f.name)
+		}
+	}
+	if len(out) == 0 {
+		// substanceEqual normalizes (NormHash folds case and whitespace)
+		// where this compares raw — say so rather than print nothing
+		out = append(out, "formatting")
+	}
+	return out
+}
+
+// conflictQuestion renders the decision a conflict poses.
+func conflictQuestion(cf knowledge.Conflict) string {
+	for _, e := range cf.Entries {
+		if strings.TrimSpace(e.Question) != "" {
+			return strings.TrimSpace(e.Question)
+		}
+	}
+	return string(cf.Kind) + " " + cf.Key + ": sources disagree"
+}
+
+// mintConflictDecision opens one ADR for one merge conflict, through the
+// SAME primitives decide op=ask uses — no new write path. The options are
+// the competing decisions labeled by source, so an answer is unambiguous
+// about WHOSE decision won; the body keeps every side verbatim so the
+// loser stays readable in the record and its journal tombstone.
+func (s *Server) mintConflictDecision(cf knowledge.Conflict) (string, error) {
+	body := []string{"kind: radio", knowledgeConflictMarker + " " + cf.Key}
+	var opts []string
+	for _, e := range cf.Entries {
+		src := "unknown"
+		if len(e.Sources) > 0 {
+			src = e.Sources[0].Source
+		}
+		decision := strings.TrimSpace(e.Decision)
+		if decision == "" {
+			decision = strings.TrimSpace(e.Text)
+		}
+		if decision == "" {
+			// A source that asked the question but never answered it is
+			// still a side Merge distinguished, so it must stay visible —
+			// but rendered bare it produced "option: <src>:" and
+			// decide op=answer accepted that empty string as the winning
+			// decision. Naming the absence keeps the side and makes
+			// choosing it a deliberate, legible act.
+			decision = "(no decision recorded)"
+		}
+		opt := src + ": " + decision
+		opts = append(opts, opt)
+		body = append(body, "option: "+opt)
+	}
+	if len(opts) < 2 {
+		return "", fmt.Errorf("conflict %s has fewer than two sides", cf.Key)
+	}
+	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", conflictQuestion(cf), strings.Join(body, "\n"), "", "", nil)
+	if err != nil {
+		return "", err
+	}
+	d.Context = "knowledge merge conflict: the sources above disagree; answering selects the decision this workspace adopts, and the others stay recorded here"
+	d.Status = "proposed"
+	if err := item.Upsert(s.ws, d); err != nil {
+		return "", err
+	}
+	if _, err := lifecycle.Move(s.ws, d.ID, item.StateSubmitted, ""); err != nil {
+		return "", err
+	}
+	_ = s.cd.Emit("decide", d.ID, "ask "+conflictQuestion(cf))
+	return shortDisplayID(d.ID), nil
+}
+
+// existingDecisionFor returns the ID of a live decision already asking this
+// question, or "" when none does. It is the inside-the-lock half of the
+// settle check: the outside-the-lock one reads knowledge.Extract, which is
+// computed before any minting and therefore cannot see a decision a
+// concurrent apply opened a millisecond ago.
+func (s *Server) existingDecisionFor(cf knowledge.Conflict) (string, error) {
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return "", err
+	}
+	key := knowledge.ADRKey(conflictQuestion(cf))
+	for _, it := range items {
+		if it.Kind == "adr" && it.State != item.StateArchived && knowledge.ADRKey(it.Title) == key {
+			return it.ID, nil
+		}
+	}
+	return "", nil
 }

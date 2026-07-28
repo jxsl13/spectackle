@@ -13,3 +13,8 @@ WHEN a `needs:` entry names an archived item, the spectacle server SHALL count t
 ## intent
 - P-01KY9MZ098EM4AXJ6BEGCBRBD6 archived items stay referenceable: journal tombstones + decide option fidelity: archived items resolve as journal tombstones at every reference site; decide options roundtrip byte-exact
 - T-01KYDAS36XFHJ8X3H1Q8Y845FF exhaustive, deterministic transition matrix over every state pair: internal/lifecycle/matrix_test.go exercises every ordered state pair deterministically: forward skips legal, backward hops refused except the reopen, side states entered only by their designated mechanisms; green in every suite run since landing
+
+## LC-001 {applies: go:lifecycle.retainedBody,go:lifecycle.archive}
+The archive step SHALL retain the full body in the journal tombstone for every record kind whose body is its outcome rather than a delta merged into spec.md.
+
+Rationale: A proposal, task or bug compacts fairly because its change landed in the code and the spec; research and adr have no such delta, so compressing them to a summary deletes the only copy. Found twice: research lost 268 findings their citations, then decide-minted ADRs archived to the byte-identical contentless string adr <question> - kind: radio, erasing both sides of every curated conflict. An ADR also keeps its outcome in item fields the journal event has no channel for, so the body alone is not enough.

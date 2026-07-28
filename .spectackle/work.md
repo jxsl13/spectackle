@@ -47,12 +47,13 @@ choice: enforce: start claims normalized targets, live foreign overlap refuses w
 
 ## P-01KYMCKE8DEW7BZ3FNCMJTNSG2 knowledge conflict resolution is unreachable from the tool surface
 kind: proposal
-state: draft
+state: approved
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
+grilled: 2026-07-28 open=0
 targets: internal/knowledge, internal/mcpserver/knowledge.go
 
-Capability gap from the R-01KYMA7EXME6K gap hunt (WARN 6), empirically confirmed: internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved as a resolution block, but NO MCP op reaches it - knowledge accepts export|merge|apply only. Consequence measured in the hunt: merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate; applying that condensate lands neither side, so both conflicting decisions vanish from the target and the only way to carry a curated outcome forward is hand-editing the artifact markdown - which defeats the server-is-the-only-writer model the tool otherwise holds. Not data loss (the conflict is reported first, sources keep their own copies), but the documented promise that curation is a humans call has no call. OPTIONS to weigh before implementing: (a) knowledge op=resolve key=<conflict key> choose=<source|decision> writing the winner plus a resolution block into the condensate; (b) decide-integration - each conflict mints an ADR in the applying workspace and the answer selects the winner (reuses ASK-SURFACE-001 and needs no new grammar); (c) document the exclusion as intended and point at manual curation. Needs a user decision (b is the most spectackle-shaped but the heaviest). Child tasks at approval.
+Capability gap from the R-01KYMA7EXME6K gap hunt (WARN 6), empirically confirmed: internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but NO MCP op reaches it - knowledge accepts export|merge|apply only. Consequence measured: merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands neither side and both decisions vanish from the target; the only way to carry a curated outcome forward is hand-editing the artifact markdown, defeating the server-is-the-only-writer model. DECIDED SHAPE (ADR-01KYMKEG7YE2P, user): decide-integration - each conflict mints an ADR in the APPLYING workspace and answering it selects the winner. Reuses ASK-SURFACE-001 and the existing decide UI, adds no second decision channel and no new grammar; the cost is that it is the heaviest of the three options. Rejected: a knowledge op=resolve op (smallest surface but a second decision channel beside decide), and document-only (zero code but leaves the documented promise that curation is a humans call with no call). DESIGN CONSEQUENCE the implementer must respect: merge strips conflicts from the condensate, so apply of a single condensate can never see them - apply therefore accepts MULTIPLE artifacts (the same paths+body inputs merge takes), detects conflicts itself via knowledge.Merge, applies the non-conflicting union exactly as today, and mints one ADR per conflict rather than silently dropping it. Single-artifact apply keeps todays behavior byte for byte. CHILD TASK at approval: T-01KYMN (the wiring).
 
 ## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
 kind: adr
@@ -68,3 +69,19 @@ option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op wr
 option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+
+## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/item
+
+internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
+
+REPRODUCTION (found by an independent validator during T-01KYMPN0PNEWV, confirmed pre-existing: git diff origin/main...HEAD -- internal/item/ is empty). knowledge export entries=[{kind: adr, context: "Line one.\nLine two.", decision: go-with-A, status: accepted, options: [...]}] then knowledge apply. get shows decision and status swallowed into the body text; the reloaded items .Decision and .Status are empty strings.
+
+IMPACT is not cosmetic. Every consumer that reads those fields sees them as unset on a record that plainly has them: the archive tombstone retains an empty decision (so an archived multi-paragraph ADR loses which option won - the same loss class LC-001 was written to close, arriving through a different door), knowledge.Extract exports an ADR with no decision, and knowledge apply then reports a spurious divergence between two repositories that actually agree - the validator observed x adr ... ours="" theirs="keep as is" for identical content, caused purely by the local copy being corrupted on reload. Multi-paragraph context and consequences are the NORMAL shape for a real ADR, so this is reachable by ordinary use, not by adversarial input.
+
+DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
+
+VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
