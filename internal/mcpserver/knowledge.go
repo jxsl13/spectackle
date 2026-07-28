@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/knowledge"
 	"github.com/jxsl13/spectackle/internal/lifecycle"
 	"github.com/jxsl13/spectackle/internal/spec"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // knowledge exposes internal/knowledge (a finished, standalone package —
@@ -50,15 +52,53 @@ func (s *Server) knowledge(in knowledgeIn) (*mcp.CallToolResult, any, error) {
 	return refuse("! ARG E - op must be export|merge|apply")
 }
 
-// modulePathLabel is the repository label knowledge.Extract/NewEntry record
-// as provenance for this workspace: the same derivation moduleRepoURL uses
-// (debug.ReadBuildInfo, falling back to the modulePath constant), just
-// without the "https://" prefix a URL needs and a bare module-path label
-// does not — reusing moduleRepoURL directly, rather than re-deriving from
-// debug.ReadBuildInfo a second time, keeps there being exactly one place
-// that reads build info for this purpose.
-func modulePathLabel() string {
+// sourceLabel identifies THE WORKSPACE BEING EXPORTED — the provenance
+// knowledge.Extract/NewEntry record on every entry.
+//
+// It used to reuse moduleRepoURL (debug.ReadBuildInfo), which names the
+// RUNNING BINARY's module: every repo a shared spectackle installation
+// touched exported the identical label, so a merge of two repositories
+// reported sources=1 and unionProvenance — keyed on (Source, Dir) —
+// collapsed the same rule found independently in both into count 1,
+// silently undercounting the recurrence rank that IS the artifact's
+// headline signal. Two conflicting decisions also rendered with the same
+// src=, leaving a human unable to tell which repo said what
+// (B-01KYMCHNJCFBP, measured by an independent gap hunt).
+//
+// Order: the git remote (the durable cross-machine identity), else the
+// workspace directory name, else the build-info module path — a repo with
+// no remote and no name is the only case where the old behavior remains.
+func (s *Server) sourceLabel() string {
+	if u, err := wt.RemoteURL(s.ws.Dir, s.effectiveGit().Remote); err == nil {
+		if lbl := normalizeRepoLabel(u); lbl != "" {
+			return lbl
+		}
+	}
+	if base := filepath.Base(strings.TrimRight(s.ws.Dir, "/")); base != "" && base != "." && base != "/" {
+		return base
+	}
 	return strings.TrimPrefix(moduleRepoURL(), "https://")
+}
+
+// normalizeRepoLabel turns a git remote URL into a stable host/path label:
+// scheme, credentials, the scp-style colon and any .git suffix all drop,
+// so https://github.com/o/r.git, git@github.com:o/r.git and
+// ssh://git@github.com/o/r all label identically — two clones of one
+// repository must never look like two sources.
+func normalizeRepoLabel(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return ""
+	}
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.LastIndex(u, "@"); i >= 0 {
+		u = u[i+1:] // strip credentials or the scp-style user
+	}
+	u = strings.Replace(u, ":", "/", 1) // scp-style host:path
+	u = strings.TrimSuffix(strings.TrimRight(u, "/"), ".git")
+	return u
 }
 
 // ---- export ----
@@ -75,7 +115,7 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 		if err != nil {
 			return nil, nil, err
 		}
-		a, err = knowledge.Extract(c, items, modulePathLabel())
+		a, err = knowledge.Extract(c, items, s.sourceLabel())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -84,7 +124,7 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 		// Every entry is routed through knowledge.NewEntry — validated and
 		// content-keyed identically to an Extracted one; there is no key
 		// field on knowledgeEntryIn for a caller to even attempt supplying.
-		source := modulePathLabel()
+		source := s.sourceLabel()
 		entries := make([]knowledge.Entry, 0, len(in.Entries))
 		for i, e := range in.Entries {
 			entry, err := knowledgeEntryFromIn(e, source)
@@ -301,7 +341,7 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	if err != nil {
 		return nil, nil, err
 	}
-	current, err := knowledge.Extract(c, items, modulePathLabel())
+	current, err := knowledge.Extract(c, items, s.sourceLabel())
 	if err != nil {
 		return nil, nil, err
 	}
