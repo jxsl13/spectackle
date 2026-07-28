@@ -32,8 +32,8 @@ import (
 //
 //	into active   ensure the task branch, commit code, push, open a DRAFT PR
 //	while active  commit and push, so no change is ever only local
-//	into done     flip the PR to ready for review
-//	into archived merge, merge commit, never squash
+//	into done     local gates + CI await; the PR STAYS draft (PR-DRAFT-001)
+//	into archived the single draft->ready flip, then merge commit, never squash
 //
 // Every step is a no-op when it has already happened. That is not politeness:
 // tool calls retry and agents die mid-sequence, so a mapping that only works
