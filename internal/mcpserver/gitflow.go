@@ -57,9 +57,6 @@ import (
 // unreachable forge produces a visible note, never silence.
 type gitFlowResult struct {
 	lines []string
-	// prLine tracks the newest "g pr ..." artifact line appended — the
-	// one line a fully green edge collapses to (RENDER-PARITY-001).
-	prLine string
 	// closureComplete: an archive closure either merged, legitimately had
 	// nothing to merge, or runs without a remote. Anything else strands a
 	// tombstoned item with an open PR (B-01KYGADQ, PRs 142/149) — the move
@@ -87,9 +84,12 @@ func (r *gitFlowResult) String() string {
 // line naming its outcome artifact — the PR URL, the CI verdict, the merge
 // SHA — because everything else (branch, records, gates, flips) is MCP
 // automation the LLM does not need narrated. The collapse happens ONLY
-// when nothing on the edge warned or failed: any "!" refusal, "w " warning
-// or informational notice keeps the full surface — never-silent means
-// failures speak, not that success narrates.
+// when nothing on the edge warned or failed: any "!" refusal or
+// informational notice keeps the full surface — never-silent means
+// failures speak, not that success narrates. The "w " guard is insurance
+// for future in-function warnings: today's only w-line (the divergence
+// note) is appended by gitFlowFor AFTER this collapse ran and is never
+// subject to it.
 func (r *gitFlowResult) dietGreen(artifact string) {
 	if artifact == "" {
 		return
