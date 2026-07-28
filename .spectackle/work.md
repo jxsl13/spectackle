@@ -75,3 +75,31 @@ IMPACT is not cosmetic. Every consumer that reads those fields sees them as unse
 DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
 
 VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
+
+## P-01KYN5YCXGENMRNK00CQTPJM1P the leave-work.md boundary is lossy: seven fields are dropped or corrupted when a record archives or is rejected
+kind: proposal
+state: draft
+created: 2026-07-28
+targets: internal/lifecycle, internal/item, internal/journal, internal/replay
+
+An independent gap hunt, run after LC-001 was written, probed for more instances of the class that rule records: a record's substance compressed at a lifecycle boundary, destroying the only copy. It found seven, all at the same boundary - the moment a record LEAVES work.md - and all confirmed empirically in throwaway repos by planting a marker string and grepping the whole .spectackle tree for it afterward. item.LoadWork/writeWork round-trip every field faithfully while a record stays in work.md, so nothing here is a parse bug; the loss is entirely in what the journal event carries.
+
+G1 REJECT drops an ADR's Context, Decision, Consequences and Status entirely. Both EvReject construction sites build from Body/Tg/Par/Rls/Rnd/Gr/Nd/Ov only. archive() captures exactly these four fields via adrOutcome (that was the LC-001 fix); reject never got the same treatment. Reject then revoke a decided ADR and the fields are gone from work.md, from get and from the raw journal - unrecoverable. Reachable by the single most obvious revisit-a-decision workflow the ADR feature has.
+
+G2 REJECT drops Refs. journal.Event.Refs is documented \"archive/reject: item refs\" and archive does set it; neither reject site does. A two-line omission against the field's own contract.
+
+G3 REJECT then revoke CORRUPTS Created. No Created channel exists on any event, so lastReject leaves it empty and item.Upsert's default-to-now stamps a fresh, wrong date over the real one - silently, and indistinguishably from a real value. Corruption is worse than absence: archive leaves it blank, which at least reads as unknown.
+
+G4 ARCHIVE drops Parent and Targets. EvArchive has no Par/Tg fields at all, though EvReject does. So the FAILURE path preserves structural data the SUCCESS path discards - the same inversion the two already-fixed bugs had.
+
+G5 ARCHIVE drops Rounds, Grilled, Needs and Override. Partially recoverable via EvEscalate/EvDecide, but only for items that escalated. An item that reopened once or twice below the escalate threshold loses Rounds at the next compaction; Grilled is worse - EvGrill is in compaction's unconditional fold bucket and archive never captures it, so a grill verdict is gone the instant its item archives.
+
+G6 WORKTREE SUBMIT truncates the spec.md intent line. replay.intentLine is \"- \" + ID + \" \" + Title, with no note and no gist, while lifecycle.archive appends \": \" + firstOf(note, gistLine). Git never merges .spectackle text and replay.Run is main's only writer, so EVERY item archived through the swarm/worktree flow - the documented primary workflow - lands on main with a stripped intent line. The note survives in the replayed journal event, so this is degradation rather than loss, but the one artifact meant to be the permanent human-readable trace is the one that is incomplete.
+
+G7 Goal and Rules have no write path at all. Nothing assigns either outside item.go's own parser; draft and the draft-revise handler touch only Title/Body/Targets/Refs. Goal is READ by three gate paths (gitflow, swarm, validate), so a documented gate is unreachable except by hand-editing work.md, which the server's own instructions forbid.
+
+SHAPE. Not seven patches. The root cause is that journal.Event's field set was grown per-need and now disagrees with item.Item's in both directions, with no test asserting the correspondence. The work should decide, once and explicitly, what a tombstone owes each kind, then make the correspondence mechanical - a round-trip property test over every Item field through every boundary that serializes one (archive, reject, escalate, compact fold, worktree replay), so the next field added to Item cannot silently fall through. G3 additionally needs a decision on whether Created belongs in the event or should be derived from the record ID's own UUIDv7 timestamp, which ids.ParseRecordID can already read.
+
+RELATED, filed separately: B-01KYN3E973F20 (a newline in a header field makes LoadWork swallow every later field into Body) is the same data-integrity area but a parser bug, before the boundary rather than at it.
+
+ALSO FOUND, off-class, flagged for triage not for this proposal: a git-flow-gate-failed archive that is compensated back to done does not restore the child items the same call already folded away, and does not roll back its spec.AppendIntent - leaving a permanent duplicate intent line and a child reachable only as a tombstone. Transactional-boundary bugs, not compression bugs.
