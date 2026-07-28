@@ -56,7 +56,7 @@ g <kind> <ref> <msg>                             gap (uncovered|orphan)
 m <id> v<n> <name> ...                           benchmark record (bench; f/u/d sublines — see tool 17)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 x <kind> <key> ours=".." theirs=".." (kept ours) an import disagrees with what this workspace holds (knowledge op=apply; reported, never adopted)
-x <kind> <key> same "..", differs in <fields>  same headline value, disagreement is in the named fields (context/consequences/status)
+x <kind> <key> same "..", differs in <f> (kept ours)  same headline value; <f> names the fields that actually differ (text|prose|context|decision|consequences|status, or "formatting" when only normalization does)
 c <dir> <reason> <n>                             compact candidate
 ! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
 ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)

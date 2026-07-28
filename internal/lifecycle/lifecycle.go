@@ -623,8 +623,12 @@ func adrOutcome(it item.Item) string {
 	// what is left, shared by the narrative parts in render order
 	budget := retainedBodyMax - reserved
 	narrative := func(s string) string {
+		// An EMPTY field contributes nothing and consumes nothing. Zeroing
+		// the budget here conflated "nothing to write" with "no room left",
+		// so an omitted context — an ordinary, optional field — deleted
+		// `consequences` outright, with no oversized input anywhere in
+		// sight. Only real exhaustion may close the budget.
 		if s == "" || budget <= 0 {
-			budget = 0
 			return ""
 		}
 		s = capRetainedBodyTo(s, budget)

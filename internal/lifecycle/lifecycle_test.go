@@ -1043,3 +1043,39 @@ func TestUnansweredGistNamesNoSide(t *testing.T) {
 		t.Fatalf("non-adr kinds keep firstLine(Body), got %q", got)
 	}
 }
+
+// TestEmptyFieldDoesNotStarveLaterFields: the budgeting closure zeroed the
+// shared budget when a field was EMPTY, conflating "nothing to write" with
+// "no room left" — so an omitted context (an optional field, the ordinary
+// case) deleted `consequences` outright, with no oversized input anywhere.
+// A regression introduced BY the cap fix and worse than the defect it
+// closed, because it needed nothing unusual to trigger.
+func TestEmptyFieldDoesNotStarveLaterFields(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		it   item.Item
+		want []string
+	}{
+		{"no context", item.Item{
+			Kind: "adr", Title: "q", Body: "kind: radio\noption: postgres\noption: sqlite",
+			Decision: "postgres", Consequences: "needs a separate server in dev", Status: "accepted",
+		}, []string{"option: postgres", "decision: postgres", "consequences: needs a separate server in dev", "status: accepted"}},
+		{"no body and no context", item.Item{
+			Kind: "adr", Title: "q",
+			Context: "", Decision: "postgres", Consequences: "minor tradeoff", Status: "accepted",
+		}, []string{"decision: postgres", "consequences: minor tradeoff", "status: accepted"}},
+		{"no body, context present", item.Item{
+			Kind: "adr", Title: "q",
+			Context: "hello-context", Decision: "postgres", Consequences: "minor tradeoff", Status: "accepted",
+		}, []string{"context: hello-context", "decision: postgres", "consequences: minor tradeoff", "status: accepted"}},
+		{"only a decision", item.Item{Kind: "adr", Title: "q", Decision: "postgres"},
+			[]string{"decision: postgres"}},
+	} {
+		got := retainedBody(tc.it)
+		for _, want := range tc.want {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s: %q missing from retained body:\n%s", tc.name, want, got)
+			}
+		}
+	}
+}

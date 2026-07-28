@@ -774,9 +774,18 @@ func divergedFields(dv knowledge.Divergence) []string {
 		{"context", dv.Ours.Context, dv.Then.Context},
 		{"decision", dv.Ours.Decision, dv.Then.Decision},
 		{"consequences", dv.Ours.Consequences, dv.Then.Consequences},
+		// status is compared RAW, matching substanceEqual, which uses ==
+		// on Status where it NormHashes the others. Trimming here made a
+		// whitespace-only status difference — flagged as a divergence by
+		// substanceEqual — invisible to this list, degrading a namable
+		// field to the generic "formatting" fallback.
 		{"status", dv.Ours.Status, dv.Then.Status},
 	} {
-		if strings.TrimSpace(f.a) != strings.TrimSpace(f.b) {
+		differs := strings.TrimSpace(f.a) != strings.TrimSpace(f.b)
+		if f.name == "status" {
+			differs = f.a != f.b
+		}
+		if differs {
 			out = append(out, f.name)
 		}
 	}
