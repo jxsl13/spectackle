@@ -1596,7 +1596,11 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 					if trip := s.validateRisk(pre.ID); trip != "" {
 						return refuse("! VALIDATE E " + short + " " + gap + " (validation required: " + trip + ")")
 					}
-					warns += "! VALIDATE W " + short + " " + gap + "\n"
+					// The W names its own softness (B-01KYKMPAFNEW3: two
+					// benchmark judges could not tell advisory from
+					// actionable and the archive going through anyway was
+					// their only clue).
+					warns += "! VALIDATE W " + short + " " + gap + " (advisory: archive proceeds; a second-identity verdict closes the audit trail — hard only under feedback.validate=require or a tripped risk gate)\n"
 				} else {
 					in.Note = s.derivedArchiveNote(pre, in.Note)
 				}
