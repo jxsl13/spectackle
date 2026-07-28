@@ -29,3 +29,11 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
+
+## B-01KYKMPAFNEW39VEGPBTKX38MG the archive-time VALIDATE W reads ambiguous - advisory or actionable
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/mcpserver
+
+Two of three v0.6.2 outcome judges independently flagged the same confusion, verbatim-compacted: move to=archived prints ! VALIDATE W <id> no validation verdict - validate op=verdict from a second identity, then archives anyway - it wasnt clear whether this was a soft advisory or something I needed to resolve first; the wording (W vs E) wasnt obvious until the archive still went through. The warning states the demand but not its softness or its purpose. FIX: one line change - the W text gains the consequence clause: no validation verdict recorded (advisory: archive proceeds; a verdict from a second identity closes the audit trail - required only when feedback.validate=require or the risk gate trips). Pin the text in the archive-warn test. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1. SCOPE: one warning string + pin. ROLLBACK: revert.
