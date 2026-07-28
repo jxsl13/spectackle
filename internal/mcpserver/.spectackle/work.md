@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYMCJG8HFYWBSFVG10KJP3NR knowledge path= resolves against the process cwd, not -root
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 refs: R-01KYMA7EXME6KAW9B77MJQ4MSD
 targets: internal/mcpserver/knowledge.go, docs
