@@ -565,7 +565,7 @@ func retainedBody(it item.Item) string {
 		return ""
 	}
 	if it.Kind == "adr" {
-		return capRetainedBody(adrOutcome(it))
+		return adrOutcome(it)
 	}
 	return capRetainedBody(it.Body)
 }
@@ -580,8 +580,17 @@ func RetainsBody(kind string) bool {
 	return kind == "research" || kind == "adr"
 }
 
+// adrOutcome renders an ADR's substance for its tombstone: the body,
+// followed by the structured fields in work.md's own order and spelling.
+//
+// The fields are budgeted OUT of the cap rather than capped with the body.
+// capRetainedBody truncates from the end, so appending them last meant a
+// body over the cap silently amputated `decision:` — the single line that
+// says which option won, on a record whose entire purpose is to say that.
+// Reserving their length first makes the body, which is the long and
+// summarizable part, the only thing a cap can ever take.
 func adrOutcome(it item.Item) string {
-	parts := []string{strings.TrimSpace(it.Body)}
+	var fields []string
 	for _, f := range [][2]string{
 		{"context", it.Context},
 		{"decision", it.Decision},
@@ -589,16 +598,27 @@ func adrOutcome(it item.Item) string {
 		{"status", it.Status},
 	} {
 		if v := strings.TrimSpace(f[1]); v != "" {
-			parts = append(parts, f[0]+": "+v)
+			fields = append(fields, f[0]+": "+v)
 		}
 	}
-	var out []string
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
+	tail := strings.Join(fields, "\n")
+	budget := retainedBodyMax - len(tail) - 1 // -1 for the joining newline
+	body := strings.TrimSpace(it.Body)
+	if budget < 0 {
+		// pathological: the fields alone exceed the cap. They ARE the
+		// outcome, so they win and the body goes entirely.
+		return capRetainedBody(tail)
 	}
-	return strings.Join(out, "\n")
+	if len(body) > budget {
+		body = capRetainedBodyTo(body, budget)
+	}
+	switch {
+	case body == "":
+		return tail
+	case tail == "":
+		return body
+	}
+	return body + "\n" + tail
 }
 
 // gistLine is the one-line substance of an item — the first body line for
@@ -616,17 +636,29 @@ func gistLine(it item.Item) string {
 }
 
 func capRetainedBody(b string) string {
-	if len(b) <= retainedBodyMax {
+	return capRetainedBodyTo(b, retainedBodyMax)
+}
+
+// capRetainedBodyTo is capRetainedBody against a caller-chosen budget, so a
+// caller that must fit something else into the same cap (adrOutcome's
+// structured fields) can reserve it rather than lose it off the end.
+func capRetainedBodyTo(b string, max int) string {
+	if len(b) <= max {
 		return b
 	}
 	// never cut mid-rune: a multi-byte character straddling the cap left a
 	// dangling lead byte in the journal (cross-val-research finding 1)
-	cut := retainedBodyMax
+	cut := max
 	for cut > 0 && !utf8.RuneStart(b[cut]) {
 		cut--
 	}
-	return b[:cut] + "\n[body truncated at tombstone retention cap]"
+	return b[:cut] + truncationMarker
 }
+
+// truncationMarker is appended AFTER the cut, so a truncated body is
+// retainedBodyMax bytes of content plus this marker — the cap bounds what
+// is kept, not the exact field width.
+const truncationMarker = "\n[body truncated at tombstone retention cap]"
 
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	events, err := journal.ReadAll(ws)

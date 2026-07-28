@@ -933,3 +933,38 @@ func TestCapRetainedBodyRuneBoundary(t *testing.T) {
 		t.Fatal("under-cap bodies must pass through untouched")
 	}
 }
+
+// TestLongADRBodyKeepsItsDecision: capRetainedBody truncates from the end,
+// so appending an ADR's structured fields after its body meant a body over
+// the retention cap silently amputated `decision:` — the one line naming
+// the winner, on the record whose entire purpose is to name it. The fields
+// are budgeted out of the cap instead, making the body the only thing a cap
+// can take.
+func TestLongADRBodyKeepsItsDecision(t *testing.T) {
+	it := item.Item{
+		Kind:     "adr",
+		Title:    "which serialization should the rpc layer use?",
+		Body:     strings.Repeat("kind: radio\noption: repo-a: protobuf\noption: repo-b: json\n", 900),
+		Decision: "repo-b: json",
+		Status:   "accepted",
+	}
+	got := retainedBody(it)
+	if !strings.Contains(got, "decision: repo-b: json") {
+		t.Fatalf("a long body must not truncate away the winner (len=%d)", len(got))
+	}
+	if !strings.Contains(got, "status: accepted") {
+		t.Fatalf("nor the status (len=%d)", len(got))
+	}
+	if len(got) > retainedBodyMax+len(truncationMarker) {
+		t.Fatalf("the retention cap must still hold: len=%d > %d", len(got), retainedBodyMax+len(truncationMarker))
+	}
+	if !strings.Contains(got, "truncated at tombstone retention cap") {
+		t.Fatalf("the body should be the part that was truncated:\n%s", got[:200])
+	}
+	// the un-truncated case is untouched: no cap marker, both halves whole
+	short := item.Item{Kind: "adr", Title: "q", Body: "kind: radio\noption: a\noption: b", Decision: "b", Status: "accepted"}
+	sg := retainedBody(short)
+	if strings.Contains(sg, "truncated") || !strings.Contains(sg, "option: a") || !strings.Contains(sg, "decision: b") {
+		t.Fatalf("a short ADR must be retained whole: %q", sg)
+	}
+}
