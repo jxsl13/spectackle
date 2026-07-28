@@ -56,7 +56,7 @@ g <kind> <ref> <msg>                             gap (uncovered|orphan)
 m <id> v<n> <name> ...                           benchmark record (bench; f/u/d sublines — see tool 17)
 x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=merge, one line per competing entry, NEVER auto-resolved)
 c <dir> <reason> <n>                             compact candidate
-! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED)
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
 ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)
 l <path> <agent> <item|-> <exp>m                 scope lease (time left, floored to minutes)
 h <harness> <marker>                             detected harness (commands op=detect; claude|copilot|codex|kimi)
@@ -256,6 +256,12 @@ uncovered package), and turning coverage into CI-red findings is an
 explicit opt-in.
 `fix=true` drafts one backprop proposal per drifted rule (gone, tightened,
 diverged) and re-stamps anchors. Run until `ok` before `move to=done`.
+
+Dirty `_test.go` files are scanned by the validate pack's AST vacuous-test
+detector in-loop: an assertion-free subtest or an unguarded all-assertions
+range renders `! VAC W <file>:<line> <reason>` (capped at 10, `+n more`
+tail) while the file is still uncommitted — committed legacy tests stay
+quiet, so a clean tree keeps the bare `ok`.
 
 A `! TYPED W - typed-call pass disabled packages=<n>: <cause> ...` finding
 appears exactly when the last reindex's go/types call-edge upgrade pass did
