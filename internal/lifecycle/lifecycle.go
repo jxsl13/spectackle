@@ -734,7 +734,17 @@ func scopeFor(ws workspace.Root, dir string, targets []string) (string, error) {
 // primary path was the broken one, and such items merged their archive
 // delta into the WRONG intent section.
 func ScopeFor(ws workspace.Root, dir string, targets []string, resolve func(string) (string, bool)) (string, error) {
-	if dir != "" && dir != "." {
+	// "." is an EXPLICIT root, not an absent dir. The distinction is
+	// load-bearing for a caller that already derived the scope with a
+	// resolver: without it, a correctly-derived root is indistinguishable
+	// from "undecided" and gets silently re-derived here WITHOUT the
+	// resolver, so a mixed node+path target set lands on the path's dir
+	// instead of root (cross-val-node finding 1). Everywhere else in the
+	// codebase "." already means root (see dirOf).
+	if dir == "." {
+		return "", nil
+	}
+	if dir != "" {
 		return strings.Trim(path.Clean(dir), "/"), nil
 	}
 	ctxs, err := ws.ContextDirs()

@@ -809,9 +809,15 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	// (B-01KYMCJFC3EMN): lifecycle has no graph, so the derivation runs
 	// here with a resolver and the result is passed as the explicit dir.
 	// An unresolvable node still falls back to root, exactly as before.
+	// The derivation runs ONCE, here, and its answer is passed as an
+	// explicit dir — including "." when it resolved to root, so Draft
+	// never re-derives it node-blind (cross-val-node finding 1).
 	dir := in.Dir
 	if dir == "" {
 		if d, derr := lifecycle.ScopeFor(s.ws, "", targets, s.nodeFile); derr == nil {
+			if d == "" {
+				d = "."
+			}
 			dir = d
 		}
 	}

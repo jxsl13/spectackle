@@ -2037,4 +2037,29 @@ func TestDraftNodeTargetLandsInItsContextDir(t *testing.T) {
 	if got := dirOfDraft(map[string]any{"kind": "task", "title": "ghost", "targets": []string{"go:nope.Missing"}}); got != "." {
 		t.Fatalf("an unresolvable node target must fall back to root, got %q", got)
 	}
+
+	// MIXED node+path across different context dirs must land on the
+	// common ancestor exactly as two paths would — the shape
+	// cross-val-node found landing on the path's own dir, because a
+	// derived-root answer was being re-derived node-blind downstream.
+	if err := os.MkdirAll(filepath.Join(root, "pkg", "bar"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pkg", "bar", "bar.go"),
+		[]byte("package bar\n\nfunc Bar() int { return 2 }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "pkg/bar", "pattern": "U", "stem": "BAR",
+		"system": "the bar module", "response": "return the constant 2 from Bar",
+	}); !strings.Contains(out, "ok BAR-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	mixed := dirOfDraft(map[string]any{"kind": "task", "title": "mixed",
+		"targets": []string{nodeID, "pkg/bar/bar.go"}})
+	paths := dirOfDraft(map[string]any{"kind": "task", "title": "paths",
+		"targets": []string{"pkg/foo/foo.go", "pkg/bar/bar.go"}})
+	if mixed != paths {
+		t.Fatalf("a mixed node+path set must scope like the equivalent all-path set: mixed=%q paths=%q", mixed, paths)
+	}
 }
