@@ -290,7 +290,8 @@ human has to judge; these surface as
 Anchors re-resolve by CONTENT HASH when their node ID vanished or crossed
 files (B-01KYJB3SGK): tilde numerals (`go:main.main~2`) are walk-order
 fragile and never trusted — the single candidate under the ID stem whose
-span hash matches the stored one wins (`d rebound <rule> <old> -> <new>`),
+span hash matches the stored one wins
+(`d rebound <rule> <old> -> <new> <file>:<s>-<e> (hash match)`),
 two matches refuse, and an ID that re-binds to an unrelated file with no
 hash match anywhere audits as
 `d audit <rule> <node> <file>:<s>-<e> crossfile now=<otherfile>` — never

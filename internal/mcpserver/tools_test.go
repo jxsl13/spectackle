@@ -1642,3 +1642,79 @@ func TestCheckRebindsAndAuditsCrossFile(t *testing.T) {
 		t.Fatalf("the audit counter must count crossfile:\n%s", out)
 	}
 }
+
+// TestCheckDoubleRebindSwapKeepsBothAnchors pins cross-val-rebind finding
+// 1: one rule anchoring BOTH nodes of a tilde collision, both IDs swapped
+// in one pass — the two-phase write-back must keep both rows; the inline
+// delete+Upsert interleave silently ate one.
+func TestCheckDoubleRebindSwapKeepsBothAnchors(t *testing.T) {
+	root := t.TempDir()
+	cliSrc := "package main\n\nfunc main() {\n\tprintln(\"cli\")\n}\n"
+	exSrc := "package main\n\nfunc main() {\n\tprintln(\"example\")\n}\n"
+	if err := os.MkdirAll(filepath.Join(root, "examples", "saxpy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "main.go"), []byte(cliSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "examples", "saxpy", "main.go"), []byte(exSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess := connectRoot(t, root)
+	found := callText(t, sess, "find", map[string]any{"q": "main.main", "scope": "code"})
+	var ids []string
+	for _, l := range strings.Split(found, "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "n" {
+			ids = append(ids, f[1])
+		}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("fixture: want the two colliding mains:\n%s", found)
+	}
+	out := callText(t, sess, "rule", map[string]any{
+		"op": "add", "dir": "", "pattern": "U", "stem": "SWP-TST",
+		"system":   "every program entrypoint",
+		"response": "call println exactly 1 time",
+		"applies":  ids,
+	})
+	if !strings.Contains(out, "ok SWP-TST-001") {
+		t.Fatalf("rule add: %q", out)
+	}
+	// simulate the walk-order ID flip by swapping the two anchor rows'
+	// Node columns on disk — content stays where it is
+	ws := workspace.Root{Dir: root}
+	anchors, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(anchors) != 2 {
+		t.Fatalf("want 2 anchors, got %d", len(anchors))
+	}
+	anchors[0].Node, anchors[1].Node = anchors[1].Node, anchors[0].Node
+	if err := drift.Save(ws, anchors); err != nil {
+		t.Fatal(err)
+	}
+
+	out = callText(t, sess, "check", map[string]any{})
+	if got := strings.Count(out, "d rebound SWP-TST-001"); got != 2 {
+		t.Fatalf("both swapped anchors must rebind, got %d:\n%s", got, out)
+	}
+	after, err := drift.Load(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("the swap rebind must keep BOTH rows, got %d: %+v", len(after), after)
+	}
+	files := map[string]bool{}
+	for _, a := range after {
+		files[a.File] = true
+	}
+	if !files["main.go"] || !files["examples/saxpy/main.go"] {
+		t.Fatalf("each file must keep its anchor: %+v", after)
+	}
+	// stable: a second check is clean
+	if out = callText(t, sess, "check", map[string]any{}); strings.Contains(out, "d ") {
+		t.Fatalf("the double rebind must persist cleanly: %q", out)
+	}
+}

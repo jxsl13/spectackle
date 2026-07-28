@@ -1946,6 +1946,15 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	changed := false
 	pending := 0
 	healed, audited := 0, 0
+	// rebind write-backs collected during the loop, applied in two phases
+	// after it: delete every stale (Rule, oldNode) row FIRST, then upsert
+	// every new row — a same-rule ID swap interleaved with inline
+	// delete+Upsert eats one of the two rows (cross-val-rebind finding 1)
+	type rebind struct {
+		old  graph.NodeID
+		next drift.Anchor
+	}
+	var rebinds []rebind
 	ruleSeen := map[string]bool{}
 	var ruleLines []string
 	// remember dedupes the trailing `r <id> ...` block: at most one line per
@@ -1988,19 +1997,18 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 			a.Node = nodeID
 			a.File, a.Start, a.End = n.File, n.Line, end
 			if nodeID != r.Anchor.Node {
-				// Upsert keys on (Rule, Node), so the re-bound anchor
-				// would otherwise leave the stale-ID row behind — drop it
-				// in place first, then say what happened
-				for i := range anchors {
-					if anchors[i].Rule == a.Rule && anchors[i].Node == r.Anchor.Node {
-						anchors = append(anchors[:i], anchors[i+1:]...)
-						break
-					}
-				}
+				// Rebinds are APPLIED IN TWO PHASES after the loop: with
+				// (Rule, Node) keys, a same-rule ID SWAP (both anchors of
+				// a collision rebinding in one pass) interleaved with
+				// inline delete+Upsert destroys one row silently — the
+				// exact mis-binding class this feature exists to prevent
+				// (cross-val-rebind finding 1, empirically reproduced).
+				rebinds = append(rebinds, rebind{old: r.Anchor.Node, next: a})
 				lines = append(lines, fmt.Sprintf("d rebound %s %s -> %s %s:%d-%d (hash match)",
 					a.Rule, r.Anchor.Node, nodeID, a.File, a.Start, a.End))
+			} else {
+				anchors = drift.Upsert(anchors, a)
 			}
-			anchors = drift.Upsert(anchors, a)
 			changed = true
 		case drift.Evolved:
 			// code changed, rule sentence identical — the only mechanically
@@ -2057,6 +2065,26 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	lines = append(lines, ruleLines...)
+	// phase 1: drop every rebound anchor's stale row; phase 2: upsert the
+	// new rows. Order-independent — a swap's old keys are both gone before
+	// either new row lands.
+	if len(rebinds) > 0 {
+		stale := make(map[string]bool, len(rebinds))
+		for _, rb := range rebinds {
+			stale[rb.next.Rule+"\x00"+string(rb.old)] = true
+		}
+		kept := anchors[:0]
+		for _, a := range anchors {
+			if stale[a.Rule+"\x00"+string(a.Node)] {
+				continue
+			}
+			kept = append(kept, a)
+		}
+		anchors = kept
+		for _, rb := range rebinds {
+			anchors = drift.Upsert(anchors, rb.next)
+		}
+	}
 	if changed {
 		if err := drift.Save(s.ws, anchors); err != nil {
 			return nil, nil, err
