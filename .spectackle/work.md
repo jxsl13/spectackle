@@ -38,11 +38,3 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
-
-## B-01KYK7W45HF54VFZNG5ZV2M0SN index staleness probe is deletion-blind and new files rescan only via anchored-file staleness
-kind: bug
-state: draft
-created: 2026-07-28
-targets: internal/mcpserver
-
-FOUND implementing T-01KYK7CBRTFEW: (1) deleting a source file never triggers a graph rebuild - the staleness probe keys on the newest .go mtime and a deletion bumps nothing, so ghost nodes for deleted files persist until an unrelated edit lands (the in-process e2e saw both old main nodes after os.Remove; a fresh process rebuilt correctly). (2) A NEWLY created file is only indexed when some ANCHORED file also looks stale: the rescan trigger (anchorsNeedRefresh/staleFile) watches anchor files, and the whole-tree rebuild that would index the new file never fires otherwise - find scope=code missed a re-created file until the test touched the anchored main.go. Repro: both are pinned as workarounds inside TestCheckRebindsAndAuditsCrossFile (the two re-touch WriteFile calls with comments naming this bug) - removing those touches reproduces. Expected: the staleness verdict incorporates a tree signature that changes on deletion and creation (e.g. file count + newest mtime, or a dir-mtime walk), so check after a delete drops ghost nodes and check after a create indexes the file without an unrelated touch. SCOPE: the staleness probe only, not the scanner.
