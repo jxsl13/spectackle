@@ -72,7 +72,7 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 
 ## T-01KYMPN0PNEWVS330NKPSQNRDT knowledge apply mints an ADR per conflict instead of dropping both sides
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 parent: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 refs: ADR-01KYMKEG7YE2PS8DSJZJW799P9
