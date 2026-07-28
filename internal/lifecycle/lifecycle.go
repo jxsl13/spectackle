@@ -719,7 +719,32 @@ func openChildren(ws workspace.Root, it item.Item) []string {
 // scopeFor maps a draft to its context dir: explicit dir (scaffolded on
 // demand) > deepest common existing context dir of the targets > root.
 func scopeFor(ws workspace.Root, dir string, targets []string) (string, error) {
-	if dir != "" && dir != "." {
+	return ScopeFor(ws, dir, targets, nil)
+}
+
+// ScopeFor derives an item's context dir: an explicit dir wins, otherwise
+// the deepest context enclosing all path targets.
+//
+// resolve maps a NODE-ID target to its file and is how node IDs reach
+// their subsystem — lifecycle has no graph, so a caller that does (the
+// MCP server) injects one. Without it, node IDs contribute nothing and
+// an item scoped purely by nodes lands at root, which is what shipped
+// until an independent gap hunt measured the consequence
+// (B-01KYMCJFC3EMN): node IDs are the advertised currency, so the
+// primary path was the broken one, and such items merged their archive
+// delta into the WRONG intent section.
+func ScopeFor(ws workspace.Root, dir string, targets []string, resolve func(string) (string, bool)) (string, error) {
+	// "." is an EXPLICIT root, not an absent dir. The distinction is
+	// load-bearing for a caller that already derived the scope with a
+	// resolver: without it, a correctly-derived root is indistinguishable
+	// from "undecided" and gets silently re-derived here WITHOUT the
+	// resolver, so a mixed node+path target set lands on the path's dir
+	// instead of root (cross-val-node finding 1). Everywhere else in the
+	// codebase "." already means root (see dirOf).
+	if dir == "." {
+		return "", nil
+	}
+	if dir != "" {
 		return strings.Trim(path.Clean(dir), "/"), nil
 	}
 	ctxs, err := ws.ContextDirs()
@@ -729,10 +754,19 @@ func scopeFor(ws workspace.Root, dir string, targets []string) (string, error) {
 	common := ""
 	first := true
 	for _, t := range targets {
+		p := t
 		if !strings.ContainsAny(t, "/.") || strings.Contains(t, ":") {
-			continue // node ID, not a path (dir mapping via graph lands in M1)
+			// a node ID: usable only if the caller can resolve it
+			if resolve == nil {
+				continue
+			}
+			f, ok := resolve(t)
+			if !ok || f == "" {
+				continue
+			}
+			p = f
 		}
-		d := path.Dir(t)
+		d := path.Dir(p)
 		if d == "." {
 			d = ""
 		}
