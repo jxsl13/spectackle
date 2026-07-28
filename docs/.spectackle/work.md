@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYM8W5TMFDM8WGY5KEQFV1WT swarm-contention A/B on v0.7.0: does enforcement replace the wasted conflict round
 kind: task
-state: draft
+state: active
 created: 2026-07-28
 grilled: 2026-07-28 open=0
 targets: docs/bench-curves.md
