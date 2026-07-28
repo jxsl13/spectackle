@@ -46,3 +46,11 @@ option: summary only - raw superseded values are destroyed
 option: raw values ride the journal event too
 blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
 choice: raw values ride the journal event too
+
+## B-01KYK5FNM4F3FBMR7W5MGTC6ED SPECTACKLE_AGENT lives only in hint texts, never in the work tool description
+kind: bug
+state: draft
+created: 2026-07-28
+targets: internal/mcpserver
+
+Judge 2 of the 2026-07-28 v0.5.2 outcome batch, verbatim-compacted: the env var requirement (SPECTACKLE_AGENT=<agent-id>) only appears in hint text, not in any tool argument shape. The work op=start success hint (B-01KYJ66VSQ) and the WT E reattach refusal both name it, but an agent reading the work tool Description or schema before calling learns nothing about identity binding - discovery still depends on hitting the right render at the right time. Judge 2 also needed trial and error for the companion fact that a rejected item must be moved from a main-rooted session (the ARG E names the constraint but not the recovery). FIX: (1) the work tool Description gains one sentence: worktrees bind to SPECTACKLE_AGENT - export the same value to resume from another process; (2) the lives-on-main ARG E refusal names the recovery (call from a session rooted at the serving root, or work op=start to re-enter). TEST: pin the Description substring in the tool-surface test; pin the refusal text. VERIFY: go build ./... && go test ./internal/mcpserver/ -count=1 && gofmt -l . empty. SCOPE: one Description sentence + one refusal string + pins. ROLLBACK: revert.
