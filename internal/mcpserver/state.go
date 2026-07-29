@@ -168,8 +168,12 @@ func (s *Server) stateText(path string) (string, error) {
 	// the discovery rule; it is funded by the three suppressions above
 	// (version suffix, edgeless graph, solo swarm), each of which no judge
 	// used in those 79 calls.
-	b.WriteString("#next\n")
-	b.WriteString("send {} to any tool for its argument shape: draft move get find rule decide grill check research\n")
+	// Tightened until the deterministic A/B stopped charging for it: the
+	// scripted benchmark replays a perfect call sequence and so can only ever
+	// see a discovery aid as cost, which means the line has to be free at
+	// that metric to be defensible at all. `{} → shape` carries the whole
+	// rule; the tool names are the part a caller cannot guess.
+	b.WriteString("#next\n{} → shape: draft move get find rule decide grill check research\n")
 
 	health := s.stateHealthSection(c, path)
 	// The waiver-rate tripwire (T-01KYFXEP) rides #health: computed,
