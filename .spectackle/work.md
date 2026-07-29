@@ -80,6 +80,7 @@ VERIFY: a test that writes every ADR field with an embedded newline, reloads, an
 kind: proposal
 state: draft
 created: 2026-07-28
+refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
 grilled: 2026-07-28 open=0
 targets: internal/lifecycle, internal/item, internal/journal, internal/replay
 
