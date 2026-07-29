@@ -331,13 +331,31 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 		// of single lines, measured). Idempotent on the record ID, because a
 		// second attempt legitimately carries a different note or gist and
 		// must not count as a different line.
-		if id := intentRecordID(line); id != "" {
-			for _, l := range lines {
-				if intentRecordID(l) == id {
-					return nil
-				}
+		//
+		// Per LINE, not per call. `line` is not always one line: knowledge
+		// apply's applyIntentEntry passes a whole prose section, many bullets
+		// at once. Keying the whole call on its FIRST bullet's ID dropped the
+		// entire blob — brand-new records included — whenever that one bullet
+		// collided, while still reporting success. A silently skipped intent
+		// line is permanent history loss, and that made the guard worse than
+		// the duplication it replaced.
+		have := map[string]bool{}
+		for _, l := range lines {
+			if id := intentRecordID(l); id != "" {
+				have[id] = true
 			}
 		}
+		var keep []string
+		for _, l := range strings.Split(line, "\n") {
+			if id := intentRecordID(l); id != "" && have[id] {
+				continue
+			}
+			keep = append(keep, l)
+		}
+		if len(keep) == 0 {
+			return nil
+		}
+		line = strings.Join(keep, "\n")
 		// find the intent section's end (last non-empty line before next heading)
 		secStart := -1
 		for i, l := range lines {

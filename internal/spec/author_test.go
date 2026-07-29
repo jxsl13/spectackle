@@ -689,3 +689,50 @@ func TestAppendIntentIsIdempotentPerRecord(t *testing.T) {
 		t.Fatalf("non-record lines keep their existing append behavior, got %d", n)
 	}
 }
+
+// TestAppendIntentDedupesPerLineNotPerCall: `line` is not always one line.
+// knowledge apply's applyIntentEntry passes a whole prose section — many
+// bullets in one call — so keying the whole call on its FIRST bullet's ID
+// dropped the entire blob, brand-new records included, whenever that one
+// bullet collided, while the tool still reported success. A silently skipped
+// intent line is permanent history loss, which made that guard worse than
+// the duplication it replaced.
+func TestAppendIntentDedupesPerLineNotPerCall(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	existing := "- T-01KYQJDJJVFC2T0NF9MM84YQ41 already here: original gist"
+	if err := AppendIntent(ws, "", existing); err != nil {
+		t.Fatal(err)
+	}
+	// a blob whose FIRST bullet collides, and whose others are brand new
+	blob := existing + "\n" +
+		"- P-01KYQJDJJVFC2T0NF9MM84YQ42 brand new one: NEWCONTENTONE\n" +
+		"- B-01KYQJDJJVFC2T0NF9MM84YQ43 brand new two: NEWCONTENTTWO"
+	if err := AppendIntent(ws, "", blob); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{"NEWCONTENTONE", "NEWCONTENTTWO"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a colliding first bullet must not drop the rest of the blob; %q missing:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "T-01KYQJDJJVFC2T0NF9MM84YQ41"); n != 1 {
+		t.Fatalf("the colliding bullet must still dedupe, got %d copies:\n%s", n, got)
+	}
+	// re-applying the same blob adds nothing at all
+	before := len(got)
+	if err := AppendIntent(ws, "", blob); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if len(raw) != before {
+		t.Fatalf("re-applying a fully-known blob must be a no-op: %d -> %d bytes", before, len(raw))
+	}
+}
