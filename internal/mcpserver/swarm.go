@@ -939,7 +939,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 	}
 
 	// GATE 1: verify + goal on the worktree tree
-	if res := s.runGate(it.Goal); res != "" {
+	if res := s.runGate(); res != "" {
 		return s.gateFail(it, res)
 	}
 	_ = s.cd.PutWorktree(withState(w, "gating"))
@@ -967,7 +967,7 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		return refuse("! WT E conflict " + strings.Join(conflicts, " ") + "\nok resolve these files in your worktree, then work op=submit again")
 	}
 	// GATE 2: the tree that merges is the tree that was tested
-	if res := s.runGate(it.Goal); res != "" {
+	if res := s.runGate(); res != "" {
 		return s.gateFail(it, res)
 	}
 	touched, _ := wt.TouchedFiles(s.main.Dir, w.Base, w.Branch)
@@ -1124,11 +1124,14 @@ func (s *Server) workAbort(id string, force bool) (*mcp.CallToolResult, any, err
 
 // runGate executes the configured verify commands plus the item goal in the
 // active root; non-empty return = dense failure record.
-func (s *Server) runGate(goal string) string {
+// runGate runs the workspace's configured verify commands. It used to take a
+// per-item goal to append, but item.Goal had no write path in the entire tool
+// surface — across this repository's whole dogfooded history, 417 item
+// headers and 250 targets lines, not one record ever carried a goal — so the
+// parameter was always empty and the append unreachable (B-01KYPC11VKF0Q).
+// Cfg.Verify is the live half and is unchanged.
+func (s *Server) runGate() string {
 	cmds := append([]string{}, s.main.Cfg.Verify...)
-	if strings.TrimSpace(goal) != "" {
-		cmds = append(cmds, goal)
-	}
 	for _, c := range cmds {
 		cmd := exec.Command("sh", "-c", c)
 		cmd.Dir = s.ws.Dir

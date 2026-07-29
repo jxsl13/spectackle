@@ -166,11 +166,11 @@ func Run(main, wtWS workspace.Root, itemID, base string, cd *coord.DB, g graph.G
 	for id := range touchedItems {
 		rep.Items = append(rep.Items, id)
 		if it, ok := byID[id]; ok {
-			for i, r := range it.Rules {
-				if to, remapped := rep.Remap[r]; remapped {
-					it.Rules[i] = to
-				}
-			}
+			// item.Rules used to be remapped here when a worktree's rule IDs
+			// were renumbered on merge. Nothing ever populated that field —
+			// no tool could — so the remap was unreachable; the field and
+			// this loop went together (B-01KYPC11VKF0Q). Rule renumbering
+			// itself is unaffected: it lives in rep.Remap and the spec files.
 			if err := item.Upsert(main, it); err != nil {
 				return rep, err
 			}

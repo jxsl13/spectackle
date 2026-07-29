@@ -26,7 +26,6 @@ func TestUpsertLoadRoundtrip(t *testing.T) {
 		ID: "P-0001", Kind: "proposal", State: StateDraft, Title: "strided access",
 		Dir: "", Parent: "", Created: "2026-07-24",
 		Targets: []string{"go:a.F", "gpu/kern.cu"},
-		Rules:   []string{"CUDA-KRN-001"},
 		Body:    "Line one.\n\nLine two with detail.",
 	}
 	if err := Upsert(root, in); err != nil {
@@ -40,7 +39,7 @@ func TestUpsertLoadRoundtrip(t *testing.T) {
 	if got.ID != in.ID || got.Kind != in.Kind || got.State != in.State ||
 		got.Title != in.Title || got.Created != in.Created ||
 		len(got.Targets) != 2 || got.Targets[1] != "gpu/kern.cu" ||
-		len(got.Rules) != 1 || got.Body != in.Body {
+		got.Body != in.Body {
 		t.Fatalf("roundtrip mismatch:\n in=%+v\nout=%+v", in, got)
 	}
 	// frontmatter carries the schema stamp
@@ -90,8 +89,7 @@ func TestUpsertLoadRoundtripFeedbackFields(t *testing.T) {
 	root := ws(t)
 	in := Item{
 		ID: "T-0001", Kind: "task", State: StateActive, Title: "feedback loop",
-		Created: "2026-07-24", Goal: "go test ./...",
-		Rounds: 2, Grilled: "needs more tests", Needs: []string{"D-0001", "D-0002"}, Override: true,
+		Created: "2026-07-24", Rounds: 2, Grilled: "needs more tests", Needs: []string{"D-0001", "D-0002"}, Override: true,
 	}
 	if err := Upsert(root, in); err != nil {
 		t.Fatal(err)

@@ -983,10 +983,8 @@ func TestItemEventRoundTrip(t *testing.T) {
 	id := "ADR-" + ids.MintRecordIDAt(past).String()
 	want := item.Item{
 		ID: id, Kind: "adr", State: item.StateDone, Title: "round trip", Dir: "",
-		Parent: "P-0007", Targets: []string{"internal/journal", "internal/lifecycle"},
-		Rules: []string{"LC-001"}, Refs: []string{"R-0001"}, Created: "2021-03-14",
-		Body: "kind: radio\noption: a\noption: b", Goal: "go test ./...",
-		Rounds: 2, Grilled: "GRILLMARK", Needs: []string{"ADR-0001"}, Override: true,
+		Parent: "P-0007", Targets: []string{"internal/journal", "internal/lifecycle"}, Refs: []string{"R-0001"}, Created: "2021-03-14",
+		Body: "kind: radio\noption: a\noption: b", Rounds: 2, Grilled: "GRILLMARK", Needs: []string{"ADR-0001"}, Override: true,
 		Context: "CTXMARK", Decision: "DECMARK", Consequences: "CONSMARK", Status: "accepted",
 	}
 

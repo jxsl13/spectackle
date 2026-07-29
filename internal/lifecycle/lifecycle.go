@@ -583,7 +583,7 @@ func retainedBody(it item.Item) string {
 // named in its explicit drop list, so a field added to Item cannot silently
 // fall through this boundary the way five of them already did.
 func carryRecord(ev *journal.Event, it item.Item) {
-	ev.Par, ev.Tg, ev.Rls, ev.Refs = it.Parent, it.Targets, it.Rules, it.Refs
+	ev.Par, ev.Tg, ev.Refs = it.Parent, it.Targets, it.Refs
 	ev.Rnd, ev.Gr, ev.Nd, ev.Ov = it.Rounds, it.Grilled, it.Needs, it.Override
 	// Capped individually. They ride the event as their own fields now, so
 	// they no longer compete with the body for a shared budget — which is
@@ -603,7 +603,7 @@ func carryRecord(ev *journal.Event, it item.Item) {
 // though the event had carried Rls and Refs all along. The loss was in the
 // reader, not the writer, which is why probing the raw journal missed it.
 func restoreRecord(it *item.Item, e journal.Event) {
-	it.Parent, it.Targets, it.Rules, it.Refs = e.Par, e.Tg, e.Rls, e.Refs
+	it.Parent, it.Targets, it.Refs = e.Par, e.Tg, e.Refs
 	it.Rounds, it.Grilled, it.Needs, it.Override = e.Rnd, e.Gr, e.Nd, e.Ov
 	it.Context, it.Decision, it.Consequences, it.Status = e.Ctx, e.Dec, e.Cons, e.St
 	it.Created = restoredCreated(e.ID, e.Crt)
