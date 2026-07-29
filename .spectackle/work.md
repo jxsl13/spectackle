@@ -205,7 +205,7 @@ VERIFY once decided: for (a), a test that sets a goal through the tool surface a
 
 ## T-01KYPC2NM8EAXSG7G31FCFAMQ7 item-to-event field correspondence, made mechanical by a round-trip property test
 kind: task
-state: draft
+state: active
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
