@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -138,6 +139,20 @@ var LegacyIDRe = regexp.MustCompile(`^` + legacyIDPat + `$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
+
+// Kinds lists the accepted kinds in a stable order, so a tool can print the
+// enum in a refusal without restating it. An unenumerated required string is
+// the worst discoverability hole a surface can have: a wrong guess is a
+// silent semantic error rather than a refusal, and a hand-copied list in the
+// hint drifts from the set the server enforces here.
+func Kinds() []string {
+	out := make([]string, 0, len(kindLetter))
+	for k := range kindLetter {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // MintID mints a fresh ID for a kind, stamped with the current time.
 //

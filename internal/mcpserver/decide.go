@@ -344,7 +344,17 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 	if err != nil {
 		return nil, nil, err
 	}
-	return text("ok " + sc.short(id) + " " + choice)
+	// Name what happened to the item this decision unblocked. Reporting only
+	// the decision left three of four judges calling `get` to learn whether
+	// the rescope had actually landed — the answer was already in hand here
+	// (R-01KYQ4XNAFFNY).
+	out := "ok " + sc.short(id) + " " + choice
+	if hasBlocked {
+		if cur, ok, gerr := item.Get(s.ws, it.ID); gerr == nil && ok {
+			out += " — " + sc.short(cur.ID) + " now " + cur.State
+		}
+	}
+	return text(out + "\n")
 }
 
 // blockingItem finds the (at most one) item whose Needs references decisionID.

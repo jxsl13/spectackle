@@ -116,6 +116,13 @@ func (s *Server) stateText(path string) (string, error) {
 		rootLabel = "wt:" + s.wtItem
 	}
 	b.WriteString("#version\n")
+	// NOT truncated at the first "-". Trimming the suffix to save ~18 bytes
+	// looked like free funding for #next, but TestStateVersionLineResolved
+	// pins v9.9.9-test deliberately: a pre-release suffix IS the resolved
+	// version, and an earlier cross-validation caught this surface reading
+	// the raw var instead of the resolved one. Saving bytes by discarding
+	// version information is the wrong trade on the line that identifies
+	// which behavior a caller is talking to.
 	fmt.Fprintf(&b, "ok spectackle %s agent %s root %s\n", ResolvedVersion(), s.agent, rootLabel)
 
 	c, err := spec.Load(s.ws.Dir)
@@ -153,6 +160,16 @@ func (s *Server) stateText(path string) (string, error) {
 		b.WriteString("#drift\n")
 		b.WriteString(sec)
 	}
+
+	// #next is the one thing state was missing. Every judge is told to start
+	// here and all four then discovered argument shapes by firing empty
+	// objects at each tool — 8 of 79 calls spent rediscovering what the
+	// server already knows (R-01KYQ4XNAFFNY). One line names the tools and
+	// the discovery rule; it is funded by the three suppressions above
+	// (version suffix, edgeless graph, solo swarm), each of which no judge
+	// used in those 79 calls.
+	b.WriteString("#next\n")
+	b.WriteString("send {} to any tool for its argument shape: draft move get find rule decide grill check research\n")
 
 	health := s.stateHealthSection(c, path)
 	// The waiver-rate tripwire (T-01KYFXEP) rides #health: computed,
@@ -294,6 +311,12 @@ func (s *Server) stateGraphSection() string {
 	if nodes == 0 {
 		return ""
 	}
+	// A graph with no edges and no typed-pass finding says nothing a caller
+	// can act on — four judges read `ok graph nodes=5 edges=0` and none used
+	// it. Suppressing it funds the #next section below.
+	if edges == 0 && s.typedPassFinding() == "" {
+		return ""
+	}
 	line := fmt.Sprintf("ok graph nodes=%d edges=%d\n", nodes, edges)
 	if f := s.typedPassFinding(); f != "" {
 		line += f + "\n"
@@ -309,6 +332,24 @@ func (s *Server) stateSwarmSection() (string, error) {
 	agents, err := s.cd.Agents()
 	if err != nil {
 		return "", err
+	}
+	// A solo session coordinating with nobody has nothing to report: one
+	// agent row naming yourself, no leases, no worktrees. All four judges
+	// called `ag ag-b0f8 - 0m main` irrelevant. The moment there is a second
+	// agent, a lease or a worktree, the section returns in full — which is
+	// the only time it carries information.
+	if len(agents) == 1 && agents[0].Name == s.agent {
+		leases, lerr := s.cd.Leases(s.agentTTL())
+		if lerr != nil {
+			return "", lerr
+		}
+		wts, werr := s.cd.Worktrees()
+		if werr != nil {
+			return "", werr
+		}
+		if len(leases) == 0 && len(wts) == 0 {
+			return "", nil
+		}
 	}
 	for _, a := range agents {
 		wtLabel := "main"

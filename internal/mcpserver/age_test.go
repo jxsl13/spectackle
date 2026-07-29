@@ -58,6 +58,13 @@ func TestLeaseLeftMinuteFloorAndClamp(t *testing.T) {
 // not reappear.
 func TestStateAgLineMinuteGrammar(t *testing.T) {
 	s := newTestServer(t, t.TempDir())
+	// A lease makes the #swarm section render: a solo session with nothing to
+	// coordinate suppresses it now, since one row naming yourself carries no
+	// information the #version line does not already give (T-01KYQ5047CE5M).
+	// The grammar under test is unchanged and is exercised where it applies.
+	if _, err := s.cd.Claim([]string{"internal/agegrammar"}, "", time.Minute, time.Hour); err != nil {
+		t.Fatal(err)
+	}
 	res, _, err := s.state(stateIn{})
 	out := resText(t, res, err)
 
