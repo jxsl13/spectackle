@@ -154,7 +154,7 @@ choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 
 ## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
 kind: bug
-state: draft
+state: active
 created: 2026-07-29
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
 targets: internal/item, internal/mcpserver
