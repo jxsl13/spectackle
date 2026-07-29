@@ -248,10 +248,11 @@ TESTS: draft an item, move it straight to done, and assert the render carries no
 
 ## T-01KYPC2NM8EAXSG7G31FCFAMQ7 item-to-event field correspondence, made mechanical by a round-trip property test
 kind: task
-state: done
+state: active
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
+rounds: 1
 grilled: 2026-07-29 open=0
 targets: internal/journal, internal/lifecycle, internal/mcpserver
 
