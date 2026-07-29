@@ -78,7 +78,7 @@ VERIFY: a test that writes every ADR field with an embedded newline, reloads, an
 
 ## P-01KYN5YCXGENMRNK00CQTPJM1P the leave-work.md boundary is lossy: seven fields are dropped or corrupted when a record archives or is rejected
 kind: proposal
-state: draft
+state: approved
 created: 2026-07-28
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
 grilled: 2026-07-29 open=0
