@@ -316,7 +316,7 @@ VERIFY: force a closure failure (a red head), attempt archive twice, and assert 
 
 ## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
 kind: bug
-state: draft
+state: active
 created: 2026-07-29
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
 grilled: 2026-07-29 open=0
