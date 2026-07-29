@@ -284,3 +284,19 @@ MEASUREMENT IS PART OF THIS TASK, not optional. Before: four judges already ran 
 TESTS: state renders the next-step line; state omits graph/swarm on a solo workspace with no edges and no leases, and still renders them when either is non-trivial; rule with empty arguments returns the op-conditional shape; draft with empty arguments returns a shape line naming every kind; decide op=answer names the item's resulting state.
 
 VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty, plus the four-judge after-run. SCOPE: state.go's sections, the rule/draft shape emission, decide's answer line. Do NOT touch the rounds refusal or check - sibling task. ROLLBACK: revert.
+
+## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver, internal/drift
+
+REPRODUCED while adding SRF-001. Sequence: rule op=add with applies (anchor stamped against the rule text), then rule op=edit changing pattern/system/response to fix the sentence. The edit succeeded silently. The very next check reported d audit SRF-001 go:mcpserver.roundsRefusal ... tightened, and the repositorys own TestCheckOnOwnRepo failed with unexpected drift audit on own repo. Re-issuing rule op=edit with the SAME applies list re-stamped the anchor and cleared it.
+
+OBSERVED vs EXPECTED. Observed: an edit that touches only the rule SENTENCE leaves every anchor stamped against the old sentence, so the rule is immediately in an audit-class drift state (tightened blocks, per the auditGate contract) with no signal at edit time. Expected: either the edit re-stamps the anchors it already has, or it says it did not and names the follow-up. The current behavior lets a caller edit a rule into a state the same servers check refuses, and only discover it on the next check - or, as here, in CI.
+
+WHY IT MATTERS. Editing a rules wording to fix a lint finding or an awkward sentence is a NORMAL, encouraged action - the composer even prepends The, so a first attempt often needs one. That routine action silently arms a gate. The cost is not the re-stamp itself but the discovery: the failure surfaces far from its cause, attached to a different tool.
+
+DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is not obviously right: an anchor exists so a human notices when a rule and its code drift apart, and a text edit is exactly when that judgment might be wanted. So the choice is (a) re-stamp on edit and treat the sentence as authoritative, (b) refuse the edit while anchors are stamped against the old text and say so, or (c) allow it but return a line naming the anchors now stale and the exact call that re-stamps them. (c) preserves the judgment and removes the surprise; (a) is cheapest; (b) is probably too strict for a wording fix.
+
+VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
