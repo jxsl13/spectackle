@@ -742,3 +742,4 @@
 {"t":"2026-07-29T14:40:11Z","eid":"bbab742848726644","ag":"ag-5e5c","ev":"move","id":"P-01KYQ4YK7MEA3BP26HSQ7CWZ4R","fr":"draft","to":"approved","note":"judged-friction work; two tasks by concern, sequenced (both touch internal/mcpserver)"}
 {"t":"2026-07-29T14:40:12Z","eid":"7c3c775d31a5e3a1","ag":"ag-c98e","ev":"move","id":"R-01KYQ4XNAFFNYSTNRKC28BR3N3","fr":"draft","to":"done","note":"consumed by P-01KYQ4YK7MEA3 and both child tasks"}
 {"t":"2026-07-29T14:40:14Z","eid":"981db2d4d5bb4a9b","ag":"ag-35df","ev":"move","id":"T-01KYQ503AGE6TV1NWY3EAVZSA6","fr":"draft","to":"active","note":"correctness half first"}
+{"t":"2026-07-29T14:44:10Z","eid":"0e1588c95f9f74c0","ag":"ag-abbf","ev":"drift","rule":"SPX-SWM-007","node":"go:lifecycle.Escalate","cls":"healed","oh":"d14c96b6dab114fa","nh":"e0d83b08f712a5fe"}
