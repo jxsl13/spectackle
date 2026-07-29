@@ -565,9 +565,6 @@ func retainedBody(it item.Item) string {
 	if !RetainsBody(it.Kind) {
 		return ""
 	}
-	if it.Kind == "adr" {
-		return adrOutcome(it)
-	}
 	return capRetainedBody(it.Body)
 }
 
@@ -586,7 +583,14 @@ func retainedBody(it item.Item) string {
 func carryRecord(ev *journal.Event, it item.Item) {
 	ev.Par, ev.Tg, ev.Rls, ev.Refs = it.Parent, it.Targets, it.Rules, it.Refs
 	ev.Rnd, ev.Gr, ev.Nd, ev.Ov = it.Rounds, it.Grilled, it.Needs, it.Override
-	ev.Ctx, ev.Dec, ev.Cons, ev.St = it.Context, it.Decision, it.Consequences, it.Status
+	// Capped individually. They ride the event as their own fields now, so
+	// they no longer compete with the body for a shared budget — which is
+	// what made a large context able to amputate `decision:` three separate
+	// times. A value past this cap is prose that belongs in the body.
+	ev.Ctx = capRetainedBodyTo(it.Context, outcomeFieldMax)
+	ev.Dec = capRetainedBodyTo(it.Decision, outcomeFieldMax)
+	ev.Cons = capRetainedBodyTo(it.Consequences, outcomeFieldMax)
+	ev.St = capRetainedBodyTo(it.Status, outcomeFieldMax)
 	ev.Crt = carriedCreated(it)
 }
 
@@ -649,71 +653,6 @@ func RetainsBody(kind string) bool {
 // belongs in context; truncating it is a real loss but a bounded one, and
 // far smaller than dropping the field entirely.
 const outcomeFieldMax = 2048
-
-// adrOutcome renders an ADR's substance for its tombstone: the body,
-// followed by the structured fields in work.md's own order and spelling.
-//
-// Space is budgeted by IMPORTANCE, not by position. The naive version
-// joined all four fields and capped the join from the end, which only
-// looked correct because the test varied the body: `context` is emitted
-// first and nothing bounds it, so a large context amputated `decision:` —
-// exactly the loss the budgeting was introduced to prevent, one field over.
-//
-// `decision` and `status` are the outcome: what won, and whether it stands.
-// They are reserved first, each capped on its own so the reservation is
-// bounded by construction and can never starve the rest. `body`, `context`
-// and `consequences` are the narrative around that outcome — long,
-// summarizable, and therefore what a cap takes. Budgeting order and render
-// order are separate concerns; the render stays canonical either way.
-func adrOutcome(it item.Item) string {
-	field := func(name, v string) string {
-		if v = strings.TrimSpace(v); v != "" {
-			return name + ": " + v
-		}
-		return ""
-	}
-	keep := []string{
-		capRetainedBodyTo(field("decision", it.Decision), outcomeFieldMax),
-		capRetainedBodyTo(field("status", it.Status), outcomeFieldMax),
-	}
-	reserved := 0
-	for _, k := range keep {
-		if k != "" {
-			reserved += len(k) + 1 // + the joining newline
-		}
-	}
-
-	// what is left, shared by the narrative parts in render order
-	budget := retainedBodyMax - reserved
-	narrative := func(s string) string {
-		// An EMPTY field contributes nothing and consumes nothing. Zeroing
-		// the budget here conflated "nothing to write" with "no room left",
-		// so an omitted context — an ordinary, optional field — deleted
-		// `consequences` outright, with no oversized input anywhere in
-		// sight. Only real exhaustion may close the budget.
-		if s == "" || budget <= 0 {
-			return ""
-		}
-		s = capRetainedBodyTo(s, budget)
-		budget -= len(s) + 1
-		return s
-	}
-
-	parts := []string{
-		narrative(strings.TrimSpace(it.Body)),
-		narrative(field("context", it.Context)),
-		keep[0], // decision
-		narrative(field("consequences", it.Consequences)),
-		keep[1], // status
-	}
-	var out []string
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, "\n")
-}
 
 // gistLine is the one-line substance of an item — the first body line for
 // most kinds, but an adr's Decision when it has one. A decide-minted ADR's

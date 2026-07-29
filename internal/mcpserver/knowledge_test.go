@@ -954,3 +954,64 @@ func TestFailedMintIsNotCountedSettled(t *testing.T) {
 		t.Fatalf("conflicts=1 must correspond to exactly one ask (%d):\n%s", n, out)
 	}
 }
+
+// TestArchivedRecordRendersWhatItRetained: lifecycle.Tombstone was taught to
+// restore parent/targets/rules/refs and the ADR fields, but the archived
+// branch of get kept rendering only the record line and the retained body —
+// so the writer carried the fields and the reader dropped them, one level up
+// from the boundary bug that motivated carrying them. A field a caller
+// cannot see through get is not recovered, whatever the journal holds.
+func TestArchivedRecordRendersWhatItRetained(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	ask := callText(t, sess, "decide", map[string]any{
+		"op": "ask", "question": "which cache eviction policy?", "kind": "text",
+		"context": "CTXMARK",
+	})
+	id := ""
+	for _, f := range strings.Fields(ask) {
+		if strings.HasPrefix(f, "ADR-") {
+			id = f
+		}
+	}
+	if id == "" {
+		t.Fatalf("setup: %s", ask)
+	}
+	callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": id, "choose": "DECMARK", "consequences": "CONSMARK",
+	})
+	if got := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "curated"}); strings.Contains(got, "! ") {
+		t.Fatalf("setup: archiving: %q", got)
+	}
+
+	out := callText(t, sess, "get", map[string]any{"id": id})
+	if !strings.Contains(out, "journal tombstone") {
+		t.Fatalf("expected a tombstone render: %q", out)
+	}
+	for _, want := range []string{"context: CTXMARK", "decision: DECMARK", "consequences: CONSMARK", "status: accepted"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("archived render dropped %q:\n%s", want, out)
+		}
+	}
+
+	// a kind that retains NO body must still not have its archive summary
+	// printed back as though it were content
+	tk := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "plain task", "body": "BODYMARK should not survive archiving",
+	})
+	tid := ""
+	for _, f := range strings.Fields(tk) {
+		if strings.HasPrefix(f, "T-") {
+			tid = f
+		}
+	}
+	if tid == "" {
+		t.Fatalf("setup task: %s", tk)
+	}
+	callText(t, sess, "move", map[string]any{"id": tid, "to": "archived", "note": "done"})
+	tout := callText(t, sess, "get", map[string]any{"id": tid})
+	if strings.Contains(tout, "BODYMARK") {
+		t.Fatalf("a task tombstone must stay a compact summary:\n%s", tout)
+	}
+}
