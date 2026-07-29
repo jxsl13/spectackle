@@ -195,7 +195,7 @@ TESTS: draft an item, move it straight to done, and assert the render carries no
 
 ## R-01KYQ4XNAFFNYSTNRKC28BR3N3 judged friction: four independent agents drive the tricky scenario from tool output alone
 kind: research
-state: draft
+state: done
 created: 2026-07-29
 targets: internal/mcpserver
 
