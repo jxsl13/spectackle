@@ -251,8 +251,9 @@ kind: task
 state: draft
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
+refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
 grilled: 2026-07-29 open=0
-targets: internal/journal, internal/lifecycle
+targets: internal/journal, internal/lifecycle, internal/mcpserver
 
 Closes G1-G5 of P-01KYN5YCXGENM. Root cause: journal.Event's field set was grown per-need and now disagrees with item.Item's in BOTH directions, with nothing asserting the correspondence. Reject preserves Targets/Parent/Rules that archive discards; archive preserves Refs that reject discards. The FAILURE path is more careful with structural data than the SUCCESS path.
 
@@ -263,6 +264,10 @@ CHANGE.
 2. internal/lifecycle/lifecycle.go: populate the full set at BOTH boundaries. Reject snapshots everything needed to reconstruct the item (it is explicitly a revocation snapshot, so completeness is its whole job). Archive carries the structural fields it currently drops (Par, Tg) so a tombstone can answer what a record belonged to and touched. Keep archive's existing retainedBody behavior unchanged - LC-001 and its tests own that and this task must not perturb it.
 3. Created, per ADR-01KYNA70PQFTB (hybrid): derive from the record ID's UUIDv7 mint time via ids.ParseRecordID and RecordID.Time(); write Created onto the event ONLY when the ID is legacy sequential (P-0007 form) and therefore carries no timestamp. lastReject and Tombstone must set Created from the derived-or-carried value so item.Upsert's default-to-now can never fire on a revoke. That default stamping a fresh date over a real one, silently and indistinguishably, is the one CORRUPTION in this proposal rather than a loss - fix it first and test it hardest.
 4. The mechanism, not just the fix: a ROUND-TRIP PROPERTY TEST over every item.Item field. Build an item with every field set to a distinctive value, cross each boundary that serializes one (reject then revoke; archive then Tombstone), and assert field-for-field what MUST survive and what is deliberately dropped. The drop list is an explicit, named allow-list in the test - so adding a field to item.Item fails the test until someone states which side of the line it is on. That is what stops this class recurring; the individual field fixes are secondary.
+
+ROUND 2, after validation. The API half landed and measures 13/13 at both boundaries (M-01KYPCTVBQFD5 v2, same-denominator reflection over both revisions). But the brief demanded fields recoverable through get and find, and the implementation stopped at Tombstone: internal/mcpserver/tools.go's get renders an archived record as sc.record(tomb) plus, for kinds RetainsBody covers, tomb.Body - and reads NONE of the structural fields Tombstone now populates. Verified by the validator: a proposal archived with targets has tg in the raw event and shows nothing in get. So the writer carries it, the reader drops it - the exact defect this task fixed, repeated one level up.
+
+FINISH IT: the archived-record render must surface what the tombstone now holds - parent, targets, refs, rules, and for an adr its decision and status - in the SAME dense line shapes get already uses for a live record, so a reader learns no second vocabulary and the token cost stays proportionate. Do not dump every field unconditionally: render what is present, skip what is empty, and keep the archived render a strict subset of the live one in shape. Then re-measure fidelity through the CLI route (get) rather than through Tombstone, and record that as the honest caller-visible number - the API number overstates what a caller can see.
 
 SCOPE BOUNDARY. Do NOT touch internal/replay (G6 is T2's, sibling task, disjoint file set) and do NOT touch the Goal/Rules write path (B-01KYPC11VKF0Q, deliberately not in this proposal).
 
