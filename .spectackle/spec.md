@@ -392,6 +392,6 @@ WHILE git online mode is enabled and an item has an open pull request, the git f
 Rationale: PR state churn from done/reopen cycles spams reviewers and CI; publication happens once, at archive (user directive 2026-07-28, supersedes T-01KYDKNR8KF66BSZ9W7ZPTX9BC two-way mirror).
 
 ## BENCH-001
-The a surface change justified by a benchmark SHALL be reverted when the judged metric fails to improve, rather than retained on an expected-value argument.
+The surface change justified by a benchmark SHALL be reverted when the judged metric fails to improve, never retained on an expected-value argument, and its A/B must build both binaries with -buildvcs=false.
 
 Rationale: T-01KYQ5047CE5M added shapes to four tools on the strength of 8 of 79 judged calls being shape rediscovery; when the judged run finally landed it measured 59 to 63 calls at +142B and the change was reverted to a +0B tie. The expected-value argument was reasonable and wrong. Two corollaries from the same task: an instrument compared against itself under different conditions is not a measurement (a git-worktree build vs a clone build swung the version line 34B per render and reported the wrong sign), and compressing a text until the instrument stops charging can destroy what the text was for - a judge read the compressed hint as shape: containing no shapes.
