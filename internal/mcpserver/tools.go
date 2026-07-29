@@ -935,6 +935,24 @@ func (sc idScope) substance(it item.Item) string {
 	return b.String()
 }
 
+// roundsRefusal is what a move that ran out of feedback rounds says. It used
+// to return through text() — exit 0 — and lead with an `i <id> <kind>
+// blocked ...` line, byte-identical in shape to the record a SUCCESSFUL move
+// renders and differing only in the state word. Three of four judges read
+// that as moved-plus-warning; one then issued five further moves against an
+// item that had never entered active. So: no record line for a state the
+// caller did not request, the refused destination named before the new one,
+// and the resolution given as an object the caller can send rather than a
+// prose list of choices — the sibling rule refusal already hands back a
+// shape line, and that inconsistency is what cost the extra call.
+func roundsRefusal(item, requested, decision string) string {
+	return fmt.Sprintf(
+		"! ROUNDS E %s move to %s REFUSED — rounds exhausted, item is now blocked\n"+
+			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"rescope|reject|override-once\"} "+
+			"(rescope→draft, reject→rejected, override-once→active)\n",
+		item, requested, decision)
+}
+
 // knownRefIDs builds the "known" set draft's refs validation checks
 // candidate citations against via item.UnknownRefs: every live item ID
 // (item.LoadAll) plus every ID still answerable as a journal tombstone — an
@@ -1712,9 +1730,8 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				// about it. That is an error the server cannot fix, so the LLM
 				// hears it (never silent, and never mislabeled as fine).
 				bShort2 := sc.short(blocked.ID)
-				return text(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
-					fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
-						bShort2, blocked.Kind, orDot(blocked.Dir), blocked.Title, bShort2, sc.short(dec.ID)))
+				return refuse(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
+					roundsRefusal(bShort2, in.To, sc.short(dec.ID)))
 			}
 			s.markDirty()
 			// fresh scope: dec was just minted, and the same staleness that
@@ -1723,8 +1740,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, err
 			}
 			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
-			return text(fmt.Sprintf("i %s %s blocked %s %s\n! ROUNDS E %s rounds exhausted — decide %s (rescope|reject|override-once)\n",
-				bShort, blocked.Kind, orDot(blocked.Dir), blocked.Title, bShort, dShort))
+			return refuse(roundsRefusal(bShort, in.To, dShort))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per
@@ -2207,7 +2223,18 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}
 
 	if len(lines) == 0 {
-		return text("ok")
+		// Not a bare "ok". On a VERIFICATION command a two-character answer
+		// is indistinguishable from a no-op stub: it names no scope, no
+		// counts and no severities, so three of four judges spent a
+		// confirming `state` call — several hundred bytes — to believe it.
+		// The counts come from the scan this function already did, so the
+		// line is longer but the exchange is shorter.
+		rules := 0
+		for _, sf := range c.All() {
+			rules += len(sf.Rules)
+		}
+		return text(fmt.Sprintf("ok check %s 0 findings (E=0 W=0) — %d rules %d dirs\n",
+			orDot(in.Path), rules, len(c.All())))
 	}
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))

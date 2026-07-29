@@ -1015,3 +1015,68 @@ func TestArchivedRecordRendersWhatItRetained(t *testing.T) {
 		t.Fatalf("a task tombstone must stay a compact summary:\n%s", tout)
 	}
 }
+
+// TestRoundsExhaustedRefusesInsteadOfReportingSuccess: the rounds-exhausted
+// move used to return through text() — exit 0 — leading with an
+// `i <id> <kind> blocked ...` record line, byte-identical in shape to the one
+// a SUCCESSFUL move renders. Three of four independent judges read that as
+// moved-plus-warning; one then issued five further moves against an item that
+// had never entered active. The absence of that line is the assertion: a test
+// checking only for the new wording would pass with the old line still there.
+func TestRoundsExhaustedRefusesInsteadOfReportingSuccess(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "stubborn rework loop", "body": "a body of ordinary length",
+	})
+	id := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "T-") {
+			id = f
+		}
+	}
+	if id == "" {
+		t.Fatalf("setup: %s", out)
+	}
+	// drive done/active until the server refuses
+	var last string
+	for i := 0; i < 8; i++ {
+		to := "done"
+		if i%2 == 1 {
+			to = "active"
+		}
+		last = callText(t, sess, "move", map[string]any{"id": id, "to": to})
+		if strings.Contains(last, "ROUNDS E") {
+			break
+		}
+	}
+	if !strings.Contains(last, "ROUNDS E") {
+		t.Fatalf("never escalated:\n%s", last)
+	}
+	// THE defect: no success-shaped record line for a state nobody requested
+	for _, line := range strings.Split(last, "\n") {
+		if strings.HasPrefix(line, "i ") {
+			t.Fatalf("a refused move must not render a record line: %q\n%s", line, last)
+		}
+	}
+	if !strings.Contains(last, "REFUSED") {
+		t.Fatalf("the refusal must say the requested move did not happen:\n%s", last)
+	}
+	// and the resolution must be callable, not a prose list
+	if !strings.Contains(last, `decide {"op":"answer"`) || !strings.Contains(last, `"choose"`) {
+		t.Fatalf("the refusal must hand back a callable decide object:\n%s", last)
+	}
+	// the ADR id must still be extractable from it
+	adr := ""
+	for _, f := range strings.Fields(strings.ReplaceAll(last, `"`, " ")) {
+		if strings.HasPrefix(f, "ADR-") {
+			adr = f
+		}
+	}
+	if adr == "" {
+		t.Fatalf("the refusal must name the decision:\n%s", last)
+	}
+	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "rescope"}); strings.Contains(got, "! ") {
+		t.Fatalf("the handed-back call must work: %q", got)
+	}
+}

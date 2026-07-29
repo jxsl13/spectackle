@@ -376,7 +376,11 @@ func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Ite
 	// task). The ADR's own ID exists only after Draft mints it, so the
 	// body is completed in a second write.
 	body := fmt.Sprintf("%s exhausted its feedback rounds (%d).", shortID(it.ID), it.Rounds)
-	d, err := Draft(ws, mint, "adr", "escalate "+it.ID+": "+optStr, body, it.Dir, it.ID, nil)
+	// shortID, matching the body one line above and every display path —
+	// the full ID here made `state` render the same record at two different
+	// lengths one line apart, which invites pasting a long ID where the
+	// short one is expected.
+	d, err := Draft(ws, mint, "adr", "escalate "+shortID(it.ID)+": "+optStr, body, it.Dir, it.ID, nil)
 	if err != nil {
 		return it, item.Item{}, err
 	}

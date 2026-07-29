@@ -6,7 +6,7 @@ SPX-MCP-004	go:mcpserver.Server.draft	internal/mcpserver/tools.go	702-896	19b99d
 SPX-MCP-005	go:mcpserver.Server.state	internal/mcpserver/state.go	87-103	01b6bd873d304191	dde3039d70647c5f
 SPX-MCP-006	go:mcpserver.Server.research	internal/mcpserver/research.go	37-59	8cb8ff298f3c5e76	d123b79339b10588
 SPX-MCP-007	go:mcpserver.Server.grill	internal/mcpserver/grill.go	51-228	3de08c7b2262005f	93674953c9609b17
-SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	367-399	e0d83b08f712a5fe	249a788d6d001a7c
+SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	367-403	e0d83b08f712a5fe	249a788d6d001a7c
 LCY-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	489-533	a511ac9623b10b36	5d9979347e50633c
 LCY-001	go:item.Get	internal/item/item.go	301-312	37437d90711a7fd0	5d9979347e50633c
 MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	59-176	82d9712a04a7ad14	5275aa7e2829542b
@@ -23,7 +23,7 @@ DRF-001	go:drift.Upsert	internal/drift/drift.go	183-191	7a41f19e26ed4b1b	ed38696
 LSP-001	go:langspec.SpecParser.Parse	internal/langspec/langspec.go	235-289	ee77989091bab22d	eae57d105eaf62a4
 MCP-002	go:graph.Node	internal/graph/graph.go	124-133	092160135b9850c0	1a52ce91c2f5ebcc
 MCP-003	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	224-311	aa936927aec5784d	f0082ff8993a8ca9
-MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1914-2214	26bb8158b85802a9	8800c929f7ba22f7
+MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	1930-2241	26bb8158b85802a9	8800c929f7ba22f7
 MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2529-2718	b3258c671cab0032	eb2b0afd3aaf585d
 SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	259-283	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
