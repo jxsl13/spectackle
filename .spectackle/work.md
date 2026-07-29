@@ -38,6 +38,7 @@ VERIFY: a test that adds a rule with a path-shaped applies and asserts the rende
 kind: bug
 state: draft
 created: 2026-07-28
+grilled: 2026-07-29 open=0
 targets: internal/item, internal/mcpserver
 
 VERIFIED against the code, and the exposure is wider than first filed.
