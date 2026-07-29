@@ -287,3 +287,19 @@ option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op wr
 option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+
+## B-01KYQJDJJVFC2RPWYVMSYDBHZX the archive CI wait budget is shorter than CI itself, so archives systematically time out and each timeout corrupts records
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver, internal/lifecycle
+
+THE STRUCTURAL DEFECT, measured rather than guessed. The archive closure opens or reuses a PR and then waits a fixed budget for checks - the render says checks pending - waiting up to 5m0s. This repositorys own CI runs take 3m43s to 5m38s wall clock, sampled across ten consecutive runs. So the budget sits INSIDE the distribution: a meaningful share of archives time out on a green build that simply had not finished, and the render says retry budget spent, merge it once CI concludes.
+
+WHY THAT IS WORSE THAN SLOW. A timed-out archive is refused WHOLE and the item is compensated back to done - but the compensation does not undo what already ran. Each attempt appends another EvArchive event to the journal and another intent line to spec.md. Measured in this session after a run of retries: R-01KYNA6NJ3F10 accumulated EIGHT archive events for one archiving, ADR-01KYNA70PQFTB three, ADR-01KYMKEG7YE2P two. So the operators only available response to the timeout - retry - is also the thing that degrades the record, and the degradation is proportional to how far CI overruns the budget. B-01KYQBCAD8FF7 covers the intent-line half; this item covers the cause and the journal half.
+
+SECONDARY, same root: each timed-out attempt leaves an open PR behind. Five accumulated here (231-235), two of them CONFLICTING because main advanced while the attempts churned. A later attempt then fails on the conflict rather than on CI, which reads as a different problem and sends the operator somewhere else.
+
+DIRECTION, and the choice matters. The budget is not the real fix - raising 5m to 10m moves the boundary without removing it, and a slower runner or a bigger suite walks back into it. The fix is to make the wait RESUMABLE rather than all-or-nothing: the effects that already ran (intent line, journal event) should either not run until the merge is known to have completed, or be idempotent so a retry converges instead of accumulating. Ordering is the stronger option and is the same conclusion B-01KYQBCAD8FF7 reached independently: run the irreversible effects LAST, after the closure has actually merged. Then a timeout costs a retry and nothing else, and the budget becomes a tuning question rather than a correctness one.
+
+VERIFY: with a deliberately slow or pending check, attempt an archive three times; assert the journal holds exactly one EvArchive for the item, spec.md exactly one intent line, and no more than one open PR.
