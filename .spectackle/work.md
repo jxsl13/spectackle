@@ -2,20 +2,6 @@
 schema: v1
 ---
 
-## ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ Benchmark frames: os/arch/cpu/ram/gpu are required keys. May a machine-independent benchmark (byte counts, token curves) use the sentinel any (dimension irrelevant) so one key spans hosts, or must every benchmark pin real host values?
-kind: adr
-state: done
-created: 2026-07-27
-decision: allow the any sentinel for machine-independent dims
-consequences: Machine-independent benchmarks (byte counts, token curves) share one unique key across hosts via any; none stays for genuinely absent hardware; host-dependent benchmarks still pin all five real values. The key canonicalization treats any as a first-class value, and cmp across frames renders the sentinel verbatim.
-status: accepted
-
-kind: radio
-option: allow the any sentinel for machine-independent dims
-option: always pin real host values - no sentinel
-blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
-choice: allow the any sentinel for machine-independent dims
-
 ## ADR-01KYJMWEWQE48T3PR76TYQRD3H Benchmark history at default depth 1: when a new version supersedes the old, what survives? The put-time delta summary (better/worse/tie per metric) is always journaled; should the superseded RAW metric values also ride the journal event (bounded per-put growth, richer regression forensics), or is the summary enough?
 kind: adr
 state: done
@@ -301,6 +287,7 @@ THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to 
 Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
 ## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
 kind: bug
 state: draft

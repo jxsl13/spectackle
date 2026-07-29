@@ -255,6 +255,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+- ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ Benchmark frames: os/arch/cpu/ram/gpu are required keys. May a machine-independent benchmark (byte counts, token curves) use the sentinel any (dimension irrelevant) so one key spans hosts, or must every benchmark pin real host values?: Decided: a machine-independent benchmark may use the sentinel any for a dimension that genuinely does not apply, so one record spans hosts instead of fragmenting per machine. Consumed by the bench record type and every any-framed record since (lifecycle-tokens, curation-fidelity, boundary-fidelity, judged-friction).
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
