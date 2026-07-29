@@ -36,8 +36,9 @@ VERIFY: a test that adds a rule with a path-shaped applies and asserts the rende
 
 ## B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr
 kind: bug
-state: done
+state: active
 created: 2026-07-28
+rounds: 1
 grilled: 2026-07-29 open=0
 targets: internal/item, internal/mcpserver
 
