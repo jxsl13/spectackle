@@ -272,7 +272,7 @@ CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the m
 
 ## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
 kind: bug
-state: active
+state: done
 created: 2026-07-29
 targets: internal/store, internal/bench
 
