@@ -281,3 +281,43 @@ MITIGATED, not fixed, in the meantime: the clean-tree line no longer prints the 
 WHY IT MATTERS beyond tidiness. check is the loops verification step and the thing CI gates on. A caller scoping to the directory they touched, seeing counts that look scoped, and concluding their subtree is clean, has been told something false about the rest of the workspace - or, if they read it the other way, has been given a global answer they did not ask for. Neither is a good outcome for a verification command.
 
 VERIFY once decided: for scoping, a workspace with a finding outside the queried path reports it with no path and does NOT report it with the path; for removal, the argument is gone from the schema and the docs.
+
+## T-01KYQ503AGE6TV1NWY3EAVZSA6 a refusal must refuse: the rounds-exhausted move stops reporting success, and check reports what it checked
+kind: task
+state: done
+created: 2026-07-29
+parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+grilled: 2026-07-29 open=0
+targets: internal/mcpserver, internal/lifecycle
+
+Closes the correctness half of P-01KYQ4YK7MEA3. Three judges misread the same output; one acted on the misreading.
+
+D1 CORRECTNESS, internal/mcpserver/tools.go, the two rounds-exhausted returns (the coord-emit-failed arm and the normal arm). Both call text(), so the CLI exits 0, and both print i <id> <kind> blocked <dir> <title> - the same shape the item record renderer emits for a SUCCESSFUL move, differing only in the state word. The requested transition did not happen; the item was forced to blocked instead. FIX: return refuse() at both sites so the exit code matches the outcome, and drop the i line - a record line for a state the caller did not request is the thing being misread. Say what did not happen before saying what is now true: move to <requested> REFUSED - rounds exhausted, item is now blocked. Then give the resolution as a CALLABLE object, not a prose list of choices, because the sibling refusal for rule already hands back a shape line and the inconsistency is itself what cost a call: decide {\"op\":\"answer\",\"id\":\"<adr>\",\"choose\":\"rescope|reject|override-once\"}, with the outcome of each choice named (rescope to draft, reject to rejected, override-once to active) since that is what the caller is actually deciding between. Dropping the i line reclaims most of the bytes the callable object costs, and this is a cold path that fires once per escalation.
+
+D2, same file, the check tool's zero-findings return. It returns the bare string ok. Goal-shaped questions are phrased in terms of findings and severities, and a two-character answer on a VERIFICATION command is indistinguishable from a no-op stub - three of four judges spent a confirming state call, which costs several hundred bytes, to believe it. FIX: report what was checked and what was found, from counts the same scan already has: ok check <path> 0 findings (E=0 W=0) - <n> rules <n> dirs <n> items. Net positive despite being longer, because it deletes the corroborating call it currently provokes.
+
+D3, internal/lifecycle, the escalation ADR title. It is built from the FULL item ID while every display path renders through the short form, so state shows the same record at two different truncation lengths one line apart - inviting a caller to paste a long ID where a short one is expected. FIX: build the title from the short form, which is already used one line above in the same function. Titles minted before this keep the long form; nothing resolves against titles, so no migration.
+
+TESTS: a rounds-exhausted move returns a refusal (non-zero) whose text names the refused destination and carries a callable decide object, and does NOT contain an i record line; a clean check names its counts and severities; an escalation ADR title renders at the same length as the record it names. Assert the ABSENCE of the i line explicitly - that is the defect, and a test that only checks the new text would pass with the old line still there.
+
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty. Then re-run a judge: bench -agent-prep DIR -scenario tricky, drive it, and confirm the rounds refusal is not misread. SCOPE: the two rounds returns, the check zero-findings return, the escalation title. Do NOT touch state's sections or any shape line - that is the sibling task. ROLLBACK: revert.
+
+## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/bench
+
+OBSERVED in CI run 30468777911, on a branch whose diff does not touch this test or anything it exercises:
+
+--- FAIL: TestPrepIgnoresHarnessArtifacts (1.68s)
+    testing.go:1369: TempDir RemoveAll cleanup: unlinkat /tmp/TestPrepIgnoresHarnessArtifacts.../001/.git/objects: directory not empty
+
+The assertion did not fail - the TEST BODY passed and the failure came from t.TempDirs deferred RemoveAll. The fixture git-inits and commits inside the temp dir; git leaves background work (gc, pack) that keeps writing into .git/objects after the command returns, so cleanup races it. Passes locally, including under the exact CI invocation (go test -coverprofile), which is characteristic: the race needs a slower or more contended filesystem to lose.
+
+WHY IT MATTERS more than an ordinary flake. This test is inside make cover, which is a REQUIRED CI gate. A flake there blocks a merge that has nothing to do with it, and the failure text points at testing.go rather than at anything a reader would connect to git - the first response is to look for a real regression in the diff, which is exactly the wasted work a gate should not manufacture. It cost that here.
+
+DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
+
+VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
