@@ -75,13 +75,17 @@ type Event struct {
 	Tg   []string  `json:"tg,omitempty"`   // reject: item targets
 	Refs []string  `json:"refs,omitempty"` // archive/reject: item refs — the research return path reads consumers from tombstones (T-01KYD88M)
 	Par  string    `json:"par,omitempty"`  // reject: item parent
-	Rls  []string  `json:"rules,omitempty"`
-	Node string    `json:"node,omitempty"` // drift
-	Cls  string    `json:"cls,omitempty"`  // drift: gone|changed|stale
-	Oh   string    `json:"oh,omitempty"`   // drift: old hash
-	Nh   string    `json:"nh,omitempty"`   // drift: new hash
-	Item string    `json:"item,omitempty"` // drift: backprop item
-	N    int       `json:"n,omitempty"`    // compact: events folded
+	// LEGACY: nothing writes this any more. item.Rules had no write path in
+	// the entire tool surface and was deleted (B-01KYPC11VKF0Q); the field
+	// stays so historical journals that carry a "rules" key still parse
+	// rather than erroring, and omitempty means it is never emitted again.
+	Rls  []string `json:"rules,omitempty"`
+	Node string   `json:"node,omitempty"` // drift
+	Cls  string   `json:"cls,omitempty"`  // drift: gone|changed|stale
+	Oh   string   `json:"oh,omitempty"`   // drift: old hash
+	Nh   string   `json:"nh,omitempty"`   // drift: new hash
+	Item string   `json:"item,omitempty"` // drift: backprop item
+	N    int      `json:"n,omitempty"`    // compact: events folded
 
 	// SDD orchestration v2: reopen/grill/decide/escalate + reject snapshot.
 	Rnd int      `json:"rnd,omitempty"` // move (reopen)/escalate/reject: Rounds counter

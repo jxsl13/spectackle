@@ -279,6 +279,21 @@ WHY IT MATTERS more than an ordinary flake. This test is inside make cover, whic
 DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
 
 VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
+## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver, internal/drift
+
+REPRODUCED while adding SRF-001. Sequence: rule op=add with applies (anchor stamped against the rule text), then rule op=edit changing pattern/system/response to fix the sentence. The edit succeeded silently. The very next check reported d audit SRF-001 go:mcpserver.roundsRefusal ... tightened, and the repositorys own TestCheckOnOwnRepo failed with unexpected drift audit on own repo. Re-issuing rule op=edit with the SAME applies list re-stamped the anchor and cleared it.
+
+OBSERVED vs EXPECTED. Observed: an edit that touches only the rule SENTENCE leaves every anchor stamped against the old sentence, so the rule is immediately in an audit-class drift state (tightened blocks, per the auditGate contract) with no signal at edit time. Expected: either the edit re-stamps the anchors it already has, or it says it did not and names the follow-up. The current behavior lets a caller edit a rule into a state the same servers check refuses, and only discover it on the next check - or, as here, in CI.
+
+WHY IT MATTERS. Editing a rules wording to fix a lint finding or an awkward sentence is a NORMAL, encouraged action - the composer even prepends The, so a first attempt often needs one. That routine action silently arms a gate. The cost is not the re-stamp itself but the discovery: the failure surfaces far from its cause, attached to a different tool.
+
+DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is not obviously right: an anchor exists so a human notices when a rule and its code drift apart, and a text edit is exactly when that judgment might be wanted. So the choice is (a) re-stamp on edit and treat the sentence as authoritative, (b) refuse the edit while anchors are stamped against the old text and say so, or (c) allow it but return a line naming the anchors now stale and the exact call that re-stamps them. (c) preserves the judgment and removes the surprise; (a) is cheapest; (b) is probably too strict for a wording fix.
+
+VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
 
 ## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
 kind: bug
