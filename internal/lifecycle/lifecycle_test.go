@@ -1137,8 +1137,28 @@ func TestOutcomeFieldsCannotBeStarvedByTheBody(t *testing.T) {
 		if got.Decision == "" {
 			t.Fatalf("%s: the decision must survive any body size", tc.name)
 		}
-		if got.Status != "accepted" {
-			t.Fatalf("%s: status = %q, want it whole", tc.name, got.Status)
+		if got.Status == "" {
+			t.Fatalf("%s: the status must survive any body size", tc.name)
+		}
+		// BOUNDED, not merely present. Asserting non-emptiness alone let a
+		// validator delete each per-field cap in carryRecord by mutation
+		// with the whole suite still green — and an uncapped,
+		// caller-controlled Decision or Context is the same unbounded-growth
+		// exposure the shared budget used to have, moved rather than closed.
+		for _, f := range []struct{ name, val, in string }{
+			{"Decision", got.Decision, tc.it.Decision},
+			{"Status", got.Status, tc.it.Status},
+			{"Context", got.Context, tc.it.Context},
+			{"Consequences", got.Consequences, tc.it.Consequences},
+		} {
+			if len(f.val) > outcomeFieldMax+len(truncationMarker) {
+				t.Fatalf("%s: %s is unbounded at %d bytes (cap %d)",
+					tc.name, f.name, len(f.val), outcomeFieldMax)
+			}
+			// an input past the cap must truncate VISIBLY, never silently
+			if len(f.in) > outcomeFieldMax && !strings.Contains(f.val, truncationMarker) {
+				t.Fatalf("%s: %s was cut without the truncation marker", tc.name, f.name)
+			}
 		}
 		if !utf8.ValidString(got.Decision) || !utf8.ValidString(got.Body) {
 			t.Fatalf("%s: retained values must stay valid UTF-8", tc.name)
