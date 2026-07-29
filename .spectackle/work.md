@@ -266,6 +266,7 @@ state: draft
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+grilled: 2026-07-29 open=0
 targets: internal/mcpserver
 
 Closes the economy half of P-01KYQ4YK7MEA3. 8 of 79 judged calls were spent rediscovering argument shapes that the codebase already knows.
