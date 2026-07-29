@@ -99,7 +99,11 @@ var closureFamilies = map[string][]string{
 }
 
 var reItemID = regexp.MustCompile(`\bi ((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+)`)
-var reDecideID = regexp.MustCompile(`decide ((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+)`)
+
+// matches the decision ID whether the refusal names it bare (`decide ADR-x`)
+// or inside the callable object the rounds refusal now hands back
+// (`decide {"op":"answer","id":"ADR-x",...}`).
+var reDecideID = regexp.MustCompile(`decide (?:\{"op":"answer","id":")?((?:ADR|[PTBRD])-[0-9A-HJKMNP-TV-Z]+)`)
 
 // Fixture generates a workspace that exercises every state and the tricky
 // shapes: offline git mode (the whole gitflow runs with no network),
@@ -233,9 +237,11 @@ func Script() []Step {
 		{Label: "reopen/T2", Name: "move", Args: `{"id":"{ID2}","to":"active"}`},
 		{Label: "move/T2-done-again", Name: "move", Args: `{"id":"{ID2}","to":"done"}`},
 		// the second reopen exhausts max_rounds=2: blocked + ADR minted. The
-		// transition SUCCEEDS (the item lands in blocked, a new state), so the
-		// exit is zero; the ! ROUNDS E record rides a success result.
-		{Label: "escalate/T2", Name: "move", Args: `{"id":"{ID2}","to":"active"}`, Capture: "ADR"},
+		// requested transition is REFUSED — the item is forced to blocked,
+		// which is not what the caller asked for — so the exit is non-zero.
+		// It used to ride a success result, and judges read that as
+		// moved-plus-warning (R-01KYQ4XNAFFNY).
+		{Label: "escalate/T2", Name: "move", Args: `{"id":"{ID2}","to":"active"}`, Capture: "ADR", ExpectRefusal: true},
 		{Label: "resolve/rescope", Name: "decide", Args: `{"op":"answer","id":"{ADR}","choose":"rescope"}`},
 		{Label: "find/rejections", Name: "find", Args: `{"q":"bench rejection","scope":"rejection"}`},
 		{Label: "state/final", Name: "state", Args: `{}`},

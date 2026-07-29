@@ -52,8 +52,10 @@ func TestCoverageCheckSilentByDefault(t *testing.T) {
 	if strings.Contains(before, "nocontract") {
 		t.Fatalf("ungated check must not report coverage: %q", before)
 	}
-	if before != "ok" {
-		t.Fatalf("ungated check on a clean tree must end exactly ok: %q", before)
+	// a clean tree reports zero findings — with its counts, so the answer is
+	// distinguishable from a no-op stub (R-01KYQ4XNAFFNY)
+	if !strings.HasPrefix(before, "ok check 0 findings (E=0 W=0)") {
+		t.Fatalf("ungated check on a clean tree must report zero findings: %q", before)
 	}
 
 	gatedRoot := t.TempDir()
@@ -164,7 +166,7 @@ func TestCoverageUnknownKeyTolerance(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess := connectRoot(t, root)
-	if out := callText(t, sess, "check", map[string]any{}); out != "ok" {
-		t.Fatalf("unknown config keys must be ignored at load: %q", out)
+	if out := callText(t, sess, "check", map[string]any{}); !strings.Contains(out, "0 findings (E=0 W=0)") {
+		t.Fatalf("unknown config keys must be ignored at load (check still clean): %q", out)
 	}
 }
