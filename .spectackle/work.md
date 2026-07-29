@@ -2,20 +2,6 @@
 schema: v1
 ---
 
-## ADR-01KYJMWEWQE48T3PR76TYQRD3H Benchmark history at default depth 1: when a new version supersedes the old, what survives? The put-time delta summary (better/worse/tie per metric) is always journaled; should the superseded RAW metric values also ride the journal event (bounded per-put growth, richer regression forensics), or is the summary enough?
-kind: adr
-state: done
-created: 2026-07-27
-decision: raw values ride the journal event too
-consequences: USER CHOSE the richer option over the lean recommendation: every put that supersedes a version appends the outgoing versions full metric values to the journaled delta event - bounded per-put growth, full regression forensics at depth 1. The put event schema carries prior impl/metric values alongside the better/worse/tie summary; compaction keeps the event class.
-status: accepted
-
-kind: radio
-option: summary only - raw superseded values are destroyed
-option: raw values ride the journal event too
-blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
-choice: raw values ride the journal event too
-
 ## ADR-01KYKTGGPREG2B7XJ1FTY25E7S Worktree contention: enforce the lease at work op=start, or keep merge-layer arbitration?
 kind: adr
 state: done
