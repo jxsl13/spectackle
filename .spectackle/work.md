@@ -253,7 +253,7 @@ TESTS: archive an item in a worktree with a note, submit, and assert main's spec
 
 VERIFY: go build ./... && go test ./internal/replay/ ./internal/lifecycle/ ./internal/mcpserver/ -count=1 && gofmt -l . empty. ROLLBACK: revert.
 
-## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes draight to done without passing through active
+## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
 kind: bug
 state: draft
 created: 2026-07-29

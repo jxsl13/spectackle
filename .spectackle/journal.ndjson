@@ -696,3 +696,4 @@
 {"t":"2026-07-29T07:23:57Z","eid":"51408da72f56a445","ag":"ag-f49e","ev":"move","id":"P-01KYN5YCXGENMRNK00CQTPJM1P","fr":"draft","to":"approved","note":"data-integrity work; two tasks with disjoint file sets"}
 {"t":"2026-07-29T07:23:57Z","eid":"368394f1c6548afd","ag":"ag-d9a0","ev":"move","id":"R-01KYNA6NJ3F109VTE35QYRM64Q","fr":"draft","to":"done","note":"consumed by P-01KYN5YCXGENM and both child tasks"}
 {"t":"2026-07-29T07:24:48Z","eid":"f0deebbf3af0a700","ag":"ag-bb12","ev":"create","id":"B-01KYPC60DWEZ0S0CN1RFTEPGQH","k":"bug","ti":"the done edge pushes a branch that was never created when a record goes draight to done without passing through active"}
+{"t":"2026-07-29T07:25:00Z","eid":"6f9cad983c5ff02e","ag":"ag-a74b","ev":"revise","id":"B-01KYPC60DWEZ0S0CN1RFTEPGQH","note":"title revised"}
