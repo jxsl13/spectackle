@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/knowledge"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -1079,4 +1080,67 @@ func TestRoundsExhaustedRefusesInsteadOfReportingSuccess(t *testing.T) {
 	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "rescope"}); strings.Contains(got, "! ") {
 		t.Fatalf("the handed-back call must work: %q", got)
 	}
+}
+
+// TestStatusFromOutsideIsValidated: item.Item.Status was a bare string whose
+// enum lived only in a doc comment and a jsonschema DESCRIPTION, neither of
+// which validates. The exposure was not a caller typo but an IMPORTED
+// artifact: the ADR-apply path assigned d.Status = e.Status straight from
+// another repository's entry, so a foreign artifact could inject any string —
+// including "superseded", which is a consequence of a replacement and not a
+// claim an artifact is in a position to make (B-01KYNA4PJNF5K).
+func TestStatusFromOutsideIsValidated(t *testing.T) {
+	artifact := func(status string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" +
+			"## adr 2222222222222222\nquestion: which serialization?\ndecision: protobuf\n" +
+			"status: " + status + "\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n"
+	}
+
+	t.Run("a bogus status does not poison the workspace", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("totally-made-up")})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "not accepted from an artifact") {
+			t.Fatalf("an invalid imported status must be refused:\n%s", out)
+		}
+		// and the refusal names the legal set, so the caller learns it
+		for _, want := range item.Statuses() {
+			if !strings.Contains(out, want) {
+				t.Fatalf("the refusal must name %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("superseded is refused even though it is a legal value", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("superseded")})
+		if !strings.Contains(out, "! ARG E") {
+			t.Fatalf("an artifact may not assert superseded:\n%s", out)
+		}
+		if !strings.Contains(out, "consequence") {
+			t.Fatalf("the refusal must say why, not just no:\n%s", out)
+		}
+	})
+
+	t.Run("the legal values still apply", func(t *testing.T) {
+		for _, st := range []string{"proposed", "accepted", "deprecated"} {
+			sess := connectRoot(t, t.TempDir())
+			out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact(st)})
+			if strings.Contains(out, "! ARG E") {
+				t.Fatalf("status %q must be accepted: %s", st, out)
+			}
+		}
+	})
+
+	t.Run("the caller-authored export path is guarded too", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{
+			"op": "export",
+			"entries": []map[string]any{{
+				"kind": "adr", "question": "q?", "decision": "d", "status": "nonsense",
+			}},
+		})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "status") {
+			t.Fatalf("a caller-authored entry's status must be validated:\n%s", out)
+		}
+	})
 }
