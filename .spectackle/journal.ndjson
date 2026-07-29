@@ -814,3 +814,4 @@
 {"t":"2026-07-29T18:33:02Z","eid":"33dbe7516d9857e5","ag":"ag-8724","ev":"create","id":"B-01KYQJDJJVFC2RPWYVMSYDBHZX","k":"bug","ti":"the archive CI wait budget is shorter than CI itself, so archives systematically time out and each timeout corrupts records"}
 {"t":"2026-07-29T18:35:40Z","eid":"5a5b043803b34dd8","ag":"ag-5983","ev":"revise","id":"B-01KYQJDJJVFC2RPWYVMSYDBHZX","note":"title+body revised"}
 {"t":"2026-07-29T18:37:16Z","eid":"607209b920d5138e","ag":"ag-ed54","ev":"revise","id":"B-01KYQJDJJVFC2RPWYVMSYDBHZX","note":"targets revised"}
+{"t":"2026-07-29T18:37:18Z","eid":"5f60e18981ae7387","ag":"ag-aa84","ev":"grill","id":"B-01KYQJDJJVFC2RPWYVMSYDBHZX","gr":"2026-07-29 open=0","hash":"1aba5caef5735cfab0bacf071abd7cc45fa86ac02a33c81a4e1d07db3d0a57cf"}

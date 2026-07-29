@@ -292,6 +292,7 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 kind: bug
 state: draft
 created: 2026-07-29
+grilled: 2026-07-29 open=0
 targets: internal/spec, internal/mcpserver
 
 CORRECTED. This item was first filed claiming the journal accumulates duplicate archive events. That claim was FALSE and is withdrawn: it came from a substring grep that also matched the record ID inside other events note text. Parsed properly, every EvArchive is paired with a compensating EvMove (archived->done) - 3/3, 2/2, 2/2 across the three records examined - which is exactly what internal/mcpserver/tools.go documents as intentional: the attempt genuinely happened, the compensation records the reversal truthfully, and final-state-wins replay lands on done. The journal is a faithful append-only log and needs no fix.
