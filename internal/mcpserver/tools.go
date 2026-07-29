@@ -915,9 +915,6 @@ func (sc idScope) substance(it item.Item) string {
 	if len(it.Targets) > 0 {
 		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
 	}
-	if len(it.Rules) > 0 {
-		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
-	}
 	if len(it.Refs) > 0 {
 		b.WriteString("refs " + strings.Join(sc.shorts(it.Refs), " ") + "\n")
 	}

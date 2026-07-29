@@ -246,7 +246,7 @@ func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate
 		}
 	}
 	if gate {
-		if g := s.runGate(it.Goal); g != "" {
+		if g := s.runGate(); g != "" {
 			res.addf("%s", g)
 			res.addf("! GATE E %s local gate failed — fix and retry the move", shortDisplayID(it.ID))
 			s.journalGateFail(it)
@@ -460,7 +460,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	// command, CI await skipped. A failure that never reaches a runner costs
 	// zero runner minutes, which is the requirement's core: runners fire only
 	// at finalization, after local gates pass. Passing is said in one record.
-	if gate := s.runGate(it.Goal); gate != "" {
+	if gate := s.runGate(); gate != "" {
 		res.addf("%s", gate)
 		res.addf("! GATE E %s local gate failed — pr %d stays draft, fix and move to done again", it.ID, pr.Number)
 		s.journalGateFail(it)
@@ -673,7 +673,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 	// Flip exactly once, behind the same local gate done runs — runners
 	// fire only after local gates pass, whichever transition fronts them.
 	if pr.Draft {
-		if gate := s.runGate(it.Goal); gate != "" {
+		if gate := s.runGate(); gate != "" {
 			res.addf("%s", gate)
 			res.addf("! GATE E %s local gate failed — pr %d stays draft, merge refused", it.ID, pr.Number)
 			s.journalGateFail(it)

@@ -69,9 +69,7 @@ type Item struct {
 	Refs []string
 
 	Created string // YYYY-MM-DD
-	Goal    string // optional shell command gating work-submit (benchmark/verify target)
 	Targets []string
-	Rules   []string
 	Body    string
 
 	// Feedback-loop / escalation fields (SDD orchestration v2).
@@ -240,12 +238,8 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Parent = v
 			case "refs":
 				it.Refs = splitList(v)
-			case "goal":
-				it.Goal = v
 			case "targets":
 				it.Targets = splitList(v)
-			case "rules":
-				it.Rules = splitList(v)
 			case "rounds":
 				n, _ := strconv.Atoi(v)
 				it.Rounds = n
@@ -404,9 +398,6 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		if refs := dedupeStrings(it.Refs); len(refs) > 0 {
 			b.WriteString("refs: " + strings.Join(refs, ", ") + "\n")
 		}
-		if it.Goal != "" {
-			b.WriteString("goal: " + it.Goal + "\n")
-		}
 		if it.Rounds != 0 {
 			b.WriteString("rounds: " + strconv.Itoa(it.Rounds) + "\n")
 		}
@@ -433,9 +424,6 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		}
 		if len(it.Targets) > 0 {
 			b.WriteString("targets: " + strings.Join(it.Targets, ", ") + "\n")
-		}
-		if len(it.Rules) > 0 {
-			b.WriteString("rules: " + strings.Join(it.Rules, ", ") + "\n")
 		}
 		if it.Body != "" {
 			b.WriteString("\n" + it.Body + "\n")

@@ -848,9 +848,6 @@ func (s *Server) validate(in validateIn) (*mcp.CallToolResult, any, error) {
 	for _, c := range s.main.Cfg.Verify {
 		verifySec = append(verifySec, "g verify "+c)
 	}
-	if strings.TrimSpace(it.Goal) != "" {
-		verifySec = append(verifySec, "g goal "+it.Goal)
-	}
 	if last := s.lastGateResult(it.ID); last != "" {
 		verifySec = append(verifySec, "g gate "+last)
 	}
