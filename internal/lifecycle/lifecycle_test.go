@@ -1165,3 +1165,66 @@ func TestOutcomeFieldsCannotBeStarvedByTheBody(t *testing.T) {
 		}
 	}
 }
+
+// TestIntentLineIsBounded: the intent line is written into spec.md, which is
+// permanent, human-read and reviewed in diffs — so an uncapped gist is not a
+// large record there, it is a broken file. A validator archived a task with
+// a 60KB note and got a 60047-byte "line" in spec.md plus a 60000-byte
+// journal field that compaction then preserved verbatim; the same note also
+// rode Sum a second time, past summary()'s own cap, for 120KB on one archive.
+// Every other retained value in this file was already capped.
+func TestIntentLineIsBounded(t *testing.T) {
+	for _, tc := range []struct{ name, note, body string }{
+		{"huge note", strings.Repeat("N", 60000), "body"},
+		{"huge first body line, no note", "", strings.Repeat("B", 60000)},
+		{"multiline note", "first line\nsecond line", "body"},
+	} {
+		w := ws(t)
+		it := item.Item{
+			ID: "T-" + ids.MintRecordIDAt(time.Now()).String(), Kind: "task",
+			State: item.StateDone, Title: "bounded", Body: tc.body,
+		}
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateArchived, tc.note); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		raw, err := os.ReadFile(w.SpecPath(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if !strings.HasPrefix(line, "- "+it.ID+" ") {
+				continue
+			}
+			if len(line) > intentGistMax+len(truncationMarker)+len(it.ID)+64 {
+				t.Fatalf("%s: intent line is unbounded at %d bytes", tc.name, len(line))
+			}
+			// one LINE, always — a newline in the note would otherwise
+			// silently split the intent section into two entries
+			if strings.Contains(line, "\n") {
+				t.Fatalf("%s: the intent line must stay one line", tc.name)
+			}
+		}
+		// and the journal side: gist and sum both bounded, note kept whole
+		events, err := journal.ReadAll(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range events {
+			if e.Ev != journal.EvArchive || e.ID != it.ID {
+				continue
+			}
+			if len(e.Gist) > intentGistMax+len(truncationMarker) {
+				t.Fatalf("%s: event gist unbounded at %d bytes", tc.name, len(e.Gist))
+			}
+			if len(e.Sum) > 400+intentGistMax+len(truncationMarker)+16 {
+				t.Fatalf("%s: event sum unbounded at %d bytes", tc.name, len(e.Sum))
+			}
+			if tc.note != "" && e.Note != tc.note {
+				t.Fatalf("%s: the FULL note must still be recorded on the event", tc.name)
+			}
+		}
+	}
+}
