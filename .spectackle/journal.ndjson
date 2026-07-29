@@ -699,3 +699,4 @@
 {"t":"2026-07-29T07:25:00Z","eid":"6f9cad983c5ff02e","ag":"ag-a74b","ev":"revise","id":"B-01KYPC60DWEZ0S0CN1RFTEPGQH","note":"title revised"}
 {"t":"2026-07-29T07:25:09Z","eid":"3acec67137cd671d","ag":"ag-38f8","ev":"move","id":"T-01KYPC2NM8EAXSG7G31FCFAMQ7","fr":"draft","to":"active","note":"item-to-event correspondence"}
 {"t":"2026-07-29T07:36:11Z","eid":"86f35f65d866ca80","ag":"ag-108f","ev":"bench","id":"M-01KYPCTVBQFD59DNP3VAS5J2N5","k":"bench","ti":"boundary-fidelity","note":"boundary-fidelity|arch=any|cpu=any|gpu=any|os=any|ram=any"}
+{"t":"2026-07-29T07:36:35Z","eid":"69fcc1cec4932700","ag":"ag-0dbc","ev":"move","id":"T-01KYPC2NM8EAXSG7G31FCFAMQ7","fr":"active","to":"done","note":"reject 7/13 to 12/13, archive 0/9 to 8/9, corrupted 1 to 0 (M-01KYPCTVBQFD5); carryRecord/restoreRecord plus a reflection round-trip test with an explicit drop list"}
