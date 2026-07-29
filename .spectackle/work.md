@@ -330,3 +330,21 @@ RELATED, same judge, same root: there is NO discoverable way to enumerate rules.
 DIRECTION, and these are alternatives not a list: (a) refuse an empty q, naming what to pass - the minimum, and it at least stops the lie; (b) treat an empty q as list-all within the scope, which also closes the enumeration gap in the same change and is what a reader plainly expects from scope=rule; (c) keep requiring q but document a wildcard in the shape line. (b) is the strongest: it makes the obvious reading correct instead of teaching a workaround. Whichever is chosen, the invariant is that no query which was never executed may answer ok.
 
 VERIFY: on a workspace with rules, find with an empty q must not answer ok no matches - it either refuses with what to pass, or returns the rules; and a scope with genuinely zero records still answers no matches truthfully.
+
+## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver
+
+Two inline-enum gaps found by independent judges driving the tricky scenario from tool output alone. Filed together because they are the same defect shape and, unlike the additions reverted in T-01KYQ5047CE5M, judges named these as costing them specifically.
+
+D1, move. Its shape line is shape: move {id*, to*, note}. The destination is the entire point of the call and its legal set is invisible. A judge guessed done and active and said so plainly: complete, closed, finished, in-progress and wip were equally plausible guesses that would have burned calls. The judge also drew the comparison itself - rule DOES inline pattern*:U|E|S|N|O|C and draft DOES inline its kind enum, so move is inconsistent with its own siblings. Another judge independently reported the same absence, adding that the whole state machine - which states exist, which transitions are legal, the intended order - is invisible from any output, and that it only knew done and active because the brief handed it those words.
+
+D2, the EARS pattern letters. pattern*:U|E|S|N|O|C ships six bare single letters with no legend in any output. A judge said it only knew these were EARS patterns from outside knowledge and hedged by copying U off an existing rule. Nothing in the surface lets a caller pick the right letter, which makes the enum present but unusable.
+
+WHY THESE ARE DIFFERENT FROM WHAT WAS JUST REVERTED. T-01KYQ5047CE5M added shapes to tools where discovery was not the bottleneck and measured 59 to 63 calls, so it was reverted. These two are the enums judges actually reached for and could not find, and D1 is an INCONSISTENCY rather than an addition: two sibling tools already pay for their enums, so matching them is closing a gap rather than growing the surface. Note the honest caveat from the same data: judges flagged D1 at 0 wasted calls each, because they guessed correctly. The cost is a near miss, not a measured loss - so this must be measured the same way and reverted the same way if calls do not fall.
+
+DIRECTION. D1: inline the destination enum, in the style draft and rule already use, and echo the legal set on an invalid value. D2: expand the letters where they appear - pattern*:U=ubiquitous|E=event|S=state|N=unwanted|O=optional|C=complex - and consider whether the letters should survive at all if the words cost little more. Both additions must be funded or measured, per the constraint that the metric is tokens per call.
+
+VERIFY: a judged before/after run with four independent agents on the tricky scenario, calls compared against the 59-call reference; plus a byte A/B with both binaries built -buildvcs=false, since a pseudo-version difference silently swung an earlier measurement by 34B per render.
