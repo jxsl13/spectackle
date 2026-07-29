@@ -290,8 +290,9 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 
 ## B-01KYQJDJJVFC2RPWYVMSYDBHZX the archive CI wait budget sits inside the CI duration distribution, so archives time out on builds that are merely unfinished
 kind: bug
-state: done
+state: active
 created: 2026-07-29
+rounds: 1
 grilled: 2026-07-29 open=0
 targets: internal/spec, internal/mcpserver
 
