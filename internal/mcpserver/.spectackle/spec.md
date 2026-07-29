@@ -133,3 +133,8 @@ The server instructions manifest SHALL carry a BACKPROP paragraph naming the thr
 
 ## RENDER-PARITY-001
 WHEN a lifecycle edges git automation succeeds, the MCP server SHALL render 1 line per edge naming the outcome artifact (commit SHA, PR URL, merge SHA); multi-line verbosity is reserved for refusals and failures.
+
+## SRF-001 {applies: go:mcpserver.roundsRefusal}
+The a refused operation SHALL exit non-zero and lead with what did NOT happen, never rendering the success-shaped record line of a state the caller did not request.
+
+Rationale: Four independent judges drove the tricky scenario from tool output alone; three misread a rounds-exhausted move as moved-plus-warning because it exited 0 and led with an i record line identical in shape to a successful move, and one then issued five further moves against a blocked item. Fixing it cut judged calls 79 to 59 (M-01KYQ745ETEYB). A refusal that looks like a success is worse than a silent failure, because the caller acts on it.
