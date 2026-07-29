@@ -209,6 +209,7 @@ state: draft
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
+grilled: 2026-07-29 open=0
 targets: internal/journal, internal/lifecycle
 
 Closes G1-G5 of P-01KYN5YCXGENM. Root cause: journal.Event's field set was grown per-need and now disagrees with item.Item's in BOTH directions, with nothing asserting the correspondence. Reject preserves Targets/Parent/Rules that archive discards; archive preserves Refs that reject discards. The FAILURE path is more careful with structural data than the SUCCESS path.
