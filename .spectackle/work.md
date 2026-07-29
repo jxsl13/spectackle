@@ -315,7 +315,7 @@ choice: decide-integration: each conflict mints an ADR in the applying workspace
 
 ## B-01KYR01E2VFEF8KT5GV91VAWSP find with an empty q answers ok no matches while the workspace has rules — a silent lie, worse than a refusal
 kind: bug
-state: draft
+state: active
 created: 2026-07-29
 targets: internal/mcpserver
 
