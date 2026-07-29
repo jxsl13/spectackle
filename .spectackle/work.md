@@ -120,10 +120,11 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 
 ## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
 kind: task
-state: done
+state: active
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+rounds: 1
 grilled: 2026-07-29 open=0
 targets: internal/mcpserver
 
@@ -271,6 +272,7 @@ DIRECTION, and the choice is a real one:
 (b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
 
 VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
+
 ## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
 kind: research
 state: done
