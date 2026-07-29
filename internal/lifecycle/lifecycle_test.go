@@ -6,10 +6,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -1106,4 +1108,141 @@ func TestOutcomeFieldCapIsDeliberate(t *testing.T) {
 			t.Fatalf("status %q must be retained whole and unmarked: %q", st, out)
 		}
 	}
+}
+
+// TestItemEventRoundTrip is the mechanism this task exists to install, not
+// merely a test of it. It walks EVERY item.Item field by reflection, crosses
+// both boundaries that remove a record from work.md, and fails when a field
+// is neither restored nor named in the explicit drop list below. Five fields
+// fell through these boundaries silently because nothing asserted the
+// correspondence; adding a sixth to item.Item now breaks this test until
+// someone states which side of the line it belongs on.
+func TestItemEventRoundTrip(t *testing.T) {
+	// Deliberately dropped, each for a stated reason. This list is the
+	// contract — extend it only with a reason.
+	dropped := map[string]string{
+		"ID":    "identity, re-supplied by the reader from the event",
+		"Kind":  "carried as Event.K",
+		"State": "the boundary IS the state change; the reader sets it",
+		"Title": "carried as Event.Ti",
+		"Dir":   "carried as Event.Dir",
+		"Body":  "carried as Event.Body (reject always; archive per RetainsBody)",
+		"Goal":  "no write path exists at all (B-01KYPC11VKF0Q); nothing to carry",
+	}
+
+	// A past mint time proves Created is DERIVED and not merely defaulted:
+	// if the code fell back to time.Now(), this date would be today.
+	past := time.Date(2021, 3, 14, 15, 9, 26, 0, time.UTC)
+	id := "ADR-" + ids.MintRecordIDAt(past).String()
+	want := item.Item{
+		ID: id, Kind: "adr", State: item.StateDone, Title: "round trip", Dir: "",
+		Parent: "P-0007", Targets: []string{"internal/journal", "internal/lifecycle"},
+		Rules: []string{"LC-001"}, Refs: []string{"R-0001"}, Created: "2021-03-14",
+		Body: "kind: radio\noption: a\noption: b", Goal: "go test ./...",
+		Rounds: 2, Grilled: "GRILLMARK", Needs: []string{"ADR-0001"}, Override: true,
+		Context: "CTXMARK", Decision: "DECMARK", Consequences: "CONSMARK", Status: "accepted",
+	}
+
+	check := func(t *testing.T, label string, got item.Item) {
+		t.Helper()
+		wv, gv := reflect.ValueOf(want), reflect.ValueOf(got)
+		for i := 0; i < wv.NumField(); i++ {
+			name := wv.Type().Field(i).Name
+			if _, ok := dropped[name]; ok {
+				continue
+			}
+			if !reflect.DeepEqual(wv.Field(i).Interface(), gv.Field(i).Interface()) {
+				t.Errorf("%s: field %s lost at the boundary: want %v, got %v",
+					label, name, wv.Field(i).Interface(), gv.Field(i).Interface())
+			}
+		}
+	}
+
+	t.Run("reject then revoke", func(t *testing.T) {
+		w := ws(t)
+		if err := item.Upsert(w, want); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, want.ID, item.StateRejected, "for the round trip"); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := lastReject(w, want.ID)
+		if err != nil || !ok {
+			t.Fatalf("lastReject: ok=%v err=%v", ok, err)
+		}
+		check(t, "reject", got)
+	})
+
+	t.Run("archive then tombstone", func(t *testing.T) {
+		w := ws(t)
+		if err := item.Upsert(w, want); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, want.ID, item.StateArchived, "for the round trip"); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := Tombstone(w, want.ID)
+		if err != nil || !ok {
+			t.Fatalf("Tombstone: ok=%v err=%v", ok, err)
+		}
+		// archive replaces Body with the retained outcome by design (LC-001)
+		got.Body = want.Body
+		check(t, "archive", got)
+	})
+}
+
+// TestCreatedIsNeverStampedFresh is the regression for the one CORRUPTION in
+// P-01KYN5YCXGENM, as opposed to its losses: no event carried Created, so
+// lastReject returned an item without one and item.Upsert's default-to-now
+// wrote today's date over the real one — silently, and indistinguishable
+// from a true value. Per ADR-01KYNA70PQFTB the date is derived from a modern
+// ID's UUIDv7 mint time and carried on the event only for a legacy ID.
+func TestCreatedIsNeverStampedFresh(t *testing.T) {
+	past := time.Date(2019, 8, 2, 0, 0, 0, 0, time.UTC)
+	today := time.Now().UTC().Format("2006-01-02")
+
+	t.Run("modern id derives its mint time", func(t *testing.T) {
+		w := ws(t)
+		it := item.Item{
+			ID: "T-" + ids.MintRecordIDAt(past).String(), Kind: "task",
+			State: item.StateDraft, Title: "modern", Created: "2019-08-02",
+		}
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateRejected, "n"); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := lastReject(w, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Created != "2019-08-02" {
+			t.Fatalf("Created = %q, want the ID's mint date 2019-08-02", got.Created)
+		}
+		if got.Created == today {
+			t.Fatal("Created was stamped fresh — the corruption is back")
+		}
+	})
+
+	t.Run("legacy id carries the date", func(t *testing.T) {
+		w := ws(t)
+		it := item.Item{
+			ID: "P-0007", Kind: "proposal", State: item.StateDraft,
+			Title: "legacy", Created: "2019-08-02",
+		}
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateRejected, "n"); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := lastReject(w, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Created != "2019-08-02" {
+			t.Fatalf("a legacy ID has no timestamp, so the date must ride the event; got %q", got.Created)
+		}
+	})
 }
