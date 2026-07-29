@@ -706,8 +706,8 @@ func (s *Server) nearest(id string) (*mcp.CallToolResult, any, error) {
 // draftShape is the callable form, emitted with every draft refusal. The
 // kinds come from item.Letters so the enum cannot drift from the set the
 // server actually accepts.
-var draftShape = `shape: draft {"kind":"` + strings.Join(item.Kinds(), "|") +
-	`","title":"<one line>","body":"<substance>","targets":["<dir|go:sym>"],"parent":"<id>","refs":["<id>"]}` + "\n"
+var draftShape = "shape: draft kind*:" + strings.Join(item.Kinds(), "|") +
+	" title* body targets[] parent refs[]\n"
 
 // ---- draft ----
 
@@ -1360,10 +1360,13 @@ func (s *Server) rule(in ruleIn) (*mcp.CallToolResult, any, error) {
 	// were bounced with a DIFFERENT and correct shape one call later. The
 	// good text existed all along; it was just withheld until the caller had
 	// paid for it (R-01KYQ4XNAFFNY).
+	// One line, not three JSON templates. The defect was that the schema's
+	// flat union read as "everything except op is optional"; naming which
+	// fields each op REQUIRES fixes that, and three full templates cost
+	// ~240 bytes to say it. * marks required.
 	return refuse("! ARG E - op must be add|edit|retire\n" +
-		`shape: rule {"op":"add","dir":"<dir>","stem":"<TOPIC-NAME>","pattern":"U|E|S|N|O|C","system":"<who acts>","response":"<verifiable outcome, name a number>"}` + "\n" +
-		`shape: rule {"op":"edit","id":"<RULE-ID>","pattern":"U|E|S|N|O|C","system":"<who acts>","response":"<...>"}` + "\n" +
-		`shape: rule {"op":"retire","id":"<RULE-ID>"}` + "\n")
+		"shape: rule add{dir*,stem*,pattern*:U|E|S|N|O|C,system*,response*} " +
+		"edit{id*,+changed slots} retire{id*}\n")
 }
 
 func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {

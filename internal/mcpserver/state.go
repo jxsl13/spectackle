@@ -165,9 +165,15 @@ func (s *Server) stateText(path string) (string, error) {
 	// here and all four then discovered argument shapes by firing empty
 	// objects at each tool — 8 of 79 calls spent rediscovering what the
 	// server already knows (R-01KYQ4XNAFFNY). One line names the tools and
-	// the discovery rule; it is funded by the three suppressions above
-	// (version suffix, edgeless graph, solo swarm), each of which no judge
-	// used in those 79 calls.
+	// the discovery rule.
+	//
+	// TWO suppressions offset it, not three: the edgeless graph and the solo
+	// swarm. Trimming the version suffix was tried and reverted — see the
+	// comment on the #version line. Even with both, the net on the scripted
+	// fixture is +142B (M-01KYQY9DB5EG1 v3, measured with -buildvcs=false on
+	// both sides after an earlier measurement got the sign wrong), because a
+	// script that replays a perfect call sequence can only ever see a
+	// discovery aid as cost. Whether it earns the bytes is unproven.
 	// Tightened until the deterministic A/B stopped charging for it: the
 	// scripted benchmark replays a perfect call sequence and so can only ever
 	// see a discovery aid as cost, which means the line has to be free at

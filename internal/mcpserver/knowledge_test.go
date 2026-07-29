@@ -1107,8 +1107,16 @@ func TestShapesAreEmittedBeforeTheCallerPaysForThem(t *testing.T) {
 
 	// rule with no op reaches the tool's own refusal, not the schema union
 	r := callText(t, sess, "rule", map[string]any{})
-	if strings.Count(r, "shape: rule") != 3 {
-		t.Fatalf("rule must offer one template per op, got:\n%s", r)
+	// per-op REQUIREDNESS is the property, not three separate templates —
+	// the defect was that the flat union read as "everything except op is
+	// optional", and three full JSON templates cost ~240 bytes to say it
+	for _, op := range []string{"add{", "edit{", "retire{"} {
+		if !strings.Contains(r, op) {
+			t.Fatalf("rule must name what %s requires, got:\n%s", op, r)
+		}
+	}
+	if !strings.Contains(r, "dir*") || !strings.Contains(r, "response*") {
+		t.Fatalf("rule must mark which fields are required per op, got:\n%s", r)
 	}
 	if strings.Contains(r, "applies, condition, dir, feature") {
 		t.Fatalf("the flat field union must not be what a caller sees first:\n%s", r)
