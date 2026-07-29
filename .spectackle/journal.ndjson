@@ -743,3 +743,4 @@
 {"t":"2026-07-29T14:40:12Z","eid":"7c3c775d31a5e3a1","ag":"ag-c98e","ev":"move","id":"R-01KYQ4XNAFFNYSTNRKC28BR3N3","fr":"draft","to":"done","note":"consumed by P-01KYQ4YK7MEA3 and both child tasks"}
 {"t":"2026-07-29T14:40:14Z","eid":"981db2d4d5bb4a9b","ag":"ag-35df","ev":"move","id":"T-01KYQ503AGE6TV1NWY3EAVZSA6","fr":"draft","to":"active","note":"correctness half first"}
 {"t":"2026-07-29T14:44:10Z","eid":"0e1588c95f9f74c0","ag":"ag-abbf","ev":"drift","rule":"SPX-SWM-007","node":"go:lifecycle.Escalate","cls":"healed","oh":"d14c96b6dab114fa","nh":"e0d83b08f712a5fe"}
+{"t":"2026-07-29T14:56:34Z","eid":"e7912941cd5d7b98","ag":"ag-e172","ev":"move","id":"T-01KYQ503AGE6TV1NWY3EAVZSA6","fr":"active","to":"done","note":"refusals refuse (exit non-zero, no record line for an unrequested state, callable resolution); check reports its counts; escalation title uses the short ID. Bench harness corrected - it had encoded the defect as intended."}
