@@ -2,6 +2,7 @@ package replay
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/coord"
@@ -9,6 +10,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
@@ -303,4 +305,83 @@ func TestRunRejectsNonBaselinePreEidEvents(t *testing.T) {
 	if _, err := Run(main, wtWS, "T-0001", base, cd, graph.NewMem()); err == nil {
 		t.Fatal("Run must reject a no-eid event absent from the baseline")
 	}
+}
+
+// TestReplayIntentLineMatchesArchive is the byte-equality contract this task
+// exists to enforce. git never merges .spectackle text (wt.go's codeOnly
+// pathspec excludes it unconditionally) and Run is main's ONLY writer, so a
+// second, shorter intent formatter here meant every record archived through
+// the worktree flow — the documented primary workflow — landed on main with
+// its note stripped. Presence of the note is not the assertion; byte
+// equality with the line lifecycle.archive itself wrote is, because two
+// formatters that merely both mention the note can still drift.
+func TestReplayIntentLineMatchesArchive(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind string
+		note string
+		body string
+		dec  string
+	}{
+		{"task with a note", "task", "measured: 7/13 to 13/13", "a task body", ""},
+		{"task with no note", "task", "", "first body line\nsecond line", ""},
+		{"adr with no note", "adr", "", "kind: radio\noption: a\noption: b", "option a"},
+		{"nothing to gist", "task", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// what lifecycle.archive writes locally...
+			ws := workspace.Root{Dir: t.TempDir()}
+			if err := ws.EnsureScaffold(""); err != nil {
+				t.Fatal(err)
+			}
+			it := item.Item{
+				ID: "T-0001", Kind: tc.kind, State: item.StateDone,
+				Title: "boundary parity", Body: tc.body, Decision: tc.dec,
+			}
+			if tc.kind == "adr" {
+				it.ID = "ADR-0001"
+			}
+			if err := item.Upsert(ws, it); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := lifecycle.Move(ws, it.ID, item.StateArchived, tc.note); err != nil {
+				t.Fatal(err)
+			}
+			local := intentOf(t, ws, it.ID)
+
+			// ...must equal what replay composes from the event alone.
+			events, err := journal.ReadAll(ws)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var replayed string
+			for _, e := range events {
+				if e.Ev == journal.EvArchive && e.ID == it.ID {
+					replayed = intentLine(e)
+				}
+			}
+			if replayed == "" {
+				t.Fatal("no archive event found")
+			}
+			if local != replayed {
+				t.Fatalf("intent line diverges:\n  archive: %q\n  replay:  %q", local, replayed)
+			}
+		})
+	}
+}
+
+// intentOf reads back the single `## intent` line archive appended.
+func intentOf(t *testing.T, ws workspace.Root, id string) string {
+	t.Helper()
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.HasPrefix(line, "- "+id+" ") {
+			return line
+		}
+	}
+	t.Fatalf("no intent line for %s in:\n%s", id, raw)
+	return ""
 }

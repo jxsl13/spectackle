@@ -203,29 +203,6 @@ Do not implement either until that is decided; the wrong choice adds surface to 
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
 
-## T-01KYPC2PQ0ENKV22TW5KMKFE5G replay writes the same intent line archive does, so a worktree-archived record keeps its note on main
-kind: task
-state: draft
-created: 2026-07-29
-parent: P-01KYN5YCXGENMRNK00CQTPJM1P
-refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-grilled: 2026-07-29 open=0
-targets: internal/replay
-
-Closes G6 of P-01KYN5YCXGENM. Narrow, one function, disjoint from its sibling T1.
-
-TODAY. internal/replay/replay.go's intentLine is \"- \" + e.ID + \" \" + e.Ti - ID and title only. lifecycle.archive's own line is the same prefix plus \": \" + firstOf(note, gistLine(it)). Git never merges .spectackle text (wt.go's codeOnly pathspec excludes it unconditionally) and replay.Run is the ONLY writer of main's .spectackle state, so main's spec.md gets the stripped line for EVERY item ever archived through the worktree flow - which is the documented primary workflow. Verified end to end: a task archived in a worktree with a distinctive note showed the full line in the worktree's own spec.md and the bare line on main after submit.
-
-NOT DATA LOSS, AND SAY SO IN THE FIX. The note survives in the replayed journal event's Sum - replay itself is verbatim and lossless including Eid. What is incomplete is the one artifact whose stated purpose is to be the permanent human-readable trace. Frame the change as parity, not recovery.
-
-CHANGE. intentLine must compose the same line archive does, from the event rather than the item: the note rides EvArchive as Note, and the gist equivalent is available from Sum (archive writes Sum = summary(it) + optional note suffix) or, for kinds that retain one, from Body. Prefer reconstructing from the SAME inputs archive used rather than re-deriving a second formatting rule - two functions that must agree about a permanent artifact is exactly the shape that produced this bug. If the cleanest fix is to export a single shared composer from internal/lifecycle and have both call it, do that; a shared composer is the durable answer and a duplicated format string is not.
-
-WATCH: replay is idempotent by Eid and runs on merge; the change must not make a replayed line differ from the worktree's own, or a later reconciliation will see spurious drift. Assert byte equality between the two in the test rather than asserting the note is merely present.
-
-TESTS: archive an item in a worktree with a note, submit, and assert main's spec.md intent line is BYTE-IDENTICAL to the worktree's; the same for an item archived with no note (the no-note form must also match); and idempotence - replaying twice adds one line, not two.
-
-VERIFY: go build ./... && go test ./internal/replay/ ./internal/lifecycle/ ./internal/mcpserver/ -count=1 && gofmt -l . empty. ROLLBACK: revert.
-
 ## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
 kind: bug
 state: draft

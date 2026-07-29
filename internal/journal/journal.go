@@ -89,16 +89,12 @@ type Event struct {
 	Nd  []string `json:"nd,omitempty"`  // escalate/reject: Needs (blocking decision IDs)
 	Ov  bool     `json:"ov,omitempty"`  // decide(override-once)/reject: Override spent
 
-	// Review verdicts (EvReview) and the grill render they bind to
-	// (T-01KYD94KP4): Hash is the sha256 of the item body at render/verdict
-	// time — a body edit invalidates both by construction. Open is the
-	// computed-finding count of the render; Pass the reviewer's verdict.
 	// ADR template fields (reject/archive). item.Item carries these as
 	// first-class fields but the Event had no channel for them at all, so a
 	// rejected decision lost what it decided and a revoke could not restore
-	// it. archive additionally folds them into Body as text for a human
-	// tombstone read (see lifecycle.adrOutcome); these are the addressable
-	// copy a reader can query, which prose in Body is not.
+	// it. They were previously smuggled into Body as text, which meant they
+	// shared the body's retention budget and a large one could amputate
+	// another; addressable fields end that competition by construction.
 	Ctx  string `json:"ctx,omitempty"`  // ADR Context
 	Dec  string `json:"dec,omitempty"`  // ADR Decision
 	Cons string `json:"cons,omitempty"` // ADR Consequences
@@ -112,6 +108,18 @@ type Event struct {
 	// on every event of the overwhelming majority.
 	Crt string `json:"crt,omitempty"`
 
+	// Gist is the one-line substance archive appended to spec.md's intent
+	// section, carried so a worktree replay can reproduce that line BYTE
+	// FOR BYTE on main instead of composing a second, shorter one. It
+	// cannot be recomputed downstream: for a kind whose body the tombstone
+	// does not retain, the gist derives from a body the event no longer
+	// has. See lifecycle.IntentLine, the single composer both callers use.
+	Gist string `json:"gist,omitempty"`
+
+	// Review verdicts (EvReview) and the grill render they bind to
+	// (T-01KYD94KP4): Hash is the sha256 of the item body at render/verdict
+	// time — a body edit invalidates both by construction. Open is the
+	// computed-finding count of the render; Pass the reviewer's verdict.
 	Hash string   `json:"hash,omitempty"` // grill/review/validate: hash of the judged substance
 	Open int      `json:"open,omitempty"` // grill/validate render: computed findings still open
 	Pass bool     `json:"pass,omitempty"` // review/validate: the verdict
