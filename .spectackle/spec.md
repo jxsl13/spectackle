@@ -253,6 +253,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 - B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set: validated pass by validator-del diff 106c191c6e41 :: PASS on all seven checks, with the two load-bearing ones reproduced empirically rather than read from the diff. The verify gate is still live: driven against real workspaces, verify [exit 1] produced ! GATE E at the gitflow done edge and at work op=submit, verify [exit 0] and a satisfied test -f passed both - so runGates Cfg.Verify execution is 
 [body truncated at tombstone retention cap]
+- B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set: validated pass by validator-del diff 106c191c6e41 :: PASS on all seven checks, with the two load-bearing ones reproduced empirically rather than read from the diff. The verify gate is still live: driven against real workspaces, verify [exit 1] produced ! GATE E at the gitflow done edge and at work op=submit, verify [exit 0] and a satisfied test -f passed both - so runGates Cfg.Verify execution is 
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
