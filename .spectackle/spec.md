@@ -267,6 +267,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?: re-archived: a manual records merge resurrected this block after it had legitimately left work.md
 - ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?: re-archived: a manual records merge resurrected this block after it had legitimately left work.md
 - R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away: re-archived: a manual records merge resurrected this block after it had legitimately left work.md
+- ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?: diagnostic
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
