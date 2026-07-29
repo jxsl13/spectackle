@@ -301,3 +301,39 @@ THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to 
 Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver
+
+Found by a validator while reviewing an unrelated change to checks clean-tree line.
+
+OBSERVED. check with path api, path cli and no path at all return IDENTICAL rule and dir counts and identical finding lines. in.Path is used to LABEL output; the scan itself is spec.Load(s.ws.Dir), which always walks the whole workspace. So a caller who narrows to a directory gets the same answer as a caller who did not, with no signal that narrowing did nothing.
+
+EXPECTED, one of two, and this needs a decision rather than a patch: either path scopes the scan (findings, coverage gaps and counts all restricted to that subtree), or the argument is removed so nobody can believe it does. A third option - keep it and say it is advisory - is the worst of the three, because the render currently juxtaposes the queried path with global counts, which reads as scoped.
+
+MITIGATED, not fixed, in the meantime: the clean-tree line no longer prints the path beside the counts, so at least the misleading juxtaposition is gone (the counts render bare). The argument still exists and still does nothing.
+
+WHY IT MATTERS beyond tidiness. check is the loops verification step and the thing CI gates on. A caller scoping to the directory they touched, seeing counts that look scoped, and concluding their subtree is clean, has been told something false about the rest of the workspace - or, if they read it the other way, has been given a global answer they did not ask for. Neither is a good outcome for a verification command.
+
+VERIFY once decided: for scoping, a workspace with a finding outside the queried path reports it with no path and does NOT report it with the path; for removal, the argument is gone from the schema and the docs.
+
+## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/bench
+
+OBSERVED in CI run 30468777911, on a branch whose diff does not touch this test or anything it exercises:
+
+--- FAIL: TestPrepIgnoresHarnessArtifacts (1.68s)
+    testing.go:1369: TempDir RemoveAll cleanup: unlinkat /tmp/TestPrepIgnoresHarnessArtifacts.../001/.git/objects: directory not empty
+
+The assertion did not fail - the TEST BODY passed and the failure came from t.TempDirs deferred RemoveAll. The fixture git-inits and commits inside the temp dir; git leaves background work (gc, pack) that keeps writing into .git/objects after the command returns, so cleanup races it. Passes locally, including under the exact CI invocation (go test -coverprofile), which is characteristic: the race needs a slower or more contended filesystem to lose.
+
+WHY IT MATTERS more than an ordinary flake. This test is inside make cover, which is a REQUIRED CI gate. A flake there blocks a merge that has nothing to do with it, and the failure text points at testing.go rather than at anything a reader would connect to git - the first response is to look for a real regression in the diff, which is exactly the wasted work a gate should not manufacture. It cost that here.
+
+DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
+
+VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.

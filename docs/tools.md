@@ -252,7 +252,7 @@ anchored node in its subtree; sorted, capped at 20 plus a `+<n> more` tail),
 `d` drift records (anchor classification; position-only moves are silently
 refreshed), `E101` duplicate item IDs (branch-merge backstop), `c`
 compact-due signals. Without the gate key, check emits nothing for package
-coverage — its single `ok` path is full-string-compared by CI self-hosting
+coverage — its single clean-check line is shape-compared by CI self-hosting
 gates, so visibility lives in `state` (`ok dir <d> rules=0 uncovered` per
 uncovered package), and turning coverage into CI-red findings is an
 explicit opt-in.
@@ -263,7 +263,9 @@ Dirty `_test.go` files are scanned by the validate pack's AST vacuous-test
 detector in-loop: an assertion-free subtest or an unguarded all-assertions
 range renders `! VAC W <file>:<line> <reason>` (capped at 10, `+n more`
 tail) while the file is still uncommitted — committed legacy tests stay
-quiet, so a clean tree keeps the bare `ok`.
+quiet, so a clean tree renders `ok check 0 findings (E=0 W=0) — <n> rules
+<n> dirs` — counts, not a bare `ok`, because a two-character answer to a
+verification request is indistinguishable from a no-op stub.
 
 A `! TYPED W - typed-call pass disabled packages=<n>: <cause> ...` finding
 appears exactly when the last reindex's go/types call-edge upgrade pass did

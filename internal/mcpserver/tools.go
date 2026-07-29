@@ -2230,8 +2230,11 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		for _, sf := range c.All() {
 			rules += len(sf.Rules)
 		}
-		return text(fmt.Sprintf("ok check %s 0 findings (E=0 W=0) — %d rules %d dirs\n",
-			orDot(in.Path), rules, len(c.All())))
+		// No path in the line: `in.Path` only labels output, spec.Load always
+		// scans the whole workspace, so naming the queried path beside global
+		// counts invites reading them as scoped (B-01KYQ8T).
+		return text(fmt.Sprintf("ok check 0 findings (E=0 W=0) — %d rules %d dirs\n",
+			rules, len(c.All())))
 	}
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))

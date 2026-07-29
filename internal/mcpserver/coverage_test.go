@@ -54,7 +54,7 @@ func TestCoverageCheckSilentByDefault(t *testing.T) {
 	}
 	// a clean tree reports zero findings — with its counts, so the answer is
 	// distinguishable from a no-op stub (R-01KYQ4XNAFFNY)
-	if !strings.HasPrefix(before, "ok check ") || !strings.Contains(before, "0 findings (E=0 W=0)") {
+	if !strings.HasPrefix(before, "ok check 0 findings (E=0 W=0)") {
 		t.Fatalf("ungated check on a clean tree must report zero findings: %q", before)
 	}
 

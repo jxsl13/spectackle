@@ -328,7 +328,8 @@ gate (`make cover`, ≥70%), the EARS linter fuzz run (`make fuzz`),
 
 The last step is the self-hosting gate and the one worth knowing about: CI
 spawns the freshly built server over stdio and calls the `check` tool on
-this very repository, requiring output that is exactly `ok`. A drift
+this very repository, requiring a single clean-check line with zero
+findings. A drift
 finding, an unanchored contract, or finished lifecycle items left
 unarchived all fail the build — the repository's own records are part of
 what CI verifies, not just its code.
