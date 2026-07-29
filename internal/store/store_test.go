@@ -232,8 +232,15 @@ func TestSQLiteStoreBatchedPutsAreFast(t *testing.T) {
 	t.Logf("%d Puts: per-Put-commit(old) = %v, batched(new) = %v (%.1fx faster)",
 		n, oldElapsed, newElapsed, float64(oldElapsed)/float64(newElapsed))
 
-	if newElapsed >= 3*time.Second {
-		t.Fatalf("batched Puts+Flush took %v for %d entries, want < 3s", newElapsed, n)
+	// RATIO, not a wall-clock bound. What this test is really asserting is
+	// that the batched path commits once rather than per Put; an absolute
+	// budget measures the runner instead, and failed this gate twice on a
+	// contended machine at 3.99s against a 3s bound while the ratio it
+	// already computes was a healthy 3.5x. A ratio is stable under
+	// contention because both sides slow down together (B-01KYQG88GZEM2).
+	if speedup := float64(oldElapsed) / float64(newElapsed); speedup < 2 {
+		t.Fatalf("batching must be materially faster than per-Put commits: %v vs %v (%.1fx, want >=2x)",
+			oldElapsed, newElapsed, speedup)
 	}
 
 	// entries must actually have persisted, not just run fast.

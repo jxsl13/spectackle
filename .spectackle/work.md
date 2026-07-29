@@ -159,27 +159,6 @@ DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is n
 
 VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
 
-## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
-kind: bug
-state: done
-created: 2026-07-29
-refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-targets: internal/item, internal/mcpserver
-
-VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
-
-CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
-
-THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
-
-THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
-(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
-(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
-
-Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
-
-VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
-
 ## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
 kind: bug
 state: draft
@@ -217,20 +196,44 @@ DIRECTION. The durable fix is to stop git from leaving background work in a thro
 
 VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
 
-## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
-kind: adr
+## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
+kind: bug
 state: done
-created: 2026-07-28
-context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
-decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-status: accepted
+created: 2026-07-29
+refs: R-01KYNA6NJ3F109VTE35QYRM64Q
+targets: internal/item, internal/mcpserver
 
-kind: radio
-option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
-option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
-blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
-choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
+
+CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
+
+THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
+
+THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
+(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
+(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
+
+Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
+
+VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
+## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
+kind: bug
+state: done
+created: 2026-07-29
+targets: internal/store, internal/bench
+
+SECOND instance of the same class in one session, so it is filed as a class rather than as another one-off.
+
+OBSERVED. TestSQLiteStoreBatchedPutsAreFast failed in CI run on spectackle/B-01KYPC11VKF0Q-close after 19.44s, on a branch whose diff does not touch internal/store. It passes locally and passed on a rerun of the same commit. The name says what it asserts: a wall-clock upper bound. A GitHub runner is a shared, contended machine, so the bound holds or not depending on neighbors, not on the code. The sibling instance is B-01KYQA4WXEFAT, a fixture whose t.TempDir cleanup races gits background writes - different mechanism, same consequence.
+
+WHY IT MATTERS. Both live inside make test / make cover, which are REQUIRED gates. A flake there blocks a merge that has nothing to do with it, and the first response is always to look for a real regression in the diff - this session spent two separate investigations doing exactly that, one per instance. A gate that fails for reasons unrelated to the change teaches its operator to retry rather than to read, which is precisely the habit that lets a real failure through.
+
+DIRECTION. Wall-clock is the wrong instrument for what these tests want. A batched-put test is really asserting that the batch path does ONE transaction rather than N, which is observable directly - count the transactions, or compare the batched path against a deliberately unbatched one and assert a RATIO, which is stable under contention because both sides slow down together. If a wall-clock bound is genuinely wanted, it belongs in a benchmark that is recorded and compared over time (the bench record type exists for exactly this), not in a boolean gate.
+
+SURVEY FIRST, then fix: grep the suite for other time.Since / Duration comparisons in assertions. Fixing one and leaving three is the same outcome as fixing none, because the gate is only as reliable as its flakiest member.
+
+VERIFY: the chosen assertion survives a loop under -count=20 with the machine deliberately loaded, and no test in the required gate asserts an absolute wall-clock bound.
 
 ## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
 kind: adr
@@ -269,3 +272,18 @@ NEGATIVE SPACE - checked and found CLEAN, recorded because it bounds the next hu
 OFF-CLASS, found in passing and NOT part of P-01KYN5YCXGENM - transactional-boundary bugs rather than compression: a git-flow-gate-failed archive that is compensated back to done does not restore the child items the same call already folded away, and does not roll back its spec.AppendIntent, leaving a permanent duplicate intent line and a child reachable only as a tombstone. Triage separately.
 
 CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the method, not the list: plant a marker, cross the boundary, grep the whole tree, and treat recoverable-only-by-raw-grep as a finding rather than a pass.
+
+## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
+kind: adr
+state: done
+created: 2026-07-28
+context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
+decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+status: accepted
+
+kind: radio
+option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
+option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
+blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
+choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
