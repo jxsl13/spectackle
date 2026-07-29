@@ -76,32 +76,6 @@ DIRECTION. Gate the push on the item having actually had a branch. Prefer asking
 
 TESTS: draft an item, move it straight to done, and assert the render carries no GIT line and no error; the same for draft to archived; and the existing active-then-done path still pushes and still reports.
 
-## R-01KYQ4XNAFFNYSTNRKC28BR3N3 judged friction: four independent agents drive the tricky scenario from tool output alone
-kind: research
-state: done
-created: 2026-07-29
-targets: internal/mcpserver
-
-METHOD. Four fresh agents, each given only bench -agent-prep -scenario tricky's 15-line brief and the metered CLI, with no documentation and no access to the source. The brief states outright that the tool outputs themselves are the only guide. Goals span the hard transitions: mint an EARS rule with a slot-complete response, drive a task through repeated done/active reopens until the server refuses and escalates, resolve the minted decision by rescope, and finish with a clean check. 79 tool calls across the four runs.
-
-HEADLINE. 4/4 reached DONE, so the surface is VALID - an agent can complete the scenario from the outputs alone. The cost is where it fails: 18, 26, and two comparable runs, against a floor nearer 12. Friction is concentrated in discoverability, and one item is a correctness defect rather than wording.
-
-RANKED, by judges affected times calls wasted:
-1. state emits no next step and no shape hint (4 judges, 8 calls). Every judge is told to start at state; all four then discovered argument shapes by firing empty objects at each tool. state renders version, rules, graph, swarm counters and nothing actionable.
-2. rule with empty args prints a flat 14-field union with only op starred (4 judges, 4 calls), reading as everything-else-optional. The correct op-conditional shape ALREADY EXISTS and is emitted only after the first failure.
-3. The rounds refusal names the decide tool and the three choices but not the callable JSON (4 judges, 4 calls), while sibling refusals do hand back a shape line - the inconsistency is what costs the call.
-4. CORRECTNESS, not wording: the rounds refusal returns exit 0 and prints an i line byte-identical in shape to a successful move, for a state the caller never requested (3 judges, 5 calls). Judges read it as moved-plus-warning; one then issued five further move calls against a blocked item. Both sites use text() where they mean refuse().
-5. check returns the bare string ok (4 judges, 3 calls) - indistinguishable from a no-op on a verification command, so judges spent a confirming state call.
-6. draft is the only tool whose error carries no shape line, and it never enumerates the legal kinds (4 judges, 3 calls).
-7. decide op=answer never reports what happened to the blocked item it resolved (3 judges, 3 calls).
-Lower: check's shape is unreachable because empty args are valid; the same record renders at two truncation lengths one line apart, inviting a paste error; move's shape omits the to enum and the rounds budget is invisible until spent.
-
-SILENT DEAD ENDS, the class judges called worst because nothing is learned: rule op=add accepts and discards slots irrelevant to the chosen EARS pattern; move accepts a note that never appears in any output.
-
-THE PAYING CONSTRAINT. Additions must be funded by removals, since the metric is tokens per call. Judges identified the funding: the graph section on a workspace with zero edges, the swarm section when the only agent is this session with no leases or worktrees, and the version string's build suffix - none of which any judge used, together roughly covering the cost of a next-step line on state.
-
-CONSUMED BY: the proposal this research anchors. The reusable method: give an agent the brief and nothing else, count calls rather than asking it whether the wording was clear, and rank by judges-affected times calls-wasted so a single judge's stumble does not outrank a systematic one.
-
 ## P-01KYQ4YK7MEA3BP26HSQ7CWZ4R the tool surface is valid but under-directs: a refusal that looks like success, and shapes withheld until after a failure
 kind: proposal
 state: approved
@@ -185,27 +159,6 @@ DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is n
 
 VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
 
-## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
-kind: bug
-state: done
-created: 2026-07-29
-refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-targets: internal/item, internal/mcpserver
-
-VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
-
-CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
-
-THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
-
-THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
-(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
-(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
-
-Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
-
-VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
-
 ## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
 kind: bug
 state: draft
@@ -243,6 +196,45 @@ DIRECTION. The durable fix is to stop git from leaving background work in a thro
 
 VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
 
+## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
+kind: bug
+state: done
+created: 2026-07-29
+refs: R-01KYNA6NJ3F109VTE35QYRM64Q
+targets: internal/item, internal/mcpserver
+
+VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
+
+CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
+
+THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
+
+THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
+(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
+(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
+
+Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
+
+VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
+## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
+kind: bug
+state: done
+created: 2026-07-29
+targets: internal/store, internal/bench
+
+SECOND instance of the same class in one session, so it is filed as a class rather than as another one-off.
+
+OBSERVED. TestSQLiteStoreBatchedPutsAreFast failed in CI run on spectackle/B-01KYPC11VKF0Q-close after 19.44s, on a branch whose diff does not touch internal/store. It passes locally and passed on a rerun of the same commit. The name says what it asserts: a wall-clock upper bound. A GitHub runner is a shared, contended machine, so the bound holds or not depending on neighbors, not on the code. The sibling instance is B-01KYQA4WXEFAT, a fixture whose t.TempDir cleanup races gits background writes - different mechanism, same consequence.
+
+WHY IT MATTERS. Both live inside make test / make cover, which are REQUIRED gates. A flake there blocks a merge that has nothing to do with it, and the first response is always to look for a real regression in the diff - this session spent two separate investigations doing exactly that, one per instance. A gate that fails for reasons unrelated to the change teaches its operator to retry rather than to read, which is precisely the habit that lets a real failure through.
+
+DIRECTION. Wall-clock is the wrong instrument for what these tests want. A batched-put test is really asserting that the batch path does ONE transaction rather than N, which is observable directly - count the transactions, or compare the batched path against a deliberately unbatched one and assert a RATIO, which is stable under contention because both sides slow down together. If a wall-clock bound is genuinely wanted, it belongs in a benchmark that is recorded and compared over time (the bench record type exists for exactly this), not in a boolean gate.
+
+SURVEY FIRST, then fix: grep the suite for other time.Since / Duration comparisons in assertions. Fixing one and leaving three is the same outcome as fixing none, because the gate is only as reliable as its flakiest member.
+
+VERIFY: the chosen assertion survives a loop under -count=20 with the machine deliberately loaded, and no test in the required gate asserts an absolute wall-clock bound.
+
 ## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
 kind: adr
 state: done
@@ -279,3 +271,41 @@ DIRECTION, and the choice is a real one:
 (b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
 
 VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
+## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
+kind: research
+state: done
+created: 2026-07-28
+targets: internal/lifecycle, internal/item, internal/journal, internal/replay
+
+QUESTION. LC-001 was written after the same defect class was found twice (research tombstones dropped 268 findings' citations; adr tombstones erased both sides of every curated decision). Both were invisible until something archived. Where else does the same class hide?
+
+METHOD. An independent agent, given only the class definition and no list of suspects, drove three throwaway git-init repos end to end - draft, move, grill, escalate, decide, reject, revoke, archive, compact, worktree submit - planting a unique marker string in each field under test and then grepping the ENTIRE .spectackle tree for that marker afterward. A field counts as lost only when no route recovers it: not get, not find at any scope, not a raw journal grep. Recoverable-but-awkward was recorded separately from lost. The structural comparison behind it was journal.Event's field set against item.Item's.
+
+RESULT: seven findings, all at one boundary - the moment a record LEAVES work.md - carried into P-01KYN5YCXGENM. The headline is that the correspondence between item.Item and journal.Event was grown per-need and now disagrees in BOTH directions, with no test asserting it: reject preserves Targets/Parent/Rules that archive discards, while archive preserves Refs that reject discards. So the FAILURE path is more careful with structural data than the SUCCESS path. One finding is corruption rather than loss: no event carries Created, so revoke lets item.Upsert's default-to-now stamp a fresh date over the real one, silently and indistinguishably from a true value.
+
+NEGATIVE SPACE - checked and found CLEAN, recorded because it bounds the next hunt and stops it re-treading:
+- Direct archive of research and adr: the LC-001 retention holds on the path it was built for.
+- EvReject's Body capture is unconditional for every kind, unlike archive's RetainsBody gate, so a rejected-then-revoked proposal/task/bug always gets its body back.
+- Targets, Parent and Rules round-trip correctly through reject then revoke.
+- Compaction's keep-list does protect reject/archive/compact/escalate/decide/bench forever; EvReview/EvValidate keep Pass/Hash forever and strip only Keys/Wv once terminal. Verified by reading the fold path rather than by a live grill-then-compact cycle - confidence is read-only, flagged as such.
+- The worktree-to-main journal replay is verbatim and lossless including Eid; finding G6's loss is strictly in the separate simplified intentLine used for spec.md, not in event replay.
+- item.LoadWork and writeWork round-trip every Item field faithfully, including hand-set Goal and Rules, for as long as the record stays IN work.md. Every loss found is at the leaving, never before it.
+
+OFF-CLASS, found in passing and NOT part of P-01KYN5YCXGENM - transactional-boundary bugs rather than compression: a git-flow-gate-failed archive that is compensated back to done does not restore the child items the same call already folded away, and does not roll back its spec.AppendIntent, leaving a permanent duplicate intent line and a child reachable only as a tombstone. Triage separately.
+
+CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the method, not the list: plant a marker, cross the boundary, grep the whole tree, and treat recoverable-only-by-raw-grep as a finding rather than a pass.
+
+## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
+kind: adr
+state: done
+created: 2026-07-28
+context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
+decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+status: accepted
+
+kind: radio
+option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
+option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
+blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
+choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build

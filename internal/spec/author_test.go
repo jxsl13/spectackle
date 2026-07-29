@@ -638,3 +638,101 @@ func TestAppendIntentCreatesAndInserts(t *testing.T) {
 		t.Errorf("lines not in expected order in intent section")
 	}
 }
+
+// TestAppendIntentIsIdempotentPerRecord: the archive closure appends the
+// intent line BEFORE its git merge can succeed, and a stranded closure
+// compensates the item archived->done without removing what already ran. So
+// every retry appended another copy — and retrying is the operator's only
+// response to a closure that timed out waiting for CI, which made the
+// duplication scale with CI slowness rather than with anything the author
+// did (B-01KYQJDJJVFC2 measured three, two and two copies of single lines).
+func TestAppendIntentIsIdempotentPerRecord(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	first := "- T-01KYQJDJJVFC2T0NF9MM84YQ41 a task: measured 79 to 59 calls"
+	// a retry legitimately carries a different note; it is still the same record
+	retry := "- T-01KYQJDJJVFC2T0NF9MM84YQ41 a task: retried after CI concluded"
+	for _, l := range []string{first, retry, first} {
+		if err := AppendIntent(ws, "", l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), "T-01KYQJDJJVFC2T0NF9MM84YQ41"); n != 1 {
+		t.Fatalf("one intent line per record, got %d:\n%s", n, raw)
+	}
+	// the FIRST wins — the record of what landed, not the latest retry's note
+	if !strings.Contains(string(raw), "measured 79 to 59 calls") {
+		t.Fatalf("the first line must be the one kept:\n%s", raw)
+	}
+	// a different record still appends
+	if err := AppendIntent(ws, "", "- P-0007 another record: something else"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if !strings.Contains(string(raw), "P-0007") {
+		t.Fatalf("a different record must still append:\n%s", raw)
+	}
+	// a non-record line (plain prose) is not deduped by ID and still appends
+	for i := 0; i < 2; i++ {
+		if err := AppendIntent(ws, "", "- plain prose with no record id"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if n := strings.Count(string(raw), "plain prose with no record id"); n != 2 {
+		t.Fatalf("non-record lines keep their existing append behavior, got %d", n)
+	}
+}
+
+// TestAppendIntentDedupesPerLineNotPerCall: `line` is not always one line.
+// knowledge apply's applyIntentEntry passes a whole prose section — many
+// bullets in one call — so keying the whole call on its FIRST bullet's ID
+// dropped the entire blob, brand-new records included, whenever that one
+// bullet collided, while the tool still reported success. A silently skipped
+// intent line is permanent history loss, which made that guard worse than
+// the duplication it replaced.
+func TestAppendIntentDedupesPerLineNotPerCall(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	existing := "- T-01KYQJDJJVFC2T0NF9MM84YQ41 already here: original gist"
+	if err := AppendIntent(ws, "", existing); err != nil {
+		t.Fatal(err)
+	}
+	// a blob whose FIRST bullet collides, and whose others are brand new
+	blob := existing + "\n" +
+		"- P-01KYQJDJJVFC2T0NF9MM84YQ42 brand new one: NEWCONTENTONE\n" +
+		"- B-01KYQJDJJVFC2T0NF9MM84YQ43 brand new two: NEWCONTENTTWO"
+	if err := AppendIntent(ws, "", blob); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{"NEWCONTENTONE", "NEWCONTENTTWO"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("a colliding first bullet must not drop the rest of the blob; %q missing:\n%s", want, got)
+		}
+	}
+	if n := strings.Count(got, "T-01KYQJDJJVFC2T0NF9MM84YQ41"); n != 1 {
+		t.Fatalf("the colliding bullet must still dedupe, got %d copies:\n%s", n, got)
+	}
+	// re-applying the same blob adds nothing at all
+	before := len(got)
+	if err := AppendIntent(ws, "", blob); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if len(raw) != before {
+		t.Fatalf("re-applying a fully-known blob must be a no-op: %d -> %d bytes", before, len(raw))
+	}
+}
