@@ -215,6 +215,13 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 // (that is Merge's job, later, on artifacts this op produces).
 func knowledgeEntryFromIn(e knowledgeEntryIn, source string) (knowledge.Entry, error) {
 	kind := knowledge.EntryKind(strings.ToLower(strings.TrimSpace(e.Kind)))
+	// The other untrusted status entry point: a caller composing entries for
+	// a repository with no bundle. The enum lived only in this field's
+	// jsonschema DESCRIPTION, which validates nothing (B-01KYNA4PJNF5K).
+	if !item.ValidStatus(e.Status) {
+		return knowledge.Entry{}, fmt.Errorf("status %q invalid (want %s)",
+			e.Status, strings.Join(item.Statuses(), "|"))
+	}
 	payload := knowledge.Entry{
 		Text: e.Text, Rationale: e.Rationale,
 		Question: e.Question, Context: e.Context, Decision: e.Decision,
@@ -640,7 +647,15 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 	d.Context = e.Context
 	d.Decision = e.Decision
 	d.Consequences = e.Consequences
+	// UNTRUSTED input: this status was authored by another repository, and
+	// until now it reached the field unchecked — including "superseded",
+	// which a foreign artifact is in no position to assert about a decision
+	// this workspace has not made (B-01KYNA4PJNF5K).
 	d.Status = e.Status
+	if !item.ValidStatus(d.Status) || d.Status == "superseded" {
+		return fmt.Sprintf("! ARG E - apply adr %s: status %q not accepted from an artifact (want %s; superseded is a consequence of a replacement, never a claim)\n",
+			e.Key, d.Status, strings.Join(item.Statuses(), "|")), false, nil
+	}
 	if d.Status == "" {
 		d.Status = "accepted" // an applied ADR already has a settled decision
 	}

@@ -140,15 +140,26 @@ var LegacyIDRe = regexp.MustCompile(`^` + legacyIDPat + `$`)
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
 
-// Kinds lists the accepted kinds in a stable order, so a tool can print the
-// enum in a refusal without restating it. An unenumerated required string is
-// the worst discoverability hole a surface can have: a wrong guess is a
-// silent semantic error rather than a refusal, and a hand-copied list in the
-// hint drifts from the set the server enforces here.
-func Kinds() []string {
-	out := make([]string, 0, len(kindLetter))
-	for k := range kindLetter {
-		out = append(out, k)
+// adrStatuses is the classic ADR lifecycle. It lived only in a doc comment
+// and a jsonschema DESCRIPTION — neither of which validates anything — so any
+// string reached the field, including from an IMPORTED artifact whose status
+// this repository never authored (B-01KYNA4PJNF5K).
+var adrStatuses = map[string]bool{
+	"proposed": true, "accepted": true, "superseded": true, "deprecated": true,
+}
+
+// ValidStatus accepts the four ADR statuses and empty, which is
+// conventionally read as "proposed" (see Item.Status).
+func ValidStatus(s string) bool {
+	return s == "" || adrStatuses[s]
+}
+
+// Statuses lists the accepted statuses in a stable order, so a refusal can
+// print the enum without restating it and drifting from what is enforced.
+func Statuses() []string {
+	out := make([]string, 0, len(adrStatuses))
+	for s := range adrStatuses {
+		out = append(out, s)
 	}
 	sort.Strings(out)
 	return out

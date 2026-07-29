@@ -73,7 +73,7 @@ ok [<msg>]                                       success / nothing to report
 #impact #contracts #rejections                   context-pack sections (draft)
 #impact #contracts #rejections #history #docs #gaps #open  research pack sections
 #targets #contracts #tests #rejections #questions #computed #evidence  grill pack sections
-#version #items #rules #graph #swarm #drift #next #health  snapshot sections (state); #graph is omitted with no edges, #swarm for a solo session with no leases or worktrees
+#version #items #rules #graph #swarm #drift #health  snapshot sections (state)
 ```
 
 Item headers may also carry `rounds: n/max` (server-only reopen/gate-fail
@@ -408,14 +408,8 @@ name, active root), `#items` (counts by state + `i` lines, scoped to
 `path`), `#rules` (per-context-dir rule counts + a global lint-findings
 count), `#graph` (`g.Stats()` node/edge totals, plus the `! TYPED` typed-
 call-pass finding described under `check` above when that pass is
-degraded — omitted on a healthy pass, same gate on both tools, AND omitted
-entirely when the graph has no edges, since node counts alone say nothing a
-caller can act on), `#swarm` (`ag`/`l`/`wt` lines — omitted for a solo
-session with no leases and no worktrees, where the one row names only
-yourself and `#version` already carries `agent <name>`), `#next` (the tool
-list and the discovery rule: send `{}` to any tool for its argument shape —
-four independent judges each started here as instructed and then spent 8 of
-79 calls rediscovering shapes the server already knew), `#drift` (anchor classification summary + bare `d
+degraded — omitted on a healthy pass, same gate on both tools), `#swarm`
+(`ag`/`l`/`wt` lines), `#drift` (anchor classification summary + bare `d
 <cls> ...` lines
 for evolved/tightened/diverged/gone/stale — `moved` anchors are counted,
 never silently re-stamped, and unlike `check` nothing here is ever healed

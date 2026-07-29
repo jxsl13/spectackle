@@ -43,7 +43,7 @@ func TestStateSeededSections(t *testing.T) {
 	})
 
 	out := callText(t, sess, "state", map[string]any{})
-	for _, sec := range []string{"#version", "#items", "#rules", "#drift", "#next"} {
+	for _, sec := range []string{"#version", "#items", "#rules", "#swarm", "#drift"} {
 		if !strings.Contains(out, sec) {
 			t.Fatalf("state missing %s on a seeded workspace: %q", sec, out)
 		}
@@ -60,17 +60,10 @@ func TestStateSeededSections(t *testing.T) {
 	if !strings.Contains(out, "ok anchors total=1 ok=0 pending=1 moved=0") {
 		t.Fatalf("state drift summary: %q", out)
 	}
-	// #swarm is SUPPRESSED for a solo session with nothing to coordinate:
-	// one row naming yourself says nothing the #version line's `agent <name>`
-	// does not already say, and all four judges called it irrelevant
-	// (T-01KYQ5047CE5M). It returns in full the moment a second agent, a
-	// lease or a worktree exists — see TestStateAgLineMinuteGrammar.
-	if strings.Contains(out, "#swarm") {
-		t.Fatalf("a solo session with no leases must not render #swarm: %q", out)
-	}
-	// the agent identity is still available, on the version line
-	if !strings.Contains(out, "agent ag") {
-		t.Fatalf("state must still name this agent: %q", out)
+	// self is always registered in coord.db on Open — #swarm must at least
+	// name this agent.
+	if !strings.Contains(out, "ag ") {
+		t.Fatalf("state swarm section missing an ag line: %q", out)
 	}
 	// strictly read-only: nothing from check()'s write side effects (no
 	// backprop item, no re-stamped anchor hash) leaked in.
@@ -180,7 +173,7 @@ func TestStateOnOwnRepo(t *testing.T) {
 	}
 	sess := connectRoot(t, root)
 	out := callText(t, sess, "state", map[string]any{})
-	for _, sec := range []string{"#version", "#rules", "#graph", "#next"} {
+	for _, sec := range []string{"#version", "#rules", "#graph", "#swarm"} {
 		if !strings.Contains(out, sec) {
 			t.Fatalf("state on own repo missing %s: %q", sec, out)
 		}

@@ -64,13 +64,7 @@ type draftIn struct {
 }
 
 type ruleIn struct {
-	// omitempty so a bare `rule {}` reaches THIS tool's own refusal, which
-	// emits the three per-op templates, instead of being rejected by the
-	// schema layer with a flat union of all fourteen fields. That union read
-	// as "everything except op is optional" to all four judges
-	// (R-01KYQ4XNAFFNY). The handler still requires op — the check moved, it
-	// did not disappear.
-	Op        string   `json:"op,omitempty" jsonschema:"add|edit|retire"`
+	Op        string   `json:"op" jsonschema:"add|edit|retire"`
 	ID        string   `json:"id,omitempty" jsonschema:"rule ID (edit/retire)"`
 	Dir       string   `json:"dir,omitempty" jsonschema:"context dir (add), default root"`
 	Pattern   string   `json:"pattern,omitempty" jsonschema:"U|E|S|N|O|C; returned as a need record if missing"`
@@ -703,38 +697,17 @@ func (s *Server) nearest(id string) (*mcp.CallToolResult, any, error) {
 	return text("nf " + strings.Join(ids[:3], " "))
 }
 
-// draftShape is the callable form, emitted with every draft refusal. The
-// kinds come from item.Letters so the enum cannot drift from the set the
-// server actually accepts.
-var draftShape = "shape: draft kind*:" + strings.Join(item.Kinds(), "|") +
-	" title* body targets[] parent refs[]\n"
-
 // ---- draft ----
 
 func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	if in.ID != "" {
 		return s.reviseDraft(in)
 	}
-	// draft was the ONLY tool whose refusals carried no shape line, and it
-	// never enumerated its kinds — an unenumerated required string is the
-	// worst discoverability hole on the surface, because a wrong guess is a
-	// silent semantic error rather than a refusal. Both missing fields are
-	// named at once, so a caller does not pay a call per field
-	// (R-01KYQ4XNAFFNY: four judges, three calls).
-	// A WRONG kind is refused before the lifecycle sees it, WITH the enum —
-	// this is the case that most needs the valid set, and routing it through
-	// lifecycle's bare `unknown kind %q` withheld exactly that.
-	if in.Kind != "" && !item.ValidKind(in.Kind) {
-		return refuse("! ARG E - draft: unknown kind " + in.Kind + "\n" + draftShape)
+	if in.Kind == "" {
+		return refuse("! ARG E - draft requires kind (or id to revise)")
 	}
-	if in.Kind == "" || in.Title == "" {
-		missing := "kind"
-		if in.Kind != "" {
-			missing = "title"
-		} else if in.Title == "" {
-			missing = "kind and title"
-		}
-		return refuse("! ARG E - draft requires " + missing + " (or id to revise)\n" + draftShape)
+	if in.Title == "" {
+		return refuse("! ARG E - draft requires title")
 	}
 	targets := normalizeTargets(in.Targets)
 	if s.wtItem == "" { // inside a worktree the scope is already leased
@@ -1360,13 +1333,7 @@ func (s *Server) rule(in ruleIn) (*mcp.CallToolResult, any, error) {
 	// were bounced with a DIFFERENT and correct shape one call later. The
 	// good text existed all along; it was just withheld until the caller had
 	// paid for it (R-01KYQ4XNAFFNY).
-	// One line, not three JSON templates. The defect was that the schema's
-	// flat union read as "everything except op is optional"; naming which
-	// fields each op REQUIRES fixes that, and three full templates cost
-	// ~240 bytes to say it. * marks required.
-	return refuse("! ARG E - op must be add|edit|retire\n" +
-		"shape: rule add{dir*,stem*,pattern*:U|E|S|N|O|C,system*,response*} " +
-		"edit{id*,+changed slots} retire{id*}\n")
+	return refuse("! ARG E - op must be add|edit|retire")
 }
 
 func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {

@@ -344,23 +344,7 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 	if err != nil {
 		return nil, nil, err
 	}
-	// Name what happened to the item this decision unblocked. Reporting only
-	// the decision left three of four judges calling `get` to learn whether
-	// the rescope had actually landed — the answer was already in hand here
-	// (R-01KYQ4XNAFFNY).
-	out := "ok " + sc.short(id) + " " + choice
-	if hasBlocked {
-		// A rejected item LEAVES work.md, so item.Get answers not-ok and the
-		// naive lookup reported nothing — for the one outcome where a caller
-		// is least sure anything happened. Fall back to the tombstone, which
-		// is where a rejected record legitimately lives.
-		if cur, ok, gerr := item.Get(s.ws, it.ID); gerr == nil && ok {
-			out += " — " + sc.short(cur.ID) + " now " + cur.State
-		} else if choice == "reject" {
-			out += " — " + sc.short(it.ID) + " now " + item.StateRejected
-		}
-	}
-	return text(out + "\n")
+	return text("ok " + sc.short(id) + " " + choice)
 }
 
 // blockingItem finds the (at most one) item whose Needs references decisionID.
