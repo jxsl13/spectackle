@@ -251,6 +251,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 - P-01KYN5YCXGENMRNK00CQTPJM1P the leave-work.md boundary is lossy: seven fields are dropped or corrupted when a record archives or is rejected: The leave-work.md boundary was lossy because journal.Events field set had been grown per-need until it disagreed with item.Items in BOTH directions, with no test asserting the correspondence - so reject preserved structural data archive dropped, and the failure path was more careful than the success path. Closed by two tasks with disjoint file sets. Measured on one denominator across both revision
 [body truncated at tombstone retention cap]
+- B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set: validated pass by validator-del diff 106c191c6e41 :: PASS on all seven checks, with the two load-bearing ones reproduced empirically rather than read from the diff. The verify gate is still live: driven against real workspaces, verify [exit 1] produced ! GATE E at the gitflow done edge and at work op=submit, verify [exit 0] and a satisfied test -f passed both - so runGates Cfg.Verify execution is 
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
