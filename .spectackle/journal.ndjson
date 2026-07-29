@@ -685,3 +685,4 @@
 {"t":"2026-07-29T07:21:02Z","eid":"d3fc2f4da0adada6","ag":"ag-3870","ev":"decide","id":"ADR-01KYNA70PQFTBSAP0QHYXMTVGT","note":"derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)"}
 {"t":"2026-07-29T07:22:06Z","eid":"cdb0461dc2ef39be","ag":"ag-5945","ev":"create","id":"B-01KYPC11VKF0QBF0HCPY3QCRJE","k":"bug","ti":"Goal and Rules are parse-only: three gate paths read a field no tool can set"}
 {"t":"2026-07-29T07:22:59Z","eid":"f886b960f1a52a0c","ag":"ag-234a","ev":"create","id":"T-01KYPC2NM8EAXSG7G31FCFAMQ7","k":"task","ti":"item-to-event field correspondence, made mechanical by a round-trip property test"}
+{"t":"2026-07-29T07:23:00Z","eid":"b12f5954f481b743","ag":"ag-c391","ev":"create","id":"T-01KYPC2PQ0ENKV22TW5KMKFE5G","k":"task","ti":"replay writes the same intent line archive does, so a worktree-archived record keeps its note on main"}
