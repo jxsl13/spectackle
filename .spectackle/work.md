@@ -245,6 +245,7 @@ state: draft
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+grilled: 2026-07-29 open=1
 targets: internal/mcpserver, internal/lifecycle
 
 Closes the correctness half of P-01KYQ4YK7MEA3. Three judges misread the same output; one acted on the misreading.
