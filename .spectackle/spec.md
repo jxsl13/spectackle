@@ -257,6 +257,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 - T-01KYQ503AGE6TV1NWY3EAVZSA6 a refusal must refuse: the rounds-exhausted move stops reporting success, and check reports what it checked: validated pass by validator-ref diff 7fc4f1887e18 :: FAIL then fixed. The state-machine half was correct in every dimension tested: exit codes non-zero on the escalating move and on every subsequent move against a blocked item, while all normal moves still exit 0 and still render their record line (checked across every legal destination, every rejection predecessor, and revocation); the emitted JS
 [body truncated at tombstone retention cap]
+- B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set: validated pass by validator-del diff 106c191c6e41 :: PASS on all seven checks, with the two load-bearing ones reproduced empirically rather than read from the diff. The verify gate is still live: driven against real workspaces, verify [exit 1] produced ! GATE E at the gitflow done edge and at work op=submit, verify [exit 0] and a satisfied test -f passed both - so runGates Cfg.Verify execution is 
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
