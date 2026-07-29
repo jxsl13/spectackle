@@ -146,7 +146,7 @@ VERIFY: go build ./... && go test ./... -count=1 && gofmt -l . empty.
 
 ## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
 kind: research
-state: draft
+state: done
 created: 2026-07-28
 targets: internal/lifecycle, internal/item, internal/journal, internal/replay
 
