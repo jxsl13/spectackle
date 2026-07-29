@@ -1191,6 +1191,18 @@ func TestEmptyQueryEnumeratesInsteadOfLying(t *testing.T) {
 		t.Fatalf("an empty scope must still report emptiness: %q", got)
 	}
 
+	// enumeration is newest-first and stable, so a bounded k surfaces recent
+	// records rather than always the same oldest ones (the validator's point:
+	// a default k=8 over 96 rules that only ever shows the oldest 8 is close
+	// to useless however the corpus grows)
+	first := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1})
+	if !strings.Contains(first, "BETA-001") {
+		t.Fatalf("k=1 must surface the newest record, not the oldest:\n%s", first)
+	}
+	if again := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1}); again != first {
+		t.Fatalf("enumeration order must be stable across calls:\n%q\n%q", first, again)
+	}
+
 	// and matching is unchanged — no cost to a caller who passes a query
 	if got := callText(t, sess, "find", map[string]any{"q": "alpha", "scope": "rule"}); !strings.Contains(got, "ALPHA-001") {
 		t.Fatalf("a real query must still match: %q", got)

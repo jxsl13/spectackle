@@ -166,8 +166,9 @@ func (c *Cache) Search(q string, kinds []string, k int) ([]Doc, error) {
 	return out, rows.Err()
 }
 
-// List enumerates docs of the given kinds with no query at all, newest-ID
-// first. Search returns (nil, nil) for an empty query, which the find tool
+// List enumerates docs of the given kinds with no query at all, in a stable
+// descending-ID order — chronological for the time-ordered ID kinds, see the
+// ORDER BY comment below. Search returns (nil, nil) for an empty query, which the find tool
 // rendered as `ok no matches` — a successful call carrying a false answer on
 // a workspace that had 96 rules (B-01KYR01E2VFEF). Enumeration is a separate
 // question from matching, so it gets a separate query rather than a magic
@@ -181,7 +182,18 @@ func (c *Cache) List(kinds []string, k int) ([]Doc, error) {
 			args = append(args, kd)
 		}
 	}
-	query += ` ORDER BY id LIMIT ?`
+	// DESC, chosen for the scopes where a bounded enumeration carries the most
+	// information: item and journal IDs are time-ordered, so newest-first
+	// surfaces the recent rejections and decisions the loop opens with, and
+	// ascending meant a default k=8 always returned the same OLDEST eight and
+	// never the newest however the corpus grew.
+	//
+	// It is NOT chronological for every kind: a rule ID is stem-based
+	// (SXP-API-002), so DESC is reverse-alphabetical there and the order is
+	// arbitrary either way — stable and pageable, which is what enumeration
+	// owes a caller, but not meaningfully "newest". Per-kind ordering is a
+	// real question and is deliberately not guessed at here.
+	query += ` ORDER BY id DESC LIMIT ?`
 	args = append(args, k)
 	rows, err := c.db.Query(query, args...)
 	if err != nil {
