@@ -319,7 +319,7 @@ kind: bug
 state: draft
 created: 2026-07-29
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-targets: internal/item, internal/mcpserver
+targets: internal/item, internal/mcpserver, internal/journal, internal/lifecycle, internal/replay
 
 VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
 
