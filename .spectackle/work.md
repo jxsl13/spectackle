@@ -245,35 +245,3 @@ ISOLATED CAUSE, likely. The done edge derives a branch name from the item ID unc
 DIRECTION. Gate the push on the item having actually had a branch. Prefer asking the ledger over inferring from state, since a branch can outlive a state transition. When there is no branch, say nothing at all - a record that never needed one is not an event worth a line.
 
 TESTS: draft an item, move it straight to done, and assert the render carries no GIT line and no error; the same for draft to archived; and the existing active-then-done path still pushes and still reports.
-
-## T-01KYPC2NM8EAXSG7G31FCFAMQ7 item-to-event field correspondence, made mechanical by a round-trip property test
-kind: task
-state: done
-created: 2026-07-29
-parent: P-01KYN5YCXGENMRNK00CQTPJM1P
-refs: R-01KYNA6NJ3F109VTE35QYRM64Q, ADR-01KYNA70PQFTBSAP0QHYXMTVGT
-rounds: 1
-grilled: 2026-07-29 open=0
-targets: internal/journal, internal/lifecycle, internal/mcpserver
-
-Closes G1-G5 of P-01KYN5YCXGENM. Root cause: journal.Event's field set was grown per-need and now disagrees with item.Item's in BOTH directions, with nothing asserting the correspondence. Reject preserves Targets/Parent/Rules that archive discards; archive preserves Refs that reject discards. The FAILURE path is more careful with structural data than the SUCCESS path.
-
-TODAY, verified in internal/lifecycle/lifecycle.go. The EvReject event (two construction sites, the to==StateRejected arm and the reject-with-snapshot arm) writes Ev/ID/K/Ti/Sum/Note/Dir/Body/Tg/Par/Rls/Rnd/Gr/Nd/Ov. It omits Refs and all four ADR fields (Context/Decision/Consequences/Status). The EvArchive event writes Ev/ID/K/Ti/Sum/Rls/Dir/Refs plus the retainedBody. It omits Par and Tg entirely - journal.Event has Par/Tg fields, archive simply does not set them - and omits Rounds/Grilled/Needs/Override. Neither carries Created.
-
-CHANGE.
-1. internal/journal/journal.go: add the channels that do not exist. The ADR fields (Context/Decision/Consequences/Status) have NO Event field at all today; adrOutcome smuggles them into Body as text for archive only, which is fine for a human tombstone read but is not a field a reader can address. Add them as first-class optional fields so reject can snapshot them and revoke can restore them structurally. Add Created per (3). Keep every json tag short - these ride every event and the journal is a token surface.
-2. internal/lifecycle/lifecycle.go: populate the full set at BOTH boundaries. Reject snapshots everything needed to reconstruct the item (it is explicitly a revocation snapshot, so completeness is its whole job). Archive carries the structural fields it currently drops (Par, Tg) so a tombstone can answer what a record belonged to and touched. Keep archive's existing retainedBody behavior unchanged - LC-001 and its tests own that and this task must not perturb it.
-3. Created, per ADR-01KYNA70PQFTB (hybrid): derive from the record ID's UUIDv7 mint time via ids.ParseRecordID and RecordID.Time(); write Created onto the event ONLY when the ID is legacy sequential (P-0007 form) and therefore carries no timestamp. lastReject and Tombstone must set Created from the derived-or-carried value so item.Upsert's default-to-now can never fire on a revoke. That default stamping a fresh date over a real one, silently and indistinguishably, is the one CORRUPTION in this proposal rather than a loss - fix it first and test it hardest.
-4. The mechanism, not just the fix: a ROUND-TRIP PROPERTY TEST over every item.Item field. Build an item with every field set to a distinctive value, cross each boundary that serializes one (reject then revoke; archive then Tombstone), and assert field-for-field what MUST survive and what is deliberately dropped. The drop list is an explicit, named allow-list in the test - so adding a field to item.Item fails the test until someone states which side of the line it is on. That is what stops this class recurring; the individual field fixes are secondary.
-
-ROUND 2, after validation. The API half landed and measures 13/13 at both boundaries (M-01KYPCTVBQFD5 v2, same-denominator reflection over both revisions). But the brief demanded fields recoverable through get and find, and the implementation stopped at Tombstone: internal/mcpserver/tools.go's get renders an archived record as sc.record(tomb) plus, for kinds RetainsBody covers, tomb.Body - and reads NONE of the structural fields Tombstone now populates. Verified by the validator: a proposal archived with targets has tg in the raw event and shows nothing in get. So the writer carries it, the reader drops it - the exact defect this task fixed, repeated one level up.
-
-FINISH IT: the archived-record render must surface what the tombstone now holds - parent, targets, refs, rules, and for an adr its decision and status - in the SAME dense line shapes get already uses for a live record, so a reader learns no second vocabulary and the token cost stays proportionate. Do not dump every field unconditionally: render what is present, skip what is empty, and keep the archived render a strict subset of the live one in shape. Then re-measure fidelity through the CLI route (get) rather than through Tombstone, and record that as the honest caller-visible number - the API number overstates what a caller can see.
-
-SCOPE BOUNDARY. Do NOT touch internal/replay (G6 is T2's, sibling task, disjoint file set) and do NOT touch the Goal/Rules write path (B-01KYPC11VKF0Q, deliberately not in this proposal).
-
-BENCHMARK, per the standing mandate. Record a boundary-fidelity benchmark before and after, the same shape as M-01KYMVV3J0E1Y: build one record of each kind with every field populated, cross each boundary, and count fields recoverable afterward via get and find - never by raw journal grep, which is not a route a caller has. Metrics: fields_survived (up), fields_corrupted (down). Expect the before run to show a nonzero fields_corrupted from the Created stamp; that number reaching zero is the headline.
-
-TESTS: reject then revoke restores every ADR field and Refs; revoke preserves a hand-set Created for a modern ID and for a legacy one; archive tombstone answers Parent and Targets; the round-trip property test with its explicit drop allow-list; and the existing LC-001 retention tests still pass untouched.
-
-VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty. ROLLBACK: revert.
