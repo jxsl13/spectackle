@@ -264,6 +264,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 - R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away: Consumed by P-01KYN5YCXGENM and both child tasks. The durable part is the METHOD: plant a unique marker in every field, cross the boundary, grep the entire tree, and treat recoverable-only-by-raw-grep as a finding rather than a pass. Its negative space bounded the next hunt; two off-class asides became B-01KYQBCAD8FF7.
 - R-01KYQ4XNAFFNYSTNRKC28BR3N3 judged friction: four independent agents drive the tricky scenario from tool output alone: Consumed by P-01KYQ4YK7MEA3 and both child tasks. Method worth reusing: give an agent the brief and NOTHING else, count calls rather than asking whether the wording was clear, and rank by judges-affected times calls-wasted. It found the one correctness defect - a refusal shaped like a success - that four rounds of my own review had not.
+- B-01KYQJDJJVFC2RPWYVMSYDBHZX the archive CI wait budget sits inside the CI duration distribution, so archives time out on builds that are merely unfinished: validated pass by validator-intent diff a9948837460f :: FAIL then fixed. The archive-retry convergence the change was built for was proven solidly: a validator rigged three genuinely stranded closures through the real move tool with three different notes and got exactly one intent line each time, carrying the FIRST attempts note - which is the right choice, since a retrys note is far more often co
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

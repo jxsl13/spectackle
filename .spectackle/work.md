@@ -287,23 +287,3 @@ option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op wr
 option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-
-## B-01KYQJDJJVFC2RPWYVMSYDBHZX the archive CI wait budget sits inside the CI duration distribution, so archives time out on builds that are merely unfinished
-kind: bug
-state: done
-created: 2026-07-29
-rounds: 1
-grilled: 2026-07-29 open=0
-targets: internal/spec, internal/mcpserver
-
-CORRECTED. This item was first filed claiming the journal accumulates duplicate archive events. That claim was FALSE and is withdrawn: it came from a substring grep that also matched the record ID inside other events note text. Parsed properly, every EvArchive is paired with a compensating EvMove (archived->done) - 3/3, 2/2, 2/2 across the three records examined - which is exactly what internal/mcpserver/tools.go documents as intentional: the attempt genuinely happened, the compensation records the reversal truthfully, and final-state-wins replay lands on done. The journal is a faithful append-only log and needs no fix.
-
-WHAT SURVIVES, measured. The archive closure waits a fixed budget for checks - the render says waiting up to 5m0s. This repositorys CI takes 3m43s to 5m38s wall clock across ten consecutive runs. The budget sits INSIDE that distribution, so a meaningful share of archives refuse on a build that had not finished rather than on anything wrong. The operator sees retry budget spent, merge it once CI concludes, and the only available response is to retry, which starts the wait over.
-
-THE REAL DAMAGE is not in the journal but in spec.md. Its ## intent section is a set of statements about what LANDED, not a log of attempts - and the compensation does not remove the line the attempt appended. Counted after this sessions retries: three copies of one records intent line, two of another, two of a third. That is B-01KYQBCAD8FF7, which this item is the cause of.
-
-SECONDARY: each timed-out attempt leaves an open PR. Five accumulated (231-235), two of which went CONFLICTING as main advanced during the churn, so a later attempt fails on a conflict instead of on CI and points the operator somewhere else.
-
-DIRECTION. Raising the budget is not the fix - it moves the boundary, and a slower runner or a bigger suite walks back into it. Two candidates, and the second is stronger: (a) make the wait resumable, so a retry rejoins the same PR rather than re-running the whole edge; (b) make spec.AppendIntent idempotent for a record that already has an intent line, so the one non-log effect converges under retry instead of accumulating. (b) is small, local, and fixes the observed damage without touching the closure at all; (a) is the systemic answer and should be judged separately.
-
-VERIFY: with a pending check, attempt an archive three times; assert spec.md holds exactly one intent line for the record, and that the journal shows the attempts and their compensations paired.
