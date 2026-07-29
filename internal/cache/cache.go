@@ -166,6 +166,39 @@ func (c *Cache) Search(q string, kinds []string, k int) ([]Doc, error) {
 	return out, rows.Err()
 }
 
+// List enumerates docs of the given kinds with no query at all, newest-ID
+// first. Search returns (nil, nil) for an empty query, which the find tool
+// rendered as `ok no matches` — a successful call carrying a false answer on
+// a workspace that had 96 rules (B-01KYR01E2VFEF). Enumeration is a separate
+// question from matching, so it gets a separate query rather than a magic
+// query string: there is no FTS MATCH here, only a kind filter.
+func (c *Cache) List(kinds []string, k int) ([]Doc, error) {
+	query := `SELECT kind,id,dir,title,substr(body,1,200) FROM docs`
+	var args []any
+	if len(kinds) > 0 {
+		query += ` WHERE kind IN (` + strings.Repeat("?,", len(kinds)-1) + `?)`
+		for _, kd := range kinds {
+			args = append(args, kd)
+		}
+	}
+	query += ` ORDER BY id LIMIT ?`
+	args = append(args, k)
+	rows, err := c.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Doc
+	for rows.Next() {
+		var d Doc
+		if err := rows.Scan(&d.Kind, &d.ID, &d.Dir, &d.Title, &d.Body); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 // sanitize turns free text into a safe FTS5 MATCH expression: quoted tokens
 // joined by OR (the LLM never passes raw MATCH syntax).
 func sanitize(q string) string {

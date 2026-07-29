@@ -1144,3 +1144,58 @@ func TestStatusFromOutsideIsValidated(t *testing.T) {
 		}
 	})
 }
+
+// TestEmptyQueryEnumeratesInsteadOfLying: find with an empty q reached
+// cache.Search, which answers (nil, nil) for one, and the result rendered as
+// `ok no matches` — a SUCCESSFUL call carrying a false answer on a workspace
+// that had 96 rules. An independent judge called this the worst issue of its
+// run: not a refusal and not an error, so the caller learns nothing and
+// believes something untrue (B-01KYR01E2VFEF).
+func TestEmptyQueryEnumeratesInsteadOfLying(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, stem := range []string{"ALPHA", "BETA"} {
+		out := callText(t, sess, "rule", map[string]any{
+			"op": "add", "pattern": "U", "stem": stem, "dir": ".",
+			"system":   "the " + strings.ToLower(stem) + " module",
+			"response": "return exactly 1 result",
+		})
+		if !strings.Contains(out, "ok "+stem+"-001") {
+			t.Fatalf("setup %s: %q", stem, out)
+		}
+	}
+
+	// the lie: an empty q on a workspace that HAS rules
+	out := callText(t, sess, "find", map[string]any{"scope": "rule"})
+	if strings.Contains(out, "no matches") {
+		t.Fatalf("a workspace with rules must not answer 'no matches':\n%s", out)
+	}
+	for _, want := range []string{"ALPHA-001", "BETA-001"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("enumeration must list %s:\n%s", want, out)
+		}
+	}
+
+	// an unscoped empty query refuses and names what CAN be enumerated,
+	// rather than enumerating everything and burning budget
+	un := callText(t, sess, "find", map[string]any{})
+	if !strings.Contains(un, "! ARG E") || !strings.Contains(un, "rule") {
+		t.Fatalf("an unscoped empty query must refuse with the enumerable set:\n%s", un)
+	}
+	if strings.Contains(un, "ALPHA-001") {
+		t.Fatalf("it must not enumerate everything:\n%s", un)
+	}
+
+	// a genuinely empty scope still says so TRUTHFULLY
+	if got := callText(t, sess, "find", map[string]any{"scope": "bug"}); !strings.Contains(got, "no ") {
+		t.Fatalf("an empty scope must still report emptiness: %q", got)
+	}
+
+	// and matching is unchanged — no cost to a caller who passes a query
+	if got := callText(t, sess, "find", map[string]any{"q": "alpha", "scope": "rule"}); !strings.Contains(got, "ALPHA-001") {
+		t.Fatalf("a real query must still match: %q", got)
+	}
+	if got := callText(t, sess, "find", map[string]any{"q": "nothingmatchesthis", "scope": "rule"}); !strings.Contains(got, "no matches") {
+		t.Fatalf("a query with no hits must still say no matches: %q", got)
+	}
+}
