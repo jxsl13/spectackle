@@ -241,7 +241,7 @@ DELIBERATELY NOT IN SCOPE. The silent dead ends judges flagged - rule op=add dis
 
 ## T-01KYQ503AGE6TV1NWY3EAVZSA6 a refusal must refuse: the rounds-exhausted move stops reporting success, and check reports what it checked
 kind: task
-state: draft
+state: active
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
