@@ -236,6 +236,7 @@ state: draft
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
+grilled: 2026-07-29 open=0
 targets: internal/replay
 
 Closes G6 of P-01KYN5YCXGENM. Narrow, one function, disjoint from its sibling T1.
