@@ -257,3 +257,27 @@ D3, internal/lifecycle, the escalation ADR title. It is built from the FULL item
 TESTS: a rounds-exhausted move returns a refusal (non-zero) whose text names the refused destination and carries a callable decide object, and does NOT contain an i record line; a clean check names its counts and severities; an escalation ADR title renders at the same length as the record it names. Assert the ABSENCE of the i line explicitly - that is the defect, and a test that only checks the new text would pass with the old line still there.
 
 VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty. Then re-run a judge: bench -agent-prep DIR -scenario tricky, drive it, and confirm the rounds refusal is not misread. SCOPE: the two rounds returns, the check zero-findings return, the escalation title. Do NOT touch state's sections or any shape line - that is the sibling task. ROLLBACK: revert.
+
+## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
+kind: task
+state: draft
+created: 2026-07-29
+parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+targets: internal/mcpserver
+
+Closes the economy half of P-01KYQ4YK7MEA3. 8 of 79 judged calls were spent rediscovering argument shapes that the codebase already knows.
+
+D1, internal/mcpserver/state.go. Every judge is told to start at state and none learned anything actionable from it. Add a final section naming the tools and the discovery rule in one line - that empty arguments return a shape. This is the hottest path on the surface, so it must be PAID FOR, not appended. Fund it in the same function: suppress the graph section when there are no edges and no typed-pass finding, suppress the swarm section when the only agent row is this session with no leases and no worktrees, and emit the version without its build suffix. No judge used any of the three in 79 calls; together they roughly cover the addition. Measure the net, and if it is positive, say so in the archive note rather than claiming a win.
+
+D2, the rule tool. Empty arguments render a flat union of fourteen properties with only op starred, which reads as everything-else-optional; a judge then sent a plausible add and was bounced with a DIFFERENT and correct op-conditional shape. The good text already exists in the failure path. FIX: emit the op-conditional form the first time, so the shape a caller sees is the shape they can call.
+
+D3, the draft tool. It is the only tool whose refusal carries no shape line at all, and it never enumerates the legal kinds - an unenumerated required string is the worst discoverability hole on the surface, because a wrong guess is a silent semantic error rather than a refusal. FIX: emit the same shape line every sibling emits, with the kind enum spelled out.
+
+D4, decide op=answer. It reports the decision but never what happened to the item the decision unblocked, so a judge must call get to learn whether the rescope landed. FIX: name the resulting item state in the same line.
+
+MEASUREMENT IS PART OF THIS TASK, not optional. Before: four judges already ran this scenario (R-01KYQ4XNAFFNY) at 79 calls. After: prep four fresh tricky workspaces, run four fresh independent judges with the same prompt, and record calls and metered bytes as a benchmark version against the before run. The claim to test is fewer calls at no more bytes per call. If calls do not fall, the additions are not earning their place and should be reverted rather than kept for plausibility.
+
+TESTS: state renders the next-step line; state omits graph/swarm on a solo workspace with no edges and no leases, and still renders them when either is non-trivial; rule with empty arguments returns the op-conditional shape; draft with empty arguments returns a shape line naming every kind; decide op=answer names the item's resulting state.
+
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty, plus the four-judge after-run. SCOPE: state.go's sections, the rule/draft shape emission, decide's answer line. Do NOT touch the rounds refusal or check - sibling task. ROLLBACK: revert.
