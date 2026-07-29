@@ -205,7 +205,7 @@ VERIFY once decided: for (a), a test that sets a goal through the tool surface a
 
 ## T-01KYPC2PQ0ENKV22TW5KMKFE5G replay writes the same intent line archive does, so a worktree-archived record keeps its note on main
 kind: task
-state: active
+state: done
 created: 2026-07-29
 parent: P-01KYN5YCXGENMRNK00CQTPJM1P
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
