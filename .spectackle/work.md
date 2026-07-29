@@ -279,6 +279,7 @@ WHY IT MATTERS more than an ordinary flake. This test is inside make cover, whic
 DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
 
 VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
+
 ## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
 kind: bug
 state: draft
@@ -315,3 +316,21 @@ THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to 
 Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
+## B-01KYQBCAD8FF7T0NF9MM84YQ41 a refused archive leaves its spec.md intent line behind, so retrying appends a duplicate every time
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/lifecycle, internal/mcpserver
+
+Flagged as off-class by the R-01KYNA6NJ3F10 gap hunt and left untriaged. It has now bitten for real, so it is filed with the reproduction.
+
+MECHANISM. lifecycle.archive appends the intent line to spec.md FIRST, then journals, then removes the item, and the git-flow closure runs after all of that. When the closure fails - a red CI head, a merge that does not complete - the archive is refused WHOLE and the item is compensated back to done. The compensation does not remove the intent line. spec.AppendIntent already ran and nothing rolls it back.
+
+REPRODUCED, three times in one session without trying. Three archive attempts for T-01KYQ503AGE6T were each refused with GIT E archive refused whole: closure merge did not complete - item stays done, retry once green. spec.md then carried the SAME intent line for that record three times. It surfaced as a git merge conflict between two branches of the records, where one side had the line tripled and the other had it once - which is how it was noticed at all.
+
+WHY IT MATTERS. spec.md's intent section is the permanent human-readable history and is reviewed in diffs. Duplicates there are not cosmetic: they misreport how many times a thing was archived, they inflate a file every later read pays for, and because the retry path is the NORMAL response to a transient CI failure, the duplication scales with how flaky CI is rather than with anything the author did. The same compensation path also leaves folded-away done children removed from work.md while the parent returns to done - the second half of the same defect, and the reason this is a transactional-boundary bug rather than a formatting one.
+
+DIRECTION. Either order the effects so the irreversible one runs last - journal and remove only after the closure has actually completed, making AppendIntent the final step - or give the compensation a real undo that removes the line it appended and restores the folded children. Ordering is the stronger fix: an undo path is itself code that can fail halfway, and this bug exists precisely because a partial sequence had no undo. Whichever is chosen, the child-folding half must be covered too.
+
+VERIFY: force a closure failure (a red head), attempt archive twice, and assert spec.md carries exactly one intent line for the record and that any done child folded by the attempt is still present in work.md.
