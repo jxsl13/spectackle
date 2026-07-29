@@ -495,16 +495,13 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 			return nil, nil, err
 		}
 		if tombOk {
-			out := sc.record(tomb) + " (archived; journal tombstone)\n"
-			if lifecycle.RetainsBody(tomb.Kind) && tomb.Body != "" {
-				// research and adr tombstones retain their substance
-				// (issue 178 defect 3; the adr arm closes the same loss for
-				// decisions) — the body IS the artifact, render it. The kind
-				// test is load-bearing: Tombstone falls back to the archive
-				// summary when nothing was retained, so a bare non-empty
-				// check would print a task's summary back to itself.
-				out += tomb.Body + "\n"
+			// Tombstone falls back to the archive SUMMARY when no body was
+			// retained, so a kind that does not retain one must not have
+			// that summary printed back to it as though it were content.
+			if !lifecycle.RetainsBody(tomb.Kind) {
+				tomb.Body = ""
 			}
+			out := sc.record(tomb) + " (archived; journal tombstone)\n" + sc.substance(tomb)
 			return text(out)
 		}
 		// A worktree-homed server resolves the union of two record spaces;
@@ -520,10 +517,10 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 				return text(b)
 			}
 			if mtomb, mok, merr := lifecycle.Tombstone(s.main, id); merr == nil && mok {
-				out := sc.record(mtomb) + " root=main (archived; journal tombstone)\n"
-				if lifecycle.RetainsBody(mtomb.Kind) && mtomb.Body != "" {
-					out += mtomb.Body + "\n"
+				if !lifecycle.RetainsBody(mtomb.Kind) {
+					mtomb.Body = ""
 				}
+				out := sc.record(mtomb) + " root=main (archived; journal tombstone)\n" + sc.substance(mtomb)
 				return text(out)
 			}
 		}
@@ -536,33 +533,7 @@ func (s *Server) getItem(id string) (*mcp.CallToolResult, any, error) {
 	if _, _, _, _, v, err := s.validateState(it.ID); err == nil && v != nil && !v.Pass && v.Note != "" {
 		b.WriteString("validate fail " + v.Ag + " :: " + v.Note + "\n")
 	}
-	if it.Parent != "" {
-		b.WriteString("parent " + sc.short(it.Parent) + "\n")
-	}
-	if len(it.Targets) > 0 {
-		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
-	}
-	if len(it.Rules) > 0 {
-		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
-	}
-	if len(it.Refs) > 0 {
-		b.WriteString("refs " + strings.Join(sc.shorts(it.Refs), " ") + "\n")
-	}
-	if it.Body != "" {
-		b.WriteString(it.Body + "\n")
-	}
-	if it.Context != "" {
-		b.WriteString("context: " + it.Context + "\n")
-	}
-	if it.Decision != "" {
-		b.WriteString("decision: " + it.Decision + "\n")
-	}
-	if it.Consequences != "" {
-		b.WriteString("consequences: " + it.Consequences + "\n")
-	}
-	if it.Status != "" {
-		b.WriteString("status: " + it.Status + "\n")
-	}
+	b.WriteString(sc.substance(it))
 	// The latest review verdict renders with the item so the author's next
 	// revision sees the findings it must answer (T-01KYD94KP4).
 	if _, _, _, _, rev, err := s.reviewState(it.ID); err == nil && rev != nil {
@@ -922,6 +893,46 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 	return text(b.String())
+}
+
+// substance renders an item's content lines — the structural bindings, the
+// body, and the ADR fields — in the order and shapes `get` has always used.
+// Empty fields render nothing, so the output is proportional to what the
+// record actually holds.
+//
+// It exists so the LIVE render and the ARCHIVED-tombstone render cannot
+// diverge. They did: lifecycle.Tombstone was taught to restore parent,
+// targets, rules, refs and the ADR fields, but the archived branch here kept
+// rendering only the record line and the retained body — so a field the
+// writer carried was dropped by the reader, one level up from the boundary
+// bug that motivated carrying it. Two renderers obliged to agree about the
+// same record is the shape that produced it; one is the fix.
+func (sc idScope) substance(it item.Item) string {
+	var b strings.Builder
+	if it.Parent != "" {
+		b.WriteString("parent " + sc.short(it.Parent) + "\n")
+	}
+	if len(it.Targets) > 0 {
+		b.WriteString("targets " + strings.Join(it.Targets, " ") + "\n")
+	}
+	if len(it.Rules) > 0 {
+		b.WriteString("rules " + strings.Join(it.Rules, " ") + "\n")
+	}
+	if len(it.Refs) > 0 {
+		b.WriteString("refs " + strings.Join(sc.shorts(it.Refs), " ") + "\n")
+	}
+	if it.Body != "" {
+		b.WriteString(it.Body + "\n")
+	}
+	for _, f := range [][2]string{
+		{"context", it.Context}, {"decision", it.Decision},
+		{"consequences", it.Consequences}, {"status", it.Status},
+	} {
+		if f[1] != "" {
+			b.WriteString(f[0] + ": " + f[1] + "\n")
+		}
+	}
+	return b.String()
 }
 
 // knownRefIDs builds the "known" set draft's refs validation checks

@@ -6,10 +6,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -934,88 +936,6 @@ func TestCapRetainedBodyRuneBoundary(t *testing.T) {
 	}
 }
 
-// TestLongADRBodyKeepsItsDecision: capRetainedBody truncates from the end,
-// so appending an ADR's structured fields after its body meant a body over
-// the retention cap silently amputated `decision:` — the one line naming
-// the winner, on the record whose entire purpose is to name it. The fields
-// are budgeted out of the cap instead, making the body the only thing a cap
-// can take.
-func TestLongADRBodyKeepsItsDecision(t *testing.T) {
-	it := item.Item{
-		Kind:     "adr",
-		Title:    "which serialization should the rpc layer use?",
-		Body:     strings.Repeat("kind: radio\noption: repo-a: protobuf\noption: repo-b: json\n", 900),
-		Decision: "repo-b: json",
-		Status:   "accepted",
-	}
-	got := retainedBody(it)
-	if !strings.Contains(got, "decision: repo-b: json") {
-		t.Fatalf("a long body must not truncate away the winner (len=%d)", len(got))
-	}
-	if !strings.Contains(got, "status: accepted") {
-		t.Fatalf("nor the status (len=%d)", len(got))
-	}
-	if len(got) > retainedBodyMax+len(truncationMarker) {
-		t.Fatalf("the retention cap must still hold: len=%d > %d", len(got), retainedBodyMax+len(truncationMarker))
-	}
-	if !strings.Contains(got, "truncated at tombstone retention cap") {
-		t.Fatalf("the body should be the part that was truncated:\n%s", got[:200])
-	}
-	// the un-truncated case is untouched: no cap marker, both halves whole
-	short := item.Item{Kind: "adr", Title: "q", Body: "kind: radio\noption: a\noption: b", Decision: "b", Status: "accepted"}
-	sg := retainedBody(short)
-	if strings.Contains(sg, "truncated") || !strings.Contains(sg, "option: a") || !strings.Contains(sg, "decision: b") {
-		t.Fatalf("a short ADR must be retained whole: %q", sg)
-	}
-}
-
-// TestOversizedFieldKeepsTheOutcome is the regression for the defect the
-// first budgeting fix missed by varying only the body: the four structured
-// fields were joined in fixed order and capped from the END, so a large
-// `context` — which nothing bounds — amputated `decision:` and `status:`
-// exactly as before. Space is budgeted by importance now, not by position.
-func TestOversizedFieldKeepsTheOutcome(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		it   item.Item
-	}{
-		{"huge context", item.Item{
-			Kind: "adr", Title: "q", Body: "kind: radio",
-			Context: strings.Repeat("C", 50000), Decision: "protobuf", Status: "accepted",
-		}},
-		{"huge consequences", item.Item{
-			Kind: "adr", Title: "q", Body: "kind: radio",
-			Consequences: strings.Repeat("K", 50000), Decision: "protobuf", Status: "accepted",
-		}},
-		{"huge body and context together", item.Item{
-			Kind: "adr", Title: "q", Body: strings.Repeat("B", 20000),
-			Context: strings.Repeat("C", 20000), Decision: "protobuf", Status: "accepted",
-		}},
-		{"huge decision itself", item.Item{
-			Kind: "adr", Title: "q", Body: "kind: radio",
-			Decision: strings.Repeat("D", 9000), Status: "accepted",
-		}},
-	} {
-		got := retainedBody(tc.it)
-		if !strings.Contains(got, "decision: ") {
-			t.Fatalf("%s: the decision must survive (len=%d)", tc.name, len(got))
-		}
-		if !strings.Contains(got, "status: accepted") {
-			t.Fatalf("%s: the status must survive (len=%d)", tc.name, len(got))
-		}
-		if len(got) > retainedBodyMax+4*len(truncationMarker) {
-			t.Fatalf("%s: cap blown: len=%d", tc.name, len(got))
-		}
-		if !utf8.ValidString(got) {
-			t.Fatalf("%s: retained body is not valid UTF-8", tc.name)
-		}
-	}
-}
-
-// TestUnansweredGistNamesNoSide: the first `option:` line is a candidate
-// nobody chose. Quoting it as an item's gist asserted an outcome the record
-// does not have — the permanent spec.md trace read as a decision FOR that
-// option, with no trace the others existed.
 func TestUnansweredGistNamesNoSide(t *testing.T) {
 	unanswered := item.Item{
 		Kind: "adr", Title: "which serialization?",
@@ -1044,66 +964,204 @@ func TestUnansweredGistNamesNoSide(t *testing.T) {
 	}
 }
 
-// TestEmptyFieldDoesNotStarveLaterFields: the budgeting closure zeroed the
-// shared budget when a field was EMPTY, conflating "nothing to write" with
-// "no room left" — so an omitted context (an optional field, the ordinary
-// case) deleted `consequences` outright, with no oversized input anywhere.
-// A regression introduced BY the cap fix and worse than the defect it
-// closed, because it needed nothing unusual to trigger.
-func TestEmptyFieldDoesNotStarveLaterFields(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		it   item.Item
-		want []string
-	}{
-		{"no context", item.Item{
-			Kind: "adr", Title: "q", Body: "kind: radio\noption: postgres\noption: sqlite",
-			Decision: "postgres", Consequences: "needs a separate server in dev", Status: "accepted",
-		}, []string{"option: postgres", "decision: postgres", "consequences: needs a separate server in dev", "status: accepted"}},
-		{"no body and no context", item.Item{
-			Kind: "adr", Title: "q",
-			Context: "", Decision: "postgres", Consequences: "minor tradeoff", Status: "accepted",
-		}, []string{"decision: postgres", "consequences: minor tradeoff", "status: accepted"}},
-		{"no body, context present", item.Item{
-			Kind: "adr", Title: "q",
-			Context: "hello-context", Decision: "postgres", Consequences: "minor tradeoff", Status: "accepted",
-		}, []string{"context: hello-context", "decision: postgres", "consequences: minor tradeoff", "status: accepted"}},
-		{"only a decision", item.Item{Kind: "adr", Title: "q", Decision: "postgres"},
-			[]string{"decision: postgres"}},
-	} {
-		got := retainedBody(tc.it)
-		for _, want := range tc.want {
-			if !strings.Contains(got, want) {
-				t.Fatalf("%s: %q missing from retained body:\n%s", tc.name, want, got)
+func TestItemEventRoundTrip(t *testing.T) {
+	// Deliberately dropped, each for a stated reason. This list is the
+	// contract — extend it only with a reason.
+	dropped := map[string]string{
+		"ID":    "identity, re-supplied by the reader from the event",
+		"Kind":  "carried as Event.K",
+		"State": "the boundary IS the state change; the reader sets it",
+		"Title": "carried as Event.Ti",
+		"Dir":   "carried as Event.Dir",
+		"Body":  "carried as Event.Body (reject always; archive per RetainsBody)",
+		"Goal":  "no write path exists at all (B-01KYPC11VKF0Q); nothing to carry",
+	}
+
+	// A past mint time proves Created is DERIVED and not merely defaulted:
+	// if the code fell back to time.Now(), this date would be today.
+	past := time.Date(2021, 3, 14, 15, 9, 26, 0, time.UTC)
+	id := "ADR-" + ids.MintRecordIDAt(past).String()
+	want := item.Item{
+		ID: id, Kind: "adr", State: item.StateDone, Title: "round trip", Dir: "",
+		Parent: "P-0007", Targets: []string{"internal/journal", "internal/lifecycle"},
+		Rules: []string{"LC-001"}, Refs: []string{"R-0001"}, Created: "2021-03-14",
+		Body: "kind: radio\noption: a\noption: b", Goal: "go test ./...",
+		Rounds: 2, Grilled: "GRILLMARK", Needs: []string{"ADR-0001"}, Override: true,
+		Context: "CTXMARK", Decision: "DECMARK", Consequences: "CONSMARK", Status: "accepted",
+	}
+
+	check := func(t *testing.T, label string, got item.Item) {
+		t.Helper()
+		wv, gv := reflect.ValueOf(want), reflect.ValueOf(got)
+		for i := 0; i < wv.NumField(); i++ {
+			name := wv.Type().Field(i).Name
+			if _, ok := dropped[name]; ok {
+				continue
+			}
+			if !reflect.DeepEqual(wv.Field(i).Interface(), gv.Field(i).Interface()) {
+				t.Errorf("%s: field %s lost at the boundary: want %v, got %v",
+					label, name, wv.Field(i).Interface(), gv.Field(i).Interface())
 			}
 		}
 	}
+
+	t.Run("reject then revoke", func(t *testing.T) {
+		w := ws(t)
+		if err := item.Upsert(w, want); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, want.ID, item.StateRejected, "for the round trip"); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := lastReject(w, want.ID)
+		if err != nil || !ok {
+			t.Fatalf("lastReject: ok=%v err=%v", ok, err)
+		}
+		check(t, "reject", got)
+	})
+
+	t.Run("archive then tombstone", func(t *testing.T) {
+		w := ws(t)
+		if err := item.Upsert(w, want); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, want.ID, item.StateArchived, "for the round trip"); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := Tombstone(w, want.ID)
+		if err != nil || !ok {
+			t.Fatalf("Tombstone: ok=%v err=%v", ok, err)
+		}
+		// archive replaces Body with the retained outcome by design (LC-001)
+		got.Body = want.Body
+		check(t, "archive", got)
+	})
 }
 
-// TestOutcomeFieldCapIsDeliberate pins the one place adrOutcome accepts a
-// bounded loss, so it stays a decision on the record rather than drifting
-// into an accident. decision and status are capped at outcomeFieldMax each
-// — that cap is what makes the must-keep reservation computable, and
-// therefore what guarantees neither field can be dropped entirely. A
-// >2KB status is not a status (the field is the four-value ADR enum), and
-// a >2KB decision is prose that belongs in context; both truncate visibly,
-// with the marker, rather than vanishing.
-func TestOutcomeFieldCapIsDeliberate(t *testing.T) {
-	got := retainedBody(item.Item{
-		Kind: "adr", Title: "q",
-		Decision: strings.Repeat("d", outcomeFieldMax*2),
-		Status:   strings.Repeat("s", outcomeFieldMax*2),
-	})
-	for _, want := range []string{"decision: ", "status: ", truncationMarker} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("an oversized outcome field truncates visibly and stays present; %q missing", want)
+// TestCreatedIsNeverStampedFresh is the regression for the one CORRUPTION in
+// P-01KYN5YCXGENM, as opposed to its losses: no event carried Created, so
+// lastReject returned an item without one and item.Upsert's default-to-now
+// wrote today's date over the real one — silently, and indistinguishable
+// from a true value. Per ADR-01KYNA70PQFTB the date is derived from a modern
+// ID's UUIDv7 mint time and carried on the event only for a legacy ID.
+func TestCreatedIsNeverStampedFresh(t *testing.T) {
+	past := time.Date(2019, 8, 2, 0, 0, 0, 0, time.UTC)
+	today := time.Now().UTC().Format("2006-01-02")
+
+	t.Run("modern id derives its mint time", func(t *testing.T) {
+		w := ws(t)
+		it := item.Item{
+			ID: "T-" + ids.MintRecordIDAt(past).String(), Kind: "task",
+			State: item.StateDraft, Title: "modern", Created: "2019-08-02",
 		}
-	}
-	// every realistic status survives whole — the enum this field actually is
-	for _, st := range []string{"proposed", "accepted", "superseded", "deprecated"} {
-		out := retainedBody(item.Item{Kind: "adr", Title: "q", Decision: "x", Status: st})
-		if !strings.Contains(out, "status: "+st) || strings.Contains(out, truncationMarker) {
-			t.Fatalf("status %q must be retained whole and unmarked: %q", st, out)
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateRejected, "n"); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := lastReject(w, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Created != "2019-08-02" {
+			t.Fatalf("Created = %q, want the ID's mint date 2019-08-02", got.Created)
+		}
+		if got.Created == today {
+			t.Fatal("Created was stamped fresh — the corruption is back")
+		}
+	})
+
+	t.Run("legacy id carries the date", func(t *testing.T) {
+		w := ws(t)
+		it := item.Item{
+			ID: "P-0007", Kind: "proposal", State: item.StateDraft,
+			Title: "legacy", Created: "2019-08-02",
+		}
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateRejected, "n"); err != nil {
+			t.Fatal(err)
+		}
+		got, _, err := lastReject(w, it.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Created != "2019-08-02" {
+			t.Fatalf("a legacy ID has no timestamp, so the date must ride the event; got %q", got.Created)
+		}
+	})
+}
+
+// TestOutcomeFieldsCannotBeStarvedByTheBody replaces four earlier tests that
+// each policed a different way a large body could amputate `decision:`.
+// Those tests existed because the ADR fields were folded into the body as
+// text, competing with it for one capped budget — a design that produced the
+// same defect three times: a large body ate the decision, then a large
+// context did, then an EMPTY context did by zeroing the shared budget.
+//
+// journal.Event now carries the four fields in their own channels, so they
+// cannot compete with the body at all and the entire failure mode is gone by
+// construction rather than by budgeting. What remains worth pinning is that
+// the structural separation actually holds under sizes that used to break it.
+func TestOutcomeFieldsCannotBeStarvedByTheBody(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		it   item.Item
+	}{
+		{"huge body", item.Item{Kind: "adr", Title: "q", Body: strings.Repeat("B", 60000),
+			Context: "CTX", Decision: "DEC", Consequences: "CONS", Status: "accepted"}},
+		{"huge context", item.Item{Kind: "adr", Title: "q", Body: "kind: radio",
+			Context: strings.Repeat("C", 60000), Decision: "DEC", Status: "accepted"}},
+		{"empty context", item.Item{Kind: "adr", Title: "q", Body: "kind: radio",
+			Decision: "DEC", Consequences: "CONS", Status: "accepted"}},
+		{"everything huge", item.Item{Kind: "adr", Title: "q", Body: strings.Repeat("B", 60000),
+			Context: strings.Repeat("C", 60000), Decision: strings.Repeat("D", 60000),
+			Consequences: strings.Repeat("K", 60000), Status: "accepted"}},
+	} {
+		w := ws(t)
+		it := tc.it
+		it.ID = "ADR-" + ids.MintRecordIDAt(time.Now()).String()
+		it.State = item.StateDone
+		if err := item.Upsert(w, it); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(w, it.ID, item.StateArchived, "n"); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		got, ok, err := Tombstone(w, it.ID)
+		if err != nil || !ok {
+			t.Fatalf("%s: tombstone ok=%v err=%v", tc.name, ok, err)
+		}
+		if got.Decision == "" {
+			t.Fatalf("%s: the decision must survive any body size", tc.name)
+		}
+		if got.Status == "" {
+			t.Fatalf("%s: the status must survive any body size", tc.name)
+		}
+		// BOUNDED, not merely present. Asserting non-emptiness alone let a
+		// validator delete each per-field cap in carryRecord by mutation
+		// with the whole suite still green — and an uncapped,
+		// caller-controlled Decision or Context is the same unbounded-growth
+		// exposure the shared budget used to have, moved rather than closed.
+		for _, f := range []struct{ name, val, in string }{
+			{"Decision", got.Decision, tc.it.Decision},
+			{"Status", got.Status, tc.it.Status},
+			{"Context", got.Context, tc.it.Context},
+			{"Consequences", got.Consequences, tc.it.Consequences},
+		} {
+			if len(f.val) > outcomeFieldMax+len(truncationMarker) {
+				t.Fatalf("%s: %s is unbounded at %d bytes (cap %d)",
+					tc.name, f.name, len(f.val), outcomeFieldMax)
+			}
+			// an input past the cap must truncate VISIBLY, never silently
+			if len(f.in) > outcomeFieldMax && !strings.Contains(f.val, truncationMarker) {
+				t.Fatalf("%s: %s was cut without the truncation marker", tc.name, f.name)
+			}
+		}
+		if !utf8.ValidString(got.Decision) || !utf8.ValidString(got.Body) {
+			t.Fatalf("%s: retained values must stay valid UTF-8", tc.name)
 		}
 	}
 }

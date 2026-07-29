@@ -307,12 +307,12 @@ func Move(ws workspace.Root, id, to, note string, opts ...MoveOption) (item.Item
 	switch to {
 	case item.StateRejected:
 		// full snapshot so the rejection is revocable later
-		if err := journal.Append(ws, it.Dir, journal.Event{
+		rej := journal.Event{
 			Ev: journal.EvReject, ID: it.ID, K: it.Kind, Ti: it.Title,
-			Sum: summary(it), Note: note, Dir: it.Dir,
-			Body: it.Body, Tg: it.Targets, Par: it.Parent, Rls: it.Rules,
-			Rnd: it.Rounds, Gr: it.Grilled, Nd: it.Needs, Ov: it.Override,
-		}); err != nil {
+			Sum: summary(it), Note: note, Dir: it.Dir, Body: it.Body,
+		}
+		carryRecord(&rej, it)
+		if err := journal.Append(ws, it.Dir, rej); err != nil {
 			return it, err
 		}
 		if err := item.Remove(ws, it); err != nil {
@@ -440,12 +440,12 @@ func ResolveBlocked(ws workspace.Root, id, outcome, note string) (item.Item, err
 		if strings.TrimSpace(note) == "" {
 			return it, fmt.Errorf("lifecycle: rejection requires a note — it becomes the searchable rejection corpus")
 		}
-		if err := journal.Append(ws, it.Dir, journal.Event{
+		rej := journal.Event{
 			Ev: journal.EvReject, ID: it.ID, K: it.Kind, Ti: it.Title,
-			Sum: summary(it), Note: note, Dir: it.Dir,
-			Body: it.Body, Tg: it.Targets, Par: it.Parent, Rls: it.Rules,
-			Rnd: it.Rounds, Gr: it.Grilled, Nd: it.Needs, Ov: it.Override,
-		}); err != nil {
+			Sum: summary(it), Note: note, Dir: it.Dir, Body: it.Body,
+		}
+		carryRecord(&rej, it)
+		if err := journal.Append(ws, it.Dir, rej); err != nil {
 			return it, err
 		}
 		if err := item.Remove(ws, it); err != nil {
@@ -492,9 +492,9 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 	}
 	ev := journal.Event{
 		Ev: journal.EvArchive, ID: it.ID, K: it.Kind, Ti: it.Title,
-		Sum: summary(it) + firstOf(" note: "+note, ""), Rls: it.Rules, Dir: it.Dir,
-		Refs: it.Refs,
+		Sum: summary(it) + firstOf(" note: "+note, ""), Dir: it.Dir,
 	}
+	carryRecord(&ev, it)
 	ev.Body = retainedBody(it)
 	if err := journal.Append(ws, it.Dir, ev); err != nil {
 		return err
@@ -513,6 +513,7 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 				Ev: journal.EvArchive, ID: ch.ID, K: ch.Kind, Ti: ch.Title,
 				Sum: "archived with parent " + it.ID, Dir: ch.Dir,
 			}
+			carryRecord(&chEv, ch)
 			// the same invariant through the SECOND archive path: a child
 			// folded into its parent's closure keeps its outcome
 			// (cross-val-research finding 5 reproduced the citation loss
@@ -564,10 +565,76 @@ func retainedBody(it item.Item) string {
 	if !RetainsBody(it.Kind) {
 		return ""
 	}
-	if it.Kind == "adr" {
-		return adrOutcome(it)
-	}
 	return capRetainedBody(it.Body)
+}
+
+// carryRecord copies the item fields an event must preserve so the record
+// can be reconstructed from it. Both boundaries that remove a record from
+// work.md call this — which is the point: the two used to populate
+// overlapping-but-different subsets, so reject preserved Targets/Parent
+// that archive dropped while archive preserved Refs that reject dropped,
+// and the FAILURE path was more careful with structural data than the
+// SUCCESS path. One writer means they cannot drift apart again.
+//
+// The corresponding reader is restoreRecord. TestItemEventRoundTrip walks
+// every item.Item field and fails when one is neither carried here nor
+// named in its explicit drop list, so a field added to Item cannot silently
+// fall through this boundary the way five of them already did.
+func carryRecord(ev *journal.Event, it item.Item) {
+	ev.Par, ev.Tg, ev.Rls, ev.Refs = it.Parent, it.Targets, it.Rules, it.Refs
+	ev.Rnd, ev.Gr, ev.Nd, ev.Ov = it.Rounds, it.Grilled, it.Needs, it.Override
+	// Capped individually. They ride the event as their own fields now, so
+	// they no longer compete with the body for a shared budget — which is
+	// what made a large context able to amputate `decision:` three separate
+	// times. A value past this cap is prose that belongs in the body.
+	ev.Ctx = capRetainedBodyTo(it.Context, outcomeFieldMax)
+	ev.Dec = capRetainedBodyTo(it.Decision, outcomeFieldMax)
+	ev.Cons = capRetainedBodyTo(it.Consequences, outcomeFieldMax)
+	ev.St = capRetainedBodyTo(it.Status, outcomeFieldMax)
+	ev.Crt = carriedCreated(it)
+}
+
+// restoreRecord is carryRecord's inverse: it fills a reconstructed item
+// from the event. Used by both lastReject (revocation) and Tombstone —
+// Tombstone previously rebuilt only ID/Kind/Title/Dir/State/Body, so an
+// archived record could not answer what it belonged to or touched even
+// though the event had carried Rls and Refs all along. The loss was in the
+// reader, not the writer, which is why probing the raw journal missed it.
+func restoreRecord(it *item.Item, e journal.Event) {
+	it.Parent, it.Targets, it.Rules, it.Refs = e.Par, e.Tg, e.Rls, e.Refs
+	it.Rounds, it.Grilled, it.Needs, it.Override = e.Rnd, e.Gr, e.Nd, e.Ov
+	it.Context, it.Decision, it.Consequences, it.Status = e.Ctx, e.Dec, e.Cons, e.St
+	it.Created = restoredCreated(e.ID, e.Crt)
+}
+
+// carriedCreated implements the storage half of ADR-01KYNA70PQFTB: a
+// modern record ID is a UUIDv7 whose mint time IS the created date, so
+// nothing is written; only a legacy sequential ID (P-0007), which carries
+// no timestamp and which this program must keep parsing forever, needs the
+// date on the event.
+func carriedCreated(it item.Item) string {
+	if item.LegacyIDRe.MatchString(it.ID) {
+		return it.Created
+	}
+	return ""
+}
+
+// restoredCreated is the retrieval half: derive from the ID when it can be,
+// else use what was carried. It must never return "" for a resolvable ID —
+// item.Upsert defaults an empty Created to time.Now(), which is how a
+// revoke came to stamp a fresh date over a real one, silently and
+// indistinguishably from a true value. That was the only CORRUPTION in
+// P-01KYN5YCXGENM rather than a loss.
+func restoredCreated(id, carried string) string {
+	// An item ID is "<kind letter>-<record ID>" (see item.MintIDAt), so the
+	// prefix comes off before parsing. A legacy ID's tail is four digits and
+	// fails to parse, which is exactly the case that falls back to carried.
+	if _, tail, ok := strings.Cut(id, "-"); ok {
+		if rid, err := ids.ParseRecordID(tail); err == nil {
+			return rid.Time().UTC().Format("2006-01-02")
+		}
+	}
+	return carried
 }
 
 // RetainsBody reports whether a kind's archive tombstone keeps its body
@@ -586,71 +653,6 @@ func RetainsBody(kind string) bool {
 // belongs in context; truncating it is a real loss but a bounded one, and
 // far smaller than dropping the field entirely.
 const outcomeFieldMax = 2048
-
-// adrOutcome renders an ADR's substance for its tombstone: the body,
-// followed by the structured fields in work.md's own order and spelling.
-//
-// Space is budgeted by IMPORTANCE, not by position. The naive version
-// joined all four fields and capped the join from the end, which only
-// looked correct because the test varied the body: `context` is emitted
-// first and nothing bounds it, so a large context amputated `decision:` —
-// exactly the loss the budgeting was introduced to prevent, one field over.
-//
-// `decision` and `status` are the outcome: what won, and whether it stands.
-// They are reserved first, each capped on its own so the reservation is
-// bounded by construction and can never starve the rest. `body`, `context`
-// and `consequences` are the narrative around that outcome — long,
-// summarizable, and therefore what a cap takes. Budgeting order and render
-// order are separate concerns; the render stays canonical either way.
-func adrOutcome(it item.Item) string {
-	field := func(name, v string) string {
-		if v = strings.TrimSpace(v); v != "" {
-			return name + ": " + v
-		}
-		return ""
-	}
-	keep := []string{
-		capRetainedBodyTo(field("decision", it.Decision), outcomeFieldMax),
-		capRetainedBodyTo(field("status", it.Status), outcomeFieldMax),
-	}
-	reserved := 0
-	for _, k := range keep {
-		if k != "" {
-			reserved += len(k) + 1 // + the joining newline
-		}
-	}
-
-	// what is left, shared by the narrative parts in render order
-	budget := retainedBodyMax - reserved
-	narrative := func(s string) string {
-		// An EMPTY field contributes nothing and consumes nothing. Zeroing
-		// the budget here conflated "nothing to write" with "no room left",
-		// so an omitted context — an ordinary, optional field — deleted
-		// `consequences` outright, with no oversized input anywhere in
-		// sight. Only real exhaustion may close the budget.
-		if s == "" || budget <= 0 {
-			return ""
-		}
-		s = capRetainedBodyTo(s, budget)
-		budget -= len(s) + 1
-		return s
-	}
-
-	parts := []string{
-		narrative(strings.TrimSpace(it.Body)),
-		narrative(field("context", it.Context)),
-		keep[0], // decision
-		narrative(field("consequences", it.Consequences)),
-		keep[1], // status
-	}
-	var out []string
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, "\n")
-}
 
 // gistLine is the one-line substance of an item — the first body line for
 // most kinds, but an adr's Decision when it has one. A decide-minted ADR's
@@ -736,10 +738,12 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 				// summary stays available in the journal event itself
 				body = e.Body
 			}
-			return item.Item{
+			out := item.Item{
 				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
 				State: item.StateArchived, Body: body,
-			}, true, nil
+			}
+			restoreRecord(&out, e)
+			return out, true, nil
 		}
 	}
 	return item.Item{}, false, nil
@@ -755,11 +759,12 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
 		if e.Ev == journal.EvReject && e.ID == id {
-			return item.Item{
+			out := item.Item{
 				ID: e.ID, Kind: e.K, State: item.StateRejected, Title: e.Ti,
-				Dir: e.Dir, Parent: e.Par, Targets: e.Tg, Rules: e.Rls, Body: e.Body,
-				Rounds: e.Rnd, Grilled: e.Gr, Needs: e.Nd, Override: e.Ov,
-			}, true, nil
+				Dir: e.Dir, Body: e.Body,
+			}
+			restoreRecord(&out, e)
+			return out, true, nil
 		}
 	}
 	return item.Item{}, false, nil
