@@ -86,8 +86,8 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
 ### 1. `find` — unified search (code + every lifecycle subcategory)
 
 ```json
-{"type":"object","required":["q"],"properties":{
-  "q":    {"type":"string"},
+{"type":"object","properties":{
+  "q":    {"type":"string","description":"text or ID fragment; omit to ENUMERATE an explicit scope"},
   "scope":{"enum":["code","rule","spec","proposal","task","bug","research","adr","rejection","history","all"],"default":"all"},
   "k":    {"type":"integer","default":8},
   "focus":{"type":"string","default":""},
@@ -95,7 +95,19 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
   "cur":  {"type":"string","default":""}}}
 ```
 `code`→graph, everything else→FTS5. **`rejection` and `history` are the
-learn-before-planning scopes** — the loop starts here. `focus` (scope=code
+learn-before-planning scopes** — the loop starts here.
+
+**An omitted `q` enumerates**, for any scope but `code` and `all`: `find
+{"scope":"rule"}` lists the rules rather than searching for nothing. It used
+to answer `ok no matches` on a workspace holding 96 of them, because an empty
+query sanitizes to nothing and the FTS path returns no rows — a successful
+call carrying a false answer, which an independent judge ranked worse than a
+refusal since the caller learns the workspace is empty instead of learning
+what to pass (B-01KYR01E2VFEF). Enumeration is a separate query (kind filter,
+no MATCH), shares the same render, and is bounded by `k` and `budget`/`cur`
+like every other result. Unscoped or `scope=code` refuses and names the
+scopes that can be enumerated — "everything" is not a meaningful request.
+A genuinely empty scope still reports emptiness truthfully. `focus` (scope=code
 only, SPX-GRA-004) re-ranks matches by deterministic personalized PageRank
 seeded at that node — "near what I'm working on" beats global degree rank;
 empty keeps the global ordering, an unknown focus answers `nf`. Every read
