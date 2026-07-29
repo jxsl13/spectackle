@@ -285,6 +285,28 @@ func ruleBlock(abs, id string, line int) (lines []string, start, end int, err er
 // AppendIntent appends one line to the `## intent` prose section of a
 // context dir's spec bundle (creating file and section as needed) — the
 // archive-time delta merge target.
+// reIntentID matches both record-ID eras (ADR-0013's UUIDv7 form and the
+// legacy sequential one). Deliberately a local pattern rather than an import
+// of internal/item: spec owns rules and prose and does not otherwise depend
+// on the lifecycle package, and a string shape is not worth that coupling.
+var reIntentID = regexp.MustCompile(`^(?:ADR|[PTBRD])-(?:[0-9]{4}|[0-9A-HJKMNP-TV-Z]{10,})$`)
+
+// intentRecordID pulls the record ID out of an intent line ("- <ID> <title>…"),
+// or "" when the line is not one. It is the idempotency key for AppendIntent:
+// the ID identifies the record, while the rest of the line varies between
+// archive attempts that carry different notes.
+func intentRecordID(line string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
+	if !ok {
+		return ""
+	}
+	id, _, _ := strings.Cut(rest, " ")
+	if !reIntentID.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
 func AppendIntent(ws workspace.Root, ctx, line string) error {
 	if err := ws.EnsureScaffold(ctx); err != nil {
 		return err
@@ -298,6 +320,24 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 			content = "---\nschema: " + workspace.SchemaStamp + "\n---\n"
 		}
 		lines := strings.Split(content, "\n")
+		// One intent line per record, ever. The archive closure appends this
+		// BEFORE its git merge can succeed, and a stranded closure compensates
+		// the item archived->done without removing what already ran — so every
+		// retry used to append another copy. That is not a log: `## intent` is
+		// the set of statements about what LANDED, and the retry is the
+		// operator's only response to a closure that timed out waiting for CI,
+		// which means the duplication scaled with CI slowness rather than with
+		// anything the author did (B-01KYQJDJJVFC2: three, two and two copies
+		// of single lines, measured). Idempotent on the record ID, because a
+		// second attempt legitimately carries a different note or gist and
+		// must not count as a different line.
+		if id := intentRecordID(line); id != "" {
+			for _, l := range lines {
+				if intentRecordID(l) == id {
+					return nil
+				}
+			}
+		}
 		// find the intent section's end (last non-empty line before next heading)
 		secStart := -1
 		for i, l := range lines {
