@@ -146,7 +146,7 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 
 ## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
 kind: task
-state: draft
+state: active
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
