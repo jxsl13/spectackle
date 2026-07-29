@@ -231,6 +231,7 @@ THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to 
 Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
 ## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
 kind: adr
 state: done
@@ -268,3 +269,21 @@ NEGATIVE SPACE - checked and found CLEAN, recorded because it bounds the next hu
 OFF-CLASS, found in passing and NOT part of P-01KYN5YCXGENM - transactional-boundary bugs rather than compression: a git-flow-gate-failed archive that is compensated back to done does not restore the child items the same call already folded away, and does not roll back its spec.AppendIntent, leaving a permanent duplicate intent line and a child reachable only as a tombstone. Triage separately.
 
 CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the method, not the list: plant a marker, cross the boundary, grep the whole tree, and treat recoverable-only-by-raw-grep as a finding rather than a pass.
+
+## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/store, internal/bench
+
+SECOND instance of the same class in one session, so it is filed as a class rather than as another one-off.
+
+OBSERVED. TestSQLiteStoreBatchedPutsAreFast failed in CI run on spectackle/B-01KYPC11VKF0Q-close after 19.44s, on a branch whose diff does not touch internal/store. It passes locally and passed on a rerun of the same commit. The name says what it asserts: a wall-clock upper bound. A GitHub runner is a shared, contended machine, so the bound holds or not depending on neighbors, not on the code. The sibling instance is B-01KYQA4WXEFAT, a fixture whose t.TempDir cleanup races gits background writes - different mechanism, same consequence.
+
+WHY IT MATTERS. Both live inside make test / make cover, which are REQUIRED gates. A flake there blocks a merge that has nothing to do with it, and the first response is always to look for a real regression in the diff - this session spent two separate investigations doing exactly that, one per instance. A gate that fails for reasons unrelated to the change teaches its operator to retry rather than to read, which is precisely the habit that lets a real failure through.
+
+DIRECTION. Wall-clock is the wrong instrument for what these tests want. A batched-put test is really asserting that the batch path does ONE transaction rather than N, which is observable directly - count the transactions, or compare the batched path against a deliberately unbatched one and assert a RATIO, which is stable under contention because both sides slow down together. If a wall-clock bound is genuinely wanted, it belongs in a benchmark that is recorded and compared over time (the bench record type exists for exactly this), not in a boolean gate.
+
+SURVEY FIRST, then fix: grep the suite for other time.Since / Duration comparisons in assertions. Fixing one and leaving three is the same outcome as fixing none, because the gate is only as reliable as its flakiest member.
+
+VERIFY: the chosen assertion survives a loop under -count=20 with the machine deliberately loaded, and no test in the required gate asserts an absolute wall-clock bound.
