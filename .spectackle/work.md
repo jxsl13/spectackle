@@ -224,6 +224,7 @@ kind: proposal
 state: draft
 created: 2026-07-29
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+grilled: 2026-07-29 open=0
 targets: internal/mcpserver, internal/lifecycle
 
 Anchored on R-01KYQ4XNAFFNY: four independent agents drove the tricky scenario from tool output alone, 79 calls. All four finished, so the surface is VALID; what it is not is economical or trustworthy, and one defect is correctness rather than wording.

@@ -730,3 +730,4 @@
 {"t":"2026-07-29T14:37:40Z","eid":"8de36a4ad36905b0","ag":"ag-7ec0","ev":"create","id":"P-01KYQ4YK7MEA3BP26HSQ7CWZ4R","k":"proposal","ti":"the tool surface is valid but under-directs: a refusal that looks like success, and shapes withheld until after a failure"}
 {"t":"2026-07-29T14:38:29Z","eid":"56624e889c965f83","ag":"ag-8a96","ev":"create","id":"T-01KYQ503AGE6TV1NWY3EAVZSA6","k":"task","ti":"a refusal must refuse: the rounds-exhausted move stops reporting success, and check reports what it checked"}
 {"t":"2026-07-29T14:38:30Z","eid":"b14927a2bf478cb5","ag":"ag-4367","ev":"create","id":"T-01KYQ5047CE5MSBF7KTM3BGKVQ","k":"task","ti":"put the shape where the caller already is, funded by deleting output no judge read"}
+{"t":"2026-07-29T14:38:47Z","eid":"35f6eafb99922bbe","ag":"ag-252d","ev":"grill","id":"P-01KYQ4YK7MEA3BP26HSQ7CWZ4R","gr":"2026-07-29 open=0","hash":"6fe2e00f2f181e459a08bb75756c1aafd6da6f1f93825ce234b0fe3c85df80b1"}
