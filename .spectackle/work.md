@@ -169,11 +169,14 @@ CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the m
 
 ## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
 kind: adr
-state: submitted
+state: done
 created: 2026-07-28
 context: No event type has a Created field, so lastReject reconstructs an item without one and item.Upsert defaults it to time.Now(). The corruption is silent and the wrong value is indistinguishable from a real one. Record IDs are UUIDv7 and already encode mint time; ids.ParseRecordID reads it. Legacy sequential IDs (P-0007) do not.
-status: proposed
+decision: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
+consequences: Hybrid, chosen by the maintainer. Derive Created from the record IDs UUIDv7 mint time; write it onto the reject/archive event ONLY for legacy sequential IDs (P-0007), which carry no timestamp and which this codebase commits to parsing for as long as the program exists. Rejected: carrying it unconditionally, because it duplicates a fact a modern ID already asserts and the two can then disagree, and it does nothing for records already archived without it. Rejected: deriving only, because it leaves legacy records with no date at all. The hybrid pays bytes for the legacy minority, cannot disagree with a modern ID, and repairs already-archived modern records retroactively with no migration. The invariant that matters: revoke must never stamp time.Now() over a real date again.
+status: accepted
 
 kind: radio
 option: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 option: carry Created on the reject and archive events
+choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
