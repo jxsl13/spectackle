@@ -721,6 +721,12 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	// silent semantic error rather than a refusal. Both missing fields are
 	// named at once, so a caller does not pay a call per field
 	// (R-01KYQ4XNAFFNY: four judges, three calls).
+	// A WRONG kind is refused before the lifecycle sees it, WITH the enum —
+	// this is the case that most needs the valid set, and routing it through
+	// lifecycle's bare `unknown kind %q` withheld exactly that.
+	if in.Kind != "" && !item.ValidKind(in.Kind) {
+		return refuse("! ARG E - draft: unknown kind " + in.Kind + "\n" + draftShape)
+	}
 	if in.Kind == "" || in.Title == "" {
 		missing := "kind"
 		if in.Kind != "" {

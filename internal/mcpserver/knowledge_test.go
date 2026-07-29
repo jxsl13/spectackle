@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/knowledge"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -1078,5 +1079,53 @@ func TestRoundsExhaustedRefusesInsteadOfReportingSuccess(t *testing.T) {
 	}
 	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "rescope"}); strings.Contains(got, "! ") {
 		t.Fatalf("the handed-back call must work: %q", got)
+	}
+}
+
+// TestShapesAreEmittedBeforeTheCallerPaysForThem: four independent judges
+// spent 8 of 79 calls rediscovering argument shapes the server already knew
+// (R-01KYQ4XNAFFNY). Each of these texts existed somewhere in the codebase
+// and was withheld until the caller had paid a round trip for it.
+func TestShapesAreEmittedBeforeTheCallerPaysForThem(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+
+	// state routes: it is the mandated entry point and used to name nothing
+	st := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(st, "#next") || !strings.Contains(st, "{}") {
+		t.Fatalf("state must name the discovery rule:\n%s", st)
+	}
+	for _, tool := range []string{"draft", "move", "rule", "decide", "find"} {
+		if !strings.Contains(st, tool) {
+			t.Fatalf("state's #next must name %q:\n%s", tool, st)
+		}
+	}
+	// and it must NOT carry the two sections that say nothing on a solo,
+	// edgeless workspace — those fund the line above
+	if strings.Contains(st, "#swarm") {
+		t.Fatalf("solo session must not render #swarm:\n%s", st)
+	}
+
+	// rule with no op reaches the tool's own refusal, not the schema union
+	r := callText(t, sess, "rule", map[string]any{})
+	if strings.Count(r, "shape: rule") != 3 {
+		t.Fatalf("rule must offer one template per op, got:\n%s", r)
+	}
+	if strings.Contains(r, "applies, condition, dir, feature") {
+		t.Fatalf("the flat field union must not be what a caller sees first:\n%s", r)
+	}
+
+	// draft names both missing fields at once, with the enum
+	d := callText(t, sess, "draft", map[string]any{})
+	if !strings.Contains(d, "shape: draft") || !strings.Contains(d, "kind and title") {
+		t.Fatalf("draft must name both missing fields and its shape:\n%s", d)
+	}
+	// the enum tracks the server's own set, and a WRONG kind gets it too
+	for _, k := range item.Kinds() {
+		if !strings.Contains(d, k) {
+			t.Fatalf("draft's enum omits %q, which the server accepts:\n%s", k, d)
+		}
+	}
+	if w := callText(t, sess, "draft", map[string]any{"kind": "nonsense", "title": "x"}); !strings.Contains(w, "shape: draft") {
+		t.Fatalf("a wrong kind is exactly when the enum is needed:\n%s", w)
 	}
 }
