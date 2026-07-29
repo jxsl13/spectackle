@@ -22,6 +22,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/graph"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
 	"github.com/jxsl13/spectackle/internal/spec"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
@@ -265,7 +266,10 @@ func stampAnchors(main workspace.Root, g graph.Graph, rule, text string, applies
 	return drift.Save(main, anchors)
 }
 
-func intentLine(e journal.Event) string { return "- " + e.ID + " " + e.Ti }
+func intentLine(e journal.Event) string {
+	// One composer, shared with lifecycle.archive — see lifecycle.IntentLine.
+	return lifecycle.IntentLine(e.ID, e.Ti, e.Gist)
+}
 
 func intentContains(main workspace.Root, ctx, line string) (bool, error) {
 	c, err := spec.Load(main.Dir)

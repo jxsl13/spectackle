@@ -483,16 +483,13 @@ func ResolveBlocked(ws workspace.Root, id, outcome, note string) (item.Item, err
 // journals the summary, removes it from work.md and archives its done
 // children with it — the OpenSpec "delta merged on archive" moment.
 func archive(ws workspace.Root, it item.Item, note string) error {
-	line := "- " + it.ID + " " + it.Title
-	if extra := firstOf(note, gistLine(it)); extra != "" {
-		line += ": " + extra
-	}
-	if err := spec.AppendIntent(ws, it.Dir, line); err != nil {
+	gist := firstOf(note, gistLine(it))
+	if err := spec.AppendIntent(ws, it.Dir, IntentLine(it.ID, it.Title, gist)); err != nil {
 		return err
 	}
 	ev := journal.Event{
 		Ev: journal.EvArchive, ID: it.ID, K: it.Kind, Ti: it.Title,
-		Sum: summary(it) + firstOf(" note: "+note, ""), Dir: it.Dir,
+		Sum: summary(it) + firstOf(" note: "+note, ""), Dir: it.Dir, Gist: gist,
 	}
 	carryRecord(&ev, it)
 	ev.Body = retainedBody(it)
@@ -653,6 +650,23 @@ func RetainsBody(kind string) bool {
 // belongs in context; truncating it is a real loss but a bounded one, and
 // far smaller than dropping the field entirely.
 const outcomeFieldMax = 2048
+
+// IntentLine composes the `## intent` line archive appends to spec.md, and
+// is the ONLY place that shape is written. internal/replay used to compose
+// its own, shorter version — ID and title, no gist — and because git never
+// merges .spectackle text, replay is main's sole writer: every record ever
+// archived through the worktree flow, the documented primary workflow,
+// landed on main with the note stripped. Two functions obliged to agree
+// about a permanent artifact is the shape that produced that; one is the
+// fix. The gist travels on the event (journal.Event.Gist) precisely so both
+// callers pass the same value rather than each deriving one.
+func IntentLine(id, title, gist string) string {
+	line := "- " + id + " " + title
+	if gist != "" {
+		line += ": " + gist
+	}
+	return line
+}
 
 // gistLine is the one-line substance of an item — the first body line for
 // most kinds, but an adr's Decision when it has one. A decide-minted ADR's
