@@ -221,7 +221,7 @@ CONSUMED BY: the proposal this research anchors. The reusable method: give an ag
 
 ## P-01KYQ4YK7MEA3BP26HSQ7CWZ4R the tool surface is valid but under-directs: a refusal that looks like success, and shapes withheld until after a failure
 kind: proposal
-state: draft
+state: approved
 created: 2026-07-29
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
 grilled: 2026-07-29 open=0
