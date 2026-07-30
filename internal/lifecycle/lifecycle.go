@@ -677,8 +677,18 @@ const intentGistMax = 400
 // retained value here is capped (retainedBodyMax, outcomeFieldMax); this one
 // was not, and an uncapped note reached both spec.md and the journal — twice
 // over, since Sum appended it again past summary()'s own cap.
+// gistLineEndings collapses every line ending a caller can supply, in CRLF-
+// first order so a CRLF becomes one space rather than two.
+var gistLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
 func capGist(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	// Flatten every line ending, not just "\n". A lone CR survived here and
+	// reached the spec.md bullet intact: Go reads it as one line, so the dedupe
+	// still keyed correctly and no bare marker could result, but CommonMark
+	// treats a lone CR as a line ending, so the bullet rendered as several
+	// lines in a markdown viewer. Same contract as the marker's, missed on the
+	// other side of the same function: this consumer is ONE bullet.
+	s = gistLineEndings.Replace(strings.TrimSpace(s))
 	return capRetainedBodyTo(s, intentGistMax)
 }
 
@@ -774,7 +784,18 @@ func capRetainedBodyTo(b string, max int) string {
 // truncationMarker is appended AFTER the cut, so a truncated body is
 // retainedBodyMax bytes of content plus this marker — the cap bounds what
 // is kept, not the exact field width.
-const truncationMarker = "\n[body truncated at tombstone retention cap]"
+//
+// It is INLINE, and must stay inline. It used to lead with a newline, which
+// made one composer emit a line break into consumers that have opposite line
+// contracts: the work.md prose fields tolerate an extra line, but capGist
+// flattens newlines to spaces precisely because its consumer is a single
+// spec.md bullet — and then got a newline back from here, one call later. That
+// put a bare marker on its own line in `## intent`, where it carried no record
+// ID, so AppendIntent's dedupe could not key it and it survived every heal
+// (B-01KYRQXJ99F48). A shared truncator cannot satisfy both contracts by
+// picking one; it satisfies both by adding no line break at all and letting
+// the caller supply a separator if it wants one.
+const truncationMarker = " [body truncated at tombstone retention cap]"
 
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	events, err := journal.ReadAll(ws)

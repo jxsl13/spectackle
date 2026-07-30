@@ -358,21 +358,3 @@ WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only t
 FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
 
 VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
-
-## B-01KYRQXJ99F48SKET4JYD70HYS the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry
-kind: bug
-state: draft
-created: 2026-07-30
-targets: internal/lifecycle/lifecycle.go, internal/spec/author.go
-
-Reported independently by two verifiers of B-01KYN3E973F20, both of which confirmed it is pre-existing rather than caused by that work - the same orphan line is written by the older binary. It is filed separately because it damages a different file under a different contract: spec.md living contracts, not work.md records.
-
-OBSERVED. capGist flattens newlines to spaces and then delegates to capRetainedBodyTo, whose truncationMarker begins with a newline. So any gist over the 400-byte cap comes back as TWO lines, and IntentLine writes both into spec.md. A single move to=archived with a 708-byte note left a bare orphan line reading only the truncation marker text in the ## intent section. Lint stays green and nothing detects it.
-
-WHY IT IS WORSE THAN A COSMETIC SPLIT. AppendIntent was made idempotent and self-healing by keying each line in the intent span on its record ID. The orphan line has no record ID, so the dedupe cannot key it: the real bullet stays deduped to one while the orphan accumulates one copy per call. Measured at four calls, four copies, unbounded. That is precisely the mechanism of the already-closed B-01KYQJDJJVFC2, whose trigger - retrying an archive after a CI-stranded closure - is documented as normal operator behavior. So a closed bug is reachable again through a different producer.
-
-ISOLATED. Same root cause as the round-3 fix in B-01KYN3E973F20 - a marker that leads with a newline is appended to a value whose consumer is line-oriented - but a different consumer, which the fix left untouched: that fix trimmed the cut for the work.md header contract and did nothing for the spec.md intent contract. find scope=history q=capGist returns no matches, so this producer has not been recorded before.
-
-FIX DIRECTION. The marker is only ever appended to a value whose consumer is line-oriented, so it should not carry a line break at all - make the marker inline, or have each consumer supply its own separator. The composer is shared by consumers with different line contracts, which is the actual defect: capRetainedBodyTo serves both a multi-line-capable header field and a strictly single-line spec.md bullet. Consider splitting it into a single-line variant and a multi-line variant so the contract is chosen at the call site rather than inherited by accident. Independently, AppendIntent should not silently tolerate a line in its span that carries no record ID - that is the property that let the orphan accumulate, and refusing or reporting it would have surfaced this the first time.
-
-VERIFY. A test archiving with a note over the cap and asserting spec.md intent section gains exactly ONE line, that the line carries the record ID, and that repeating the call leaves the section byte-identical. Plus a test that capGist output never contains a newline.
