@@ -807,3 +807,65 @@ func TestAppendIntentHealsMergeDuplicates(t *testing.T) {
 		}
 	})
 }
+
+// TestAppendIntentHealDoesNotReachOutsideItsSection: the heal keyed every line
+// in the file, so a bullet that merely LOOKS like an intent line — in a rule's
+// free-form Rationale, or in one of the whitelisted prose sections
+// (notes/design/context, see docs/spec-cascade.md) — collided with the real
+// record. Whichever came second in file order was dropped, so a lookalike
+// ABOVE `## intent` meant deleting the genuine entry. A heal must not reach
+// outside the invariant it enforces.
+func TestAppendIntentHealDoesNotReachOutsideItsSection(t *testing.T) {
+	id := "T-01KYQR51GXEQNT0NF9MM84YQ41"
+	real := "- " + id + " the real record: it landed"
+	look := "- " + id + " lookalike bullet, not an intent entry"
+
+	for _, tc := range []struct{ name, body string }{
+		{"lookalike BEFORE the intent section", "---\nschema: v1\n---\n\n## SOME-RULE-001\nRationale: see also\n" + look + "\n\n## intent\n" + real + "\n"},
+		{"lookalike AFTER the intent section", "---\nschema: v1\n---\n\n## intent\n" + real + "\n\n## notes\n" + look + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := workspace.Root{Dir: t.TempDir()}
+			if err := ws.EnsureScaffold(""); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(ws.SpecPath(""), []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := AppendIntent(ws, "", "- B-01KYQR51GXEQNT0NF9MM84YQ99 unrelated: new"); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := os.ReadFile(ws.SpecPath(""))
+			got := string(raw)
+			if !strings.Contains(got, real) {
+				t.Fatalf("the genuine intent entry must survive:\n%s", got)
+			}
+			if !strings.Contains(got, look) {
+				t.Fatalf("a lookalike outside the section is not ours to delete:\n%s", got)
+			}
+			if !strings.Contains(got, "YQ99") {
+				t.Fatalf("the new record must still be appended:\n%s", got)
+			}
+		})
+	}
+
+	// and a file with NO intent section at all must be left completely alone
+	// apart from the section AppendIntent creates
+	t.Run("no intent section", func(t *testing.T) {
+		ws := workspace.Root{Dir: t.TempDir()}
+		if err := ws.EnsureScaffold(""); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nschema: v1\n---\n\n## notes\n" + look + "\n" + look + "\n"
+		if err := os.WriteFile(ws.SpecPath(""), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := AppendIntent(ws, "", real); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(ws.SpecPath(""))
+		if n := strings.Count(string(raw), look); n != 2 {
+			t.Fatalf("duplicated bullets in another section stay untouched, got %d:\n%s", n, raw)
+		}
+	})
+}
