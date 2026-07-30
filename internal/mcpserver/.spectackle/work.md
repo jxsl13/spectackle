@@ -42,31 +42,6 @@ FIX DIRECTION. Decide which stream owns the record line. Cleanest is that an op 
 
 VERIFY. A test that pipes export output directly into apply and asserts it either succeeds or refuses with a message naming the trailing record line; plus an assertion that any reported line number resolves against the caller input.
 
-## B-01KYSDBZTEF1AS4KG1ZR0P14G7 the records-path exemption in the scope gate is anchored at the repo root, so a nested context dir own records block the archive of the item that caused them
-kind: bug
-state: done
-created: 2026-07-30
-rounds: 2
-targets: internal/workspace/workspace.go, internal/workspace/workspace_test.go, internal/mcpserver/gitflow.go, internal/mcpserver/gitflow_test.go, internal/mcpserver/swarm.go
-
-CORRECTED after reading the code: the exemption is not missing, it is root-anchored. That is a sharper and smaller defect than first filed.
-
-The transition gate refuses a move when the working tree has changed files outside the item declared targets, and it already tries to exempt server-owned records:
-
-  if f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/") { continue }
-
-That matches .spectackle and .spectackle/... - the ROOT context only. Context dirs are nested, so a non-root context records live at internal/mcpserver/.spectackle/work.md, which matches neither branch and is therefore counted as undeclared work. The intent was right; the path test only covered one case.
-
-DEADLOCK REPRODUCED LIVE, twice in one session. B-01KYS6Y5NKF42 declared three code targets all under internal/mcpserver, so the server re-scoped the record into that context dir and wrote the record own block into that dir work.md and journal. The next archive refused: 2 changed files outside the declared targets, naming internal/mcpserver/.spectackle/journal.ndjson and work.md. The item was blocked by the server writing the item own record. No transition clears it, because the same gate guards every direction, and the caller cannot declare those paths as targets without lying about what the work touches. The only exits are a manual git commit or discarding server state. Note the perverse incentive: the more precisely an item scopes itself to one subtree, the more likely the server re-scopes it into that subtree and deadlocks its own archive.
-
-THREE SPELLINGS, ONE PREDICATE - the actual root cause. gitflow.go:1086 and swarm.go:607 are root-anchored; gitflow.go:740 uses strings.Contains(f, Dot+"/") and does handle nesting, though its companion HasPrefix(f, Dot) would also match a file literally named .spectacklefoo. Three hand-written spellings of is this path inside a records directory, differing in exactly the case that bites. This is the same drift-by-duplication shape as the truncation marker and the commit-subject composer, both fixed this week by introducing one composer.
-
-FIX. Add one predicate to internal/workspace - IsRecordsPath - that tests whether any PATH SEGMENT equals Dot, so root and nested behave identically and a .spectacklefoo file is not matched. Use it at all three sites. Do not fix gitflow.go:1086 alone: swarm.go:607 has the identical latent bug in dirtyOrphanGuard, where a nested context records write would be reported as uncommitted work from another holder and push the caller toward force=true, which discards.
-
-SECOND, SEPARATE QUESTION in the same gate: it counts a sibling _test.go as outside a targets list that names its source file. Every record here must ship tests, so this forces every targets list to enumerate the test file for a file it already declared - three reject-to-draft-widen cycles were spent on it in one session. Decide it deliberately rather than inheriting it: either a declared source path implicitly covers its _test.go sibling, on the grounds that mandatory tests are not undeclared work, or scope stays strictly explicit and the refusal at least prints the widened targets list so the caller does not reconstruct it by hand. The current behavior is pinned by no test, which is why it reads as an accident.
-
-VERIFY. An item whose targets all sit inside one context dir, so the server re-scopes it: archive must succeed with the server pending records writes present - that is the deadlock, and it must be a test rather than a manual check. A table test on IsRecordsPath covering .spectackle, .spectackle/x, a/b/.spectackle/x, and the near-miss .spectacklefoo. A dirtyOrphanGuard test with a nested context records write asserting it is not reported as foreign uncommitted work. Plus whatever the sibling decision needs to pin it.
-
 ## B-01KYSK7HQFFPM8538HAWGRS0P6 reconcileClosureBranch has no test coverage at all, and the records exemption now excuses real files at any depth rather than only at the root
 kind: bug
 state: draft
