@@ -34,30 +34,6 @@ DIRECTION, not a decision. Options, roughly increasing in strictness: (a) render
 
 VERIFY: a test that adds a rule with a path-shaped applies and asserts the render names it unresolvable; a test that check separates the two classes.
 
-## B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr
-kind: bug
-state: active
-created: 2026-07-28
-rounds: 1
-grilled: 2026-07-29 open=0
-targets: internal/item, internal/mcpserver
-
-VERIFIED against the code, and the exposure is wider than first filed.
-
-TODAY. item.Item.Status is a bare string. The enum proposed|accepted|superseded|deprecated exists in exactly two places, neither of which validates: a doc comment at internal/item/item.go and a jsonschema DESCRIPTION at internal/mcpserver/tools.go. Nothing rejects an arbitrary value. Worse than a caller typo: internal/mcpserver/knowledge.go's ADR-apply path assigns d.Status = e.Status straight from an IMPORTED artifact, so a foreign repository can inject any string into this workspace - including superseded, which is supposed to be a consequence rather than a claim. find scope=adr also has no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one.
-
-WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted (T-01KYMPN0PNEWV, landed). As repositories exchange knowledge repeatedly, decisions on one question accumulate; nothing records which replaced which, so the feature built to stop conflicts vanishing has no answer to which surviving decision is current. find scope=adr therefore degrades monotonically as a repository ages, on the hottest research path.
-
-SCOPE, narrowed deliberately after verification. This item now covers ONLY the half that is unambiguous and cheap: (1) one validator, item.ValidStatus, accepting the four values and empty; (2) every write path that takes a status from outside the server validates through it - the imported-artifact path first, since that is untrusted input, and the tool boundary second; (3) superseded is REFUSED from any direct assignment, with the refusal naming the operation that is allowed, because a record cannot truthfully claim to be superseded without naming what replaced it.
-
-SPLIT OUT, not done here: the supersession EDGE - minting a replacement that names its predecessor, both IDs in one journal event, and get on a retired ADR naming its replacement - is a design change large enough to deserve its own record, and it depends on this validation existing first. Likewise the find scope=adr default filter, which the earlier version of this item required be MEASURED before shipping: on a workspace with at least five retired ADRs, compare the find output token delta with and without it, and if the difference sits inside the bench noise floor then ship the validation and skip the filter, calling it discipline rather than savings.
-
-REJECTED ALTERNATIVE. engram-mcp wraps insert plus status flip plus edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing - superseded is a consequence - not the mechanism.
-
-TESTS: an invalid status is refused at the tool boundary and on the imported-artifact path; a direct status=superseded is refused with the allowed operation named; the four valid values and empty all pass; an artifact carrying a bogus status does not poison the workspace.
-
-VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty.
-
 ## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
 kind: bug
 state: draft

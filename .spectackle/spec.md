@@ -270,6 +270,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+- B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr: validated pass by validator-status diff 106c191c6e41 :: Two rounds. R1 confirmed the apply path refuses bogus and superseded statuses across body/path/paths including mixed batches, that decide is not an injection route at all (decideIn has no Status field; it is hardcoded), and that a genuine export-then-apply round trip is unaffected. It found two things. First, a REGRESSION I caused by placemen
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
