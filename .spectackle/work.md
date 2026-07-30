@@ -408,9 +408,9 @@ METHOD NOTE worth keeping: this flake was invisible to the harness used through 
 
 ## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
 kind: bug
-state: done
+state: draft
 created: 2026-07-30
-rounds: 2
+needs: ADR-01KYT78ED3FK2R94M5B0GFP4R6
 targets: internal/item/options.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/decide_test.go, internal/mcpserver/tools.go, internal/mcpserver/prompts.go, internal/mcpserver/backward_test.go, internal/mcpserver/validate.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
 REPRODUCED end to end before implementing, and it is as severe as filed. On an escalation ADR, decide op=answer with choose set to rescop - a one-character typo of rescope - returns ok ADR-... rescop at exit 0, success-shaped. Afterwards every move from the blocked item refuses pointing at that ADR, for active, draft, done and archived alike, and re-answering the ADR refuses with already decided. The record is permanently unreachable through any public tool. Ordinary ask-created ADRs are NOT affected: a garbage choose there is correctly refused with choose must be one of: redis, memcached at exit 1, so HINT-001 already holds on that path.
@@ -424,3 +424,18 @@ FIX, three parts. First do the follow-up the code asks for: delete decideOptions
 ALSO IN SCOPE, the inverted bookkeeping: the resolving paths keep the spent ADR in needs while the non-resolving path clears it. With validation restored a typo can no longer reach that branch, but the inversion is still wrong for any other caller reaching it.
 
 VERIFY. Answering an escalation ADR with a value outside the enumeration must refuse, exit non-zero, TEACH the three values per HINT-001, and leave both the ADR and the blocked item untouched - assert the item is still movable afterward, which is the property that actually matters. Each valid value must reach the state it promises. A test must assert the escalation body and the parser agree BY CONSTRUCTION rather than by two literals. A test must answer a body carrying the legacy outcome= form and the current choose= form and get the same options. And per RECMERGE-003, mutate: reverting the Escalate body to prose-only must fail the suite.
+
+## ADR-01KYT78ED3FK2R94M5B0GFP4R6 escalate B-01KYS7111XFHZ: rescope|reject|override-once
+kind: adr
+state: done
+created: 2026-07-30
+parent: B-01KYS7111XFHZVZ4CRKYQ3KR7R
+decision: rescope
+consequences: Rescope, because the contract this record owns is met and every remaining thread is already a separate record. Five rounds, each opened by an independent verifier, and the pattern across all five is one thing: the behavior was correct at the end of every round while the coverage was not. Round 1 fixed the parser-writer disagreement that let a typo strand a record permanently. Round 2 fixed two hard-coded enumerations advertising a value the parser refuses. Round 3 fixed a THIRD such surface a verifier measured on the failing-verdict route, which I had never swept. Round 4 added the tests that actually pin all of it, after a verifier proved three separate reintroductions survived the suite. Round 5 closed one layer deeper still, after a verifier own mutation showed the renderer was pinned while its call sites were not. That is the argument for RECMERGE-003 and for adversarial verification, not for writing more tests up front - each gap was invisible until someone broke the code and ran the suite. What remains is filed and out of this record contract: T-01KYT2EHRMEAH for the remaining hard-coded enumerations elsewhere and the open HINT-001 question about static doc surfaces, and B-01KYSX35RKFYB for the inverted needs bookkeeping, which needs its own reproduction rather than riding along unverified here.
+status: accepted
+
+B-01KYS7111XFHZ exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYT78ED3FK2 choose=rescope|reject|override-once.
+option: rescope
+option: reject
+option: override-once
+choice: rescope
