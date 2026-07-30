@@ -44,7 +44,7 @@ VERIFY. A test that pipes export output directly into apply and asserts it eithe
 
 ## B-01KYSDBZTEF1AS4KG1ZR0P14G7 the scope gate counts server-owned .spectackle record files against an item declared targets, so the server own write can block the archive of the item that caused it
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/mcpserver/gitflow.go
 
