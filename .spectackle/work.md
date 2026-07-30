@@ -4,8 +4,9 @@ schema: v1
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: done
+state: active
 created: 2026-07-28
+rounds: 1
 targets: internal/item
 
 internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
