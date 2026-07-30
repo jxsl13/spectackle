@@ -640,3 +640,4 @@
 {"t":"2026-07-30T11:29:00Z","eid":"c655e162fab1c733","ag":"ag-973e","ev":"revise","id":"B-01KYSB0BAAEB2BYNX4YYRQZEE4","note":"body revised"}
 {"t":"2026-07-30T11:36:22Z","eid":"698c5942c4fa36fb","ag":"ag-c2bf","ev":"revise","id":"B-01KYQA4WXEFATTX2FV30DATGDJ","note":"body+targets revised"}
 {"t":"2026-07-30T14:08:17Z","eid":"2b0329070b7ec0e0","ag":"ag-f58a","ev":"rule","op":"add","rule":"RECMERGE-003","txt":"WHEN a change fixes a defect in a gate, a parser or any write path, the verification SHALL prove by MUTATION that reintroducing the defect at its own call site fails the suite — a passing test of the helper that call site invokes is not evidence."}
+{"t":"2026-07-30T14:08:38Z","eid":"8c4840c31029c335","ag":"ag-8dd5","ev":"rule","op":"edit","rule":"RECMERGE-003","txt":"WHEN a change fixes a defect in a gate, a parser or a write path, the verification SHALL prove by mutation that reintroducing the defect at its own call site fails the suite."}
