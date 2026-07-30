@@ -722,3 +722,32 @@ func TestHeaderRefusesUnwritableValue(t *testing.T) {
 		})
 	}
 }
+
+// TestParseOptionsAcceptsBothEscalationSpellings pins the two spellings
+// lifecycle.Escalate's sentence has used. The body was deliberately changed
+// from `outcome=` to `choose=` because following the old text failed twice, and
+// no parser was updated — this regex lived in two packages, so a value that had
+// to change in two places changed in neither, and every escalation ADR silently
+// accepted free text (B-01KYS7111XFHZ). Both stay matched permanently: records
+// carrying either are already in journals and must remain answerable.
+func TestParseOptionsAcceptsBothEscalationSpellings(t *testing.T) {
+	for _, body := range []string{
+		"T-1 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-1 outcome=rescope|reject|override-once.",
+		"T-1 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-1 choose=rescope|reject|override-once.",
+	} {
+		got := ParseOptions(body)
+		want := []string{"rescope", "reject", "override-once"}
+		if len(got) != len(want) {
+			t.Fatalf("ParseOptions(%q) = %v, want %v", body, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("ParseOptions option %d = %q, want %q", i, got[i], want[i])
+			}
+		}
+	}
+	// Free text still yields nil, or every text decision would start refusing.
+	if got := ParseOptions("just prose, no enumeration here"); got != nil {
+		t.Errorf("free text parsed as options: %v", got)
+	}
+}

@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -201,11 +200,14 @@ func decideChoiceString(kind string, v any) string {
 // decideAnswer resolves an open decision from anywhere, any time — the
 // waiting orchestrator sees it on its next swarm/state/find call (no polling
 // required). Choose is validated against the decision's stored options
-// (parsed from its body — see decideOptions, which understands decideAsk's
-// current `option: <text>` lines, its legacy `options: a, b, c` form, and
-// the `outcome=a|b|c` form lifecycle.Escalate writes for its auto-minted
-// decisions); a decision with no stored options (kind=text) accepts free
-// text.
+// (parsed from its body by item.ParseOptions, the single parser — this file
+// used to carry a byte-for-byte copy called decideOptions, and that
+// duplication is exactly how a deliberate change to lifecycle.Escalate's body
+// text reached ZERO parsers: a value that had to be updated in two places was
+// updated in neither, so every escalation ADR accepted free text and a typo in
+// `choose` stranded its item in blocked permanently, reporting success while
+// doing it, B-01KYS7111XFHZ); a decision with no stored options (kind=text)
+// accepts free text.
 func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.ID) == "" {
 		return refuse("! ARG E - answer requires id")
@@ -229,7 +231,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		return refuse("! ARG E - " + in.ID + " already decided")
 	}
 	choose := in.Choose
-	if opts := decideOptions(d.Body); len(opts) > 0 {
+	if opts := item.ParseOptions(d.Body); len(opts) > 0 {
 		matched := ""
 		for _, o := range opts {
 			if strings.EqualFold(o, choose) {
@@ -243,49 +245,6 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		choose = matched
 	}
 	return s.resolveDecision(d.ID, choose, in.Consequences)
-}
-
-// decideOptions extracts the fixed option set (if any) a decision was asked
-// with. Three body shapes are understood, tried in order:
-//  1. decideAsk's current form: one `option: <text>` line per option,
-//     verbatim (no comma-splitting — an option's own text may contain
-//     commas). This is what NEW decisions write.
-//  2. the legacy `options: a, b, c` comma-joined line decideAsk used to
-//     write — kept forever so existing items/journals stay answerable
-//     without migration (when an option's own text contains commas, the
-//     comma-split fragments it into more pieces than were intended, but
-//     that shattered form is exactly what remains answerable — it is not
-//     rewritten to option: lines).
-//  3. lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
-//     foundation, not writable from this package).
-//
-// No match = free text.
-var reOutcome = regexp.MustCompile(`outcome=([a-zA-Z0-9_-]+(?:\|[a-zA-Z0-9_-]+)*)`)
-
-func decideOptions(body string) []string {
-	var out []string
-	for _, line := range strings.Split(body, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "option: "); ok {
-			out = append(out, v)
-		}
-	}
-	if len(out) > 0 {
-		return out
-	}
-	for _, line := range strings.Split(body, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "options: "); ok {
-			for _, o := range strings.Split(v, ",") {
-				if o = strings.TrimSpace(o); o != "" {
-					out = append(out, o)
-				}
-			}
-			return out
-		}
-	}
-	if m := reOutcome.FindStringSubmatch(body); m != nil {
-		return strings.Split(m[1], "|")
-	}
-	return nil
 }
 
 // resolveDecision persists a decision's outcome (state=done, choice recorded
