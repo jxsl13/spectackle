@@ -22,7 +22,7 @@ VERIFY. A prep run in the new mode whose brief contains a tool description verba
 
 ## B-01KYTBR3BAF9KAQDD1N06FWX4R the doc comment above TestSchemaMeteringIsRealAndInert still describes the assertion that was removed from it
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/bench/bench_test.go
 
