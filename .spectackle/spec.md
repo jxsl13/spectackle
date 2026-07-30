@@ -269,6 +269,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYR01E2VFEF8KT5GV91VAWSP find with an empty q answers ok no matches while the workspace has rules — a silent lie, worse than a refusal: validated pass by validator-find diff 32cd50761cb1 :: Two rounds. R1 confirmed enumeration is functionally sound - no scope ever leaked a record of the wrong kind across all ten enumerable scopes, the rejection/history sibling-event union still fires with and without a query, paging reassembles byte-identically to the unpaged call with no gaps or overlaps, and scope=code and unscoped both refuse w
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
