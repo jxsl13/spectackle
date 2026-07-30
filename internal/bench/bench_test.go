@@ -705,3 +705,71 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 		t.Fatalf("re-prep not caught by the anchor:\n%s", AgentReport(sc2))
 	}
 }
+
+// TestSchemaMeteringIsRealAndInert pins both halves of the tools/list metering
+// (B-01KYS711ZFFG0), and each half is a bug this function actually had.
+//
+// The first: the metering must return a real measurement, not 0. Closing stdin
+// before reading ends the session before the server writes anything, so the
+// first version silently reported 0 and the schema line vanished from the report
+// entirely — a metric that is absent looks exactly like a metric that is zero.
+//
+// The second half of this test is deliberately WEAKER than it first looks, and
+// says so rather than implying otherwise. Serving against the FIXTURE dir
+// scaffolds records into it and moved the per-call total 3039B -> 3081B, so the
+// act of measuring changed the number measured. But comparing two Run calls
+// cannot catch that: each Run builds its own fresh fixture, so the perturbation
+// happens identically in both and the totals still agree — verified by mutation,
+// which this test does NOT kill. What actually prevents it is the signature:
+// schemaBytes takes no workspace root, so it has nothing to perturb, and
+// reintroducing the bug requires changing the signature in a way a reader sees.
+// The reproducibility assertion below is kept because it is cheap and pins a
+// different property — that the scripted total does not wander between runs.
+func TestSchemaMeteringIsRealAndInert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	// Half one: a real measurement. The floor is deliberately loose — this
+	// asserts "metered at all", not a byte count that every schema edit would
+	// have to chase. tools/list carries a dozen tools with descriptions and
+	// input schemas, so anything under 4KB means the read failed.
+	got := schemaBytes(bin)
+	if got < 4096 {
+		t.Errorf("schemaBytes = %d; the tools/list read failed and the metric is silently absent", got)
+	}
+	// It must also be the largest per-session cost, which is the whole reason
+	// this field exists: the manifest line presented itself as THE session cost
+	// while being a fraction of it.
+	man, err := exec.Command(bin, "manifest").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got <= len(man) {
+		t.Errorf("schema %dB <= manifest %dB — if that is now true, the reporting text claiming schema dominates the session is stale", got, len(man))
+	}
+
+	// Half two: inert. Two runs of the same script over the same fixture must
+	// meter the same per-call total, and it must match a run whose schema
+	// metering is skipped entirely.
+	a, err := Run(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Run(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Bytes != b.Bytes {
+		t.Errorf("per-call total is not reproducible: %dB then %dB", a.Bytes, b.Bytes)
+	}
+	if a.SchemaBytes == 0 || b.SchemaBytes == 0 {
+		t.Errorf("Run did not carry the schema measurement: %d, %d", a.SchemaBytes, b.SchemaBytes)
+	}
+}
