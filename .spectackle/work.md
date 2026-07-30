@@ -253,8 +253,9 @@ choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 
 ## B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency
 kind: bug
-state: done
+state: active
 created: 2026-07-29
+rounds: 1
 targets: internal/spec, internal/workspace
 
 ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
