@@ -614,3 +614,4 @@
 {"t":"2026-07-30T05:27:57Z","eid":"2087b5d9631395f0","ag":"ag-6809","ev":"decide","id":"ADR-01KYRQSQDGEH89ERCR8N672AJW","note":"rescope"}
 {"t":"2026-07-30T05:27:57Z","eid":"a7a02284f4adc934","ag":"ag-6809","ev":"decide","id":"B-01KYN3E973F20VH7DHPE1YSSD7","to":"draft","note":"decide ADR-01KYRQSQDGEH89ERCR8N672AJW: rescope"}
 {"t":"2026-07-30T05:28:24Z","eid":"49bb85ef03cd6314","ag":"ag-99cc","ev":"create","id":"B-01KYRQXJ99F48SKET4JYD70HYS","k":"bug","ti":"the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry"}
+{"t":"2026-07-30T05:29:05Z","eid":"d5c4137a964305d5","ag":"ag-b8ee","ev":"move","id":"B-01KYN3E973F20VH7DHPE1YSSD7","fr":"draft","to":"active","note":"rescoped: closing on the work.md header contract, which three rounds fixed and an independent verifier swept and passed; the spec.md intent-line consumer of the same composer is B-01KYRQXJ99F48"}
