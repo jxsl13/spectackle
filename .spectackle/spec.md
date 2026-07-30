@@ -271,6 +271,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
