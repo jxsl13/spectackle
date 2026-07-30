@@ -22,8 +22,9 @@ VERIFY. A prep run in the new mode whose brief contains a tool description verba
 
 ## B-01KYTES575EBVSCCKA08P0BF32 the manifest is static text is imprecise: manifest() appends a runtime-resolved URL from build info
 kind: bug
-state: done
+state: active
 created: 2026-07-30
+rounds: 1
 targets: internal/bench/bench_test.go
 
 Found by the verifier of B-01KYTBR3BAF9K, which was itself a record about a comment asserting something untrue - so leaving this unfixed would be the same defect one layer down.
