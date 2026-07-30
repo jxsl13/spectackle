@@ -83,6 +83,17 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 	// against itself, computed findings rendered open=0, and validateRisk
 	// returned early. The whole apparatus went quiet at once, in precisely the
 	// case where there was no evidence (B-01KYS6Y5NKF42).
+	//
+	// STATED RESIDUAL: a 13-character prefix is a looser match than the full ID,
+	// so two records whose short forms collide are indistinguishable here and
+	// each inherits the other's commits. Measured at 1 collision in 2070
+	// same-millisecond pairs — NOT the 2^-15 internal/ids claims, because 4 of
+	// those 63 bits are the fixed UUIDv7 version nibble, leaving 11 random bits
+	// rather than 15. The failure direction is conservative (a larger attributed
+	// diff means more staleness, more risk trips, more findings), with one
+	// permissive edge: a colliding sibling touching a declared target can mask
+	// an "untouched" finding for it. Branch naming has the same exposure but
+	// fails loudly; here it is silent, which is why it is written down.
 	citing := func(rangeSpec string) []string {
 		out := git("log", "--format=%H %s", "--grep", shortDisplayID(id), rangeSpec)
 		var shas []string
