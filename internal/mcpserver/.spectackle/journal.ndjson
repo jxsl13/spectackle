@@ -255,3 +255,4 @@
 {"t":"2026-07-30T16:18:05Z","eid":"cd685ca393b03f36","ag":"ag-92fd","ev":"create","id":"B-01KYSX35RKFYBRX6YAB9E9DHBW","k":"bug","ti":"the needs bookkeeping is inverted: resolving paths keep the spent ADR while the non-resolving path clears it","dir":"internal/mcpserver"}
 {"t":"2026-07-30T16:58:24Z","eid":"cad6c88a2edcb703","ag":"ag-f303","ev":"drift","dir":"internal/mcpserver","rule":"SRF-001","node":"go:mcpserver.roundsRefusal","cls":"healed","oh":"042efcaa6cf4599d","nh":"5967ba3be1955003"}
 {"t":"2026-07-30T17:50:52Z","eid":"8b2c0d87449f4831","ag":"ag-a768","ev":"drift","dir":"internal/mcpserver","rule":"SRF-001","node":"go:mcpserver.roundsRefusal","cls":"healed","oh":"5967ba3be1955003","nh":"71785ef17271da4a"}
+{"t":"2026-07-30T17:51:40Z","eid":"1108bfc3a0075782","ag":"ag-4c0f","ev":"create","id":"T-01KYT2EHRMEAHSAY9GECXG2035","k":"task","ti":"sweep the remaining hard-coded enumerations onto their source of truth","dir":"internal/mcpserver"}
