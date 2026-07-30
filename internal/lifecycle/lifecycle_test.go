@@ -1230,8 +1230,8 @@ func TestIntentLineIsBounded(t *testing.T) {
 
 // TestCapRetainedBodyNeverManufacturesBlankLine pins the regression two
 // independent verifiers found in B-01KYN3E973F20's own fix. The header refuses
-// a blank line inside a prose value, and truncationMarker leads with a newline,
-// so a cut landing right after a newline produced "\n\n" — a value the record
+// a blank line inside a prose value, and truncationMarker led with a newline at
+// the time, so a cut landing right after a newline produced "\n\n" — a value the record
 // could no longer be written back with. The consequence was not cosmetic: a
 // rejected item whose context happened to be the wrong length could not be
 // revoked to ANY state, contradicting the documented promise that a rejection
@@ -1281,6 +1281,13 @@ func TestTruncationMarkerIsInline(t *testing.T) {
 			strings.Repeat("a", n),
 			strings.Repeat("a b\n", n/4+1),
 			strings.Repeat("line\n\n", n/6+1),
+			// A lone CR is a line ending to CommonMark even though Go reads
+			// the value as one line. The first version of this test asserted
+			// against "\r" without ever feeding one, so it could not have
+			// caught the bullet that rendered as several lines in a viewer.
+			strings.Repeat("a b\r", n/4+1),
+			strings.Repeat("a b\r\n", n/5+1),
+			strings.Repeat("\r\n", n/2+1),
 		} {
 			got := capGist(body)
 			if strings.ContainsAny(got, "\r\n") {

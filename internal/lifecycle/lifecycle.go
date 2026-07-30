@@ -677,8 +677,18 @@ const intentGistMax = 400
 // retained value here is capped (retainedBodyMax, outcomeFieldMax); this one
 // was not, and an uncapped note reached both spec.md and the journal — twice
 // over, since Sum appended it again past summary()'s own cap.
+// gistLineEndings collapses every line ending a caller can supply, in CRLF-
+// first order so a CRLF becomes one space rather than two.
+var gistLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
 func capGist(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	// Flatten every line ending, not just "\n". A lone CR survived here and
+	// reached the spec.md bullet intact: Go reads it as one line, so the dedupe
+	// still keyed correctly and no bare marker could result, but CommonMark
+	// treats a lone CR as a line ending, so the bullet rendered as several
+	// lines in a markdown viewer. Same contract as the marker's, missed on the
+	// other side of the same function: this consumer is ONE bullet.
+	s = gistLineEndings.Replace(strings.TrimSpace(s))
 	return capRetainedBodyTo(s, intentGistMax)
 }
 

@@ -336,8 +336,9 @@ func intentRecordID(line string) string {
 // its separator stripped. It is duplicated rather than imported because
 // lifecycle imports this package, so the dependency cannot run the other way.
 // The duplication is pinned by TestTruncationMarkerMatchesSpecDebris in
-// internal/lifecycle, which CAN see both — an external test package is the one
-// place the cycle does not apply, so the two cannot drift apart silently.
+// internal/lifecycle, which can see both for the same reason the import cannot
+// be reversed: lifecycle already depends on this package. That test fails if
+// either side is changed alone, so the two cannot drift apart silently.
 const intentDebrisMarker = "[body truncated at tombstone retention cap]"
 
 func AppendIntent(ws workspace.Root, ctx, line string) error {
