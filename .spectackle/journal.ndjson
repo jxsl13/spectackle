@@ -694,3 +694,4 @@
 {"t":"2026-07-30T19:16:19Z","eid":"9e543c8adb6d8e0c","ag":"ag-9b26","ev":"decide","id":"ADR-01KYT78ED3FK2R94M5B0GFP4R6","note":"rescope"}
 {"t":"2026-07-30T19:16:19Z","eid":"102d49202db0662b","ag":"ag-9b26","ev":"decide","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","to":"draft","note":"decide ADR-01KYT78ED3FK2R94M5B0GFP4R6: rescope"}
 {"t":"2026-07-30T19:16:35Z","eid":"2f3ded5200458301","ag":"ag-a489","ev":"move","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","fr":"draft","to":"active","note":"rescoped: the contract is met and the remaining threads are separate records"}
+{"t":"2026-07-30T19:16:54Z","eid":"06788d9b0293b4c8","ag":"ag-14a4","ev":"move","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","fr":"active","to":"done","note":"Round 5 complete: the move-route call sites are now pinned to feed the live option set, closing the layer a verifier own mutation exposed. Suite exit 0, test strength only."}
