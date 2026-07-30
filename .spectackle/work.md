@@ -2,22 +2,6 @@
 schema: v1
 ---
 
-## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
-kind: bug
-state: draft
-created: 2026-07-28
-targets: internal/item
-
-internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
-
-REPRODUCTION (found by an independent validator during T-01KYMPN0PNEWV, confirmed pre-existing: git diff origin/main...HEAD -- internal/item/ is empty). knowledge export entries=[{kind: adr, context: "Line one.\nLine two.", decision: go-with-A, status: accepted, options: [...]}] then knowledge apply. get shows decision and status swallowed into the body text; the reloaded items .Decision and .Status are empty strings.
-
-IMPACT is not cosmetic. Every consumer that reads those fields sees them as unset on a record that plainly has them: the archive tombstone retains an empty decision (so an archived multi-paragraph ADR loses which option won - the same loss class LC-001 was written to close, arriving through a different door), knowledge.Extract exports an ADR with no decision, and knowledge apply then reports a spurious divergence between two repositories that actually agree - the validator observed x adr ... ours="" theirs="keep as is" for identical content, caused purely by the local copy being corrupted on reload. Multi-paragraph context and consequences are the NORMAL shape for a real ADR, so this is reachable by ordinary use, not by adversarial input.
-
-DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
-
-VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
-
 ## B-01KYN5ZYM1FY2TBZHXC43V68TE rule applies renders a never-resolvable anchor identically to a not-yet-indexed one, and the difference only surfaces as a red CI gate after the PR leaves draft
 kind: bug
 state: draft
@@ -199,27 +183,6 @@ DIRECTION. The durable fix is to stop git from leaving background work in a thro
 
 VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
 
-## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
-kind: bug
-state: done
-created: 2026-07-29
-refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-targets: internal/item, internal/mcpserver
-
-VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
-
-CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
-
-THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
-
-THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
-(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
-(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
-
-Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
-
-VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
-
 ## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
 kind: bug
 state: done
@@ -332,3 +295,84 @@ DIRECTION, and the choice is a real one:
 (b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
 
 VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
+
+## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
+kind: bug
+state: done
+created: 2026-07-29
+refs: R-01KYNA6NJ3F109VTE35QYRM64Q
+targets: internal/item, internal/mcpserver
+
+VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
+
+CONSEQUENCE. Goal is READ by three gate paths - the work-submit gate, the swarm gate and the validate path - so a documented gate can never fire, because the only way to populate the field is hand-editing work.md, which the server's own instructions forbid outright (NEVER edit these files yourself). Rules is carried faithfully through reject and archive events and is rendered, but likewise nothing can set it; rule op=add binds a rule to a DIR and to node anchors, not to an item.Rules list.
+
+THIS IS NOT THE BOUNDARY-LOSS CLASS. P-01KYN5YCXGENM is about substance destroyed when a record leaves work.md; this is a field that can never hold substance in the first place. Filed separately so neither obscures the other.
+
+THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to opposite diffs:
+(a) Goal is a real feature that was never wired - give draft/revise a goal argument, validate it as a shell command, and the three gates start working. Then decide who may set it (author? orchestrator only?) and whether a goal is inherited from parent to child.
+(b) Goal is a vestige - the gates that read it are dead code, and the honest fix is to delete the field and the three branches, shrinking the machine rather than growing it. Same question for Rules: if rule anchoring by dir plus applies is the real binding, item.Rules is a second, weaker mechanism that should go.
+
+Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
+
+VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
+## B-01KYRJ3WSCE148S8S2GRWXFDJ4 the journal-compaction advisory suppresses check ok summary and prints twice, turning the required CI gate red
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/mcpserver/validate.go, .github/workflows/ci.yml
+
+OBSERVED. Once the journal passes the compaction threshold, check stops emitting its summary line entirely and emits only advisories, with the journal advisory DUPLICATED:
+
+  c . journal 504 events since last compact
+  c . journal 504 events since last compact
+  (no ok line, exit 0)
+
+EXPECTED: the ok check 0 findings (E=0 W=0) - N rules N dirs summary, with advisories in addition to it, not instead of it.
+
+WHY IT MATTERS. The CI self-hosting gate asserts the exact shape len(lines)==1 and lines[0].startswith(ok check ) and 0 findings (E=0 W=0) in lines[0]. Three lines and no ok line fails that test, so the required gate goes red on a workspace whose code and spec are both clean. The trigger is elapsed journal events, not a code change, so it fires on whatever branch happens to cross the threshold - and it blocks the archive edge, which waits on CI. It did exactly that here: the rule op=add that recorded RECMERGE-002 pushed the count past the threshold and the next archive attempt could not have merged.
+
+ISOLATED. Not a regression from the current branch: the pre-fix baseline binary, built -buildvcs=false from the parent commit, produces the same output on the same workspace (plus a staleness hint of its own). compact {apply:true} clears it and check immediately returns the single clean ok line - 99 rules 24 dirs - so the summary is being displaced by the advisory, not lost to a scan failure.
+
+TWO DEFECTS, likely one cause. (1) The advisory path returns early or overwrites the summary instead of appending to it. (2) The same journal advisory is emitted twice for the same dir - a duplicate the caller pays for on every check while the condition is live.
+
+FIX DIRECTION. Advisories and the summary are different record types (c versus ok) and must compose: emit every c record AND the ok line. Then decide what the gate asserts - either it accepts advisory lines alongside the ok summary, or check gains a mode that suppresses advisories for gate use. The gate asserting a single line is what turned a soft nudge into a hard failure, so whichever is chosen, the CI expression and the render have to be changed together. Dedupe the advisory per dir.
+
+VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
+
+## B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/item/item.go, internal/mcpserver/tools.go
+
+Two findings from independent verification of B-01KYN3E973F20, both confirmed pre-existing on the pre-fix binary and both the same class as that bug: a value that the writer emits and the parser then reads as STRUCTURE.
+
+O1, heading injection through body. draft {body: "## T-9999 phantom\nkind: bug\nstate: archived"} exits 0 and is accepted. On reload the injected line matches reItemHeading, so the parser starts a NEW item block there: a phantom record appears with the injected kind and state, and the host record loses its entire body to the phantom. This is the same outcome the targets fix in B-01KYN3E973F20 closed, reached through a field that is free-form by design. That is why it is separate rather than an oversight in that fix - the header guard has no business refusing body prose, so the answer has to be different: escape or indent a body line that matches reItemHeading on write, or refuse a body that would parse as a new record. A phantom record in a terminal state is worse than a mangled body, because state is what the state machine trusts.
+
+O2, newline in dir. draft {dir: "a\nb"} exits 0 and creates a directory literally named with an embedded newline, and the resulting state record line is split in two - so the dense line grammar itself is broken for that record, which is what every caller parses. dir is not stored in the machine header, which is why the header guard does not see it.
+
+WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only the machine header covers where the reported corruption happened, not every place a caller-supplied newline becomes a line break in output an agent parses.
+
+FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
+
+VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
+
+## B-01KYRQXJ99F48SKET4JYD70HYS the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/lifecycle/lifecycle.go, internal/spec/author.go
+
+Reported independently by two verifiers of B-01KYN3E973F20, both of which confirmed it is pre-existing rather than caused by that work - the same orphan line is written by the older binary. It is filed separately because it damages a different file under a different contract: spec.md living contracts, not work.md records.
+
+OBSERVED. capGist flattens newlines to spaces and then delegates to capRetainedBodyTo, whose truncationMarker begins with a newline. So any gist over the 400-byte cap comes back as TWO lines, and IntentLine writes both into spec.md. A single move to=archived with a 708-byte note left a bare orphan line reading only the truncation marker text in the ## intent section. Lint stays green and nothing detects it.
+
+WHY IT IS WORSE THAN A COSMETIC SPLIT. AppendIntent was made idempotent and self-healing by keying each line in the intent span on its record ID. The orphan line has no record ID, so the dedupe cannot key it: the real bullet stays deduped to one while the orphan accumulates one copy per call. Measured at four calls, four copies, unbounded. That is precisely the mechanism of the already-closed B-01KYQJDJJVFC2, whose trigger - retrying an archive after a CI-stranded closure - is documented as normal operator behavior. So a closed bug is reachable again through a different producer.
+
+ISOLATED. Same root cause as the round-3 fix in B-01KYN3E973F20 - a marker that leads with a newline is appended to a value whose consumer is line-oriented - but a different consumer, which the fix left untouched: that fix trimmed the cut for the work.md header contract and did nothing for the spec.md intent contract. find scope=history q=capGist returns no matches, so this producer has not been recorded before.
+
+FIX DIRECTION. The marker is only ever appended to a value whose consumer is line-oriented, so it should not carry a line break at all - make the marker inline, or have each consumer supply its own separator. The composer is shared by consumers with different line contracts, which is the actual defect: capRetainedBodyTo serves both a multi-line-capable header field and a strictly single-line spec.md bullet. Consider splitting it into a single-line variant and a multi-line variant so the contract is chosen at the call site rather than inherited by accident. Independently, AppendIntent should not silently tolerate a line in its span that carries no record ID - that is the property that let the orphan accumulate, and refusing or reporting it would have surfaced this the first time.
+
+VERIFY. A test archiving with a note over the cap and asserting spec.md intent section gains exactly ONE line, that the line carries the record ID, and that repeating the call leaves the section byte-identical. Plus a test that capGist output never contains a newline.

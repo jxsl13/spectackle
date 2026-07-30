@@ -662,6 +662,16 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 		return fmt.Sprintf("! ARG E - apply adr %s: status %q not adoptable from an artifact (want %s; adopting superseded would assert a replacement this workspace does not have)\n",
 			e.Key, e.Status, strings.Join(item.Statuses(), "|")), false, nil
 	}
+	// Same ordering, same reason, for the values rather than the status: the
+	// fields below are written by the Upsert AFTER the mint, so a paragraph
+	// break in an imported Context left a content-less ADR behind that an
+	// export then re-emitted as an ordinary entry.
+	if err := item.CheckHeader(item.Item{
+		Title: e.Question, Context: e.Context, Decision: e.Decision,
+		Consequences: e.Consequences, Status: e.Status,
+	}); err != nil {
+		return fmt.Sprintf("! ARG E - apply adr %s: %s\n", e.Key, err.Error()), false, nil
+	}
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", e.Question, strings.Join(bodyLines, "\n"), "", "", nil)
 	if err != nil {
 		return fmt.Sprintf("! ARG E - apply adr %s: %s\n", e.Key, err.Error()), false, nil

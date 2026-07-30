@@ -819,6 +819,16 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			dir = d
 		}
 	}
+	// Check before minting. Draft's write refuses these values on its own, so
+	// nothing is persisted either way, but the refusal it produces names the ID
+	// it had already minted — advertising a record the caller cannot get. Fail
+	// here and the message names the offending argument instead.
+	if err := item.CheckHeader(item.Item{
+		Title: in.Title, Kind: in.Kind, Parent: in.Parent,
+		Targets: targets, Refs: in.Refs,
+	}); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, dir, in.Parent, targets, in.Refs...)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())

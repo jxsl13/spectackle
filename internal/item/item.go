@@ -247,12 +247,26 @@ func LoadWork(path, ctx string) ([]Item, error) {
 		}
 		it := Item{ID: m[1], Title: m[2], Dir: ctx}
 		j := i + 1
-		// machine header: contiguous key: value lines
+		// machine header: contiguous key: value lines, ending at the blank
+		// line writeWork puts before the body. A prose field may span lines:
+		// a non-key line continues the field above it. That can never be
+		// confused with body text because writeWork refuses to put a blank
+		// line inside a header value, so the blank line below still ends the
+		// header unambiguously.
+		var cont *string
 		for ; j < len(lines); j++ {
-			k, v, ok := strings.Cut(lines[j], ": ")
-			if !ok || strings.ContainsAny(k, " \t") || strings.HasPrefix(lines[j], "## ") {
+			if lines[j] == "" || strings.HasPrefix(lines[j], "## ") {
 				break
 			}
+			k, v, ok := strings.Cut(lines[j], ": ")
+			if !ok || strings.ContainsAny(k, " \t") {
+				if cont == nil {
+					break
+				}
+				*cont += "\n" + unindentCont(lines[j])
+				continue
+			}
+			cont = nil
 			switch k {
 			case "kind":
 				it.Kind = v
@@ -277,10 +291,13 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Override = v == "true"
 			case "context":
 				it.Context = v
+				cont = &it.Context
 			case "decision":
 				it.Decision = v
+				cont = &it.Decision
 			case "consequences":
 				it.Consequences = v
+				cont = &it.Consequences
 			case "status":
 				it.Status = v
 			}
@@ -407,6 +424,122 @@ func dirOrDot(ctx string) string {
 	return ctx
 }
 
+// contIndent prefixes the second and later lines of a multi-line header field.
+// It is what makes a continuation line unmistakable rather than merely
+// probable. Without it, a consequences list holding the perfectly ordinary line
+// "cost: higher memory" reads back as a header field named cost — an unknown
+// key the switch in Parse drops on the floor, silently truncating the value
+// instead of swallowing it. With it, the key half of every continuation line
+// holds whitespace, which no real header key ever does.
+const contIndent = "  "
+
+// indentCont prepares a prose value for the header, and unindentCont reverses
+// it. The pair must stay exact inverses: the round trip is asserted over
+// newlines, separator characters and whitespace by TestHeaderFieldRoundTrip.
+func indentCont(v string) string {
+	return strings.ReplaceAll(v, "\n", "\n"+contIndent)
+}
+
+func unindentCont(l string) string {
+	return strings.TrimPrefix(l, contIndent)
+}
+
+// NormalizeHeaderValue coerces a prose value into something the header can
+// represent: blank lines collapse to single newlines and trailing newlines are
+// dropped, which is exactly what CheckHeader refuses.
+//
+// Refusing is the right answer for a value a CALLER supplied — the caller can
+// be told, and the record is not yet at stake. It is the wrong answer on a
+// restore path, where the value was manufactured by this program (a truncation
+// marker appended after a cut that landed on a newline) and there is no caller
+// to report to. Refusing there does not protect the record, it strands it: a
+// rejected item that cannot be revoked is unreachable, which is worse than a
+// prose field whose blank line was closed up. So the two paths differ on
+// purpose — CheckHeader guards arguments, this coerces derived values.
+func NormalizeHeaderValue(v string) string {
+	for strings.Contains(v, "\n\n") {
+		v = strings.ReplaceAll(v, "\n\n", "\n")
+	}
+	return strings.TrimRight(v, "\n")
+}
+
+// headerSafe is CheckHeader with the record's identity attached, for the write
+// path. Callers that mint BEFORE they write must use CheckHeader directly:
+// lifecycle.Draft persists the record and journals a create event, so a check
+// that fires only here leaves a permanent content-less record behind on every
+// refusal — the same trap the status guard in knowledge.go documents, reached
+// by a second route.
+func headerSafe(it Item) error {
+	if err := CheckHeader(it); err != nil {
+		return fmt.Errorf("refused: %s not written — %w", it.ID, err)
+	}
+	return nil
+}
+
+// CheckHeader refuses an item whose header writeWork could not read back
+// identically — the corruption B-01KYN3E973F20 recorded, where a newline in an
+// ADR field swallowed every field after it into the body and lost the answer's
+// status write with them.
+//
+// Two different limits, for two different reasons:
+//
+// Prose fields may span lines, because Parse rejoins a non-key line onto the
+// field above it, but never a BLANK line: the blank line is exactly what ends
+// the machine header, so writing one puts the remaining fields on the far side
+// of the boundary. A trailing newline is the same defect one character shorter
+// — it emits that blank line too — which is why the test is on v+"\n". A
+// LEADING newline is fine and deliberately allowed: it writes an empty value
+// line the parser reads as "" and then continues onto, which round trips.
+//
+// Single-line fields may hold no newline at all. Title is not stored as a
+// field: it shares the "## " heading line with the ID, so a newline there
+// splits one item into two — the second with a heading Parse won't match, or
+// worse, one it will.
+func CheckHeader(it Item) error {
+	for _, f := range []struct{ name, v string }{
+		{"title", it.Title}, {"kind", it.Kind}, {"state", it.State},
+		{"created", it.Created}, {"parent", it.Parent},
+		{"grilled", it.Grilled}, {"status", it.Status},
+	} {
+		if strings.ContainsAny(f.v, "\r\n") {
+			return fmt.Errorf("%s must be a single line", f.name)
+		}
+	}
+	for _, f := range []struct{ name, v string }{
+		{"context", it.Context}, {"decision", it.Decision},
+		{"consequences", it.Consequences},
+	} {
+		if strings.Contains(f.v+"\n", "\n\n") {
+			return fmt.Errorf("%s may span lines but not paragraphs: a blank line ends the machine header, so every field after it would be read back as body text", f.name)
+		}
+	}
+	// List fields are comma-joined onto one header line, so an element
+	// carrying a newline or a comma does not merely render oddly — it changes
+	// the STRUCTURE of the header. targets:["go:x\nstate: archived"] wrote a
+	// second header line the parser then believed, and the item read back
+	// state=archived: a terminal state no transition can reach, injected
+	// through a public draft argument. Whitespace around an element is
+	// deliberately NOT refused: splitList trims it, which is a one-time
+	// canonicalization that reaches a fixed point on the next write rather
+	// than drifting, so refusing it would break working callers for no gain.
+	for _, f := range []struct {
+		name string
+		vs   []string
+	}{
+		{"targets", it.Targets}, {"refs", it.Refs}, {"needs", it.Needs},
+	} {
+		for _, v := range f.vs {
+			if strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("%s element %q holds a newline; list fields are one header line, so the remainder would be read back as a header field of its own", f.name, v)
+			}
+			if strings.Contains(v, ",") {
+				return fmt.Errorf("%s element %q holds a comma, which is the list separator: it would be read back as two elements", f.name, v)
+			}
+		}
+	}
+	return nil
+}
+
 func writeWork(root workspace.Root, ctx string, items []Item) error {
 	if err := root.EnsureScaffold(ctx); err != nil {
 		return err
@@ -414,6 +547,9 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 	var b strings.Builder
 	b.WriteString("---\nschema: " + workspace.SchemaStamp + "\n---\n")
 	for _, it := range items {
+		if err := headerSafe(it); err != nil {
+			return err
+		}
 		b.WriteString("\n## " + it.ID + " " + it.Title + "\n")
 		b.WriteString("kind: " + it.Kind + "\n")
 		b.WriteString("state: " + it.State + "\n")
@@ -437,13 +573,13 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 			b.WriteString("override: true\n")
 		}
 		if it.Context != "" {
-			b.WriteString("context: " + it.Context + "\n")
+			b.WriteString("context: " + indentCont(it.Context) + "\n")
 		}
 		if it.Decision != "" {
-			b.WriteString("decision: " + it.Decision + "\n")
+			b.WriteString("decision: " + indentCont(it.Decision) + "\n")
 		}
 		if it.Consequences != "" {
-			b.WriteString("consequences: " + it.Consequences + "\n")
+			b.WriteString("consequences: " + indentCont(it.Consequences) + "\n")
 		}
 		if it.Status != "" {
 			b.WriteString("status: " + it.Status + "\n")

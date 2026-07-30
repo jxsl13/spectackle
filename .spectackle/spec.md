@@ -272,6 +272,9 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+[body truncated at tombstone retention cap]
+- B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body: validated pass by verifier-round3 diff 2e369f39702f :: ROUND 4 VERDICT: PASS. I withdraw my round-3 FAIL. The rescope is legitimate, and I reached that on my own evidence, not on the argument for it - including one check I had never run: this record's OWN reproduction, end to end, which now passes. My C3 residual has moved to B-01KYRQXJ99F48 (capGist/IntentLine orphan intent line) and my two other
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.
@@ -406,3 +409,8 @@ Rationale: T-01KYQ5047CE5M added shapes to four tools on the strength of 8 of 79
 IF a records file conflicts during a merge, THEN the agent SHALL restore the whole file with git checkout --ours or --theirs and re-run check, never hand-merge .spectackle/work.md or spec.md block by block.
 
 Rationale: Hand-resolution corrupted records three times in one session. Keeping both sides then deduping by record ID looks safe but is lossy, because conflict sides differ in COMPLETENESS as well as content: a block reduced to its header line won the dedupe, the item lost kind/state/targets/body, and move refused with an empty current state. It also resurrected three archived records and dropped one filed bug entirely. work.md and spec.md are server-owned structured formats and a line-level heuristic cannot see their invariants, while the journal is append-only with merge=union and reconciles itself.
+
+## RECMERGE-002
+WHEN a record writer emits a field value that the matching parser cannot read back byte-identical, the record layer SHALL refuse the write and name the field, rather than emit a file `Parse` will later misread.
+
+Rationale: B-01KYN3E973F20: a newline in an ADR field made the header parser break mid-record, swallow every later field into the body, and lose the answer status write with them - the record then read status: proposed while carrying a decision. Nothing refused the write, so the corruption was durable, silent, and reached other workspaces through export. A writer that can emit what its reader cannot parse has no safe failure mode: the damage lands in the file, not in the call. Two corollaries. First, the round trip needs a property test over values holding newlines, separator characters and significant leading or trailing whitespace - the pre-existing tests only exercised single-line values, which is exactly why this survived. Second, disambiguation must be structural, not probabilistic: the first version of this fix rejoined unindented continuation lines and still silently truncated a consequences list containing an ordinary line like cost: higher memory, because that line parses as a header field named cost. Indenting continuations put the ambiguity out of reach instead of merely making it unlikely.

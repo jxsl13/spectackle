@@ -1226,3 +1226,41 @@ func TestIntentLineIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// TestCapRetainedBodyNeverManufacturesBlankLine pins the regression two
+// independent verifiers found in B-01KYN3E973F20's own fix. The header refuses
+// a blank line inside a prose value, and truncationMarker leads with a newline,
+// so a cut landing right after a newline produced "\n\n" — a value the record
+// could no longer be written back with. The consequence was not cosmetic: a
+// rejected item whose context happened to be the wrong length could not be
+// revoked to ANY state, contradicting the documented promise that a rejection
+// is revocable, and leaving the record unreachable rather than merely damaged.
+func TestCapRetainedBodyNeverManufacturesBlankLine(t *testing.T) {
+	// Every offset where the cut can land on or beside a newline.
+	for _, tail := range []string{"\n", "\n\n", "x\n", "\n\t", "\n  ", "x"} {
+		body := strings.Repeat("a", 64-len(tail)) + tail + strings.Repeat("b", 64)
+		got := capRetainedBodyTo(body, 64)
+		if strings.Contains(got+"\n", "\n\n") {
+			t.Errorf("tail %q: capped value holds a blank line the header cannot write back: %q", tail, got)
+		}
+		if err := item.CheckHeader(item.Item{Context: got}); err != nil {
+			t.Errorf("tail %q: capped value is not writable: %v", tail, err)
+		}
+	}
+}
+
+// TestRestoreRecordAlwaysWritable is the belt to that suspenders: the restore
+// path has no caller to refuse to, so an event carrying an unrepresentable
+// value — written by an older binary, or by a future path that forgets — must
+// still produce a record that can be written back.
+func TestRestoreRecordAlwaysWritable(t *testing.T) {
+	for _, bad := range []string{"a\n\nb", "a\n", "a\n\n\nb\n\n", "\n\n"} {
+		var it item.Item
+		restoreRecord(&it, journal.Event{
+			ID: "ADR-0001", Ctx: bad, Dec: bad, Cons: bad,
+		})
+		if err := item.CheckHeader(it); err != nil {
+			t.Errorf("carried %q restored to an unwritable record: %v", bad, err)
+		}
+	}
+}

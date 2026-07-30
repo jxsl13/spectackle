@@ -120,6 +120,13 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		bodyLines = append(bodyLines, "blocks: "+blocksID)
 	}
 
+	// Validate the ADR fields BEFORE minting. Draft persists the record and
+	// journals a create event, and Context is written by the Upsert below, so a
+	// value the header cannot represent used to strand a content-less ADR in
+	// draft — never reaching submitted, yet listed by decide op=ls forever.
+	if err := item.CheckHeader(item.Item{Title: in.Question, Context: in.Context}); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())

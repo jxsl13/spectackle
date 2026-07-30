@@ -614,3 +614,111 @@ func TestMixedSchemeWorkFile(t *testing.T) {
 		t.Fatalf("UnknownRefs accepted an unknown record ID: %v", got)
 	}
 }
+
+// TestHeaderFieldRoundTrip is the property test B-01KYN3E973F20 asked for. The
+// bug survived because every existing test used single-line ADR values, so the
+// table is deliberately made of the values that break a naive line-per-field
+// header: embedded newlines, continuation lines shaped exactly like header
+// fields, the ": " separator inside a value, significant leading and trailing
+// whitespace, and a line that looks like an item heading.
+func TestHeaderFieldRoundTrip(t *testing.T) {
+	vals := []string{
+		"Line one.\nLine two.",                // the reported reproduction
+		"a\nb\nc",                             // more than one continuation
+		"cost: higher memory\nlatency: lower", // continuations shaped like fields
+		"  leading and trailing  ",            // whitespace is significant
+		"\nleading newline is allowed",        // writes an empty value line
+		"kind: text",                          // separator inside the value
+		"ends with a separator: ",             // and at the very end
+		"## looks like an item heading",       // as the whole value
+		"a\n## looks like an item heading",    // and as a continuation
+		"tab\there",                           // whitespace that is not a space
+		"unicode — em dash, umlaut ü",         // not byte-sliced anywhere
+	}
+	for _, v := range vals {
+		t.Run(strings.ReplaceAll(v, "\n", `\n`), func(t *testing.T) {
+			root := ws(t)
+			in := Item{
+				ID: "ADR-0001", Kind: "adr", State: StateDraft, Title: "which cache",
+				Created: "2026-07-30", Status: "accepted",
+				Context: v, Decision: v, Consequences: v,
+				Body: "body stays body.\n\nSecond paragraph.",
+			}
+			if err := Upsert(root, in); err != nil {
+				t.Fatalf("Upsert: %v", err)
+			}
+			items, err := LoadWork(root.WorkPath(""), "")
+			if err != nil || len(items) != 1 {
+				t.Fatalf("LoadWork = %+v, %v", items, err)
+			}
+			got := items[0]
+			for _, f := range []struct {
+				name, want, got string
+			}{
+				{"Context", v, got.Context},
+				{"Decision", v, got.Decision},
+				{"Consequences", v, got.Consequences},
+				{"Status", in.Status, got.Status},
+				{"Title", in.Title, got.Title},
+				{"Kind", in.Kind, got.Kind},
+				{"Body", in.Body, got.Body},
+			} {
+				if f.got != f.want {
+					t.Errorf("%s: got %q, want %q", f.name, f.got, f.want)
+				}
+			}
+		})
+	}
+}
+
+// TestHeaderRefusesUnwritableValue pins the other half of the fix: a value the
+// header cannot represent is refused at the write path, and the refusal leaves
+// the file exactly as it was. The guard runs while the buffer is built, before
+// os.WriteFile — the ordering matters, because a guard that fires after the
+// write is how a content-less ADR became permanent once before.
+func TestHeaderRefusesUnwritableValue(t *testing.T) {
+	for name, bad := range map[string]func(*Item){
+		"blank line in prose": func(it *Item) { it.Context = "a\n\nb" },
+		"trailing newline":    func(it *Item) { it.Consequences = "a\n" },
+		"newline in title":    func(it *Item) { it.Title = "two\nlines" },
+		"newline in status":   func(it *Item) { it.Status = "acce\npted" },
+		"carriage in created": func(it *Item) { it.Created = "2026-07-30\r" },
+		// The list fields are comma-joined onto one header line, so a newline
+		// in an element wrote a second header line the parser then believed.
+		// Reachable through the public draft tool: this exact targets value
+		// made an item read back state=archived, a terminal state no
+		// transition can reach.
+		"newline in targets": func(it *Item) { it.Targets = []string{"go:x\nstate: archived"} },
+		"newline in needs":   func(it *Item) { it.Needs = []string{"T-0001\nkind: bug"} },
+		"newline in refs":    func(it *Item) { it.Refs = []string{"R-0001\nparent: P-0001"} },
+		"comma in targets":   func(it *Item) { it.Targets = []string{"go:a,go:b"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := ws(t)
+			keep := Item{
+				ID: "ADR-0001", Kind: "adr", State: StateDraft, Title: "keep me",
+				Created: "2026-07-30", Decision: "redis", Status: "accepted",
+			}
+			if err := Upsert(root, keep); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(root.WorkPath(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			it := keep
+			it.ID = "ADR-0002"
+			bad(&it)
+			if err := Upsert(root, it); err == nil {
+				t.Fatal("Upsert accepted a value the header cannot read back")
+			}
+			after, err := os.ReadFile(root.WorkPath(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("refusal changed the file:\nbefore:\n%s\nafter:\n%s", before, after)
+			}
+		})
+	}
+}
