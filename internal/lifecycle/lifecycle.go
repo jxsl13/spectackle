@@ -605,7 +605,15 @@ func carryRecord(ev *journal.Event, it item.Item) {
 func restoreRecord(it *item.Item, e journal.Event) {
 	it.Parent, it.Targets, it.Refs = e.Par, e.Tg, e.Refs
 	it.Rounds, it.Grilled, it.Needs, it.Override = e.Rnd, e.Gr, e.Nd, e.Ov
-	it.Context, it.Decision, it.Consequences, it.Status = e.Ctx, e.Dec, e.Cons, e.St
+	// Normalize rather than trust. carryRecord no longer manufactures a blank
+	// line at the truncation cut, but this is the path with no caller to refuse
+	// to: an event written by an older binary, or any future value the header
+	// cannot represent, must not make a record unrestorable. A closed-up blank
+	// line is a lesser loss than a rejected item that can never be revoked.
+	it.Context = item.NormalizeHeaderValue(e.Ctx)
+	it.Decision = item.NormalizeHeaderValue(e.Dec)
+	it.Consequences = item.NormalizeHeaderValue(e.Cons)
+	it.Status = e.St
 	it.Created = restoredCreated(e.ID, e.Crt)
 }
 
@@ -753,7 +761,14 @@ func capRetainedBodyTo(b string, max int) string {
 	for cut > 0 && !utf8.RuneStart(b[cut]) {
 		cut--
 	}
-	return b[:cut] + truncationMarker
+	// Trim what the cut ends on before appending the marker. The marker leads
+	// with a newline, so a cut landing right after one produced a BLANK line —
+	// and a blank line is what ends a machine header, so the value came back
+	// unwritable and a rejected record could no longer be revoked at all
+	// (B-01KYN3E973F20, found by independent verification). The cap is already
+	// a deliberate, marked loss; trailing whitespace at the cut is not the part
+	// worth keeping.
+	return strings.TrimRight(b[:cut], "\n\r\t ") + truncationMarker
 }
 
 // truncationMarker is appended AFTER the cut, so a truncated body is

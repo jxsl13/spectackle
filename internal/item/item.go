@@ -444,6 +444,25 @@ func unindentCont(l string) string {
 	return strings.TrimPrefix(l, contIndent)
 }
 
+// NormalizeHeaderValue coerces a prose value into something the header can
+// represent: blank lines collapse to single newlines and trailing newlines are
+// dropped, which is exactly what CheckHeader refuses.
+//
+// Refusing is the right answer for a value a CALLER supplied — the caller can
+// be told, and the record is not yet at stake. It is the wrong answer on a
+// restore path, where the value was manufactured by this program (a truncation
+// marker appended after a cut that landed on a newline) and there is no caller
+// to report to. Refusing there does not protect the record, it strands it: a
+// rejected item that cannot be revoked is unreachable, which is worse than a
+// prose field whose blank line was closed up. So the two paths differ on
+// purpose — CheckHeader guards arguments, this coerces derived values.
+func NormalizeHeaderValue(v string) string {
+	for strings.Contains(v, "\n\n") {
+		v = strings.ReplaceAll(v, "\n\n", "\n")
+	}
+	return strings.TrimRight(v, "\n")
+}
+
 // headerSafe is CheckHeader with the record's identity attached, for the write
 // path. Callers that mint BEFORE they write must use CheckHeader directly:
 // lifecycle.Draft persists the record and journals a create event, so a check
