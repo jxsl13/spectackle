@@ -556,3 +556,69 @@ func TestValidateEscalationAdvertisesLiveOutcomes(t *testing.T) {
 		t.Errorf("blocked message does not advertise the live set:\n%s", last)
 	}
 }
+
+// TestMoveEscalationAdvertisesLiveOutcomes pins the layer the other tests miss.
+// TestBlockedExitAdvertisesOnlyLiveOutcomes calls roundsRefusal as a unit with
+// hand-supplied options, so it cannot see a wrong ARGUMENT at a call site, and
+// the validate test covers only the validate route. A verifier proved the gap:
+// passing nil instead of the ADR's parsed options at the move-route call sites
+// reproduces the original bug byte-for-byte — a second escalation advertising
+// override-once that the parser then refuses — and survived the whole suite.
+// The renderer was pinned; that its callers feed it the LIVE set was not
+// (B-01KYS7111XFHZ).
+func TestMoveEscalationAdvertisesLiveOutcomes(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "move route escalation", "body": "a body of ordinary length",
+	})
+	id := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "T-") {
+			id = f
+		}
+	}
+	if id == "" {
+		t.Fatalf("setup: %s", out)
+	}
+	adrOf := func(s string) string {
+		i := strings.Index(s, "ADR-")
+		if i < 0 {
+			return ""
+		}
+		j := i + len("ADR-")
+		for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] >= 'A' && s[j] <= 'Z') {
+			j++
+		}
+		return s[i:j]
+	}
+	escalate := func() string {
+		var last string
+		for i := 0; i < 12 && !strings.Contains(last, "rounds exhausted"); i++ {
+			to := "done"
+			if i%2 == 1 {
+				to = "active"
+			}
+			last = callText(t, sess, "move", map[string]any{"id": id, "to": to})
+		}
+		if !strings.Contains(last, "rounds exhausted") {
+			t.Fatalf("escalation never reached: %s", last)
+		}
+		return last
+	}
+	first := escalate()
+	if !strings.Contains(first, "override-once") {
+		t.Errorf("first escalation must offer override-once:\n%s", first)
+	}
+	callText(t, sess, "decide", map[string]any{"op": "answer", "id": adrOf(first), "choose": "override-once"})
+	// Second escalation through the SAME route: override-once is spent, so the
+	// refusal must not name it — that is the argument reaching the renderer, not
+	// the renderer itself.
+	second := escalate()
+	if strings.Contains(second, "override-once") {
+		t.Errorf("move-route refusal advertises override-once after it was spent — the parser refuses it:\n%s", second)
+	}
+	if !strings.Contains(second, "rescope|reject") {
+		t.Errorf("move-route refusal does not advertise the live set:\n%s", second)
+	}
+}
