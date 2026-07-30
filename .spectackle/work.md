@@ -363,7 +363,7 @@ VERIFY. A test asserting a heading-shaped body line does not produce a second it
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/lifecycle/lifecycle.go, internal/spec/author.go
+targets: internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go, internal/spec/author.go, internal/spec/author_test.go
 
 Reported independently by two verifiers of B-01KYN3E973F20, both of which confirmed it is pre-existing rather than caused by that work - the same orphan line is written by the older binary. It is filed separately because it damages a different file under a different contract: spec.md living contracts, not work.md records.
 
