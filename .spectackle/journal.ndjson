@@ -600,3 +600,4 @@
 {"t":"2026-07-30T04:39:04Z","eid":"77cc87a3dbd27f06","ag":"ag-fa56","ev":"move","id":"B-01KYN3E973F20VH7DHPE1YSSD7","fr":"rejected","to":"draft","note":"revoking to widen"}
 {"t":"2026-07-30T04:39:05Z","eid":"65bd556302b2a478","ag":"ag-312d","ev":"revise","id":"B-01KYN3E973F20VH7DHPE1YSSD7","note":"targets revised"}
 {"t":"2026-07-30T04:39:57Z","eid":"5fca75a5be9b0f52","ag":"ag-bb64","ev":"create","id":"B-01KYRN4VBEEXQ8ZVMCR1WCTPTX","k":"bug","ti":"a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline"}
+{"t":"2026-07-30T04:42:30Z","eid":"8f521e5d08413b84","ag":"ag-3d20","ev":"move","id":"B-01KYN3E973F20VH7DHPE1YSSD7","fr":"draft","to":"active","note":"targets widened to internal/lifecycle for the manufactured-value fix"}
