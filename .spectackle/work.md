@@ -168,20 +168,23 @@ VERIFY once decided: for scoping, a workspace with a finding outside the queried
 kind: bug
 state: draft
 created: 2026-07-29
-targets: internal/bench
+targets: internal/bench, internal/mcpserver
 
-OBSERVED in CI run 30468777911, on a branch whose diff does not touch this test or anything it exercises:
+OBSERVED in CI twice, on branches whose diffs touch neither test nor anything they exercise. The failure is a t.TempDir CLEANUP error, not an assertion - the test logic passes and then the harness cannot remove its own temp dir:
 
---- FAIL: TestPrepIgnoresHarnessArtifacts (1.68s)
-    testing.go:1369: TempDir RemoveAll cleanup: unlinkat /tmp/TestPrepIgnoresHarnessArtifacts.../001/.git/objects: directory not empty
+  TempDir RemoveAll cleanup: unlinkat /tmp/TestXxx/001/.git/objects: directory not empty
 
-The assertion did not fail - the TEST BODY passed and the failure came from t.TempDirs deferred RemoveAll. The fixture git-inits and commits inside the temp dir; git leaves background work (gc, pack) that keeps writing into .git/objects after the command returns, so cleanup races it. Passes locally, including under the exact CI invocation (go test -coverprofile), which is characteristic: the race needs a slower or more contended filesystem to lose.
+AFFECTED TESTS, two now, in different packages:
+1. TestPrepIgnoresHarnessArtifacts in internal/bench, CI run 30468777911.
+2. TestResearchDemandFiresAndCloses in internal/mcpserver, CI run 30538761350, which blocked the archive of B-01KYS6Y5NKF42 - the archive edge correctly refused to merge a red head, so a flake in an unrelated package costs a full archive retry.
 
-WHY IT MATTERS more than an ordinary flake. This test is inside make cover, which is a REQUIRED CI gate. A flake there blocks a merge that has nothing to do with it, and the failure text points at testing.go rather than at anything a reader would connect to git - the first response is to look for a real regression in the diff, which is exactly the wasted work a gate should not manufacture. It cost that here.
+CAUSE. A test that runs git in a t.TempDir leaves git background work in flight - object writes, and on some git versions a maintenance or gc hook - so RemoveAll races a directory that is still being written. It is timing-dependent: both tests pass locally and in isolation, and repeated full local runs stay green, which is why this only ever appears on a loaded CI runner.
 
-DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
+WHY IT MATTERS BEYOND THE NOISE. The archive closure waits on CI and refuses to merge a red head, by design. So any flake anywhere in the suite converts into a stranded archive plus a retry, and a retry restarts CI. The cost is not the failed assertion, it is the lifecycle stall - which is exactly the coupling await_checks was tuned for. A flaky suite raises the effective cost of every archive in the repository.
 
-VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
+FIX DIRECTION. Do not rely on t.TempDir cleanup for a directory that git has written into. Either create the repo under a directory the test removes itself, tolerantly and after waiting for git to settle, or configure the test git to do no background work - gc.auto=0, maintenance.auto=false, core.fsmonitor=false - or point GIT_OBJECT_DIRECTORY somewhere the harness owns. A shared test helper that creates a git repo with background work disabled would fix both call sites and every future one, and the two occurrences in different packages are the argument for the helper over two local patches.
+
+VERIFY. The helper must be used by every test that runs git in a temp dir - enumerate them rather than fixing the two known ones. A test asserting the helper repo config disables background maintenance. Then re-run the full suite repeatedly under load, since a single green run proves nothing about a timing race.
 
 ## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
 kind: bug
@@ -418,3 +421,27 @@ MEASURED CANDIDATES, none yet applied. Manifest paragraph 1 spends about 635B re
 FIRST TASK IS INSTRUMENTATION, NOT TRIMMING. Teach the bench to meter the real handshake - tools/list plus manifest - so the denominator matches what a session actually pays, and give the judge harness the real tool descriptions so their guidance value becomes measurable at all. Only then is a schema trim rankable. Until then any tool-description edit is unmeasured by construction, and BENCH-001 cannot adjudicate it.
 
 ALSO: HINT-001 is only half-satisfied. move, rule and knowledge teach the enumeration on the refusal that rejects a wrong value; draft kind and find scope name the bad value and stop, so a wrong guess costs a blind retry - the correction-round cost the objective subordinates per-call bytes to.
+
+## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/ids/ids.go, internal/bench/bench.go
+
+Both found by independent verification of B-01KYS6Y5NKF42, measured rather than reasoned, and both pre-existing rather than caused by that change - but the first became load-bearing when attribution started depending on the short prefix.
+
+FINDING 1, the documented collision probability is wrong by 16 times. internal/ids MinRecordPrefixLen doc comment claims the 13-character short prefix leaves a 2 to the minus 15 collision chance, and ids_test.go TestPrefixPinsFivePMinusTwoTimestampBits mirrors the claim. The true figure is 2 to the minus 11.
+
+EXACT DERIVATION, independently reproduced twice. A 13-character Crockford base32 prefix pins 5 times 13 minus 2 equals 63 bits, per the formula ids.go itself uses - two slack bits in the first character. Against MintRecordIDAt byte layout: bytes 0 through 5 are the 48-bit timestamp; byte 6 high nibble is the UUIDv7 version, hard-fixed to 0111, and it falls INSIDE the 63-bit window; byte 6 low nibble is 4 random bits; byte 7 contributes 8 random bits of which only the first 7 fall inside the cutoff, since 63 equals 48 plus 8 plus 7. The variant bits in byte 8 start at bit 64 and are outside the window entirely. Random bits inside the prefix: 4 plus 7 equals 11, not 15.
+
+MEASURED, by instrumenting MintRecordIDAt directly: 2 million same-millisecond mints produced exactly 2048 distinct 13-character prefixes, which is 2 to the 11; 5 million independent same-millisecond pairs collided at 1 in 2048.3. So the exact constant is 1 in 2048, and the earlier 1 in 2070 figure was a measurement approximation about 1 percent off.
+
+WHY IT MATTERS NOW. B-01KYS6Y5NKF42 changed the validation attribution grep from the full record ID to the short prefix - the only form that matches what the code-commit writers produce. Prefix collisions are therefore a silent cross-attribution vector: two records whose short forms collide each inherit the other commits in their attributed diff. That residual is now stated in validate.go itemDiff. The failure direction is conservative - a larger attributed diff means more staleness, more risk trips, more findings - with one permissive edge confirmed in code: validateComputed skips the untouched finding for a target whenever the attributed file set already contains that path, so a colliding sibling touching a declared target masks it.
+
+FIX: correct the constant and carry the derivation in the doc comment, including the version-nibble point, so the error is not re-derived. Correct ids_test.go, which currently pins the wrong claim. Then decide, with the right number in hand, whether 13 characters is still the correct adaptive floor - 1 in 2048 for same-millisecond mints is a different design conversation than 1 in 32768, particularly for a swarm that mints in parallel by design.
+
+FINDING 2, a live intermittent suite failure. TestBenchCmpDeltasAndUnitMismatch fails intermittently with ids: prefix matches 2 records, naming two IDs that differ only past the 13th character. Cause: internal/bench renders shortDisplayID, a FIXED 13-character prefix, where it should render the adaptive ShortenRecordID that widens until unambiguous in the current workspace. The adaptive shortener exists for exactly this. Observed once, then 8 of 8 passes in isolation and clean full runs after, so it is a genuine flake keyed on two bench records minted in the same millisecond - and by the corrected figure that is a 1 in 2048 event per pair, not 1 in 32768.
+
+FIX: use the adaptive shortener in the bench render paths. VERIFY: a test that mints two records in the same millisecond and asserts every rendered ID resolves to exactly one record.
+
+METHOD NOTE worth keeping: this flake was invisible to the harness used through the session that found it, because piping go test into a filter and echoing a marker afterwards discards the exit code. The filter still prints FAIL lines so a failure is visible when it happens, but the run is never actually asserted to have passed. Capture the output and read the exit code directly.

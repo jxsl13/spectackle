@@ -70,8 +70,32 @@ func (s *Server) itemDiff(id string) (diff, source string) {
 	// (the render's own edge commit cited the item). Server records
 	// commits are recognizable by construction: their subjects start
 	// "spectackle(" — code checkpoints ("spectackle <id>: …") do not.
+	// Grep the SHORT display form, for the same reason the branch match below
+	// does: it is a strict prefix of the full form, so one --grep matches both
+	// naming eras. Grepping the FULL id matched nothing that survived the
+	// filter above, and the two facts compose into silence rather than into an
+	// error — the code checkpoints carry only the short prefix in their subject
+	// (see the gitflow writers), while the full id appears only in the
+	// Spectackle-Item trailer of the records commits, which is exactly what the
+	// "spectackle(" filter discards. So citing() returned nothing, diffHash("")
+	// became "absent", and validateHash degenerated to a function of the
+	// declared target list alone: every freshness comparison was a constant
+	// against itself, computed findings rendered open=0, and validateRisk
+	// returned early. The whole apparatus went quiet at once, in precisely the
+	// case where there was no evidence (B-01KYS6Y5NKF42).
+	//
+	// STATED RESIDUAL: a 13-character prefix is a looser match than the full ID,
+	// so two records whose short forms collide are indistinguishable here and
+	// each inherits the other's commits. Measured at 1 collision in 2070
+	// same-millisecond pairs — NOT the 2^-15 internal/ids claims, because 4 of
+	// those 63 bits are the fixed UUIDv7 version nibble, leaving 11 random bits
+	// rather than 15. The failure direction is conservative (a larger attributed
+	// diff means more staleness, more risk trips, more findings), with one
+	// permissive edge: a colliding sibling touching a declared target can mask
+	// an "untouched" finding for it. Branch naming has the same exposure but
+	// fails loudly; here it is silent, which is why it is written down.
 	citing := func(rangeSpec string) []string {
-		out := git("log", "--format=%H %s", "--grep", id, rangeSpec)
+		out := git("log", "--format=%H %s", "--grep", shortDisplayID(id), rangeSpec)
 		var shas []string
 		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
 			h, subj, ok := strings.Cut(l, " ")
@@ -1081,7 +1105,20 @@ func (s *Server) derivedArchiveNote(it item.Item, explicit string) string {
 	if err != nil || v == nil || !v.Pass {
 		return explicit
 	}
-	note := "validated pass by " + v.Ag + " diff " + shortHash(v.Hash)
+	// Say which of the two things the verdict actually bound. "diff <hash>"
+	// reads as a commitment to reviewed code, and when attribution found no
+	// commits the hash is sha256 of the literal "absent" plus the target list —
+	// a commitment to the declared target NAMES. The pack has always been honest
+	// about this ("d absent — verdict proceeds on pack-absent evidence"); the
+	// tombstone and the spec.md intent line, which every later session reads and
+	// cannot cross-check, were not. Attribution is fixed, so this should now be
+	// rare rather than universal — which is exactly why the note must name it
+	// when it happens instead of blending in (B-01KYS6Y5NKF42).
+	bound := "diff " + shortHash(v.Hash)
+	if v.Hash == validateHash(it, "") {
+		bound = "no attributed diff (" + shortHash(v.Hash) + " binds the target list, not code)"
+	}
+	note := "validated pass by " + v.Ag + " " + bound
 	if v.Note != "" {
 		note += " :: " + v.Note
 	}
