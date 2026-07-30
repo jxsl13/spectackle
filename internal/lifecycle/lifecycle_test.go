@@ -1306,3 +1306,35 @@ func TestTruncationMarkerMatchesSpecDebris(t *testing.T) {
 		t.Fatalf("marker text drifted: lifecycle %q vs spec %q", got, want)
 	}
 }
+
+// TestCapGistCollapsesLineEndings pins what gistLineEndings' order actually
+// buys. Reordering the replacer so LF is matched before CRLF leaves the rest of
+// the suite green while turning every CRLF into two spaces - a contract that
+// existed only in a comment until this test, which is the shape B-01KYRQXJ99F48
+// was written to remove and then reintroduced one function away.
+//
+// Exact equality, deliberately: a "contains no newline" assertion passes for
+// both orderings and would not have caught this.
+func TestCapGistCollapsesLineEndings(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"a\r\nb", "a b"},      // CRLF is ONE ending, so one space
+		{"a\rb", "a b"},        // lone CR: a line ending to CommonMark
+		{"a\nb", "a b"},        // lone LF
+		{"a\r\n\r\nb", "a  b"}, // two endings, two spaces - not four
+		{"a\n\rb", "a  b"},     // LF then CR really is two endings
+		{"a\r\r\nb", "a  b"},
+		{"\r\na\r\n", "a"}, // TrimSpace still runs first
+	} {
+		if got := capGist(c.in); got != c.want {
+			t.Errorf("capGist(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// The separators deliberately left alone. This is not an endorsement of
+	// breaking on them; it pins the documented boundary so widening the set is a
+	// deliberate edit that fails a test rather than a silent one.
+	for _, sep := range []string{"\u2028", "\u2029", "\u0085", "\v", "\f"} {
+		if got := capGist("a" + sep + "b"); !strings.Contains(got, sep) {
+			t.Errorf("capGist dropped %q; the doc comment says it is left intact", sep)
+		}
+	}
+}

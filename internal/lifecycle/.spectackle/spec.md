@@ -13,6 +13,7 @@ WHEN a `needs:` entry names an archived item, the spectacle server SHALL count t
 ## intent
 - P-01KY9MZ098EM4AXJ6BEGCBRBD6 archived items stay referenceable: journal tombstones + decide option fidelity: archived items resolve as journal tombstones at every reference site; decide options roundtrip byte-exact
 - T-01KYDAS36XFHJ8X3H1Q8Y845FF exhaustive, deterministic transition matrix over every state pair: internal/lifecycle/matrix_test.go exercises every ordered state pair deterministically: forward skips legal, backward hops refused except the reopen, side states entered only by their designated mechanisms; green in every suite run since landing
+- B-01KYS1028RE8NTN07F6HSGBRPH capGist doc comment is attached to the wrong symbol, its ordering contract is unpinned, and its comment overstates the coverage: validated pass by verifier-capgist diff 94c3631cc473 :: C1: go doc -u capGist and gistLineEndings each print their OWN non-empty paragraph (verified). Scratch-clone go-doc diff between parent 8c786b1 and delta 3d86427 shows ONLY gistLineEndings and capGist docs changed; no other symbol affected. C2: reordering the replacer to LF-first (or ReplaceAll variants matching it) makes TestCapGistCollapses [body truncated at tombstone retention cap]
 
 ## LC-001 {applies: go:lifecycle.retainedBody,go:lifecycle.archive}
 The archive step SHALL retain the full body in the journal tombstone for every record kind whose body is its outcome rather than a delta merged into spec.md.

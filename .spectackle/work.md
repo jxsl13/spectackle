@@ -358,3 +358,63 @@ WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only t
 FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
 
 VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
+
+## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/lifecycle/lifecycle.go, internal/mcpserver/tools.go, internal/spec/author.go
+
+Two adversarially verified findings that share one cause: the archive effects are not transactional and the gates sit on only one of the two paths that run them.
+
+FINDING 1, HIGH, gate bypass in two calls. Every archive gate lives in the mcpserver move handler and keys on the item NAMED in the call. lifecycle.archive() then folds every done child away with a journal EvArchive plus item.Remove, with no gate at all. So parenting a record to any item and moving THAT item to done archives the child through the parent, skipping three gates: the research-consumption gate that is documented as hard regardless of feedback config, the feedback.validate=require verdict gate, and the child own open-children gate - the fold archives a child whose direct archive the server would refuse. Two calls, no refusal, exit 0.
+
+FIX DIRECTION: the gates must move to where the effect happens rather than to where the call names an item, or the fold must run each child through the same gate set and refuse the parent transition if any child fails. The second is likely correct - a parent cannot legitimately archive a child that is not itself archivable - and it makes the refusal name the child.
+
+FINDING 2, HIGH, compensation is partial while claiming to be whole. When the archive edge strands, tools.go compensates the item archived back to done and refuses with archive refused whole. Two effects the same call already committed are NOT undone. First, done children folded away by lifecycle.archive() stay archived and become unreachable - move on them returns unknown item - so a REFUSED transition permanently destroys sibling records. Second, spec.AppendIntent line is not rolled back, and because AppendIntent dedupes by record ID, the successful RETRY note is silently discarded and the living spec permanently records the FAILED attempt note as the item outcome. This is the untriaged suspicion already noted in work.md, now reproduced, and the intent-note freeze is the part nobody had suspected.
+
+The phrase refused whole is therefore untruthful in the SRF-001 sense: it names an outcome the code did not deliver. Either the effects become transactional - stage the fold and the intent append, commit them only when the edge succeeds - or the refusal must enumerate what it could not undo. Given the retry after a stranded closure is documented as normal operator behavior, the first is the real fix; the dedupe-by-ID behavior means the note damage is silent and permanent, which is the worst combination.
+
+RELATED: move to=rejected has no open-children gate at all - lifecycle.Move guards openChildren only for archived - so rejecting a parent orphans live children whose parent then resolves to neither work.md nor a tombstone, and Draft refuses to add any new child under it. Two boundaries both remove a record from work.md and only one checks children.
+
+VERIFY. A parent with a done child that would fail its own archive gate: archiving the parent must refuse and name the child. A stranded archive: assert the folded children are still live, that a retry appends the retry note rather than keeping the failed one, and that the refusal enumerates anything it could not undo. Rejecting a parent with live children must be gated the same way archiving is.
+
+## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/mcpserver/decide.go, internal/lifecycle/lifecycle.go
+
+HIGH, adversarially verified, and it makes the one documented exit from blocked unreachable.
+
+lifecycle.Escalate writes the escalation ADR body with choose=rescope-pipe-reject-pipe-override-once. decideOptions third parser is a regex looking for outcome= and therefore never matches that body. decideOptions returns nil, and decide.go no-match branch treats the ADR as free text and accepts ANY choose value. resolveDecision then marks the ADR done with status accepted, and because the choice is not one of the three recognized outcomes it takes the else branch, clearing the ADR from the blocked item needs WITHOUT calling ResolveBlocked. The call exits 0 with a success-shaped ok ADR followed by the junk value.
+
+The item is now permanently blocked: every move from blocked refuses by design since only ResolveBlocked can move an item out, re-answering the ADR refuses because it is already decided, and the needs link that would have driven resolution has been cleared. There is no recovery through any public tool. A single typo in a choose value - the exact case HINT-001 exists to make cheap - is unrecoverable, and it reports success while doing it.
+
+THREE DEFECTS IN ONE PATH. First the option parser does not recognize the body the escalation writer produces, which is the same writer-reader disagreement class as the header round-trip and the truncation marker: two halves of one program describing the same artifact differently. Second the free-text fallback is applied to a record that DOES have an enumeration, so validation is skipped exactly where it matters. Third the else branch clears needs on a path that did not resolve anything, which is backwards - and the inverse is also true: the resolving paths keep the spent ADR in needs while the non-resolving path clears it, so the bookkeeping is inverted on both sides.
+
+FIX DIRECTION. The escalation body and the option parser must share one composer, so a change to either cannot silently desynchronize them - the same fix shape RECMERGE-002 and the marker pin used. Then an unrecognized choose on an ADR that HAS options must be an ARG E refusal that teaches the three values per HINT-001, not a free-text acceptance. Then needs must be cleared only by a path that actually resolved the block. Finally decide the recovery story for records already stranded this way: a repair op, or a documented manual path, because the fix alone does not free them.
+
+RELATED, MEDIUM, journal truthfulness: lifecycle.Move appends the EvMove done-to-active event BEFORE evaluating the rounds budget, so when the budget is exhausted the move is refused and the item stays on done, yet the journal permanently asserts a done-to-active transition that the tool rejected. internal/replay handles EvEscalate explicitly so final-state-wins recovers, but any reader of find scope=history or the raw journal sees a transition that did not occur. Append after the decision, not before it.
+
+VERIFY. Answering an escalation ADR with a value outside the three must refuse, exit non-zero, teach the enumeration, and leave both the ADR and the item untouched. Answering with each valid value must reach the state that value promises. A test must assert the escalation body and the option parser agree, by construction rather than by two literals. The rounds-exhausted path must journal no move event when the move was refused.
+
+## B-01KYS711ZFFG0SJ7HY7DSANGFN the largest per-session token cost is the tools/list schema surface at 19.9KB, and nothing measures it on either the cost or the benefit side
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/bench, internal/mcpserver/tools.go
+
+HIGH, and it reframes every byte-economy conclusion this repository has drawn.
+
+MEASURED. The bench manifest line presents 4299B as THE once-per-session cost. A real MCP connect handshake writes 26084B, of which tools/list is 19908B - 76 percent - and the manifest only 4561B, 17 percent. Nothing in internal/bench reads tool descriptions or schemas, and the judge harness deliberately hands the agent tool NAMES ONLY. So the roughly 20KB tool-description surface is invisible on the cost side AND on the benefit side simultaneously: the benchmark cannot see what it costs, and the judge never reads it so cannot show what it buys. Every conclusion drawn so far concerns 3039B of call results plus 4299B of manifest, while 19908B of schema sits outside the frame - 6.5 times the entire scripted total.
+
+WHY THIS MATTERS MORE THAN ANY SINGLE TRIM. The standing objective is the best valid and complete result per token. A metric that omits 76 percent of session cost cannot rank surface changes correctly, and BENCH-001 - revert a surface change whose judged metric did not improve - is only as trustworthy as the metric. Two of the fattest metered lines are landed judge FIXES: the 246B VALIDATE W advisory and the 58B gloss on the ROUNDS refusal both exist because judges misread shorter versions. Trimming them measures as a win and would be a regression, which is BENCH-001 inverted - the benchmark sanctioning a regression rather than a bogus improvement. The probe measured both to show the trap and explicitly did not advocate either.
+
+WHERE THE METERED BYTES ARE, for whoever works this next. Five steps carry 50.2 percent of 3039B: state/final 380, move/T1-archived 321, grill/T1 286, find/rejections 277, escalate/T2 262. By class: item i records 1095B or 36.0 percent, journal j and sw 448B, refusals 396B, ok summaries 390B, the single VALIDATE W advisory 246B, git g records 175B, section headers 79B, next hints 79B. The largest single LINE is that one advisory; the largest CLASS is 19 i records re-emitting kind, scope and title on every transition of the same item.
+
+MEASURED CANDIDATES, none yet applied. Manifest paragraph 1 spends about 635B restating what tool descriptions already carry in the same handshake; a rewrite keeping the loop order, the file-layout sentence, the record alphabet and the cur rule measures manifest 4299B to 3713B with per-call total unchanged. Normalizing journal j, swarm sw and several refusal lines to the existing short ID prefix instead of the full 28-character ULID measures -52B at valid=true. state #version plus section headers are 86B of every state call and both trims measure clean, but both are pinned by SPX-MCP-005 at E severity, so they are byte opportunities that cannot be taken as text edits.
+
+FIRST TASK IS INSTRUMENTATION, NOT TRIMMING. Teach the bench to meter the real handshake - tools/list plus manifest - so the denominator matches what a session actually pays, and give the judge harness the real tool descriptions so their guidance value becomes measurable at all. Only then is a schema trim rankable. Until then any tool-description edit is unmeasured by construction, and BENCH-001 cannot adjudicate it.
+
+ALSO: HINT-001 is only half-satisfied. move, rule and knowledge teach the enumeration on the refusal that rejects a wrong value; draft kind and find scope name the bad value and stop, so a wrong guess costs a blind retry - the correction-round cost the objective subordinates per-call bytes to.
