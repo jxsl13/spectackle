@@ -61,6 +61,15 @@ overrides: [ROOT-STY-001] # inherited rule IDs suppressed for this subtree
 ## intent
 What this module is for; archive merges item outcomes here.
 
+One line per record, enforced on write: `AppendIntent` skips a line whose
+record ID the section already carries, and drops a pre-existing duplicate it
+finds while it is there. Keyed on the ID rather than the whole line, because a
+retried archive legitimately carries a different note and must not count as a
+second statement — the first wins, since it records what landed rather than
+the latest retry's phrasing. The heal is bounded to this section: an
+ID-shaped bullet in a rule's rationale or in `notes`/`design`/`context` is
+not an intent entry and is never touched.
+
 ## CUDA-KRN-001 {applies: cu:saxpy_kernel}
 WHEN a kernel launch statement returns, the host wrapper SHALL check
 cudaGetLastError and propagate its numeric value to the caller.
