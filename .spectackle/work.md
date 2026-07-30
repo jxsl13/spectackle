@@ -402,27 +402,6 @@ RELATED, MEDIUM, journal truthfulness: lifecycle.Move appends the EvMove done-to
 
 VERIFY. Answering an escalation ADR with a value outside the three must refuse, exit non-zero, teach the enumeration, and leave both the ADR and the item untouched. Answering with each valid value must reach the state that value promises. A test must assert the escalation body and the option parser agree, by construction rather than by two literals. The rounds-exhausted path must journal no move event when the move was refused.
 
-## B-01KYS711ZFFG0SJ7HY7DSANGFN the largest per-session token cost is the tools/list schema surface at 19.9KB, and nothing measures it on either the cost or the benefit side
-kind: bug
-state: done
-created: 2026-07-30
-rounds: 1
-targets: internal/bench, internal/mcpserver/tools.go
-
-HIGH, and it reframes every byte-economy conclusion this repository has drawn.
-
-MEASURED. The bench manifest line presents 4299B as THE once-per-session cost. A real MCP connect handshake writes 26084B, of which tools/list is 19908B - 76 percent - and the manifest only 4561B, 17 percent. Nothing in internal/bench reads tool descriptions or schemas, and the judge harness deliberately hands the agent tool NAMES ONLY. So the roughly 20KB tool-description surface is invisible on the cost side AND on the benefit side simultaneously: the benchmark cannot see what it costs, and the judge never reads it so cannot show what it buys. Every conclusion drawn so far concerns 3039B of call results plus 4299B of manifest, while 19908B of schema sits outside the frame - 6.5 times the entire scripted total.
-
-WHY THIS MATTERS MORE THAN ANY SINGLE TRIM. The standing objective is the best valid and complete result per token. A metric that omits 76 percent of session cost cannot rank surface changes correctly, and BENCH-001 - revert a surface change whose judged metric did not improve - is only as trustworthy as the metric. Two of the fattest metered lines are landed judge FIXES: the 246B VALIDATE W advisory and the 58B gloss on the ROUNDS refusal both exist because judges misread shorter versions. Trimming them measures as a win and would be a regression, which is BENCH-001 inverted - the benchmark sanctioning a regression rather than a bogus improvement. The probe measured both to show the trap and explicitly did not advocate either.
-
-WHERE THE METERED BYTES ARE, for whoever works this next. Five steps carry 50.2 percent of 3039B: state/final 380, move/T1-archived 321, grill/T1 286, find/rejections 277, escalate/T2 262. By class: item i records 1095B or 36.0 percent, journal j and sw 448B, refusals 396B, ok summaries 390B, the single VALIDATE W advisory 246B, git g records 175B, section headers 79B, next hints 79B. The largest single LINE is that one advisory; the largest CLASS is 19 i records re-emitting kind, scope and title on every transition of the same item.
-
-MEASURED CANDIDATES, none yet applied. Manifest paragraph 1 spends about 635B restating what tool descriptions already carry in the same handshake; a rewrite keeping the loop order, the file-layout sentence, the record alphabet and the cur rule measures manifest 4299B to 3713B with per-call total unchanged. Normalizing journal j, swarm sw and several refusal lines to the existing short ID prefix instead of the full 28-character ULID measures -52B at valid=true. state #version plus section headers are 86B of every state call and both trims measure clean, but both are pinned by SPX-MCP-005 at E severity, so they are byte opportunities that cannot be taken as text edits.
-
-FIRST TASK IS INSTRUMENTATION, NOT TRIMMING. Teach the bench to meter the real handshake - tools/list plus manifest - so the denominator matches what a session actually pays, and give the judge harness the real tool descriptions so their guidance value becomes measurable at all. Only then is a schema trim rankable. Until then any tool-description edit is unmeasured by construction, and BENCH-001 cannot adjudicate it.
-
-ALSO: HINT-001 is only half-satisfied. move, rule and knowledge teach the enumeration on the refusal that rejects a wrong value; draft kind and find scope name the bad value and stop, so a wrong guess costs a blind retry - the correction-round cost the objective subordinates per-call bytes to.
-
 ## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
 kind: bug
 state: draft
