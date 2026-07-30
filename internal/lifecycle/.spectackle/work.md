@@ -24,24 +24,6 @@ VERIFY. For finding 1, a test that summary output is valid UTF-8 and single-line
 
 ALSO: the doc comment at lifecycle.go around line 752 cites adrOutcome, which no longer exists - carryRecord now caps per field. Stale reference, fix while in the file.
 
-## B-01KYS1028RE8NTN07F6HSGBRPH capGist doc comment is attached to the wrong symbol, its ordering contract is unpinned, and its comment overstates the coverage
-kind: bug
-state: done
-created: 2026-07-30
-targets: internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
-
-Three defects in the change that closed B-01KYRQXJ99F48, all found by the independent verifier of that record AFTER it had archived - the verdict could not be recorded because verdicts bind to live items, so the findings arrived with nowhere to land. Filed here rather than lost.
-
-DEFECT 1, doc comment attached to the wrong symbol. var gistLineEndings was inserted between capGist doc comment and capGist itself with no blank line, so go doc -u ./internal/lifecycle prints the whole capGist bounds a one-line digest paragraph as documentation for gistLineEndings, and capGist is left with no doc comment at all. gofmt and go vet are both clean, so nothing catches it.
-
-DEFECT 2, a stated contract with nothing pinning it. The comment asserts CRLF-first order so a CRLF becomes one space rather than two. Reordering the replacer to put the LF rule first leaves the ENTIRE suite green; the measured effect is capGist of a-CRLF-b returning two spaces instead of one. This is the same shape the repository has already been bitten by twice - a behavioral guarantee that lives only in prose - and it is the one place the B-01KYRQXJ99F48 change repeats the pattern it was written to fix, which is why it is worth fixing rather than shrugging at. Consequence on its own is small: doubled spaces and slightly less content under the cap.
-
-DEFECT 3, the comment overstates its coverage. It claims every line ending a caller can supply. Measured false: U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR, U+0085 NEL, VT and FF all survive capGist. Against the contract the fix actually named - CommonMark, which defines a line ending as LF, CR or CRLF only - the fix IS complete, so the code is right and the sentence is wrong. A conforming UAX#14 viewer could still break such a bullet, but it cannot become debris: the marker leading space means no separator is ever directly adjacent to it, the record ID still leads the line, and Go reads one line so the dedupe keys it.
-
-FIX. Move the var above capGist doc comment with a blank line between them so each symbol documents itself. Add a test that pins the CRLF-to-one-space behavior by exact string equality, not by a contains check. Narrow the comment to name CommonMark and state explicitly which separators are deliberately NOT touched and why, so the next reader does not widen the set without a measurement.
-
-VERIFY. go doc -u ./internal/lifecycle shows a doc comment on capGist and a separate one on gistLineEndings. Reordering the replacer fails the new test. The new test asserts capGist of a-CRLF-b equals a-space-b exactly, plus the lone CR and lone LF cases and a CRLF run.
-
 ## B-01KYS6ZJQSE1E9MP7MQZB0YN1D archived is not terminal for any item that was ever rejected, and the refusal from archived misnames the reason
 kind: bug
 state: draft
