@@ -429,3 +429,130 @@ func TestDecideBlockedOverrideOnce(t *testing.T) {
 		t.Fatalf("answering an already-done decision again must be rejected: %q", out)
 	}
 }
+
+// TestBlockedExitAdvertisesOnlyLiveOutcomes pins what three rounds of this
+// record kept getting wrong: a caller-facing message must advertise the
+// outcomes the parser will ACCEPT, never a fixed list. override-once is
+// one-shot, so a second escalation offers only rescope|reject — and every
+// hard-coded copy kept naming override-once, which the parser then refused at
+// exit 1, costing the caller a call to discover (B-01KYS7111XFHZ).
+//
+// A verifier mutation-tested the fix and found NOTHING pinned it: re-hard-coding
+// the literal, bypassing the renderer, and dropping the unmapped-outcome
+// fallthrough all survived the suite. That is the gap this test closes, and
+// RECMERGE-003 is why it is not optional.
+func TestBlockedExitAdvertisesOnlyLiveOutcomes(t *testing.T) {
+	// A second escalation: override-once already spent.
+	got := roundsRefusal("T-1", "active", "ADR-1", []string{"rescope", "reject"})
+	if !strings.Contains(got, `"choose":"rescope|reject"`) {
+		t.Errorf("refusal does not advertise the live set:\n%s", got)
+	}
+	if strings.Contains(got, "override-once") {
+		t.Errorf("refusal advertises override-once, which this ADR's parser refuses:\n%s", got)
+	}
+	// A first escalation still offers all three.
+	got = roundsRefusal("T-1", "active", "ADR-1", []string{"rescope", "reject", "override-once"})
+	if !strings.Contains(got, `"choose":"rescope|reject|override-once"`) {
+		t.Errorf("first escalation must offer all three:\n%s", got)
+	}
+	// An outcome with no effect mapping must still be OFFERED and must not
+	// vanish from the effects list — it used to be silently dropped, and an
+	// all-unmapped set rendered a bare "()".
+	got = roundsRefusal("T-1", "active", "ADR-1", []string{"rescope", "defer-to-human"})
+	// Check the EFFECTS list specifically. Asserting on the whole string passed
+	// even with the fallthrough deleted, because the value still appears in the
+	// `choose` field — a weaker assertion than it looked, proved by mutation.
+	_, effects, _ := strings.Cut(got, "} (")
+	if !strings.Contains(effects, "defer-to-human") {
+		t.Errorf("an unmapped outcome was dropped from the EFFECTS list:\n%s", got)
+	}
+	if strings.Contains(got, "()") {
+		t.Errorf("refusal rendered an empty effects list:\n%s", got)
+	}
+	// And the renderer itself must never emit an empty enumeration.
+	if out := blockedExitOutcomes(nil); out == "" || !strings.Contains(out, "rescope") {
+		t.Errorf("blockedExitOutcomes(nil) = %q; a caller-facing string must not render empty", out)
+	}
+}
+
+// TestValidateEscalationAdvertisesLiveOutcomes covers the route the prior
+// rounds missed entirely: a FAILING VERDICT reopens the item, and when that
+// reopen exhausts the rounds the validate handler renders its own blocked
+// message. That message hard-coded the outcome list, so on a second escalation
+// it advertised override-once while the ADR offered only rescope|reject and the
+// parser refused it — the identical defect, on arguably the commoner way into
+// blocked, found only because a verifier swept for a third call site after two
+// were fixed (B-01KYS7111XFHZ).
+//
+// Re-hard-coding that literal survived the whole suite until this test existed.
+func TestValidateEscalationAdvertisesLiveOutcomes(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	out := callText(t, sess, "draft", map[string]any{
+		"kind": "task", "title": "verdict escalation route", "body": "a body of ordinary length",
+	})
+	id := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "T-") {
+			id = f
+		}
+	}
+	if id == "" {
+		t.Fatalf("setup: %s", out)
+	}
+	// Drive to blocked, spend override-once, and come back — so the NEXT
+	// escalation can only offer rescope|reject. Answering by parsing the ADR out
+	// of the refusal keeps this test honest about what the surface actually says.
+	// The ID sits INSIDE the callable JSON object the refusal hands back, so it
+	// is not a whitespace-delimited field — scan for the prefix and take the run
+	// of ID characters after it.
+	adrOf := func(s string) string {
+		i := strings.Index(s, "ADR-")
+		if i < 0 {
+			return ""
+		}
+		j := i + len("ADR-")
+		for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] >= 'A' && s[j] <= 'Z') {
+			j++
+		}
+		return s[i:j]
+	}
+	var last string
+	for i := 0; i < 10 && !strings.Contains(last, "rounds exhausted"); i++ {
+		to := "done"
+		if i%2 == 1 {
+			to = "active"
+		}
+		last = callText(t, sess, "move", map[string]any{"id": id, "to": to})
+	}
+	adr := adrOf(last)
+	if adr == "" {
+		t.Fatalf("no escalation ADR in: %s", last)
+	}
+	callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "override-once"})
+	// Second escalation, reached through the VALIDATE route rather than `move`:
+	// stop one round short, leave the item in done, and let the failing verdict's
+	// own done->active reopen trip the limit. Driving it with `move` instead
+	// captures roundsRefusal's message and never enters the validate handler at
+	// all — which is why re-hard-coding validate.go's literal survived the first
+	// version of this test.
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	for i := 0; i < 2; i++ {
+		callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+		callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+	}
+	callText(t, sess, "validate", map[string]any{"id": id, "agent": "v"})
+	last = callText(t, sess, "validate", map[string]any{
+		"id": id, "op": "verdict", "agent": "v", "pass": false,
+		"findings": "a findings string long enough to clear the eighty character tripwire about token-thin validations",
+	})
+	if !strings.Contains(last, "rounds exhausted") {
+		t.Fatalf("validate route never escalated: %s", last)
+	}
+	if strings.Contains(last, "override-once") {
+		t.Errorf("blocked message advertises override-once after it was spent — the parser refuses it:\n%s", last)
+	}
+	if !strings.Contains(last, "rescope|reject") {
+		t.Errorf("blocked message does not advertise the live set:\n%s", last)
+	}
+}
