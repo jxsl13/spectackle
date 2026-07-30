@@ -1099,7 +1099,7 @@ func TestStatusFromOutsideIsValidated(t *testing.T) {
 	t.Run("a bogus status does not poison the workspace", func(t *testing.T) {
 		sess := connectRoot(t, t.TempDir())
 		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("totally-made-up")})
-		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "not accepted from an artifact") {
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "not adoptable") {
 			t.Fatalf("an invalid imported status must be refused:\n%s", out)
 		}
 		// and the refusal names the legal set, so the caller learns it
@@ -1116,7 +1116,9 @@ func TestStatusFromOutsideIsValidated(t *testing.T) {
 		if !strings.Contains(out, "! ARG E") {
 			t.Fatalf("an artifact may not assert superseded:\n%s", out)
 		}
-		if !strings.Contains(out, "consequence") {
+		// the refusal must say WHY, so the caller learns the rule rather than
+		// just being blocked by it
+		if !strings.Contains(out, "replacement this workspace does not have") {
 			t.Fatalf("the refusal must say why, not just no:\n%s", out)
 		}
 	})
@@ -1128,6 +1130,49 @@ func TestStatusFromOutsideIsValidated(t *testing.T) {
 			if strings.Contains(out, "! ARG E") {
 				t.Fatalf("status %q must be accepted: %s", st, out)
 			}
+		}
+	})
+
+	t.Run("a refusal leaves NO stray record behind", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		before := callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"})
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("superseded")})
+		if !strings.Contains(out, "! ARG E") {
+			t.Fatalf("setup: expected a refusal:\n%s", out)
+		}
+		// lifecycle.Draft persists and journals, so a check placed AFTER it
+		// left a permanent content-less ADR — which an export then re-emitted
+		// and a third workspace promoted to a full accepted ADR. The guard
+		// meant to keep bad data out was manufacturing worse data.
+		after := callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"})
+		if after != before {
+			t.Fatalf("a refused apply must mint nothing:\nbefore: %q\nafter:  %q", before, after)
+		}
+		if st := callText(t, sess, "state", map[string]any{}); strings.Contains(st, "adr ") {
+			t.Fatalf("a refused apply left a stray record in state:\n%s", st)
+		}
+	})
+
+	t.Run("export MAY assert superseded — the asymmetry is deliberate", func(t *testing.T) {
+		// Exporting says "this repository's decision is superseded", a true
+		// fact about the source recorded against Entry.Sources. Importing the
+		// same value would say it about the IMPORTER, which holds no
+		// replacement record. Describing your own history and adopting
+		// someone else's claim are different acts, so export allows what
+		// apply refuses. Pinned so nobody "fixes" the asymmetry away.
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{
+			"op": "export",
+			"entries": []map[string]any{{
+				"kind": "adr", "question": "which serialization?", "decision": "protobuf",
+				"status": "superseded",
+			}},
+		})
+		if strings.Contains(out, "! ARG E") {
+			t.Fatalf("export must be able to state its own superseded history:\n%s", out)
+		}
+		if !strings.Contains(out, "status: superseded") {
+			t.Fatalf("the exported artifact must carry the status verbatim:\n%s", out)
 		}
 	})
 

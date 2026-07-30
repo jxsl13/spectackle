@@ -218,6 +218,14 @@ func knowledgeEntryFromIn(e knowledgeEntryIn, source string) (knowledge.Entry, e
 	// The other untrusted status entry point: a caller composing entries for
 	// a repository with no bundle. The enum lived only in this field's
 	// jsonschema DESCRIPTION, which validates nothing (B-01KYNA4PJNF5K).
+	//
+	// ValidStatus only — "superseded" IS allowed here, and the asymmetry with
+	// applyADREntry is the point rather than an oversight. Exporting says
+	// "this repository's decision is superseded", a true historical fact
+	// about the source, recorded against Entry.Sources. Importing the same
+	// value would say "this workspace's decision is superseded", which the
+	// importer cannot know: it holds no replacement record. Describing your
+	// own history and adopting someone else's claim are different acts.
 	if !item.ValidStatus(e.Status) {
 		return knowledge.Entry{}, fmt.Errorf("status %q invalid (want %s)",
 			e.Status, strings.Join(item.Statuses(), "|"))
@@ -640,6 +648,20 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 	for _, o := range e.Options {
 		bodyLines = append(bodyLines, "option: "+o)
 	}
+	// Validate BEFORE minting. lifecycle.Draft persists the item and journals
+	// a create event, so a check placed after it left a permanent,
+	// content-less ADR behind on every refusal — and an export of that
+	// workspace re-emitted the stray as an ordinary entry, which a third
+	// workspace then promoted to a full accepted ADR. The guard meant to keep
+	// bad data out was manufacturing worse data than it rejected.
+	//
+	// UNTRUSTED input: this status was authored by another repository. The
+	// asymmetry with the export path is deliberate — see
+	// knowledgeEntryFromIn.
+	if !item.ValidStatus(e.Status) || e.Status == "superseded" {
+		return fmt.Sprintf("! ARG E - apply adr %s: status %q not adoptable from an artifact (want %s; adopting superseded would assert a replacement this workspace does not have)\n",
+			e.Key, e.Status, strings.Join(item.Statuses(), "|")), false, nil
+	}
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", e.Question, strings.Join(bodyLines, "\n"), "", "", nil)
 	if err != nil {
 		return fmt.Sprintf("! ARG E - apply adr %s: %s\n", e.Key, err.Error()), false, nil
@@ -647,15 +669,7 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 	d.Context = e.Context
 	d.Decision = e.Decision
 	d.Consequences = e.Consequences
-	// UNTRUSTED input: this status was authored by another repository, and
-	// until now it reached the field unchecked — including "superseded",
-	// which a foreign artifact is in no position to assert about a decision
-	// this workspace has not made (B-01KYNA4PJNF5K).
 	d.Status = e.Status
-	if !item.ValidStatus(d.Status) || d.Status == "superseded" {
-		return fmt.Sprintf("! ARG E - apply adr %s: status %q not accepted from an artifact (want %s; superseded is a consequence of a replacement, never a claim)\n",
-			e.Key, d.Status, strings.Join(item.Statuses(), "|")), false, nil
-	}
 	if d.Status == "" {
 		d.Status = "accepted" // an applied ADR already has a settled decision
 	}
