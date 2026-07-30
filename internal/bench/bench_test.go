@@ -732,9 +732,18 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 // service of a guarantee it could not check either way.
 //
 // What remains below asserts what IS stable and architecturally so: the schema
-// and manifest sizes, which carry no record IDs — schemaBytes uses its own
-// throwaway root and the manifest is static text. Mutation-verified: making
-// SchemaBytes vary between calls fails it.
+// and manifest sizes. Neither carries a record ID — schemaBytes uses its own
+// throwaway root, and the manifest is text plus values resolved from build info,
+// not from the workspace. Both are therefore invariant FOR A GIVEN BINARY, which
+// is the exact property these two Run calls need, since they drive the same one.
+//
+// "Invariant for a given binary" rather than "static" on purpose: manifest()
+// reads debug.ReadBuildInfo, so its bytes DO differ between differently-built
+// binaries — a pseudo-version once swung the measured size and produced a
+// backwards A/B result, which is why BENCH-001 requires both sides built with
+// -buildvcs=false. Calling it static would hide the one way it actually moves.
+//
+// Mutation-verified: making SchemaBytes vary between calls fails it.
 func TestSchemaMeteringIsRealAndInert(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
