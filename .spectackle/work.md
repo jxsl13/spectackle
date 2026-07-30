@@ -384,7 +384,7 @@ VERIFY. A parent with a done child that would fail its own archive gate: archivi
 
 ## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/mcpserver/decide.go, internal/lifecycle/lifecycle.go
 
