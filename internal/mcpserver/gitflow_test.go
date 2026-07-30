@@ -816,34 +816,6 @@ func TestGitScopeRefusalIgnoresNestedRecords(t *testing.T) {
 	}
 }
 
-// TestSiblingTestFileIsInScope pins the deliberate decision that a declared
-// source file covers its exact _test.go sibling, and only that: an unrelated
-// test file must still be refused, or the gate would stop catching the case it
-// was written for.
-func TestSiblingTestFileIsInScope(t *testing.T) {
-	scope := normalizeTargets([]string{"pkg/a.go", "internal/x/y.go"})
-	for _, tgt := range scope {
-		if strings.HasSuffix(tgt, ".go") && !strings.HasSuffix(tgt, "_test.go") {
-			scope = append(scope, strings.TrimSuffix(tgt, ".go")+"_test.go")
-		}
-	}
-	for _, c := range []struct {
-		f    string
-		want bool
-	}{
-		{"pkg/a.go", true},
-		{"pkg/a_test.go", true},         // the sibling, now implicit
-		{"internal/x/y_test.go", true},  // nested sibling
-		{"pkg/b_test.go", false},        // an UNRELATED test file: still refused
-		{"internal/x/z_test.go", false}, // same dir, different source: refused
-		{"pkg/a_test.go.bak", false},
-	} {
-		if got := inTargetScope(c.f, scope); got != c.want {
-			t.Errorf("inTargetScope(%q) = %v, want %v", c.f, got, c.want)
-		}
-	}
-}
-
 // TestGitScopeRefusalUsesTheRecordsPredicate and its sibling below drive
 // gitScopeRefusal ITSELF, not the predicate it calls. The first versions of
 // these tests did not, and an independent verifier proved the consequence by
@@ -861,19 +833,19 @@ func TestGitScopeRefusalUsesTheRecordsPredicate(t *testing.T) {
 	// the deadlock: the server re-scopes an item into a nested context, writes
 	// that item's own block there, and the gate then refuses the item's own
 	// transition with nothing able to clear it.
-	writeForScope(t, root, "internal/mcpserver/.spectackle/journal.ndjson", "{}\n")
+	writeFile(t, root, "internal/mcpserver/.spectackle/journal.ndjson", "{}\n")
 	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
 		t.Errorf("gate refused a NESTED records write — the deadlock is back: %v", r)
 	}
 	// The root context's records too, which the old expression did cover.
-	writeForScope(t, root, ".spectackle/journal.ndjson", "{}\n")
+	writeFile(t, root, ".spectackle/journal.ndjson", "{}\n")
 	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
 		t.Errorf("gate refused a ROOT records write: %v", r)
 	}
 	// And genuine undeclared work must STILL be refused, including the near miss
 	// the old HasPrefix spelling would have excused.
 	for _, f := range []string{"SECRET_NOTE.md", ".spectacklefoo/x.go", "internal/.spectacklefoo/x.go"} {
-		writeForScope(t, root, f, "x\n")
+		writeFile(t, root, f, "x\n")
 		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
 			t.Errorf("gate ALLOWED undeclared work %q — the gate is bypassable", f)
 		}
@@ -889,7 +861,7 @@ func TestGitScopeRefusalCoversSiblingTest(t *testing.T) {
 	s := newTestServer(t, root)
 	id := draftForScope(t, s, root, []string{"pkg/a.go"})
 
-	writeForScope(t, root, "pkg/a_test.go", "package pkg\n")
+	writeFile(t, root, "pkg/a_test.go", "package pkg\n")
 	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
 		t.Errorf("gate refused the declared file's own _test.go sibling: %v", r)
 	}
@@ -898,7 +870,7 @@ func TestGitScopeRefusalCoversSiblingTest(t *testing.T) {
 	// Only the EXACT sibling. An unrelated test file, a near-miss name, and a
 	// same-named test in another directory must all still be refused.
 	for _, f := range []string{"pkg/b_test.go", "pkg/a_test.go.bak", "pkg/sub/a_test.go"} {
-		writeForScope(t, root, f, "x\n")
+		writeFile(t, root, f, "x\n")
 		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
 			t.Errorf("gate ALLOWED %q — the sibling rule is broader than the exact sibling", f)
 		}
@@ -928,17 +900,6 @@ func draftForScope(t *testing.T, s *Server, root string, targets []string) strin
 		t.Fatal(err)
 	}
 	return it.ID
-}
-
-func writeForScope(t *testing.T, root, rel, body string) {
-	t.Helper()
-	p := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func rmForScope(t *testing.T, root, rel string) {
