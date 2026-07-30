@@ -444,7 +444,20 @@ func unindentCont(l string) string {
 	return strings.TrimPrefix(l, contIndent)
 }
 
-// headerSafe refuses an item whose header writeWork could not read back
+// headerSafe is CheckHeader with the record's identity attached, for the write
+// path. Callers that mint BEFORE they write must use CheckHeader directly:
+// lifecycle.Draft persists the record and journals a create event, so a check
+// that fires only here leaves a permanent content-less record behind on every
+// refusal — the same trap the status guard in knowledge.go documents, reached
+// by a second route.
+func headerSafe(it Item) error {
+	if err := CheckHeader(it); err != nil {
+		return fmt.Errorf("refused: %s not written — %w", it.ID, err)
+	}
+	return nil
+}
+
+// CheckHeader refuses an item whose header writeWork could not read back
 // identically — the corruption B-01KYN3E973F20 recorded, where a newline in an
 // ADR field swallowed every field after it into the body and lost the answer's
 // status write with them.
@@ -463,14 +476,14 @@ func unindentCont(l string) string {
 // field: it shares the "## " heading line with the ID, so a newline there
 // splits one item into two — the second with a heading Parse won't match, or
 // worse, one it will.
-func headerSafe(it Item) error {
+func CheckHeader(it Item) error {
 	for _, f := range []struct{ name, v string }{
 		{"title", it.Title}, {"kind", it.Kind}, {"state", it.State},
 		{"created", it.Created}, {"parent", it.Parent},
 		{"grilled", it.Grilled}, {"status", it.Status},
 	} {
 		if strings.ContainsAny(f.v, "\r\n") {
-			return fmt.Errorf("refused: %s not written — %s must be a single line", it.ID, f.name)
+			return fmt.Errorf("%s must be a single line", f.name)
 		}
 	}
 	for _, f := range []struct{ name, v string }{
@@ -478,7 +491,31 @@ func headerSafe(it Item) error {
 		{"consequences", it.Consequences},
 	} {
 		if strings.Contains(f.v+"\n", "\n\n") {
-			return fmt.Errorf("refused: %s not written — %s may span lines but not paragraphs: a blank line ends the machine header, so every field after it would be read back as body text", it.ID, f.name)
+			return fmt.Errorf("%s may span lines but not paragraphs: a blank line ends the machine header, so every field after it would be read back as body text", f.name)
+		}
+	}
+	// List fields are comma-joined onto one header line, so an element
+	// carrying a newline or a comma does not merely render oddly — it changes
+	// the STRUCTURE of the header. targets:["go:x\nstate: archived"] wrote a
+	// second header line the parser then believed, and the item read back
+	// state=archived: a terminal state no transition can reach, injected
+	// through a public draft argument. Whitespace around an element is
+	// deliberately NOT refused: splitList trims it, which is a one-time
+	// canonicalization that reaches a fixed point on the next write rather
+	// than drifting, so refusing it would break working callers for no gain.
+	for _, f := range []struct {
+		name string
+		vs   []string
+	}{
+		{"targets", it.Targets}, {"refs", it.Refs}, {"needs", it.Needs},
+	} {
+		for _, v := range f.vs {
+			if strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("%s element %q holds a newline; list fields are one header line, so the remainder would be read back as a header field of its own", f.name, v)
+			}
+			if strings.Contains(v, ",") {
+				return fmt.Errorf("%s element %q holds a comma, which is the list separator: it would be read back as two elements", f.name, v)
+			}
 		}
 	}
 	return nil

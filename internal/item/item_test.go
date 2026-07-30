@@ -683,6 +683,15 @@ func TestHeaderRefusesUnwritableValue(t *testing.T) {
 		"newline in title":    func(it *Item) { it.Title = "two\nlines" },
 		"newline in status":   func(it *Item) { it.Status = "acce\npted" },
 		"carriage in created": func(it *Item) { it.Created = "2026-07-30\r" },
+		// The list fields are comma-joined onto one header line, so a newline
+		// in an element wrote a second header line the parser then believed.
+		// Reachable through the public draft tool: this exact targets value
+		// made an item read back state=archived, a terminal state no
+		// transition can reach.
+		"newline in targets": func(it *Item) { it.Targets = []string{"go:x\nstate: archived"} },
+		"newline in needs":   func(it *Item) { it.Needs = []string{"T-0001\nkind: bug"} },
+		"newline in refs":    func(it *Item) { it.Refs = []string{"R-0001\nparent: P-0001"} },
+		"comma in targets":   func(it *Item) { it.Targets = []string{"go:a,go:b"} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := ws(t)
