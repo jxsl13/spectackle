@@ -1021,7 +1021,7 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 					return nil, nil, eErr
 				}
 				_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
-				return text(warn + fmt.Sprintf("ok validate %s fail by %s\ni %s blocked rounds exhausted — decide %s (rescope|reject|override-once)", short, validator, short, sc.short(dec.ID)))
+				return text(warn + fmt.Sprintf("ok validate %s fail by %s\ni %s blocked rounds exhausted — decide %s (%s)", short, validator, short, sc.short(dec.ID), blockedExitOutcomes(item.ParseOptions(dec.Body))))
 			}
 			return nil, nil, err
 		}
