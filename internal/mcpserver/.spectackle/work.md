@@ -66,3 +66,21 @@ FIX, option A of four considered. Grep shortDisplayID of the id instead of the i
 ALSO FIX. The durable archive note composes validated pass by AGENT diff HASH, and that string becomes the tombstone and the spec.md intent line. When the verdict bound an absent diff, that identifier is the hash of the literal string absent - the note reads as a commitment to reviewed code and is a commitment to target NAMES. The pack is honest about this and says d absent, verdict proceeds on pack-absent evidence; the archive note is not. Either carry the absence into the note or do not print a diff identifier at all.
 
 VERIFY. A test that commits through the REAL writer path rather than a hand-rolled helper - assert the subject format gitflow actually produces is attributable - plus a test that a post-verdict code commit moves validateHash and that the gate then refuses under require. Both must fail against the current code.
+
+## B-01KYSDBZTEF1AS4KG1ZR0P14G7 the scope gate counts server-owned .spectackle record files against an item declared targets, so the server own write can block the archive of the item that caused it
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/mcpserver/gitflow.go
+
+OBSERVED, live, twice in one session and once as an outright deadlock.
+
+The transition gate refuses a move when the working tree has changed files outside the item declared targets. It counts .spectackle/ record files. Those files are server-OWNED: the server writes them as an unavoidable side effect of any record operation, the caller cannot avoid them, and the caller is explicitly forbidden from editing them. So they can never legitimately appear in a targets list, and their presence is never evidence of undeclared work.
+
+DEADLOCK REPRODUCED. B-01KYS6Y5NKF42 declared three code targets, all under internal/mcpserver. Because every target lives there, the server re-scoped the record into the internal/mcpserver context dir and wrote the record own block into that dir work.md and journal. The next archive attempt then refused: 2 changed files outside the declared targets, naming internal/mcpserver/.spectackle/journal.ndjson and work.md. The item was blocked by the server writing the item own record. Neither forward nor backward transitions can clear it, because the same gate guards them, and the caller cannot declare those paths as targets without lying about what the work touches. The only exits are a manual git commit or discarding server state.
+
+SECOND, MILDER OCCURRENCE, same gate, same session: it counts a sibling _test.go as outside a targets list that names its source file. Every record here is required to ship tests, so this forces every targets list to enumerate the test file for a file it already declared - friction the state machine imposes on the one thing it also demands. Three reject-to-draft-widen cycles were spent on it in one session.
+
+FIX DIRECTION. Exempt .spectackle/ paths from the scope comparison entirely - they are the server ledger, not the item work, and the edge commit engine already owns them. That is the whole of the deadlock. Then decide separately whether a targets entry naming a source file should implicitly cover its _test.go sibling; the argument for is that tests are mandatory so the declaration is pure ceremony, the argument against is that explicit scope is the point of the gate. If it stays explicit, the refusal should at least offer the widened list rather than making the caller reconstruct it.
+
+VERIFY. An item whose targets are all inside one context dir, so the server re-scopes it: archive must succeed with the server pending record writes present. A test asserting the scope comparison ignores every path under a .spectackle directory. And for the sibling question, whichever way it is decided, a test pinning it - the current behavior is pinned by nothing, which is why it reads as an accident rather than a decision.
