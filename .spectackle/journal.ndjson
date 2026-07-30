@@ -638,3 +638,4 @@
 {"t":"2026-07-30T09:52:27Z","eid":"b18b6b7dd8947b39","ag":"ag-cad4","ev":"create","id":"B-01KYS711ZFFG0SJ7HY7DSANGFN","k":"bug","ti":"the largest per-session token cost is the tools/list schema surface at 19.9KB, and nothing measures it on either the cost or the benefit side"}
 {"t":"2026-07-30T11:01:58Z","eid":"7145e323b40edb7c","ag":"ag-88f0","ev":"create","id":"B-01KYSB0BAAEB2BYNX4YYRQZEE4","k":"bug","ti":"the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite"}
 {"t":"2026-07-30T11:29:00Z","eid":"c655e162fab1c733","ag":"ag-973e","ev":"revise","id":"B-01KYSB0BAAEB2BYNX4YYRQZEE4","note":"body revised"}
+{"t":"2026-07-30T11:36:22Z","eid":"698c5942c4fa36fb","ag":"ag-c2bf","ev":"revise","id":"B-01KYQA4WXEFATTX2FV30DATGDJ","note":"body+targets revised"}

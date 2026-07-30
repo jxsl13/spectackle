@@ -168,20 +168,23 @@ VERIFY once decided: for scoping, a workspace with a finding outside the queried
 kind: bug
 state: draft
 created: 2026-07-29
-targets: internal/bench
+targets: internal/bench, internal/mcpserver
 
-OBSERVED in CI run 30468777911, on a branch whose diff does not touch this test or anything it exercises:
+OBSERVED in CI twice, on branches whose diffs touch neither test nor anything they exercise. The failure is a t.TempDir CLEANUP error, not an assertion - the test logic passes and then the harness cannot remove its own temp dir:
 
---- FAIL: TestPrepIgnoresHarnessArtifacts (1.68s)
-    testing.go:1369: TempDir RemoveAll cleanup: unlinkat /tmp/TestPrepIgnoresHarnessArtifacts.../001/.git/objects: directory not empty
+  TempDir RemoveAll cleanup: unlinkat /tmp/TestXxx/001/.git/objects: directory not empty
 
-The assertion did not fail - the TEST BODY passed and the failure came from t.TempDirs deferred RemoveAll. The fixture git-inits and commits inside the temp dir; git leaves background work (gc, pack) that keeps writing into .git/objects after the command returns, so cleanup races it. Passes locally, including under the exact CI invocation (go test -coverprofile), which is characteristic: the race needs a slower or more contended filesystem to lose.
+AFFECTED TESTS, two now, in different packages:
+1. TestPrepIgnoresHarnessArtifacts in internal/bench, CI run 30468777911.
+2. TestResearchDemandFiresAndCloses in internal/mcpserver, CI run 30538761350, which blocked the archive of B-01KYS6Y5NKF42 - the archive edge correctly refused to merge a red head, so a flake in an unrelated package costs a full archive retry.
 
-WHY IT MATTERS more than an ordinary flake. This test is inside make cover, which is a REQUIRED CI gate. A flake there blocks a merge that has nothing to do with it, and the failure text points at testing.go rather than at anything a reader would connect to git - the first response is to look for a real regression in the diff, which is exactly the wasted work a gate should not manufacture. It cost that here.
+CAUSE. A test that runs git in a t.TempDir leaves git background work in flight - object writes, and on some git versions a maintenance or gc hook - so RemoveAll races a directory that is still being written. It is timing-dependent: both tests pass locally and in isolation, and repeated full local runs stay green, which is why this only ever appears on a loaded CI runner.
 
-DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
+WHY IT MATTERS BEYOND THE NOISE. The archive closure waits on CI and refuses to merge a red head, by design. So any flake anywhere in the suite converts into a stranded archive plus a retry, and a retry restarts CI. The cost is not the failed assertion, it is the lifecycle stall - which is exactly the coupling await_checks was tuned for. A flaky suite raises the effective cost of every archive in the repository.
 
-VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
+FIX DIRECTION. Do not rely on t.TempDir cleanup for a directory that git has written into. Either create the repo under a directory the test removes itself, tolerantly and after waiting for git to settle, or configure the test git to do no background work - gc.auto=0, maintenance.auto=false, core.fsmonitor=false - or point GIT_OBJECT_DIRECTORY somewhere the harness owns. A shared test helper that creates a git repo with background work disabled would fix both call sites and every future one, and the two occurrences in different packages are the argument for the helper over two local patches.
+
+VERIFY. The helper must be used by every test that runs git in a temp dir - enumerate them rather than fixing the two known ones. A test asserting the helper repo config disables background maintenance. Then re-run the full suite repeatedly under load, since a single green run proves nothing about a timing race.
 
 ## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
 kind: bug
