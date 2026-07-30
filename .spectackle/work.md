@@ -252,29 +252,6 @@ option: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 option: carry Created on the reject and archive events
 choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 
-## B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/spec, internal/workspace
-
-ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
-
-.spectackle/.gitattributes declares merge=union for journal.ndjson and bench.ndjson - correct, they are append-only logs where a union is exactly right and a duplicate line is faithful. spec.md and work.md have NO strategy, so they take gits default three-way merge.
-
-That is fine for spec.mds rule sections, which are genuinely edited and need a real merge. It is wrong for its ## intent section, which is append-only in practice: every archive appends one line and nothing ever edits an existing one. Two branches that each append a DIFFERENT line produce an interleave or a conflict; two branches that each append the SAME line at a different position produce TWO COPIES, because git sees two independent insertions at two locations and keeps both. Reproduced here: lines 261 and 264 of the root spec.md are the same record with two other records between them.
-
-WHY THE PER-WRITE FIX CANNOT COVER THIS. B-01KYQJDJJVFC2 made AppendIntent idempotent by scanning the section before writing. That guard is per-WRITE and inside one working tree; it cannot see the other branchs write, and by merge time both writes have already happened. So the guard is necessary and not sufficient, and every worktree-based archive - the documented primary workflow - can reintroduce a duplicate that no single write path is in a position to prevent.
-
-DIRECTION, and the choice is a real one:
-(a) A custom merge driver for spec.md that unions and dedupes the intent section while merging the rest normally. Correct but adds a driver every clone must configure, and an unconfigured clone silently falls back to the broken default - which is the worst property a records format can have.
-(b) Move intent lines OUT of spec.md into their own append-only file with merge=union, deduped on READ. Then the format matches the access pattern (append-only, one statement per record), the merge strategy is declarative and needs no local configuration, and duplicates become harmless rather than merely prevented. Costs a format change and a migration for existing bundles.
-(c) Keep the file and dedupe on read wherever the intent section is consumed, accepting duplicates on disk. Cheapest, but it leaves a permanent human-readable artifact - the one thing intent lines exist to be - visibly wrong in every diff.
-
-(b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
-
-VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
-
 ## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
 kind: research
 state: done
@@ -314,20 +291,44 @@ option: document-only: state that conflicts are deliberately excluded and curati
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
 
-## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
+## B-01KYR01E2VFEF8KT5GV91VAWSP find with an empty q answers ok no matches while the workspace has rules — a silent lie, worse than a refusal
 kind: bug
-state: draft
+state: active
 created: 2026-07-29
 targets: internal/mcpserver
 
-Two inline-enum gaps found by independent judges driving the tricky scenario from tool output alone. Filed together because they are the same defect shape and, unlike the additions reverted in T-01KYQ5047CE5M, judges named these as costing them specifically.
+Found by an independent judge driving the tricky scenario from tool output alone, and called the WORST issue of that run.
 
-D1, move. Its shape line is shape: move {id*, to*, note}. The destination is the entire point of the call and its legal set is invisible. A judge guessed done and active and said so plainly: complete, closed, finished, in-progress and wip were equally plausible guesses that would have burned calls. The judge also drew the comparison itself - rule DOES inline pattern*:U|E|S|N|O|C and draft DOES inline its kind enum, so move is inconsistent with its own siblings. Another judge independently reported the same absence, adding that the whole state machine - which states exist, which transitions are legal, the intended order - is invisible from any output, and that it only knew done and active because the brief handed it those words.
+OBSERVED. find {q: \"\", scope: \"rule\"} returns exactly ok no matches, on a workspace where state had just reported rules total=8 dirs=5. An ok plus no matches is indistinguishable from this workspace has no rules. The judge recovered only because it remembered the state count and happened to guess the search term api; its own conclusion was that a user who trusted this would conclude there was nothing to model their new rule on.
 
-D2, the EARS pattern letters. pattern*:U|E|S|N|O|C ships six bare single letters with no legend in any output. A judge said it only knew these were EARS patterns from outside knowledge and hedged by copying U off an existing rule. Nothing in the surface lets a caller pick the right letter, which makes the enum present but unusable.
+WHY IT IS THE WORST CLASS. It is not a refusal and not an error - it is a successful call returning a factually false answer, with no hint that the empty q was the problem. A refusal would have taught the caller what to supply. This is the same shape as the accepted-but-did-nothing dead ends judges rank above ordinary refusals in severity, and it sits on find, the tool the loop opens with (find scope=rejection|history is the documented learn-before-planning step).
 
-WHY THESE ARE DIFFERENT FROM WHAT WAS JUST REVERTED. T-01KYQ5047CE5M added shapes to tools where discovery was not the bottleneck and measured 59 to 63 calls, so it was reverted. These two are the enums judges actually reached for and could not find, and D1 is an INCONSISTENCY rather than an addition: two sibling tools already pay for their enums, so matching them is closing a gap rather than growing the surface. Note the honest caveat from the same data: judges flagged D1 at 0 wasted calls each, because they guessed correctly. The cost is a near miss, not a measured loss - so this must be measured the same way and reverted the same way if calls do not fall.
+RELATED, same judge, same root: there is NO discoverable way to enumerate rules. Every find mode requires a substring guess, and scope=rule looks like it should enumerate but does not. The judge only located the existing api rules because the goal text named the directory.
 
-DIRECTION. D1: inline the destination enum, in the style draft and rule already use, and echo the legal set on an invalid value. D2: expand the letters where they appear - pattern*:U=ubiquitous|E=event|S=state|N=unwanted|O=optional|C=complex - and consider whether the letters should survive at all if the words cost little more. Both additions must be funded or measured, per the constraint that the metric is tokens per call.
+DIRECTION, and these are alternatives not a list: (a) refuse an empty q, naming what to pass - the minimum, and it at least stops the lie; (b) treat an empty q as list-all within the scope, which also closes the enumeration gap in the same change and is what a reader plainly expects from scope=rule; (c) keep requiring q but document a wildcard in the shape line. (b) is the strongest: it makes the obvious reading correct instead of teaching a workaround. Whichever is chosen, the invariant is that no query which was never executed may answer ok.
 
-VERIFY: a judged before/after run with four independent agents on the tricky scenario, calls compared against the 59-call reference; plus a byte A/B with both binaries built -buildvcs=false, since a pseudo-version difference silently swung an earlier measurement by 34B per render.
+VERIFY: on a workspace with rules, find with an empty q must not answer ok no matches - it either refuses with what to pass, or returns the rules; and a scope with genuinely zero records still answers no matches truthfully.
+
+## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
+kind: bug
+state: done
+created: 2026-07-29
+rounds: 1
+targets: internal/spec, internal/workspace
+
+ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
+
+.spectackle/.gitattributes declares merge=union for journal.ndjson and bench.ndjson - correct, they are append-only logs where a union is exactly right and a duplicate line is faithful. spec.md and work.md have NO strategy, so they take gits default three-way merge.
+
+That is fine for spec.mds rule sections, which are genuinely edited and need a real merge. It is wrong for its ## intent section, which is append-only in practice: every archive appends one line and nothing ever edits an existing one. Two branches that each append a DIFFERENT line produce an interleave or a conflict; two branches that each append the SAME line at a different position produce TWO COPIES, because git sees two independent insertions at two locations and keeps both. Reproduced here: lines 261 and 264 of the root spec.md are the same record with two other records between them.
+
+WHY THE PER-WRITE FIX CANNOT COVER THIS. B-01KYQJDJJVFC2 made AppendIntent idempotent by scanning the section before writing. That guard is per-WRITE and inside one working tree; it cannot see the other branchs write, and by merge time both writes have already happened. So the guard is necessary and not sufficient, and every worktree-based archive - the documented primary workflow - can reintroduce a duplicate that no single write path is in a position to prevent.
+
+DIRECTION, and the choice is a real one:
+(a) A custom merge driver for spec.md that unions and dedupes the intent section while merging the rest normally. Correct but adds a driver every clone must configure, and an unconfigured clone silently falls back to the broken default - which is the worst property a records format can have.
+(b) Move intent lines OUT of spec.md into their own append-only file with merge=union, deduped on READ. Then the format matches the access pattern (append-only, one statement per record), the merge strategy is declarative and needs no local configuration, and duplicates become harmless rather than merely prevented. Costs a format change and a migration for existing bundles.
+(c) Keep the file and dedupe on read wherever the intent section is consumed, accepting duplicates on disk. Cheapest, but it leaves a permanent human-readable artifact - the one thing intent lines exist to be - visibly wrong in every diff.
+
+(b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
+
+VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.

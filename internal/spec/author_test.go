@@ -736,3 +736,136 @@ func TestAppendIntentDedupesPerLineNotPerCall(t *testing.T) {
 		t.Fatalf("re-applying a fully-known blob must be a no-op: %d -> %d bytes", before, len(raw))
 	}
 }
+
+// TestAppendIntentHealsMergeDuplicates: the write-time guard cannot prevent
+// duplicates on its own. git gives spec.md a default three-way merge — only
+// journal.ndjson and bench.ndjson are declared merge=union — so two branches
+// that each appended the SAME line at a different position merge to two
+// copies, two independent insertions both kept. Every archive in the worktree
+// flow merges, so the guard was necessary and not sufficient
+// (B-01KYQR51GXEQN). AppendIntent heals what it finds.
+func TestAppendIntentHealsMergeDuplicates(t *testing.T) {
+	seed := func(t *testing.T, body string) workspace.Root {
+		t.Helper()
+		ws := workspace.Root{Dir: t.TempDir()}
+		if err := ws.EnsureScaffold(""); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(ws.SpecPath(""), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return ws
+	}
+	dup := "- T-01KYQR51GXEQNT0NF9MM84YQ41 first record: landed"
+	other := "- P-01KYQR51GXEQNT0NF9MM84YQ42 second record: also landed"
+	// exactly the shape a merge produces: the same line twice, at different
+	// positions, with another record between them
+	merged := "---\nschema: v1\n---\n\n## intent\n" + dup + "\n" + other + "\n" + dup + "\n"
+
+	t.Run("healed while appending something new", func(t *testing.T) {
+		ws := seed(t, merged)
+		if err := AppendIntent(ws, "", "- B-01KYQR51GXEQNT0NF9MM84YQ43 third: new"); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(ws.SpecPath(""))
+		if n := strings.Count(string(raw), "T0NF9MM84YQ41"); n != 1 {
+			t.Fatalf("the merge duplicate must be healed, got %d copies:\n%s", n, raw)
+		}
+		for _, want := range []string{"T0NF9MM84YQ42", "T0NF9MM84YQ43"} {
+			if !strings.Contains(string(raw), want) {
+				t.Fatalf("healing must not drop %s:\n%s", want, raw)
+			}
+		}
+	})
+
+	t.Run("healed even when there is nothing to append", func(t *testing.T) {
+		// the caller re-archives a record that is already listed, so the
+		// append is a no-op — the heal must still land, or duplicates
+		// survive for anyone who never appends again
+		ws := seed(t, merged)
+		if err := AppendIntent(ws, "", dup); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(ws.SpecPath(""))
+		if n := strings.Count(string(raw), "T0NF9MM84YQ41"); n != 1 {
+			t.Fatalf("a no-op append must still heal, got %d copies:\n%s", n, raw)
+		}
+		if !strings.Contains(string(raw), "T0NF9MM84YQ42") {
+			t.Fatalf("the other record must survive:\n%s", raw)
+		}
+	})
+
+	t.Run("a clean file is left byte-identical", func(t *testing.T) {
+		clean := "---\nschema: v1\n---\n\n## intent\n" + dup + "\n" + other + "\n"
+		ws := seed(t, clean)
+		if err := AppendIntent(ws, "", dup); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(ws.SpecPath(""))
+		if string(raw) != clean {
+			t.Fatalf("a no-op on a clean file must not rewrite it:\nwant %q\ngot  %q", clean, raw)
+		}
+	})
+}
+
+// TestAppendIntentHealDoesNotReachOutsideItsSection: the heal keyed every line
+// in the file, so a bullet that merely LOOKS like an intent line — in a rule's
+// free-form Rationale, or in one of the whitelisted prose sections
+// (notes/design/context, see docs/spec-cascade.md) — collided with the real
+// record. Whichever came second in file order was dropped, so a lookalike
+// ABOVE `## intent` meant deleting the genuine entry. A heal must not reach
+// outside the invariant it enforces.
+func TestAppendIntentHealDoesNotReachOutsideItsSection(t *testing.T) {
+	id := "T-01KYQR51GXEQNT0NF9MM84YQ41"
+	real := "- " + id + " the real record: it landed"
+	look := "- " + id + " lookalike bullet, not an intent entry"
+
+	for _, tc := range []struct{ name, body string }{
+		{"lookalike BEFORE the intent section", "---\nschema: v1\n---\n\n## SOME-RULE-001\nRationale: see also\n" + look + "\n\n## intent\n" + real + "\n"},
+		{"lookalike AFTER the intent section", "---\nschema: v1\n---\n\n## intent\n" + real + "\n\n## notes\n" + look + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := workspace.Root{Dir: t.TempDir()}
+			if err := ws.EnsureScaffold(""); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(ws.SpecPath(""), []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := AppendIntent(ws, "", "- B-01KYQR51GXEQNT0NF9MM84YQ99 unrelated: new"); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := os.ReadFile(ws.SpecPath(""))
+			got := string(raw)
+			if !strings.Contains(got, real) {
+				t.Fatalf("the genuine intent entry must survive:\n%s", got)
+			}
+			if !strings.Contains(got, look) {
+				t.Fatalf("a lookalike outside the section is not ours to delete:\n%s", got)
+			}
+			if !strings.Contains(got, "YQ99") {
+				t.Fatalf("the new record must still be appended:\n%s", got)
+			}
+		})
+	}
+
+	// and a file with NO intent section at all must be left completely alone
+	// apart from the section AppendIntent creates
+	t.Run("no intent section", func(t *testing.T) {
+		ws := workspace.Root{Dir: t.TempDir()}
+		if err := ws.EnsureScaffold(""); err != nil {
+			t.Fatal(err)
+		}
+		body := "---\nschema: v1\n---\n\n## notes\n" + look + "\n" + look + "\n"
+		if err := os.WriteFile(ws.SpecPath(""), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := AppendIntent(ws, "", real); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(ws.SpecPath(""))
+		if n := strings.Count(string(raw), look); n != 2 {
+			t.Fatalf("duplicated bullets in another section stay untouched, got %d:\n%s", n, raw)
+		}
+	})
+}
