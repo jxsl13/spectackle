@@ -343,7 +343,7 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 needs: ADR-01KYRQSQDGEH89ERCR8N672AJW
 targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
