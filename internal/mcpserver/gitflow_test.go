@@ -11,6 +11,8 @@ import (
 	"github.com/jxsl13/spectackle/internal/forge"
 
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
 
@@ -755,5 +757,154 @@ func TestOnlineRenderParity(t *testing.T) {
 			t.Fatalf("edge %s: online renders %d g-lines vs offline %d — parity allows at most +1 (the artifact)",
 				edge, on[edge], off[edge])
 		}
+	}
+}
+
+// TestGitScopeRefusalIgnoresNestedRecords pins the deadlock B-01KYSDBZTEF1A
+// recorded, at the exact expression that caused it. gitScopeRefusal exempts
+// server-owned records, but the exemption used to read
+//
+//	f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+//
+// which only matches the ROOT context. Context dirs nest, so when the server
+// re-scoped an item into internal/mcpserver and wrote that item's own block
+// into internal/mcpserver/.spectackle/, the gate counted the write as
+// undeclared work and refused the item's archive — a state no transition could
+// clear, since the same gate guards every direction. Reproduced live twice
+// before the fix.
+//
+// This compares the old and new expressions directly, which pins the PREDICATE
+// only. That is not sufficient on its own and the original version of this file
+// pretended otherwise: it claimed a gate-level test was impractical because the
+// re-scope needs an established context dir. That excuse was wrong — a verifier
+// built the full scenario through the public path — and the cost of believing it
+// was measured: re-inlining the old expression in the gate left the entire suite
+// green. TestGitScopeRefusalUsesTheRecordsPredicate below is the test that
+// actually holds the line; this one narrows the failure when that one trips.
+func TestGitScopeRefusalIgnoresNestedRecords(t *testing.T) {
+	rootAnchored := func(f string) bool {
+		return f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+	}
+	// Every path the server can write records to, root and nested.
+	for _, f := range []string{
+		".spectackle/work.md",
+		".spectackle/journal.ndjson",
+		"internal/mcpserver/.spectackle/work.md",
+		"internal/mcpserver/.spectackle/journal.ndjson",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if !workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = false; the gate would blame the caller for a server write", f)
+		}
+	}
+	// The nested cases are exactly what the old spelling missed — assert that,
+	// so this test fails if anyone reintroduces the root-anchored form.
+	for _, f := range []string{
+		"internal/mcpserver/.spectackle/work.md",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if rootAnchored(f) {
+			t.Fatalf("fixture is wrong: %q was already matched by the root-anchored form, so this test proves nothing", f)
+		}
+	}
+	// And ordinary work must still be counted, including the near miss the old
+	// HasPrefix spelling would have swallowed.
+	for _, f := range []string{"pkg/a.go", ".spectacklefoo", "internal/.spectacklefoo/x.go"} {
+		if workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = true; real work would bypass the scope gate", f)
+		}
+	}
+}
+
+// TestGitScopeRefusalUsesTheRecordsPredicate and its sibling below drive
+// gitScopeRefusal ITSELF, not the predicate it calls. The first versions of
+// these tests did not, and an independent verifier proved the consequence by
+// mutation: re-inlining the old root-anchored expression here, or deleting the
+// sibling widening entirely, left the whole suite GREEN. Pinning a helper is not
+// pinning the gate that uses it — the same green-test/dead-gate shape this
+// record set out to remove (B-01KYSDBZTEF1A).
+func TestGitScopeRefusalUsesTheRecordsPredicate(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	s := newTestServer(t, root)
+	id := draftForScope(t, s, root, []string{"pkg/a.go"})
+
+	// A NESTED context's records write must not be blamed on the caller. This is
+	// the deadlock: the server re-scopes an item into a nested context, writes
+	// that item's own block there, and the gate then refuses the item's own
+	// transition with nothing able to clear it.
+	writeFile(t, root, "internal/mcpserver/.spectackle/journal.ndjson", "{}\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused a NESTED records write — the deadlock is back: %v", r)
+	}
+	// The root context's records too, which the old expression did cover.
+	writeFile(t, root, ".spectackle/journal.ndjson", "{}\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused a ROOT records write: %v", r)
+	}
+	// And genuine undeclared work must STILL be refused, including the near miss
+	// the old HasPrefix spelling would have excused.
+	for _, f := range []string{"SECRET_NOTE.md", ".spectacklefoo/x.go", "internal/.spectacklefoo/x.go"} {
+		writeFile(t, root, f, "x\n")
+		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
+			t.Errorf("gate ALLOWED undeclared work %q — the gate is bypassable", f)
+		}
+		rmForScope(t, root, f)
+	}
+}
+
+// TestGitScopeRefusalCoversSiblingTest drives the sibling widening through the
+// gate. Deleting the widening from production must fail this.
+func TestGitScopeRefusalCoversSiblingTest(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	s := newTestServer(t, root)
+	id := draftForScope(t, s, root, []string{"pkg/a.go"})
+
+	writeFile(t, root, "pkg/a_test.go", "package pkg\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused the declared file's own _test.go sibling: %v", r)
+	}
+	rmForScope(t, root, "pkg/a_test.go")
+
+	// Only the EXACT sibling. An unrelated test file, a near-miss name, and a
+	// same-named test in another directory must all still be refused.
+	for _, f := range []string{"pkg/b_test.go", "pkg/a_test.go.bak", "pkg/sub/a_test.go"} {
+		writeFile(t, root, f, "x\n")
+		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
+			t.Errorf("gate ALLOWED %q — the sibling rule is broader than the exact sibling", f)
+		}
+		rmForScope(t, root, f)
+	}
+}
+
+func gitInitForScope(t *testing.T, root string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "t@t.t"}, {"config", "user.name", "t"},
+		{"config", "gc.auto", "0"}, {"config", "maintenance.auto", "false"},
+		{"commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+}
+
+func draftForScope(t *testing.T, s *Server, root string, targets []string) string {
+	t.Helper()
+	it, err := lifecycle.Draft(s.ws, s.minter(), "task", "scope fixture", "body", "", "", targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return it.ID
+}
+
+func rmForScope(t *testing.T, root, rel string) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+		t.Fatal(err)
 	}
 }

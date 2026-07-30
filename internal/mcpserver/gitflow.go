@@ -737,7 +737,7 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 	var outside []string
 	var inside []string
 	for _, f := range strings.Fields(conflicted) {
-		if strings.Contains(f, workspace.Dot+"/") || strings.HasPrefix(f, workspace.Dot) {
+		if workspace.IsRecordsPath(f) {
 			inside = append(inside, f)
 		} else {
 			outside = append(outside, f)
@@ -755,7 +755,17 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 			return errors.New("closure reconcile failed")
 		}
 	}
-	if _, err := git("add", "-A", "--", workspace.Dot); err != nil {
+	// Stage the resolved records by PATH, not by a root pathspec. This was
+	// `add -A -- .spectackle`, which matches only the root context — so once the
+	// classifier above became nesting-aware, a nested-only records conflict was
+	// classified `inside`, `checkout --theirs` ran, and then this add failed
+	// with "pathspec did not match any files", leaving the file unmerged and
+	// aborting the merge. It failed CLOSED, so nothing was lost, but the
+	// `inside` verdict could not be acted on and the operator saw a reconcile-add
+	// error instead of a resolvable conflict. Staging the exact files the
+	// classifier resolved needs no pathspec and cannot drift from it again
+	// (B-01KYSDBZTEF1A).
+	if _, err := git(append([]string{"add", "--"}, inside...)...); err != nil {
 		_, _ = git("merge", "--abort")
 		res.addf("! GIT E %s closure reconcile add: %s", id, err)
 		return errors.New("closure reconcile failed")
@@ -1081,10 +1091,25 @@ func (s *Server) gitScopeRefusal(id, to string) *mcp.CallToolResult {
 			}
 		}
 	}
+	// A declared source file implicitly covers its _test.go sibling. Every
+	// record in this workspace is required to ship tests, so the sibling is
+	// never the undeclared work this gate exists to catch — that is an
+	// unrelated file absorbed under an item's name, which is what the doc
+	// comment above describes. Requiring `foo_test.go` next to a declared
+	// `foo.go` was therefore pure ceremony, and it was not free: it cost three
+	// reject-to-draft-widen cycles in a single session, each of which rewrites
+	// the record and re-runs the edges. Scoped to the EXACT sibling rather than
+	// the directory, so the gate still refuses an unrelated test file
+	// (B-01KYSDBZTEF1A).
+	for _, t := range scope {
+		if strings.HasSuffix(t, ".go") && !strings.HasSuffix(t, "_test.go") {
+			scope = append(scope, strings.TrimSuffix(t, ".go")+"_test.go")
+		}
+	}
 	var out []string
 	for _, f := range dirty {
-		if f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/") {
-			continue // records are the server's own commit
+		if workspace.IsRecordsPath(f) {
+			continue // records are the server's own commit, at any context depth
 		}
 		if inTargetScope(f, scope) {
 			continue

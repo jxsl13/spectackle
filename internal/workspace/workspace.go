@@ -30,6 +30,32 @@ import (
 // Dot is the folder name every server write is confined to.
 const Dot = ".spectackle"
 
+// IsRecordsPath reports whether a repo-relative path lies inside ANY context
+// dir's records folder — the root's `.spectackle/` or a nested one such as
+// `internal/mcpserver/.spectackle/`. It exists because three call sites had
+// each hand-written this test and two of them anchored it at the repo root:
+//
+//	f == Dot || strings.HasPrefix(f, Dot+"/")
+//
+// which silently excludes every non-root context. Since a records write is the
+// server's own unavoidable side effect, a gate that fails to recognize it
+// blames the caller for it — and the scope gate did exactly that, refusing an
+// item's archive because the server had just re-scoped that item into a nested
+// context and written its own block there. No transition could clear it, and
+// the more precisely an item scoped itself to one subtree the likelier the
+// deadlock became (B-01KYSDBZTEF1A).
+//
+// The test is per SEGMENT, not a substring: a file named ".spectacklefoo" is
+// ordinary work, which the older HasPrefix spelling would have swallowed.
+func IsRecordsPath(rel string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+		if seg == Dot {
+			return true
+		}
+	}
+	return false
+}
+
 // SchemaStamp is injected into every server-written file's frontmatter.
 // It marks the file format of a pre-1.0 codebase: the format may break at any
 // time and the stamp changes with it.

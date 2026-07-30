@@ -604,7 +604,7 @@ func dirtyOrphanGuard(id, holder, root, op string) (*mcp.CallToolResult, any, er
 	}
 	kept := dirty[:0]
 	for _, f := range dirty {
-		if !strings.HasPrefix(f, workspace.Dot+"/") && f != workspace.Dot {
+		if !workspace.IsRecordsPath(f) {
 			kept = append(kept, f)
 		}
 	}
