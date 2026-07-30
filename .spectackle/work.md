@@ -408,7 +408,7 @@ METHOD NOTE worth keeping: this flake was invisible to the harness used through 
 
 ## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/item/options.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/decide_test.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
