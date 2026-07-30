@@ -723,8 +723,18 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 // which this test does NOT kill. What actually prevents it is the signature:
 // schemaBytes takes no workspace root, so it has nothing to perturb, and
 // reintroducing the bug requires changing the signature in a way a reader sees.
-// The reproducibility assertion below is kept because it is cheap and pins a
-// different property — that the scripted total does not wander between runs.
+// That assertion is GONE, and its removal is the second lesson here. It claimed
+// the scripted total does not wander between runs. It does: each Run mints fresh
+// record IDs, and a same-millisecond pair can need a longer disambiguating
+// prefix (see internal/ids), which shifts rendered byte totals. It passed ~30
+// local runs and failed on a loaded CI runner at 4162B vs 4168B, blocking an
+// unrelated archive. So it asserted a property the program does not have, in
+// service of a guarantee it could not check either way.
+//
+// What remains below asserts what IS stable and architecturally so: the schema
+// and manifest sizes, which carry no record IDs — schemaBytes uses its own
+// throwaway root and the manifest is static text. Mutation-verified: making
+// SchemaBytes vary between calls fails it.
 func TestSchemaMeteringIsRealAndInert(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
