@@ -671,18 +671,29 @@ const outcomeFieldMax = 2048
 // there is not a large record, it is a broken file.
 const intentGistMax = 400
 
+// gistLineEndings collapses the line endings CommonMark recognizes — LF, CR
+// and CRLF — into single spaces. CRLF is listed FIRST so it costs one space
+// rather than two; nothing else in the program would notice the difference,
+// which is exactly why TestCapGistCollapsesLineEndings pins it by exact string
+// equality. An ordering stated only in prose is the shape this package has
+// already been bitten by.
+//
+// It deliberately does not touch U+2028, U+2029, U+0085, VT or FF. Those are
+// mandatory breaks to UAX#14 but not line endings to CommonMark, which is the
+// contract the spec.md bullet is rendered under, and none of them can produce
+// debris: the marker leads with a space so no separator is ever adjacent to
+// it, the record ID still leads the line, and Go reads the value as one line
+// so the dedupe keys it. Widening the set needs a measurement, not a hunch.
+var gistLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
 // capGist bounds a one-line digest, visibly. The full text is never lost by
 // this: an archive event carries the whole note in Note, which the journal
 // index searches, so capping the digest costs nothing but noise. Every other
 // retained value here is capped (retainedBodyMax, outcomeFieldMax); this one
 // was not, and an uncapped note reached both spec.md and the journal — twice
 // over, since Sum appended it again past summary()'s own cap.
-// gistLineEndings collapses every line ending a caller can supply, in CRLF-
-// first order so a CRLF becomes one space rather than two.
-var gistLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
-
 func capGist(s string) string {
-	// Flatten every line ending, not just "\n". A lone CR survived here and
+	// Flatten every CommonMark line ending, not just "\n". A lone CR survived here and
 	// reached the spec.md bullet intact: Go reads it as one line, so the dedupe
 	// still keyed correctly and no bare marker could result, but CommonMark
 	// treats a lone CR as a line ending, so the bullet rendered as several
