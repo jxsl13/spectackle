@@ -408,9 +408,9 @@ METHOD NOTE worth keeping: this flake was invisible to the harness used through 
 
 ## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
 kind: bug
-state: done
+state: active
 created: 2026-07-30
-rounds: 1
+rounds: 2
 targets: internal/item/options.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/decide_test.go, internal/mcpserver/tools.go, internal/mcpserver/prompts.go, internal/mcpserver/backward_test.go, internal/mcpserver/validate.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
 REPRODUCED end to end before implementing, and it is as severe as filed. On an escalation ADR, decide op=answer with choose set to rescop - a one-character typo of rescope - returns ok ADR-... rescop at exit 0, success-shaped. Afterwards every move from the blocked item refuses pointing at that ADR, for active, draft, done and archived alike, and re-answering the ADR refuses with already decided. The record is permanently unreachable through any public tool. Ordinary ask-created ADRs are NOT affected: a garbage choose there is correctly refused with choose must be one of: redis, memcached at exit 1, so HINT-001 already holds on that path.
