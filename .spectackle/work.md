@@ -361,8 +361,9 @@ VERIFY. A test asserting a heading-shaped body line does not produce a second it
 
 ## B-01KYRQXJ99F48SKET4JYD70HYS the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry
 kind: bug
-state: done
+state: active
 created: 2026-07-30
+rounds: 1
 targets: internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go, internal/spec/author.go, internal/spec/author_test.go
 
 Reported independently by two verifiers of B-01KYN3E973F20, both of which confirmed it is pre-existing rather than caused by that work - the same orphan line is written by the older binary. It is filed separately because it damages a different file under a different contract: spec.md living contracts, not work.md records.
