@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
 targets: internal/item
 
