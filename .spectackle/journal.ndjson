@@ -658,3 +658,4 @@
 {"t":"2026-07-30T15:56:10Z","eid":"a7a0f0e2be56af9e","ag":"ag-05d0","ev":"move","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","fr":"rejected","to":"draft","note":"revoke to widen"}
 {"t":"2026-07-30T15:56:39Z","eid":"996728eaac94333c","ag":"ag-619c","ev":"revise","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","note":"body+targets revised"}
 {"t":"2026-07-30T15:56:40Z","eid":"cf96166a9c6689af","ag":"ag-4215","ev":"move","id":"B-01KYS7111XFHZVZ4CRKYQ3KR7R","fr":"draft","to":"active","note":"targets widened to the three files the one-composer fix spans"}
+{"t":"2026-07-30T16:03:37Z","eid":"962dcf509eee33dc","ag":"ag-8b72","ev":"drift","rule":"SPX-SWM-007","node":"go:lifecycle.Escalate","cls":"healed","oh":"e0d83b08f712a5fe","nh":"044c314a4aa08caf"}

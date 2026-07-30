@@ -6,10 +6,10 @@ SPX-MCP-004	go:mcpserver.Server.draft	internal/mcpserver/tools.go	725-929	de0d4d
 SPX-MCP-005	go:mcpserver.Server.state	internal/mcpserver/state.go	87-103	01b6bd873d304191	dde3039d70647c5f
 SPX-MCP-006	go:mcpserver.Server.research	internal/mcpserver/research.go	37-59	8cb8ff298f3c5e76	d123b79339b10588
 SPX-MCP-007	go:mcpserver.Server.grill	internal/mcpserver/grill.go	51-228	3de08c7b2262005f	93674953c9609b17
-SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	367-403	e0d83b08f712a5fe	249a788d6d001a7c
-LCY-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	489-533	a511ac9623b10b36	5d9979347e50633c
+SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	367-403	044c314a4aa08caf	249a788d6d001a7c
+LCY-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	500-544	a511ac9623b10b36	5d9979347e50633c
 LCY-001	go:item.Get	internal/item/item.go	338-349	37437d90711a7fd0	5d9979347e50633c
-MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	59-183	f1ef70ee15c2d910	5275aa7e2829542b
+MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	58-182	f1ef70ee15c2d910	5275aa7e2829542b
 LCY-001	go:mcpserver.Server.getItem	internal/mcpserver/tools.go	502-577	b1ae7970210db1df	5d9979347e50633c
 LCY-002	go:mcpserver.Server.openNeeds	internal/mcpserver/tools.go	1913-1928	3c1960be3d038fd9	6dc63df43e762566
 LCY-002	go:mcpserver.hasOpenNeeds	internal/mcpserver/prompts.go	316-330	57a8b3258a54c016	6dc63df43e762566
@@ -43,6 +43,6 @@ EARS-001	go:ears.Compose	internal/ears/compose.go	58-112	53c73ccecccf14d1	f7c6a3
 CLI-001	go:main.main~2	main.go	67-71	ff8dc53a80235df9	70b6d48bf6223821
 KN-001	go:knowledge.Parse	internal/knowledge/artifact.go	273-353	32f19a72bab569fb	de213f994fe2146d
 KN-001	go:knowledge.contentKey	internal/knowledge/artifact.go	374-388	f70fe28f496c45c0	de213f994fe2146d
-LC-001	go:lifecycle.retainedBody	internal/lifecycle/lifecycle.go	566-571	d01404566f310b7a	4e4e0d5210ccbc52
-LC-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	489-533	a511ac9623b10b36	4e4e0d5210ccbc52
+LC-001	go:lifecycle.retainedBody	internal/lifecycle/lifecycle.go	577-582	d01404566f310b7a	4e4e0d5210ccbc52
+LC-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	500-544	a511ac9623b10b36	4e4e0d5210ccbc52
 SRF-001	go:mcpserver.roundsRefusal	internal/mcpserver/tools.go	978-984	042efcaa6cf4599d	d8da224647609b71
