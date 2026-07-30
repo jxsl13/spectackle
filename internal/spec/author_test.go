@@ -869,3 +869,40 @@ func TestAppendIntentHealDoesNotReachOutsideItsSection(t *testing.T) {
 		}
 	})
 }
+
+// TestAppendIntentDropsIDLessDebris covers the other half of B-01KYRQXJ99F48:
+// a line in the intent span with no record ID matched nothing in the dedupe, so
+// it survived every heal and accumulated one copy per call. Every legitimate
+// line there carries an ID, so debris is droppable — and dropping it repairs
+// the spec.md files that already carry a stray truncation marker.
+func TestAppendIntentDropsIDLessDebris(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := AppendIntent(ws, "", "- T-0001 first: gist one"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the damage already on disk, then let a later append heal it.
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirty := strings.Replace(string(raw), "- T-0001 first: gist one",
+		"- T-0001 first: gist one\n[body truncated at tombstone retention cap]\n[body truncated at tombstone retention cap]", 1)
+	if err := os.WriteFile(ws.SpecPath(""), []byte(dirty), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := AppendIntent(ws, "", "- T-0002 second: gist two"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(out), "[body truncated"); n != 0 {
+		t.Errorf("ID-less debris survived the heal (%d copies):\n%s", n, out)
+	}
+	for _, want := range []string{"- T-0001 first: gist one", "- T-0002 second: gist two"} {
+		if strings.Count(string(out), want) != 1 {
+			t.Errorf("want exactly one %q:\n%s", want, out)
+		}
+	}
+}

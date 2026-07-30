@@ -14,6 +14,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/spec"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
@@ -1262,5 +1263,39 @@ func TestRestoreRecordAlwaysWritable(t *testing.T) {
 		if err := item.CheckHeader(it); err != nil {
 			t.Errorf("carried %q restored to an unwritable record: %v", bad, err)
 		}
+	}
+}
+
+// TestTruncationMarkerIsInline pins the contract the marker broke. capGist
+// flattens newlines to spaces because its consumer is a single spec.md bullet;
+// a marker that reintroduces one puts a bare, ID-less line into `## intent`
+// that AppendIntent's dedupe cannot key and therefore never removes.
+func TestTruncationMarkerIsInline(t *testing.T) {
+	if strings.ContainsAny(truncationMarker, "\r\n") {
+		t.Fatalf("truncationMarker must not carry a line break: %q", truncationMarker)
+	}
+	// The property that actually matters, asserted through the real caller at
+	// the lengths that trigger the cut, not just on the constant.
+	for _, n := range []int{intentGistMax - 1, intentGistMax, intentGistMax + 1, intentGistMax + 500} {
+		for _, body := range []string{
+			strings.Repeat("a", n),
+			strings.Repeat("a b\n", n/4+1),
+			strings.Repeat("line\n\n", n/6+1),
+		} {
+			got := capGist(body)
+			if strings.ContainsAny(got, "\r\n") {
+				t.Errorf("capGist(len=%d) returned a multi-line value: %q", len(body), got)
+			}
+		}
+	}
+}
+
+// TestTruncationMarkerMatchesSpecDebris pins the one literal internal/spec has
+// to duplicate. spec cannot import lifecycle (lifecycle imports spec), so the
+// marker text lives in two places; this is the only spot that can see both and
+// therefore the only thing standing between them and silent drift.
+func TestTruncationMarkerMatchesSpecDebris(t *testing.T) {
+	if got, want := strings.TrimSpace(truncationMarker), spec.IntentDebrisMarker(); got != want {
+		t.Fatalf("marker text drifted: lifecycle %q vs spec %q", got, want)
 	}
 }

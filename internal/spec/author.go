@@ -332,6 +332,14 @@ func intentRecordID(line string) string {
 	return id
 }
 
+// intentDebrisMarker is the text of internal/lifecycle's truncationMarker with
+// its separator stripped. It is duplicated rather than imported because
+// lifecycle imports this package, so the dependency cannot run the other way.
+// The duplication is pinned by TestTruncationMarkerMatchesSpecDebris in
+// internal/lifecycle, which CAN see both — an external test package is the one
+// place the cycle does not apply, so the two cannot drift apart silently.
+const intentDebrisMarker = "[body truncated at tombstone retention cap]"
+
 func AppendIntent(ws workspace.Root, ctx, line string) error {
 	if err := ws.EnsureScaffold(ctx); err != nil {
 		return err
@@ -400,6 +408,24 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 			}
 			id := intentRecordID(l)
 			if id == "" {
+				// An ID-less line is NOT debris by default: applyIntentEntry
+				// passes a whole imported prose section through here, and
+				// dropping every line without an ID would delete it. That
+				// broader heal was written first and rejected — two pinned
+				// tests encode the opposite contract, and they are right.
+				//
+				// Exactly one ID-less shape is known debris: a stray
+				// truncation marker, left when the shared truncator still led
+				// with a newline and split a capped gist across two lines. It
+				// carries no ID, so the dedupe below could never key it, and it
+				// accumulated one copy per call — 15 of them in this
+				// repository's own spec.md when the cause was found
+				// (B-01KYRQXJ99F48). The producer is fixed; this removes what
+				// it already wrote.
+				if strings.TrimSpace(l) == intentDebrisMarker {
+					healed = true
+					continue
+				}
 				kept = append(kept, l)
 				continue
 			}
@@ -495,3 +521,7 @@ func ctxFromSpecRel(rel string) string {
 	}
 	return strings.TrimSuffix(rel, suffix)
 }
+
+// IntentDebrisMarker exposes intentDebrisMarker so internal/lifecycle can
+// assert its truncation marker still matches the text this package heals.
+func IntentDebrisMarker() string { return intentDebrisMarker }

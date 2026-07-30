@@ -774,7 +774,18 @@ func capRetainedBodyTo(b string, max int) string {
 // truncationMarker is appended AFTER the cut, so a truncated body is
 // retainedBodyMax bytes of content plus this marker — the cap bounds what
 // is kept, not the exact field width.
-const truncationMarker = "\n[body truncated at tombstone retention cap]"
+//
+// It is INLINE, and must stay inline. It used to lead with a newline, which
+// made one composer emit a line break into consumers that have opposite line
+// contracts: the work.md prose fields tolerate an extra line, but capGist
+// flattens newlines to spaces precisely because its consumer is a single
+// spec.md bullet — and then got a newline back from here, one call later. That
+// put a bare marker on its own line in `## intent`, where it carried no record
+// ID, so AppendIntent's dedupe could not key it and it survived every heal
+// (B-01KYRQXJ99F48). A shared truncator cannot satisfy both contracts by
+// picking one; it satisfies both by adding no line break at all and letting
+// the caller supply a separator if it wants one.
+const truncationMarker = " [body truncated at tombstone retention cap]"
 
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	events, err := journal.ReadAll(ws)
