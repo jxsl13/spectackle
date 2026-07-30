@@ -84,7 +84,11 @@ func TestNextActionPerState(t *testing.T) {
 		{"done", item.Item{ID: "T-1", State: item.StateDone},
 			"next check until ok, then move id=T-1 to=archived with a substance note | or: move to=active (reopen) · move to=rejected note="},
 		{"blocked", item.Item{ID: "T-1", State: item.StateBlocked, Needs: []string{"A-9"}},
-			"next decide op=answer id=A-9 — the linked decision is the only exit (rescope|reject|override-once)"},
+			// No enumeration: the outcomes belong on the refusal that rejects a wrong
+			// one (HINT-001), not on a hint every blocked render pays for — and the
+			// literal here was measurably WRONG once override-once had been spent,
+			// naming an option the parser then refused (B-01KYS7111XFHZ).
+			"next decide op=answer id=A-9 — the linked decision is the only exit; it lists the outcomes it accepts"},
 	}
 	for _, c := range cases {
 		if got := nextAction(c.it, short); got != c.want {

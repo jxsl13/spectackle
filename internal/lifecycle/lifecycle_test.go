@@ -1338,3 +1338,62 @@ func TestCapGistCollapsesLineEndings(t *testing.T) {
 		}
 	}
 }
+
+// TestEscalateBodyIsAnswerableByConstruction pins the property whose absence
+// stranded records permanently: the enumeration Escalate TELLS the caller to
+// pick from must be the same one their answer is CHECKED against. It was not —
+// the prose said `choose=a|b|c` while both copies of the parser looked for
+// `outcome=`, so every escalation ADR accepted free text, and a one-character
+// typo burned the decision and left its item unreachable by any public tool
+// while reporting success (B-01KYS7111XFHZ).
+//
+// Asserted against item.ParseOptions, the real parser, rather than against a
+// literal — a test that restated the format would have passed throughout the
+// original defect.
+func TestEscalateBodyIsAnswerableByConstruction(t *testing.T) {
+	ws := ws(t)
+	it, err := Draft(ws, nil, "task", "rounds probe", "body", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it.State = item.StateDone
+	it.Rounds = 3
+	if err := item.Upsert(ws, it); err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := Escalate(ws, nil, it)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := item.ParseOptions(d.Body)
+	want := []string{"rescope", "reject", "override-once"}
+	if len(got) != len(want) {
+		t.Fatalf("Escalate body is not answerable: ParseOptions = %v, want %v\nbody:\n%s", got, want, d.Body)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("option %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// And the prose the reader is shown must offer the same set, or the two
+	// halves of the body disagree even though the machine half is valid.
+	for _, o := range want {
+		if !strings.Contains(d.Body, o) {
+			t.Errorf("escalation body never mentions %q to the reader:\n%s", o, d.Body)
+		}
+	}
+	// THE PROPERTY THAT ACTUALLY MATTERS: the machine contract must not depend
+	// on the prose wording. The regex also matches the `choose=a|b|c` sentence,
+	// which is why records already written stay answerable — but relying on that
+	// alone would reinstate the original defect, since rewriting the sentence is
+	// precisely what broke this the first time. Strip the prose line and the
+	// options must still parse. Without this, deleting the `option:` lines from
+	// Escalate leaves the whole suite green — verified by mutation.
+	_, rest, ok := strings.Cut(d.Body, "\n")
+	if !ok {
+		t.Fatalf("escalation body has no machine lines beneath its prose:\n%s", d.Body)
+	}
+	if got := item.ParseOptions(rest); len(got) != len(want) {
+		t.Errorf("options are carried ONLY by the prose sentence: stripping it leaves %v, want %v\nbody:\n%s", got, want, d.Body)
+	}
+}

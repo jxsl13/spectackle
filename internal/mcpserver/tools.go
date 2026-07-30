@@ -975,12 +975,52 @@ func (sc idScope) substance(it item.Item) string {
 // and the resolution given as an object the caller can send rather than a
 // prose list of choices — the sibling rule refusal already hands back a
 // shape line, and that inconsistency is what cost the extra call.
-func roundsRefusal(item, requested, decision string) string {
+// blockedExitOutcomes renders the outcomes an escalation ADR ACTUALLY accepts,
+// pipe-joined, from its own parsed options. Every surface that tells a caller
+// how to leave blocked must render through here rather than spelling the set
+// out: override-once is one-shot, so a second escalation offers only
+// rescope|reject, and three separate hard-coded literals kept advertising it.
+// Two were found and fixed; a verifier then measured a THIRD on the
+// failing-verdict route, which is arguably the commoner way into blocked. A
+// refusal naming a value the parser rejects costs the caller a whole call to
+// discover (B-01KYS7111XFHZ).
+func blockedExitOutcomes(options []string) string {
+	if len(options) == 0 {
+		// Unreachable through the tool surface — Escalate always writes
+		// `option:` lines, pinned by TestEscalateBodyIsAnswerableByConstruction
+		// — but a caller-facing string must not render empty if it ever is.
+		options = []string{"rescope", "reject", "override-once"}
+	}
+	return strings.Join(options, "|")
+}
+
+func roundsRefusal(rec, requested, decision string, options []string) string {
+	// Render the enumeration from the ADR's OWN options, never a literal. The
+	// set is not constant: override-once can be spent, and a second escalation
+	// then offers only rescope|reject — while this refusal, hard-coded, kept
+	// advertising override-once and the parser refused it. A refusal exists to
+	// teach the value that will be accepted (HINT-001); teaching one that will
+	// not is worse than teaching nothing, because the caller spends a call
+	// finding out (B-01KYS7111XFHZ).
+	joined := blockedExitOutcomes(options)
+	effect := map[string]string{
+		"rescope": "rescope→draft", "reject": "reject→rejected", "override-once": "override-once→active",
+	}
+	var eff []string
+	for _, o := range strings.Split(joined, "|") {
+		if e, ok := effect[o]; ok {
+			eff = append(eff, e)
+		} else {
+			// Never silently drop an outcome: an unmapped value used to vanish
+			// from the effects list while still being offered in `choose`,
+			// rendering a bare "()" if none mapped.
+			eff = append(eff, o)
+		}
+	}
 	return fmt.Sprintf(
 		"! ROUNDS E %s move to %s REFUSED — rounds exhausted, item is now blocked\n"+
-			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"rescope|reject|override-once\"} "+
-			"(rescope→draft, reject→rejected, override-once→active)\n",
-		item, requested, decision)
+			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"%s\"} (%s)\n",
+		rec, requested, decision, joined, strings.Join(eff, ", "))
 }
 
 // enumerableScopes lists the scopes an empty query can enumerate — every FTS
@@ -1782,7 +1822,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				// hears it (never silent, and never mislabeled as fine).
 				bShort2 := sc.short(blocked.ID)
 				return refuse(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
-					roundsRefusal(bShort2, in.To, sc.short(dec.ID)))
+					roundsRefusal(bShort2, in.To, sc.short(dec.ID), item.ParseOptions(dec.Body)))
 			}
 			s.markDirty()
 			// fresh scope: dec was just minted, and the same staleness that
@@ -1791,7 +1831,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, err
 			}
 			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
-			return refuse(roundsRefusal(bShort, in.To, dShort))
+			return refuse(roundsRefusal(bShort, in.To, dShort, item.ParseOptions(dec.Body)))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per

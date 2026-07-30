@@ -19,3 +19,19 @@ DIRECTION. Add a mode to agent-prep - alongside the existing -with-manifest - th
 STATED TRAP, from the cost work: two of the fattest metered lines are landed judge FIXES - a 246B VALIDATE W advisory and a 58B gloss on the ROUNDS refusal - which exist because judges misread the shorter versions. A byte metric alone scores removing them as a win. That is BENCH-001 inverted, the benchmark sanctioning a regression, and it is exactly why the benefit side has to exist before any trimming is justified by numbers.
 
 VERIFY. A prep run in the new mode whose brief contains a tool description verbatim and whose sidecar records the payload size; a scored run that names its mode; and an assertion that the default mode is still name-only so an unlabeled historical comparison cannot silently mix regimes.
+
+## B-01KYTBR3BAF9KAQDD1N06FWX4R the doc comment above TestSchemaMeteringIsRealAndInert still describes the assertion that was removed from it
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/bench/bench_test.go
+
+Flagged by the verifier of B-01KYT9AT0CFBC as a non-blocking nit, filed rather than folded in because that record was already verified and archiving.
+
+The doc comment above TestSchemaMeteringIsRealAndInert still ends with a sentence saying the reproducibility assertion below is kept because it is cheap and pins a different property, that the scripted total does not wander between runs. That assertion was REMOVED by B-01KYT9AT0CFBC, precisely because the scripted total DOES wander - each Run mints fresh record IDs and the adaptive shortener picks a prefix width from what is unambiguous in that workspace. The comment now describes code that is not there and asserts a property the program does not have.
+
+WHY IT IS WORTH A RECORD rather than a silent edit: this is the fourth comment in one week found asserting something untrue, after the truncation-marker ordering claim, the schemas-exceed-64KB claim, and the two parser doc comments that said Escalate writes outcome=. Each was harmless alone and each cost a later reader real time. The pattern is that comments are edited when the code they sit above changes, and NOT when code they merely refer to is deleted.
+
+FIX. Replace the trailing sentence with what the test now does: assert the SESSION measurements - schema and manifest - are stable across runs, because unlike the per-call total they carry no record IDs. Keep the explanation of why the per-call total is not stable, since that is the part a future reader needs in order not to re-add the assertion.
+
+VERIFY. Read the comment against the test body and confirm every sentence describes code that exists. Cheap, and the only check that would have caught any of the four.

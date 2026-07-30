@@ -384,8 +384,19 @@ func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Ite
 	if err != nil {
 		return it, item.Item{}, err
 	}
-	d.Body = fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide op=answer id=%s choose=%s.",
-		shortID(it.ID), it.Rounds, shortID(d.ID), optStr)
+	// The prose sentence is guidance for the reader; the `option:` lines are the
+	// machine contract item.ParseOptions validates against. BOTH are rendered
+	// from `options`, so the enumeration a caller is told to pick from and the
+	// one their answer is checked against cannot diverge — which is exactly what
+	// happened when this sentence was changed from outcome= to choose= and the
+	// parsers, being two copies of one regex, followed in neither
+	// (B-01KYS7111XFHZ).
+	lines := []string{fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide op=answer id=%s choose=%s.",
+		shortID(it.ID), it.Rounds, shortID(d.ID), optStr)}
+	for _, o := range options {
+		lines = append(lines, "option: "+o)
+	}
+	d.Body = strings.Join(lines, "\n")
 	if err := item.Upsert(ws, d); err != nil {
 		return it, d, err
 	}
