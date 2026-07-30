@@ -56,3 +56,4 @@
 {"t":"2026-07-29T09:59:56Z","eid":"f755d895355a203f","ag":"ag-cd81","ev":"drift","dir":"internal/lifecycle","rule":"LCY-001","node":"go:lifecycle.archive","cls":"healed","oh":"ba87ca3b9e321607","nh":"a511ac9623b10b36"}
 {"t":"2026-07-29T09:59:56Z","eid":"c722f8c4cd70c3ec","ag":"ag-cd81","ev":"drift","dir":"internal/lifecycle","rule":"LC-001","node":"go:lifecycle.archive","cls":"healed","oh":"ba87ca3b9e321607","nh":"a511ac9623b10b36"}
 {"t":"2026-07-30T05:28:46Z","eid":"dc2c7f5c213dec0b","ag":"ag-39fa","ev":"create","id":"B-01KYRQY892FSDSN75P9FFXFDM5","k":"bug","ti":"summary truncates on a raw byte slice and can emit invalid UTF-8, and status rides the prose composer untrusted on restore","dir":"internal/lifecycle"}
+{"t":"2026-07-30T06:38:21Z","eid":"5ac32fd7deee6931","ag":"ag-c395","ev":"revise","id":"B-01KYRQY892FSDSN75P9FFXFDM5","dir":"internal/lifecycle","note":"body revised"}
