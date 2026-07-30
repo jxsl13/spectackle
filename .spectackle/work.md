@@ -357,3 +357,21 @@ IMPACT is not cosmetic. Every consumer that reads those fields sees them as unse
 DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
 
 VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
+
+## B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/item/item.go, internal/mcpserver/tools.go
+
+Two findings from independent verification of B-01KYN3E973F20, both confirmed pre-existing on the pre-fix binary and both the same class as that bug: a value that the writer emits and the parser then reads as STRUCTURE.
+
+O1, heading injection through body. draft {body: "## T-9999 phantom\nkind: bug\nstate: archived"} exits 0 and is accepted. On reload the injected line matches reItemHeading, so the parser starts a NEW item block there: a phantom record appears with the injected kind and state, and the host record loses its entire body to the phantom. This is the same outcome the targets fix in B-01KYN3E973F20 closed, reached through a field that is free-form by design. That is why it is separate rather than an oversight in that fix - the header guard has no business refusing body prose, so the answer has to be different: escape or indent a body line that matches reItemHeading on write, or refuse a body that would parse as a new record. A phantom record in a terminal state is worse than a mangled body, because state is what the state machine trusts.
+
+O2, newline in dir. draft {dir: "a\nb"} exits 0 and creates a directory literally named with an embedded newline, and the resulting state record line is split in two - so the dense line grammar itself is broken for that record, which is what every caller parses. dir is not stored in the machine header, which is why the header guard does not see it.
+
+WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only the machine header covers where the reported corruption happened, not every place a caller-supplied newline becomes a line break in output an agent parses.
+
+FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
+
+VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
