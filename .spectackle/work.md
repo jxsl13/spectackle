@@ -418,3 +418,23 @@ MEASURED CANDIDATES, none yet applied. Manifest paragraph 1 spends about 635B re
 FIRST TASK IS INSTRUMENTATION, NOT TRIMMING. Teach the bench to meter the real handshake - tools/list plus manifest - so the denominator matches what a session actually pays, and give the judge harness the real tool descriptions so their guidance value becomes measurable at all. Only then is a schema trim rankable. Until then any tool-description edit is unmeasured by construction, and BENCH-001 cannot adjudicate it.
 
 ALSO: HINT-001 is only half-satisfied. move, rule and knowledge teach the enumeration on the refusal that rejects a wrong value; draft kind and find scope name the bad value and stop, so a wrong guess costs a blind retry - the correction-round cost the objective subordinates per-call bytes to.
+
+## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/ids/ids.go, internal/bench/bench.go
+
+Both found by the independent verifier of B-01KYS6Y5NKF42, measured rather than reasoned, and both pre-existing rather than caused by that change - but the first became load-bearing when attribution started depending on the short prefix.
+
+FINDING 1, the documented collision probability is off by 16 times. internal/ids states the 13-character short prefix leaves a 2 to the minus 15 collision chance, about 1 in 32768. Measured over 2 million same-millisecond pairs: 1 in 2070. The analysis error is identifiable: a 13-character Crockford base32 prefix pins 63 bits, but 4 of them are the FIXED UUIDv7 version nibble, so only 11 random bits are actually pinned, not 15. Every place that reasons about short-prefix safety inherits the wrong number.
+
+WHY IT MATTERS NOW. B-01KYS6Y5NKF42 changed the validation attribution grep from the full record ID to the short prefix, which is the only way it matches what the code-commit writers produce. That makes prefix collisions a silent cross-attribution vector: two records whose short forms collide each inherit the other commits in their attributed diff. The residual is now written down in validate.go with the corrected number, and the failure direction is conservative - a larger diff means more staleness, more risk trips, more findings - with one permissive edge where a colliding sibling touching a declared target can mask an untouched finding. But the constant that everyone reasons from should be right, and the doc comment should carry the version-nibble explanation so the mistake is not repeated.
+
+FIX: correct the number and the derivation in the doc comment. Then decide, with the corrected figure in hand, whether 13 characters is still the right adaptive floor - 1 in 2070 for same-millisecond mints is a different design conversation than 1 in 32768, especially in a swarm that mints in parallel.
+
+FINDING 2, a live intermittent suite failure. TestBenchCmpDeltasAndUnitMismatch fails intermittently with ids: prefix matches 2 records, naming two IDs that differ only past the 13th character. Cause: internal/bench renders shortDisplayID, a FIXED 13-character prefix, where it should render the adaptive ShortenRecordID that widens the prefix until it is unambiguous in the current workspace. The adaptive shortener exists precisely for this. Observed 1 failure then 8 of 8 passes in isolation and a clean second full run, so it is a genuine flake keyed on two bench records minted in the same millisecond.
+
+FIX: use the adaptive shortener in the bench render paths. VERIFY: a test that mints two records in the same millisecond and asserts every rendered ID resolves to exactly one record.
+
+METHOD NOTE worth keeping: this flake was invisible to the harness used all through this session, because piping go test into a filter and echoing a marker afterwards discards the exit code - the filter still prints FAIL lines, so a failure is visible if it occurs, but the run is never actually asserted to have passed. Assert the exit code.
