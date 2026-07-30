@@ -44,9 +44,9 @@ VERIFY. A test that pipes export output directly into apply and asserts it eithe
 
 ## B-01KYSDBZTEF1AS4KG1ZR0P14G7 the records-path exemption in the scope gate is anchored at the repo root, so a nested context dir own records block the archive of the item that caused them
 kind: bug
-state: done
+state: active
 created: 2026-07-30
-rounds: 1
+rounds: 2
 targets: internal/workspace/workspace.go, internal/workspace/workspace_test.go, internal/mcpserver/gitflow.go, internal/mcpserver/gitflow_test.go, internal/mcpserver/swarm.go
 
 CORRECTED after reading the code: the exemption is not missing, it is root-anchored. That is a sharper and smaller defect than first filed.
