@@ -11,6 +11,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/forge"
 
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
 
@@ -754,6 +755,85 @@ func TestOnlineRenderParity(t *testing.T) {
 		if on[edge] > off[edge]+1 {
 			t.Fatalf("edge %s: online renders %d g-lines vs offline %d — parity allows at most +1 (the artifact)",
 				edge, on[edge], off[edge])
+		}
+	}
+}
+
+// TestGitScopeRefusalIgnoresNestedRecords pins the deadlock B-01KYSDBZTEF1A
+// recorded, at the exact expression that caused it. gitScopeRefusal exempts
+// server-owned records, but the exemption used to read
+//
+//	f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+//
+// which only matches the ROOT context. Context dirs nest, so when the server
+// re-scoped an item into internal/mcpserver and wrote that item's own block
+// into internal/mcpserver/.spectackle/, the gate counted the write as
+// undeclared work and refused the item's archive — a state no transition could
+// clear, since the same gate guards every direction. Reproduced live twice
+// before the fix.
+//
+// The old and new expressions are compared directly rather than through a
+// re-scope, because the re-scope needs an established context dir and the
+// interesting question is only which paths the predicate recognizes.
+func TestGitScopeRefusalIgnoresNestedRecords(t *testing.T) {
+	rootAnchored := func(f string) bool {
+		return f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+	}
+	// Every path the server can write records to, root and nested.
+	for _, f := range []string{
+		".spectackle/work.md",
+		".spectackle/journal.ndjson",
+		"internal/mcpserver/.spectackle/work.md",
+		"internal/mcpserver/.spectackle/journal.ndjson",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if !workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = false; the gate would blame the caller for a server write", f)
+		}
+	}
+	// The nested cases are exactly what the old spelling missed — assert that,
+	// so this test fails if anyone reintroduces the root-anchored form.
+	for _, f := range []string{
+		"internal/mcpserver/.spectackle/work.md",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if rootAnchored(f) {
+			t.Fatalf("fixture is wrong: %q was already matched by the root-anchored form, so this test proves nothing", f)
+		}
+	}
+	// And ordinary work must still be counted, including the near miss the old
+	// HasPrefix spelling would have swallowed.
+	for _, f := range []string{"pkg/a.go", ".spectacklefoo", "internal/.spectacklefoo/x.go"} {
+		if workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = true; real work would bypass the scope gate", f)
+		}
+	}
+}
+
+// TestSiblingTestFileIsInScope pins the deliberate decision that a declared
+// source file covers its exact _test.go sibling, and only that: an unrelated
+// test file must still be refused, or the gate would stop catching the case it
+// was written for.
+func TestSiblingTestFileIsInScope(t *testing.T) {
+	scope := normalizeTargets([]string{"pkg/a.go", "internal/x/y.go"})
+	for _, tgt := range scope {
+		if strings.HasSuffix(tgt, ".go") && !strings.HasSuffix(tgt, "_test.go") {
+			scope = append(scope, strings.TrimSuffix(tgt, ".go")+"_test.go")
+		}
+	}
+	for _, c := range []struct {
+		f    string
+		want bool
+	}{
+		{"pkg/a.go", true},
+		{"pkg/a_test.go", true},         // the sibling, now implicit
+		{"internal/x/y_test.go", true},  // nested sibling
+		{"pkg/b_test.go", false},        // an UNRELATED test file: still refused
+		{"internal/x/z_test.go", false}, // same dir, different source: refused
+		{"pkg/a_test.go.bak", false},
+	} {
+		if got := inTargetScope(c.f, scope); got != c.want {
+			t.Errorf("inTargetScope(%q) = %v, want %v", c.f, got, c.want)
 		}
 	}
 }

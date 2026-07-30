@@ -887,3 +887,31 @@ func TestAwaitBudgetIsConfigurableAboveCI(t *testing.T) {
 		}
 	}
 }
+
+// TestIsRecordsPath pins the segment semantics, including the two cases the
+// three hand-written spellings disagreed on: a nested context dir (which the
+// root-anchored spellings missed, deadlocking an item's own archive) and a
+// near-miss filename (which the HasPrefix spelling would have swallowed as if
+// it were server-owned).
+func TestIsRecordsPath(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want bool
+	}{
+		{".spectackle", true},
+		{".spectackle/work.md", true},
+		{".spectackle/spec.md", true},
+		{"internal/mcpserver/.spectackle/work.md", true}, // the deadlock case
+		{"a/b/c/.spectackle/journal.ndjson", true},       // arbitrary depth
+		{"internal/mcpserver/.spectackle", true},         // the dir itself
+		{".spectacklefoo", false},                        // near miss: ordinary work
+		{"internal/.spectacklefoo/x.go", false},          // near miss, nested
+		{"internal/spectackle/x.go", false},              // no leading dot
+		{"pkg/a.go", false},
+		{"", false},
+	} {
+		if got := IsRecordsPath(c.in); got != c.want {
+			t.Errorf("IsRecordsPath(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
