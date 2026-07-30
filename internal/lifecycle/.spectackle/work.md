@@ -26,7 +26,7 @@ ALSO: the doc comment at lifecycle.go around line 752 cites adrOutcome, which no
 
 ## B-01KYS1028RE8NTN07F6HSGBRPH capGist doc comment is attached to the wrong symbol, its ordering contract is unpinned, and its comment overstates the coverage
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 targets: internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
