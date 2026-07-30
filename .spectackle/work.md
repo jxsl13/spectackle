@@ -307,3 +307,27 @@ RELATED, same judge, same root: there is NO discoverable way to enumerate rules.
 DIRECTION, and these are alternatives not a list: (a) refuse an empty q, naming what to pass - the minimum, and it at least stops the lie; (b) treat an empty q as list-all within the scope, which also closes the enumeration gap in the same change and is what a reader plainly expects from scope=rule; (c) keep requiring q but document a wildcard in the shape line. (b) is the strongest: it makes the obvious reading correct instead of teaching a workaround. Whichever is chosen, the invariant is that no query which was never executed may answer ok.
 
 VERIFY: on a workspace with rules, find with an empty q must not answer ok no matches - it either refuses with what to pass, or returns the rules; and a scope with genuinely zero records still answers no matches truthfully.
+
+## B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency
+kind: bug
+state: done
+created: 2026-07-29
+rounds: 1
+targets: internal/spec, internal/workspace
+
+ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
+
+.spectackle/.gitattributes declares merge=union for journal.ndjson and bench.ndjson - correct, they are append-only logs where a union is exactly right and a duplicate line is faithful. spec.md and work.md have NO strategy, so they take gits default three-way merge.
+
+That is fine for spec.mds rule sections, which are genuinely edited and need a real merge. It is wrong for its ## intent section, which is append-only in practice: every archive appends one line and nothing ever edits an existing one. Two branches that each append a DIFFERENT line produce an interleave or a conflict; two branches that each append the SAME line at a different position produce TWO COPIES, because git sees two independent insertions at two locations and keeps both. Reproduced here: lines 261 and 264 of the root spec.md are the same record with two other records between them.
+
+WHY THE PER-WRITE FIX CANNOT COVER THIS. B-01KYQJDJJVFC2 made AppendIntent idempotent by scanning the section before writing. That guard is per-WRITE and inside one working tree; it cannot see the other branchs write, and by merge time both writes have already happened. So the guard is necessary and not sufficient, and every worktree-based archive - the documented primary workflow - can reintroduce a duplicate that no single write path is in a position to prevent.
+
+DIRECTION, and the choice is a real one:
+(a) A custom merge driver for spec.md that unions and dedupes the intent section while merging the rest normally. Correct but adds a driver every clone must configure, and an unconfigured clone silently falls back to the broken default - which is the worst property a records format can have.
+(b) Move intent lines OUT of spec.md into their own append-only file with merge=union, deduped on READ. Then the format matches the access pattern (append-only, one statement per record), the merge strategy is declarative and needs no local configuration, and duplicates become harmless rather than merely prevented. Costs a format change and a migration for existing bundles.
+(c) Keep the file and dedupe on read wherever the intent section is consumed, accepting duplicates on disk. Cheapest, but it leaves a permanent human-readable artifact - the one thing intent lines exist to be - visibly wrong in every diff.
+
+(b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
+
+VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
