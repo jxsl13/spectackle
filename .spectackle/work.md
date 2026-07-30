@@ -358,3 +358,23 @@ WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only t
 FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
 
 VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
+
+## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/lifecycle/lifecycle.go, internal/mcpserver/tools.go, internal/spec/author.go
+
+Two adversarially verified findings that share one cause: the archive effects are not transactional and the gates sit on only one of the two paths that run them.
+
+FINDING 1, HIGH, gate bypass in two calls. Every archive gate lives in the mcpserver move handler and keys on the item NAMED in the call. lifecycle.archive() then folds every done child away with a journal EvArchive plus item.Remove, with no gate at all. So parenting a record to any item and moving THAT item to done archives the child through the parent, skipping three gates: the research-consumption gate that is documented as hard regardless of feedback config, the feedback.validate=require verdict gate, and the child own open-children gate - the fold archives a child whose direct archive the server would refuse. Two calls, no refusal, exit 0.
+
+FIX DIRECTION: the gates must move to where the effect happens rather than to where the call names an item, or the fold must run each child through the same gate set and refuse the parent transition if any child fails. The second is likely correct - a parent cannot legitimately archive a child that is not itself archivable - and it makes the refusal name the child.
+
+FINDING 2, HIGH, compensation is partial while claiming to be whole. When the archive edge strands, tools.go compensates the item archived back to done and refuses with archive refused whole. Two effects the same call already committed are NOT undone. First, done children folded away by lifecycle.archive() stay archived and become unreachable - move on them returns unknown item - so a REFUSED transition permanently destroys sibling records. Second, spec.AppendIntent line is not rolled back, and because AppendIntent dedupes by record ID, the successful RETRY note is silently discarded and the living spec permanently records the FAILED attempt note as the item outcome. This is the untriaged suspicion already noted in work.md, now reproduced, and the intent-note freeze is the part nobody had suspected.
+
+The phrase refused whole is therefore untruthful in the SRF-001 sense: it names an outcome the code did not deliver. Either the effects become transactional - stage the fold and the intent append, commit them only when the edge succeeds - or the refusal must enumerate what it could not undo. Given the retry after a stranded closure is documented as normal operator behavior, the first is the real fix; the dedupe-by-ID behavior means the note damage is silent and permanent, which is the worst combination.
+
+RELATED: move to=rejected has no open-children gate at all - lifecycle.Move guards openChildren only for archived - so rejecting a parent orphans live children whose parent then resolves to neither work.md nor a tombstone, and Draft refuses to add any new child under it. Two boundaries both remove a record from work.md and only one checks children.
+
+VERIFY. A parent with a done child that would fail its own archive gate: archiving the parent must refuse and name the child. A stranded archive: assert the folded children are still live, that a retry appends the retry note rather than keeping the failed one, and that the refusal enumerates anything it could not undo. Rejecting a parent with live children must be gated the same way archiving is.
