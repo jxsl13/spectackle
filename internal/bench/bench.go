@@ -22,6 +22,7 @@ package bench
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -70,8 +71,10 @@ type Result struct {
 	// and input schema, as the wire delivers it at connect time.
 	//
 	// It is metered because it was the largest thing nobody was counting. The
-	// manifest line presented itself as THE once-per-session cost at ~4.3KB,
-	// while a real handshake writes ~26KB — tools/list is ~76% of it. So every
+	// manifest line presented itself as THE once-per-session cost at 4.3KB,
+	// while a real handshake writes 24623B — tools/list is 81% of it, measured,
+	// and the initialize result is ~95% manifest text, so schema+manifest tracks
+	// the real wire to within 1.2% rather than double-counting. So every
 	// byte-economy conclusion drawn from this benchmark was reasoning about a
 	// denominator missing three quarters of what a session actually pays, and
 	// BENCH-001 ("revert a surface change whose judged metric did not improve")
@@ -324,9 +327,26 @@ func schemaBytes(bin string) int {
 	ch := make(chan found, 1)
 	go func() {
 		sc := bufio.NewScanner(stdout)
-		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024) // schemas exceed the default 64KB line cap
+		// Headroom, not a present need: the payload is ~20KB against bufio's
+		// 64KB default. It is here so a grown tool surface fails loudly at the
+		// 8MB cap rather than silently truncating at 64KB.
+		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 		for sc.Scan() {
-			if line := sc.Text(); strings.Contains(line, `"id":2`) {
+			line := sc.Text()
+			// Decode the id rather than substring-matching `"id":2`. A tool
+			// DESCRIPTION containing that literal would false-match, and more
+			// importantly a one-character slip to `"id":1` silently meters the
+			// initialize result instead — 4598B against 20023B, a 4.4x
+			// understatement reported with full confidence. A verifier proved
+			// the magnitude-only assertions here did not catch that.
+			var env struct {
+				ID     json.Number     `json:"id"`
+				Result json.RawMessage `json:"result"`
+			}
+			if err := json.Unmarshal([]byte(line), &env); err != nil {
+				continue
+			}
+			if env.ID.String() == "2" && len(env.Result) > 0 {
 				ch <- found{len(line)}
 				return
 			}

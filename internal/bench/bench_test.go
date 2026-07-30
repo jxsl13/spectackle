@@ -751,8 +751,14 @@ func TestSchemaMeteringIsRealAndInert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got <= len(man) {
-		t.Errorf("schema %dB <= manifest %dB — if that is now true, the reporting text claiming schema dominates the session is stale", got, len(man))
+	// A floor RELATIVE to the manifest, not merely above it. The looser check
+	// let a verifier's mutation through: metering the initialize response
+	// instead of tools/list reports 4598B, which still clears a bare
+	// "> manifest" test because initialize is mostly the manifest text plus an
+	// envelope. Schema is measured at ~4.7x the manifest, so 2x is a wide
+	// margin that still refuses the wrong response outright.
+	if got <= 2*len(man) {
+		t.Errorf("schema %dB is not comfortably above 2x manifest %dB — this is what metering the WRONG response line looks like (initialize is mostly manifest text)", got, len(man))
 	}
 
 	// Half two: inert. Two runs of the same script over the same fixture must
