@@ -343,9 +343,9 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: done
+state: active
 created: 2026-07-28
-rounds: 1
+rounds: 2
 targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go
 
 internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
