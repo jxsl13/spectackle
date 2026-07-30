@@ -343,9 +343,10 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: done
+state: blocked
 created: 2026-07-28
-rounds: 2
+rounds: 3
+needs: ADR-01KYRQSQDGEH89ERCR8N672AJW
 targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
 internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
@@ -375,3 +376,11 @@ WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only t
 FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
 
 VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
+
+## ADR-01KYRQSQDGEH89ERCR8N672AJW escalate B-01KYN3E973F20: rescope|reject|override-once
+kind: adr
+state: draft
+created: 2026-07-30
+parent: B-01KYN3E973F20VH7DHPE1YSSD7
+
+B-01KYN3E973F20 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYRQSQDGEH8 choose=rescope|reject|override-once.
