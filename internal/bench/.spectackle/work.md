@@ -22,7 +22,7 @@ VERIFY. A prep run in the new mode whose brief contains a tool description verba
 
 ## B-01KYT9AT0CFBCVG13K6M0R0XCT the bench per-call total is not byte-reproducible across runs, so the reproducibility assertion I shipped in v0.9.0 flakes CI
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/bench/bench_test.go
 
