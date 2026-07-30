@@ -404,8 +404,9 @@ VERIFY. Answering an escalation ADR with a value outside the three must refuse, 
 
 ## B-01KYS711ZFFG0SJ7HY7DSANGFN the largest per-session token cost is the tools/list schema surface at 19.9KB, and nothing measures it on either the cost or the benefit side
 kind: bug
-state: done
+state: active
 created: 2026-07-30
+rounds: 1
 targets: internal/bench, internal/mcpserver/tools.go
 
 HIGH, and it reframes every byte-economy conclusion this repository has drawn.
