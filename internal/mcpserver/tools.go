@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -37,7 +38,9 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 // ---- input structs (JSON Schemas are inferred from these) ----
 
 type findIn struct {
-	Q      string `json:"q" jsonschema:"text or ID fragment"`
+	// omitempty so an absent q reaches the handler, which enumerates a named
+	// scope rather than answering `ok no matches` (B-01KYR01E2VFEF).
+	Q      string `json:"q,omitempty" jsonschema:"text or ID fragment; omit to enumerate an explicit scope"`
 	Scope  string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|adr|rejection|history|all, default all"`
 	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
 	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
@@ -336,6 +339,18 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if in.Budget <= 0 {
 		in.Budget = 2000
 	}
+	// An empty query used to reach cache.Search, which answers (nil, nil) for
+	// one — rendered as `ok no matches` on a workspace holding 96 rules. A
+	// successful call carrying a false answer is worse than a refusal, because
+	// the caller learns nothing and believes something untrue
+	// (B-01KYR01E2VFEF). With an explicit scope it now ENUMERATES, which is
+	// what `scope=rule` plainly reads as and what no other call could do.
+	if strings.TrimSpace(in.Q) == "" {
+		if in.Scope == "all" || in.Scope == "code" {
+			return refuse("! ARG E - find needs q, or a scope to enumerate: " +
+				strings.Join(enumerableScopes(), "|") + "\n")
+		}
+	}
 	if in.Scope == "code" {
 		k := in.K
 		if in.Focus != "" {
@@ -368,7 +383,15 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if !ok {
 		return refuse("! ARG E - unknown scope " + in.Scope)
 	}
-	docs, err := s.cache.Search(in.Q, kinds, in.K)
+	// Enumerate when there is no query, match when there is — the same render
+	// serves both, so a caller sees one grammar either way.
+	var docs []cache.Doc
+	var err error
+	if strings.TrimSpace(in.Q) == "" {
+		docs, err = s.cache.List(kinds, in.K)
+	} else {
+		docs, err = s.cache.Search(in.Q, kinds, in.K)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -948,6 +971,21 @@ func roundsRefusal(item, requested, decision string) string {
 			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"rescope|reject|override-once\"} "+
 			"(rescope→draft, reject→rejected, override-once→active)\n",
 		item, requested, decision)
+}
+
+// enumerableScopes lists the scopes an empty query can enumerate — every FTS
+// scope except the graph-backed `code` and the catch-all `all`, for which
+// "everything" is not a meaningful request and would only burn budget.
+func enumerableScopes() []string {
+	out := make([]string, 0, len(scopeKinds))
+	for sc := range scopeKinds {
+		if sc == "all" || sc == "code" {
+			continue
+		}
+		out = append(out, sc)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // knownRefIDs builds the "known" set draft's refs validation checks

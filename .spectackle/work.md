@@ -38,6 +38,7 @@ VERIFY: a test that adds a rule with a path-shaped applies and asserts the rende
 kind: bug
 state: active
 created: 2026-07-28
+rounds: 1
 grilled: 2026-07-29 open=0
 targets: internal/item, internal/mcpserver
 
@@ -309,6 +310,7 @@ DIRECTION, and these are alternatives not a list: (a) refuse an empty q, naming 
 VERIFY: on a workspace with rules, find with an empty q must not answer ok no matches - it either refuses with what to pass, or returns the rules; and a scope with genuinely zero records still answers no matches truthfully.
 
 ## B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency
+## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
 kind: bug
 state: done
 created: 2026-07-29

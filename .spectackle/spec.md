@@ -267,6 +267,9 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYQJDJJVFC2RPWYVMSYDBHZX the archive CI wait budget sits inside the CI duration distribution, so archives time out on builds that are merely unfinished: validated pass by validator-intent diff a9948837460f :: FAIL then fixed. The archive-retry convergence the change was built for was proven solidly: a validator rigged three genuinely stranded closures through the real move tool with three different notes and got exactly one intent line each time, carrying the FIRST attempts note - which is the right choice, since a retrys note is far more often co
 [body truncated at tombstone retention cap]
 - B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency: validated pass by validator-heal diff 5d1bc52eb3b6 :: FAIL then fixed, with one of my premises withdrawn. The FAIL was real and serious: the heal keyed every line in the file while owning only the ## intent section, so an ID-shaped bullet in a rules free-form Rationale or in a whitelisted notes/design/context section collided with the real record and whichever came SECOND in file order was dropped
+- B-01KYR01E2VFEF8KT5GV91VAWSP find with an empty q answers ok no matches while the workspace has rules — a silent lie, worse than a refusal: validated pass by validator-find diff 32cd50761cb1 :: Two rounds. R1 confirmed enumeration is functionally sound - no scope ever leaked a record of the wrong kind across all ten enumerable scopes, the rejection/history sibling-event union still fires with and without a query, paging reassembles byte-identically to the unpaged call with no gaps or overlaps, and scope=code and unscoped both refuse w
+[body truncated at tombstone retention cap]
+[body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 
 ## SPX-ARC-001

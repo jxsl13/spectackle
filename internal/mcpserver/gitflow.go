@@ -482,7 +482,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	// same breath as declaring done, not at archive time. The verdict is
 	// pinned to the exact local head just pushed (B-01KYDN).
 	s.pinHead(&pr, branch, res)
-	awaitChecksReport(f, pr, mergeWaitBudget, mergePollInterval, res)
+	awaitChecksReport(f, pr, s.awaitBudget(), mergePollInterval, res)
 	// green done collapses to its outcome artifact: the CI verdict on the
 	// still-draft PR (gates passing and PR-DRAFT-001 are implied by
 	// reaching it) — any CI W/E or gate line keeps the full surface. The
@@ -687,7 +687,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		res.addf("g pr %d ready %s", pr.Number, pr.URL)
 	}
 	s.pinHead(&pr, branch, res)
-	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)
+	awaitChecksAndMerge(f, pr, s.awaitBudget(), mergePollInterval, res)
 	// Post-condition (B-01KYG56Y, the meta-lesson made mechanical):
 	// per-diff review cannot see cross-feature interaction bugs, so the
 	// flow checks its own invariant — after an archive closure no open PR
@@ -784,10 +784,30 @@ func (s *Server) pinHead(pr *forge.PR, branch string, res *gitFlowResult) {
 // strongly than it forbids latency. A background finisher with its own
 // notification channel is future work, and the budget bounds the damage.
 var (
-	mergeWaitBudget   = 5 * time.Minute
 	mergePollInterval = 10 * time.Second
 	mergeRetryBudget  = 8 // not-ready retries, one poll interval apart
 )
+
+// awaitBudget is how long a closure waits for the head's CI verdict, from
+// the workspace's git config. It was a hardcoded 5 minutes, which sat INSIDE
+// this repository's own CI duration distribution (3m43s-5m38s over ten runs),
+// so archives refused on builds that were merely unfinished — and since a
+// refusal compensates by journaling an event, the retry pushed a new commit
+// which started CI over. The wait could not converge, and two finished,
+// independently validated items sat unclosable (B-01KYQJDJJVFC2).
+//
+// This is a revision of that bug's own stated direction, which argued a
+// bigger budget only moves the boundary and that resumability was the real
+// fix. Reading the closure changed my mind: making the wait resumable means
+// either not journaling the compensation (which the design wants, so the
+// refusal is recorded truthfully) or merging a head that lacks the newest
+// records. Both are worse than a wait with real margin, and the code's own
+// comment already framed the budget as bounding damage rather than as a
+// correctness boundary. Resumability stays filed for when margin is not
+// enough.
+func (s *Server) awaitBudget() time.Duration {
+	return s.main.Cfg.Git.AwaitBudget()
+}
 
 // awaitChecksAndMerge is the merge gate (ADR-01KYDB: merge after
 // verification), in its mechanically checkable half: the head's CI verdict.
