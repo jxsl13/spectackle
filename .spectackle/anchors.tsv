@@ -8,7 +8,7 @@ SPX-MCP-006	go:mcpserver.Server.research	internal/mcpserver/research.go	37-59	8c
 SPX-MCP-007	go:mcpserver.Server.grill	internal/mcpserver/grill.go	51-228	3de08c7b2262005f	93674953c9609b17
 SPX-SWM-007	go:lifecycle.Escalate	internal/lifecycle/lifecycle.go	367-403	e0d83b08f712a5fe	249a788d6d001a7c
 LCY-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	489-533	a511ac9623b10b36	5d9979347e50633c
-LCY-001	go:item.Get	internal/item/item.go	321-332	37437d90711a7fd0	5d9979347e50633c
+LCY-001	go:item.Get	internal/item/item.go	338-349	37437d90711a7fd0	5d9979347e50633c
 MCP-001	go:mcpserver.Server.decideAsk	internal/mcpserver/decide.go	59-176	82d9712a04a7ad14	5275aa7e2829542b
 LCY-001	go:mcpserver.Server.getItem	internal/mcpserver/tools.go	502-577	b1ae7970210db1df	5d9979347e50633c
 LCY-002	go:mcpserver.Server.openNeeds	internal/mcpserver/tools.go	1903-1918	3c1960be3d038fd9	6dc63df43e762566
