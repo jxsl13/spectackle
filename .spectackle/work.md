@@ -382,26 +382,6 @@ RELATED: move to=rejected has no open-children gate at all - lifecycle.Move guar
 
 VERIFY. A parent with a done child that would fail its own archive gate: archiving the parent must refuse and name the child. A stranded archive: assert the folded children are still live, that a retry appends the retry note rather than keeping the failed one, and that the refusal enumerates anything it could not undo. Rejecting a parent with live children must be gated the same way archiving is.
 
-## B-01KYS7111XFHZVZ4CRKYQ3KR7R decide op=answer accepts any string on a rounds-escalation ADR, burns the decision and strands the item in blocked forever
-kind: bug
-state: active
-created: 2026-07-30
-targets: internal/mcpserver/decide.go, internal/lifecycle/lifecycle.go
-
-HIGH, adversarially verified, and it makes the one documented exit from blocked unreachable.
-
-lifecycle.Escalate writes the escalation ADR body with choose=rescope-pipe-reject-pipe-override-once. decideOptions third parser is a regex looking for outcome= and therefore never matches that body. decideOptions returns nil, and decide.go no-match branch treats the ADR as free text and accepts ANY choose value. resolveDecision then marks the ADR done with status accepted, and because the choice is not one of the three recognized outcomes it takes the else branch, clearing the ADR from the blocked item needs WITHOUT calling ResolveBlocked. The call exits 0 with a success-shaped ok ADR followed by the junk value.
-
-The item is now permanently blocked: every move from blocked refuses by design since only ResolveBlocked can move an item out, re-answering the ADR refuses because it is already decided, and the needs link that would have driven resolution has been cleared. There is no recovery through any public tool. A single typo in a choose value - the exact case HINT-001 exists to make cheap - is unrecoverable, and it reports success while doing it.
-
-THREE DEFECTS IN ONE PATH. First the option parser does not recognize the body the escalation writer produces, which is the same writer-reader disagreement class as the header round-trip and the truncation marker: two halves of one program describing the same artifact differently. Second the free-text fallback is applied to a record that DOES have an enumeration, so validation is skipped exactly where it matters. Third the else branch clears needs on a path that did not resolve anything, which is backwards - and the inverse is also true: the resolving paths keep the spent ADR in needs while the non-resolving path clears it, so the bookkeeping is inverted on both sides.
-
-FIX DIRECTION. The escalation body and the option parser must share one composer, so a change to either cannot silently desynchronize them - the same fix shape RECMERGE-002 and the marker pin used. Then an unrecognized choose on an ADR that HAS options must be an ARG E refusal that teaches the three values per HINT-001, not a free-text acceptance. Then needs must be cleared only by a path that actually resolved the block. Finally decide the recovery story for records already stranded this way: a repair op, or a documented manual path, because the fix alone does not free them.
-
-RELATED, MEDIUM, journal truthfulness: lifecycle.Move appends the EvMove done-to-active event BEFORE evaluating the rounds budget, so when the budget is exhausted the move is refused and the item stays on done, yet the journal permanently asserts a done-to-active transition that the tool rejected. internal/replay handles EvEscalate explicitly so final-state-wins recovers, but any reader of find scope=history or the raw journal sees a transition that did not occur. Append after the decision, not before it.
-
-VERIFY. Answering an escalation ADR with a value outside the three must refuse, exit non-zero, teach the enumeration, and leave both the ADR and the item untouched. Answering with each valid value must reach the state that value promises. A test must assert the escalation body and the option parser agree, by construction rather than by two literals. The rounds-exhausted path must journal no move event when the move was refused.
-
 ## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
 kind: bug
 state: draft
