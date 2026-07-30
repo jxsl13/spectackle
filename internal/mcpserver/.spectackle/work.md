@@ -44,8 +44,9 @@ VERIFY. A test that pipes export output directly into apply and asserts it eithe
 
 ## B-01KYS6Y5NKF42BA6P3RH1CMP6F the validation gate binds every verdict to an absent diff: itemDiff greps the full record ID while code commits carry only the short display prefix
 kind: bug
-state: done
+state: active
 created: 2026-07-30
+rounds: 1
 targets: internal/mcpserver/validate.go, internal/mcpserver/gitflow.go, internal/mcpserver/validate_test.go
 
 Found by four independent agents on separate angles, adversarially refuted and confirmed, then reproduced end to end. This is a validity gap, not a policy question: feedback.validate=require is nominally enforced while the evidence it binds to is empty.
