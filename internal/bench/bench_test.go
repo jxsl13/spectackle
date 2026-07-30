@@ -761,9 +761,19 @@ func TestSchemaMeteringIsRealAndInert(t *testing.T) {
 		t.Errorf("schema %dB is not comfortably above 2x manifest %dB — this is what metering the WRONG response line looks like (initialize is mostly manifest text)", got, len(man))
 	}
 
-	// Half two: inert. Two runs of the same script over the same fixture must
-	// meter the same per-call total, and it must match a run whose schema
-	// metering is skipped entirely.
+	// Half two: Run carries the measurement at all. NOT a reproducibility check
+	// — the per-call total is legitimately NOT byte-stable across runs, because
+	// each Run mints fresh record IDs and the adaptive shortener picks a prefix
+	// width from what is unambiguous in that workspace, so two runs can render
+	// IDs of different widths. An earlier version of this test asserted equality
+	// and passed locally, then failed on a loaded CI runner at 4162B vs 4168B.
+	// It was asserting a property the program does not have.
+	//
+	// It also never pinned what it claimed: a verifier showed by mutation that
+	// comparing two Runs cannot detect the metering perturbing its fixture,
+	// since each Run builds its own. The real protection is the signature —
+	// schemaBytes takes no workspace root, so it has nothing to perturb. The
+	// schema and manifest figures ARE stable, because they carry no record IDs.
 	a, err := Run(bin)
 	if err != nil {
 		t.Fatal(err)
@@ -772,8 +782,9 @@ func TestSchemaMeteringIsRealAndInert(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Bytes != b.Bytes {
-		t.Errorf("per-call total is not reproducible: %dB then %dB", a.Bytes, b.Bytes)
+	if a.SchemaBytes != b.SchemaBytes || a.ManifestBytes != b.ManifestBytes {
+		t.Errorf("session measurements are not stable: schema %d/%d, manifest %d/%d — these carry no record IDs and must not wander",
+			a.SchemaBytes, b.SchemaBytes, a.ManifestBytes, b.ManifestBytes)
 	}
 	if a.SchemaBytes == 0 || b.SchemaBytes == 0 {
 		t.Errorf("Run did not carry the schema measurement: %d, %d", a.SchemaBytes, b.SchemaBytes)
