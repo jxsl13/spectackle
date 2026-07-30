@@ -381,7 +381,12 @@ func nextAction(it item.Item, short func(string) string) string {
 		return "next check until ok, then move id=" + id + " to=archived with a substance note | or: move to=active (reopen) · move to=rejected note="
 	case item.StateBlocked:
 		if len(it.Needs) > 0 {
-			return "next decide op=answer id=" + short(it.Needs[0]) + " — the linked decision is the only exit (rescope|reject|override-once)"
+			// No enumeration here, deliberately (HINT-001): the values belong
+			// on the refusal that rejects a wrong one, not on a hint every
+			// blocked render pays for — and this literal was measurably WRONG
+			// once override-once had been spent, advertising an option the
+			// parser then refused. The ADR itself carries the live set.
+			return "next decide op=answer id=" + short(it.Needs[0]) + " — the linked decision is the only exit; it lists the outcomes it accepts"
 		}
 		return "next decide — resolve the linked decision, the only exit from blocked"
 	}

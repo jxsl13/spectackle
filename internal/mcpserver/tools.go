@@ -975,12 +975,30 @@ func (sc idScope) substance(it item.Item) string {
 // and the resolution given as an object the caller can send rather than a
 // prose list of choices — the sibling rule refusal already hands back a
 // shape line, and that inconsistency is what cost the extra call.
-func roundsRefusal(item, requested, decision string) string {
+func roundsRefusal(rec, requested, decision string, options []string) string {
+	// Render the enumeration from the ADR's OWN options, never a literal. The
+	// set is not constant: override-once can be spent, and a second escalation
+	// then offers only rescope|reject — while this refusal, hard-coded, kept
+	// advertising override-once and the parser refused it. A refusal exists to
+	// teach the value that will be accepted (HINT-001); teaching one that will
+	// not is worse than teaching nothing, because the caller spends a call
+	// finding out (B-01KYS7111XFHZ).
+	if len(options) == 0 {
+		options = []string{"rescope", "reject", "override-once"}
+	}
+	effect := map[string]string{
+		"rescope": "rescope→draft", "reject": "reject→rejected", "override-once": "override-once→active",
+	}
+	var eff []string
+	for _, o := range options {
+		if e, ok := effect[o]; ok {
+			eff = append(eff, e)
+		}
+	}
 	return fmt.Sprintf(
 		"! ROUNDS E %s move to %s REFUSED — rounds exhausted, item is now blocked\n"+
-			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"rescope|reject|override-once\"} "+
-			"(rescope→draft, reject→rejected, override-once→active)\n",
-		item, requested, decision)
+			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"%s\"} (%s)\n",
+		rec, requested, decision, strings.Join(options, "|"), strings.Join(eff, ", "))
 }
 
 // enumerableScopes lists the scopes an empty query can enumerate — every FTS
@@ -1782,7 +1800,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				// hears it (never silent, and never mislabeled as fine).
 				bShort2 := sc.short(blocked.ID)
 				return refuse(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
-					roundsRefusal(bShort2, in.To, sc.short(dec.ID)))
+					roundsRefusal(bShort2, in.To, sc.short(dec.ID), item.ParseOptions(dec.Body)))
 			}
 			s.markDirty()
 			// fresh scope: dec was just minted, and the same staleness that
@@ -1791,7 +1809,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, err
 			}
 			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
-			return refuse(roundsRefusal(bShort, in.To, dShort))
+			return refuse(roundsRefusal(bShort, in.To, dShort, item.ParseOptions(dec.Body)))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per

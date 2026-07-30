@@ -365,10 +365,31 @@ func TestDecideBlockedOverrideOnce(t *testing.T) {
 	// (B-01KYKEWMHEFW1: a judge following the old "decide <task-id>
 	// outcome=..." text failed twice — no outcome field exists and the
 	// target is the ADR). Pin: op=answer, the ADR's SHORT id, choose=.
-	if adr, ok, _ := item.Get(s.ws, decision.ID); !ok ||
+	adr, ok, _ := item.Get(s.ws, decision.ID)
+	if !ok ||
 		!strings.Contains(adr.Body, "decide op=answer id="+shortDisplayID(decision.ID)+" choose=") ||
 		strings.Contains(adr.Body, "outcome=") {
 		t.Fatalf("escalation hint must name the callable decide invocation:\n%s", adr.Body)
+	}
+	// AND the parser must agree with the text above. The check above pinned that
+	// the WRITER changed from outcome= to choose=, and nothing pinned that the
+	// READER followed. It did not — the regex lived in two packages and was
+	// updated in neither, so every escalation ADR accepted free text and a typo
+	// stranded its item forever (B-01KYS7111XFHZ). Verifying one half of a
+	// two-sided contract is how that survived.
+	//
+	// Scope of this assertion, stated because measuring it is the only way to
+	// know: it does NOT individually kill either mutation. Escalate now carries
+	// the options twice — the `choose=` prose and the `option:` lines — so
+	// deleting one leaves the other parseable and this stays green either way.
+	// The individual pins are elsewhere and were mutation-checked there:
+	// lifecycle's TestEscalateBodyIsAnswerableByConstruction strips the prose
+	// line, and item's TestParseOptionsAcceptsBothEscalationSpellings feeds a
+	// prose-only body. What THIS adds is the end-to-end property at the boundary
+	// that actually answers decisions: whatever Escalate writes, this package
+	// can parse.
+	if opts := item.ParseOptions(adr.Body); len(opts) != 3 {
+		t.Fatalf("escalation body is not answerable: ParseOptions = %v, want 3 outcomes\n%s", opts, adr.Body)
 	}
 	if blocked.State != item.StateBlocked {
 		t.Fatalf("setup: item not blocked: %+v", blocked)
@@ -395,7 +416,9 @@ func TestDecideBlockedOverrideOnce(t *testing.T) {
 	}
 
 	// a rejected choose outside the decision's stored options (rescope,
-	// reject, override-once from lifecycle.Escalate's outcome= sentence) is
+	// reject, override-once, carried by lifecycle.Escalate's `option:` lines
+	// and its `choose=` sentence — NOT the `outcome=` spelling this comment
+	// used to name, which no writer has produced since the text was changed) is
 	// refused before ResolveBlocked ever sees it — override-once is one-shot
 	// and would otherwise error there too, but the option-set check catches
 	// nonsense earlier and with a clearer message.
