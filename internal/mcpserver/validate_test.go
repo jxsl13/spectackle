@@ -51,11 +51,17 @@ func TestArchiveRequiresPassingValidation(t *testing.T) {
 	}
 }
 
-// gitCommitAs commits the working tree citing the item's FULL ID — the
-// attribution itemDiff's fallback recovers.
+// gitCommitAs commits the working tree through the SAME subject composer the
+// server's code-checkpoint writers use. It deliberately does not spell the
+// format out: this fixture used to compose "spectackle <FULL ID>: <msg>"
+// itself, which the server stopped writing when its git surfaces moved to the
+// short display form, so this test kept passing against a subject production no
+// longer produced and the diff-binding contract it pins was dead in the field
+// (B-01KYS6Y5NKF42). Passing the full ID is still the interesting case — the
+// short form is a strict prefix, so attribution must recover both.
 func gitCommitAs(t *testing.T, root, fullID, msg string) {
 	t.Helper()
-	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "spectackle " + fullID + ": " + msg}} {
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", codeCommitSubject(fullID, msg)}} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -474,4 +480,35 @@ func mustWS(t *testing.T, root string) workspace.Root {
 		t.Fatal(err)
 	}
 	return ws
+}
+
+// TestAttributionFindsProductionCommitSubject is the test whose absence let the
+// diff-binding contract die silently. TestValidateDiffBinding pinned the
+// CONTRACT but composed its own commit subject, so when the server's git
+// surfaces moved to the short display form the fixture kept producing the old
+// format and the test kept passing while attribution matched nothing in the
+// field (B-01KYS6Y5NKF42). This asserts the two halves that actually have to
+// agree: a subject produced by the production composer is attributable, and a
+// records commit is not.
+func TestAttributionFindsProductionCommitSubject(t *testing.T) {
+	const full = "T-01KYS8DSRBFJKB3RTT14XJ35S6"
+	short := shortDisplayID(full)
+	if short == full {
+		t.Fatalf("fixture ID must have a short form distinct from the full ID; got %q", short)
+	}
+	// The grep pattern attribution uses must match what the writers produce.
+	subj := codeCommitSubject(full, "checkpoint")
+	if !strings.Contains(subj, short) {
+		t.Errorf("production subject %q does not contain the attribution pattern %q", subj, short)
+	}
+	// And it must NOT be mistaken for a records commit, which the scan drops.
+	if strings.HasPrefix(subj, "spectackle(") {
+		t.Errorf("production subject %q would be filtered as a records commit", subj)
+	}
+	// The full form is a strict prefix relationship, so a subject carrying the
+	// FULL id (internal/mcpserver/swarm.go still writes one) stays attributable
+	// under the same single grep.
+	if !strings.Contains("spectackle "+full+": x", short) {
+		t.Errorf("a full-ID subject is not matched by the short pattern %q", short)
+	}
 }

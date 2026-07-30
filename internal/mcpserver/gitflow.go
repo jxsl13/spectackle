@@ -159,6 +159,19 @@ func (s *Server) gitEnabled() bool {
 // PR body first line, every .spectackle record) keep the FULL ID — the
 // audit join and replay resolve exact IDs, never prefixes. Legacy or
 // short-shaped IDs pass through unchanged.
+// codeCommitSubject composes the subject of a code checkpoint commit. It is
+// the ONE place that format is written, because it is also the format
+// validate.go's attribution greps for, and the two drifted apart once already:
+// three writers composed it inline while validate_test.go's fixture composed a
+// DIFFERENT format inline, so the regression test that pins the diff-binding
+// contract passed against a subject the server no longer produced. Green test,
+// dead gate — every verdict bound to an empty diff for as long as that lasted
+// (B-01KYS6Y5NKF42). Two functions obliged to agree about a permanent artifact
+// is the shape that produced it; one is the fix.
+func codeCommitSubject(id, subject string) string {
+	return "spectackle " + shortDisplayID(id) + ": " + subject
+}
+
 func shortDisplayID(id string) string {
 	kind, body, ok := strings.Cut(id, "-")
 	if !ok || len(body) <= ids.MinRecordPrefixLen {
@@ -231,7 +244,7 @@ func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate
 		res.addf("! GIT E %s offline: HEAD is unborn or detached — check out a branch, then retry", shortDisplayID(it.ID))
 		return res
 	}
-	if committed, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+subject); err != nil {
+	if committed, err := wt.CommitCode(dir, codeCommitSubject(it.ID, subject)); err != nil {
 		res.addf("! GIT E %s commit: %s", shortDisplayID(it.ID), err)
 		return res
 	} else if committed {
@@ -284,7 +297,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		res.addf("! GIT E %s branch: %s", it.ID, err)
 		return res
 	}
-	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+it.Title); err != nil {
+	if _, err := wt.CommitCode(dir, codeCommitSubject(it.ID, it.Title)); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 	}
 	s.gitCommitRecords(res, it, item.StateActive)
@@ -394,7 +407,7 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	}
 	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
-	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": checkpoint"); err != nil {
+	if _, err := wt.CommitCode(dir, codeCommitSubject(it.ID, "checkpoint")); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 		return res
 	}
