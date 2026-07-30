@@ -343,9 +343,8 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
 kind: bug
-state: blocked
+state: draft
 created: 2026-07-28
-rounds: 3
 needs: ADR-01KYRQSQDGEH89ERCR8N672AJW
 targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
 
@@ -379,8 +378,12 @@ VERIFY. A test asserting a heading-shaped body line does not produce a second it
 
 ## ADR-01KYRQSQDGEH89ERCR8N672AJW escalate B-01KYN3E973F20: rescope|reject|override-once
 kind: adr
-state: draft
+state: done
 created: 2026-07-30
 parent: B-01KYN3E973F20VH7DHPE1YSSD7
+decision: rescope
+consequences: Rescope, because the three rounds converged rather than thrashed and what is left belongs to a different contract. Round 1 fixed the reported corruption in the work.md machine header. Round 2 closed a publicly reachable state-machine bypass through targets and the stranded-record ordering. Round 3 closed a regression the fix itself introduced, where the truncation marker manufactured a value the new guard refused and a rejected record became unrevokable. An independent verifier then swept that exhaustively - every cut phase, CRLF, straddling multi-byte runes, revocation to each allowed previous state, a real pre-fix journal for backward compatibility - and passed it, with go test green and bench A/B +0B. The remaining finding is NOT in this record scope: capGist routes through the same composer, so the marker leading newline splits spec.md intent line for an archive note over 400 bytes, and AppendIntent per-line dedupe cannot key the resulting orphan, so it duplicates unbounded on retries. Two independent verifiers reported it and both confirmed it is pre-existing rather than caused by this work, and it damages a different file under a different contract - spec.md living contracts, not work.md records - which is exactly why it gets its own record and its own verification instead of holding this one open while each round finds the next consumer of the same composer. Also filed from these rounds: the status field rides the prose composer while restoreRecord trusts it raw, latent today because every write path pins Status to the enum, and summary truncating with a naked byte slice that can emit invalid UTF-8.
+status: accepted
 
 B-01KYN3E973F20 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYRQSQDGEH8 choose=rescope|reject|override-once.
+choice: rescope
