@@ -22,7 +22,7 @@ VERIFY. A prep run in the new mode whose brief contains a tool description verba
 
 ## B-01KYTES575EBVSCCKA08P0BF32 the manifest is static text is imprecise: manifest() appends a runtime-resolved URL from build info
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/bench/bench_test.go
 
