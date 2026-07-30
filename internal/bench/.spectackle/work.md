@@ -19,3 +19,21 @@ DIRECTION. Add a mode to agent-prep - alongside the existing -with-manifest - th
 STATED TRAP, from the cost work: two of the fattest metered lines are landed judge FIXES - a 246B VALIDATE W advisory and a 58B gloss on the ROUNDS refusal - which exist because judges misread the shorter versions. A byte metric alone scores removing them as a win. That is BENCH-001 inverted, the benchmark sanctioning a regression, and it is exactly why the benefit side has to exist before any trimming is justified by numbers.
 
 VERIFY. A prep run in the new mode whose brief contains a tool description verbatim and whose sidecar records the payload size; a scored run that names its mode; and an assertion that the default mode is still name-only so an unlabeled historical comparison cannot silently mix regimes.
+
+## B-01KYT9AT0CFBCVG13K6M0R0XCT the bench per-call total is not byte-reproducible across runs, so the reproducibility assertion I shipped in v0.9.0 flakes CI
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/bench/bench_test.go
+
+MY BUG, shipped in v0.9.0 and caught by CI on the next PR: TestSchemaMeteringIsRealAndInert fails with per-call total is not reproducible: 4162B then 4168B. It passed locally on repeated runs and fails on the CI runner.
+
+CAUSE. The assertion claims two Run calls over the same script and fixture must meter byte-identical per-call totals. That is not an invariant. Each Run mints fresh record IDs, IDs are time-ordered, and the adaptive short-prefix shortener picks a prefix length from what is unambiguous in that workspace - so two runs can render IDs of different widths and the totals differ by a few bytes. Locally the runs happened to land on the same widths; the CI runner is loaded enough that they did not.
+
+WHY THE ASSERTION SHOULD GO RATHER THAN BE LOOSENED. Its stated purpose was to prove the schema metering does not perturb the fixture it measures. A verifier already established by mutation that it does NOT do that: two Run calls each build their own fresh fixture, so a perturbation happens identically in both and the totals still agree. The comment above it was corrected to say so, and to say the real protection is the signature - schemaBytes takes no workspace root and therefore has nothing to perturb. So the assertion pins nothing it claims to pin, and now it is actively wrong about a property the program does not have. Delete it; keep the schema-magnitude assertions in the same test, which ARE mutation-verified.
+
+WORTH RECORDING: this is the same shape as the defects this session kept finding, inverted. Those were assertions that looked like coverage and caught nothing. This is an assertion that caught something - a real difference between two runs - and was WRONG to, because the difference is legitimate. Both come from writing an assertion without measuring whether the property holds.
+
+FIX. Remove the reproducibility check and its now-false rationale. If a stability property is wanted later, it has to be stated against something that is actually stable - the metered schema and manifest sizes are, since they do not contain record IDs.
+
+VERIFY. Run the bench test repeatedly under load and confirm it is green; assert the schema and manifest figures ARE stable across runs, since those carry no IDs.
