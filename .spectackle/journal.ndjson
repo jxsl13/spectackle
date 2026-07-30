@@ -587,3 +587,4 @@
 {"t":"2026-07-30T03:48:13Z","eid":"a5c06b954b5663ad","ag":"ag-aba2","ev":"move","id":"B-01KYN3E973F20VH7DHPE1YSSD7","fr":"rejected","to":"draft","note":"revoking to widen targets"}
 {"t":"2026-07-30T03:48:14Z","eid":"2237f3e691e35a62","ag":"ag-ca0d","ev":"revise","id":"B-01KYN3E973F20VH7DHPE1YSSD7","note":"targets revised"}
 {"t":"2026-07-30T03:48:59Z","eid":"60fc9720588f2844","ag":"ag-44bf","ev":"revise","id":"B-01KYN3E973F20VH7DHPE1YSSD7","note":"targets revised"}
+{"t":"2026-07-30T03:49:00Z","eid":"59bc6c5b21682aa3","ag":"ag-26ae","ev":"move","id":"B-01KYN3E973F20VH7DHPE1YSSD7","fr":"draft","to":"active","note":"targets widened to the three boundary files plus the test file"}
