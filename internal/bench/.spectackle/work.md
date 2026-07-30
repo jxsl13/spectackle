@@ -37,3 +37,19 @@ WORTH RECORDING: this is the same shape as the defects this session kept finding
 FIX. Remove the reproducibility check and its now-false rationale. If a stability property is wanted later, it has to be stated against something that is actually stable - the metered schema and manifest sizes are, since they do not contain record IDs.
 
 VERIFY. Run the bench test repeatedly under load and confirm it is green; assert the schema and manifest figures ARE stable across runs, since those carry no IDs.
+
+## B-01KYTBR3BAF9KAQDD1N06FWX4R the doc comment above TestSchemaMeteringIsRealAndInert still describes the assertion that was removed from it
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/bench/bench_test.go
+
+Flagged by the verifier of B-01KYT9AT0CFBC as a non-blocking nit, filed rather than folded in because that record was already verified and archiving.
+
+The doc comment above TestSchemaMeteringIsRealAndInert still ends with a sentence saying the reproducibility assertion below is kept because it is cheap and pins a different property, that the scripted total does not wander between runs. That assertion was REMOVED by B-01KYT9AT0CFBC, precisely because the scripted total DOES wander - each Run mints fresh record IDs and the adaptive shortener picks a prefix width from what is unambiguous in that workspace. The comment now describes code that is not there and asserts a property the program does not have.
+
+WHY IT IS WORTH A RECORD rather than a silent edit: this is the fourth comment in one week found asserting something untrue, after the truncation-marker ordering claim, the schemas-exceed-64KB claim, and the two parser doc comments that said Escalate writes outcome=. Each was harmless alone and each cost a later reader real time. The pattern is that comments are edited when the code they sit above changes, and NOT when code they merely refer to is deleted.
+
+FIX. Replace the trailing sentence with what the test now does: assert the SESSION measurements - schema and manifest - are stable across runs, because unlike the per-call total they carry no record IDs. Keep the explanation of why the per-call total is not stable, since that is the part a future reader needs in order not to re-add the assertion.
+
+VERIFY. Read the comment against the test body and confirm every sentence describes code that exists. Cheap, and the only check that would have caught any of the four.
