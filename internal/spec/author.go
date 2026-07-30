@@ -339,12 +339,39 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 		// collided, while still reporting success. A silently skipped intent
 		// line is permanent history loss, and that made the guard worse than
 		// the duplication it replaced.
+		// Also HEAL duplicates already on disk. The write-time guard cannot
+		// prevent them on its own: git gives spec.md a default three-way
+		// merge (only journal.ndjson and bench.ndjson are declared
+		// merge=union), and two branches that each appended the SAME line at
+		// a different position merge to two copies — two independent
+		// insertions, both kept. Since every archive in the worktree flow
+		// merges, the guard was necessary and not sufficient
+		// (B-01KYQR51GXEQN).
+		//
+		// Healing here rather than in a merge driver: a driver needs local
+		// git config, and an unconfigured clone falls back to the broken
+		// default silently, which is the worst property a records format can
+		// have. This function already reads the whole file and scans it to
+		// enforce one-line-per-record, so the fix costs nothing extra and
+		// converges on the next archive.
 		have := map[string]bool{}
+		healed := false
+		var kept []string
 		for _, l := range lines {
-			if id := intentRecordID(l); id != "" {
-				have[id] = true
+			id := intentRecordID(l)
+			if id == "" {
+				kept = append(kept, l)
+				continue
 			}
+			if have[id] {
+				healed = true // a merge left a second copy of this record
+				continue
+			}
+			have[id] = true
+			kept = append(kept, l)
 		}
+		lines = kept
+
 		var keep []string
 		for _, l := range strings.Split(line, "\n") {
 			if id := intentRecordID(l); id != "" && have[id] {
@@ -353,7 +380,13 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 			keep = append(keep, l)
 		}
 		if len(keep) == 0 {
-			return nil
+			// nothing to append — but a heal may still be pending, and
+			// dropping it here would leave the duplicates for a caller who
+			// never appends again
+			if !healed {
+				return nil
+			}
+			return os.WriteFile(abs, []byte(strings.Join(lines, "\n")), 0o644)
 		}
 		line = strings.Join(keep, "\n")
 		// find the intent section's end (last non-empty line before next heading)
