@@ -340,3 +340,20 @@ TWO DEFECTS, likely one cause. (1) The advisory path returns early or overwrites
 FIX DIRECTION. Advisories and the summary are different record types (c versus ok) and must compose: emit every c record AND the ok line. Then decide what the gate asserts - either it accepts advisory lines alongside the ok summary, or check gains a mode that suppresses advisories for gate use. The gate asserting a single line is what turned a soft nudge into a hard failure, so whichever is chosen, the CI expression and the render have to be changed together. Dedupe the advisory per dir.
 
 VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
+
+## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
+kind: bug
+state: draft
+created: 2026-07-28
+rounds: 2
+targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go
+
+internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
+
+REPRODUCTION (found by an independent validator during T-01KYMPN0PNEWV, confirmed pre-existing: git diff origin/main...HEAD -- internal/item/ is empty). knowledge export entries=[{kind: adr, context: "Line one.\nLine two.", decision: go-with-A, status: accepted, options: [...]}] then knowledge apply. get shows decision and status swallowed into the body text; the reloaded items .Decision and .Status are empty strings.
+
+IMPACT is not cosmetic. Every consumer that reads those fields sees them as unset on a record that plainly has them: the archive tombstone retains an empty decision (so an archived multi-paragraph ADR loses which option won - the same loss class LC-001 was written to close, arriving through a different door), knowledge.Extract exports an ADR with no decision, and knowledge apply then reports a spurious divergence between two repositories that actually agree - the validator observed x adr ... ours="" theirs="keep as is" for identical content, caused purely by the local copy being corrupted on reload. Multi-paragraph context and consequences are the NORMAL shape for a real ADR, so this is reachable by ordinary use, not by adversarial input.
+
+DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
+
+VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
