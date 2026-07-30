@@ -755,7 +755,17 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 			return errors.New("closure reconcile failed")
 		}
 	}
-	if _, err := git("add", "-A", "--", workspace.Dot); err != nil {
+	// Stage the resolved records by PATH, not by a root pathspec. This was
+	// `add -A -- .spectackle`, which matches only the root context — so once the
+	// classifier above became nesting-aware, a nested-only records conflict was
+	// classified `inside`, `checkout --theirs` ran, and then this add failed
+	// with "pathspec did not match any files", leaving the file unmerged and
+	// aborting the merge. It failed CLOSED, so nothing was lost, but the
+	// `inside` verdict could not be acted on and the operator saw a reconcile-add
+	// error instead of a resolvable conflict. Staging the exact files the
+	// classifier resolved needs no pathspec and cannot drift from it again
+	// (B-01KYSDBZTEF1A).
+	if _, err := git(append([]string{"add", "--"}, inside...)...); err != nil {
 		_, _ = git("merge", "--abort")
 		res.addf("! GIT E %s closure reconcile add: %s", id, err)
 		return errors.New("closure reconcile failed")
