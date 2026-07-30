@@ -361,7 +361,7 @@ VERIFY. A test asserting a heading-shaped body line does not produce a second it
 
 ## B-01KYRQXJ99F48SKET4JYD70HYS the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 targets: internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go, internal/spec/author.go, internal/spec/author_test.go
 
