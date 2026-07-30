@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -118,6 +119,33 @@ type GitCfg struct {
 	// be readable in git log by humans, so the default stays edges and the
 	// dissent is recorded on the task.
 	Commits string `yaml:"commits"`
+
+	// AwaitChecks is how many SECONDS the archive closure waits for the
+	// head's CI verdict before refusing whole. It was a hardcoded 5 minutes,
+	// which sat inside this repository's own CI duration distribution
+	// (measured 3m43s-5m38s across ten consecutive runs) — so archives
+	// refused on builds that were merely unfinished, and because a refusal
+	// compensates by writing a journal event, the retry pushed a new commit
+	// that started CI over. The wait could never converge
+	// (B-01KYQJDJJVFC2).
+	//
+	// A knob rather than a bigger constant: the right value is a property of
+	// the repository's CI, not of this program, and the code's own comment
+	// already framed the budget as bounding damage rather than as a
+	// correctness boundary. 0 or omitted means the default; see AwaitBudget.
+	AwaitChecks int `yaml:"await_checks"`
+}
+
+// AwaitBudget is how long the archive closure waits for CI, as a duration.
+// The default is deliberately ABOVE the slowest CI run observed in this
+// repository rather than near its median: a wait that expires on a green
+// build costs a retry, and a retry restarts CI, so the failure is not
+// symmetric with waiting slightly too long.
+func (g GitCfg) AwaitBudget() time.Duration {
+	if g.AwaitChecks > 0 {
+		return time.Duration(g.AwaitChecks) * time.Second
+	}
+	return 12 * time.Minute
 }
 
 // EdgeCommits reports whether the edge-commit engine is armed: empty (key
@@ -742,6 +770,8 @@ func scaffoldConfigYAML() []byte {
 	fmt.Fprintf(&b, "  risk_files: %d  # landed-diff file count that requires a validation verdict even when validate is warn\n", d.Feedback.RiskFiles)
 	b.WriteString("  dangerous_paths: []  # repo-relative globs whose landed changes require a validation verdict (empty by default)\n")
 	fmt.Fprintf(&b, "worktrees_dir: %q  # override for .spectackle/wt (abs or root-relative); empty = default location\n", d.WorktreesDir)
+	b.WriteString("git:\n")
+	b.WriteString("  await_checks: 0  # seconds the archive closure waits for CI (0 = 12m default; set ABOVE your slowest CI run — a wait that expires on a green build costs a retry, and the retry restarts CI)\n")
 	fmt.Fprintf(&b, "coverage_gate: %q  # \"package\": check counts internal/ and cmd/ packages without a binding contract as findings; empty = silent (visibility stays in state)\n", d.CoverageGate)
 	return []byte(b.String())
 }

@@ -36,25 +36,27 @@ VERIFY: a test that adds a rule with a path-shaped applies and asserts the rende
 
 ## B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
+rounds: 1
+grilled: 2026-07-29 open=0
 targets: internal/item, internal/mcpserver
 
-Found by a researched comparison against edg-l/engram-mcp, then verified directly against this codebase.
+VERIFIED against the code, and the exposure is wider than first filed.
 
-TODAY. item.Item.Status is a bare string (internal/item/item.go:92); the enum proposed|accepted|superseded|deprecated exists only in a doc comment there and in a jsonschema DESCRIPTION at internal/mcpserver/tools.go:117, which is documentation, not validation - nothing rejects an arbitrary value. The only place all four values appear in executable code is a test. find scope=adr maps to kinds {adr} (internal/mcpserver/tools.go:323) with no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one in the render. And nothing anywhere records WHICH decision replaced a retired one: supersession is an assertion an agent types into a field, with no edge, no event, and no way to ask what superseded ADR-X.
+TODAY. item.Item.Status is a bare string. The enum proposed|accepted|superseded|deprecated exists in exactly two places, neither of which validates: a doc comment at internal/item/item.go and a jsonschema DESCRIPTION at internal/mcpserver/tools.go. Nothing rejects an arbitrary value. Worse than a caller typo: internal/mcpserver/knowledge.go's ADR-apply path assigns d.Status = e.Status straight from an IMPORTED artifact, so a foreign repository can inject any string into this workspace - including superseded, which is supposed to be a consequence rather than a claim. find scope=adr also has no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one.
 
-WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted on answer (T-01KYMPN0PNEWV, just landed). As repositories exchange knowledge repeatedly, decisions on the same question accumulate: the workspace ends up holding several accepted ADRs for one question, ordered by nothing, with the superseding relationship recorded nowhere. The feature that just shipped to stop conflicts from vanishing therefore has no answer to which surviving decision is current. find scope=adr degrades monotonically as a repository ages, which also makes it a token-cost regression on the hottest research path.
+WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted (T-01KYMPN0PNEWV, landed). As repositories exchange knowledge repeatedly, decisions on one question accumulate; nothing records which replaced which, so the feature built to stop conflicts vanishing has no answer to which surviving decision is current. find scope=adr therefore degrades monotonically as a repository ages, on the hottest research path.
 
-DIRECTION, decided by the comparison. Make superseded UNREACHABLE BY ASSIGNMENT: it becomes a consequence of minting a replacement that names its predecessor, never a value an agent writes. Concretely: (1) validate Status against the four values at the write path, refusing anything else; (2) refuse a direct transition to superseded, with the refusal naming the operation that IS allowed; (3) the replacement path writes ONE journal event carrying both IDs - compaction's keep-list already preserves decide forever, so the edge survives archival without new retention machinery; (4) find scope=adr excludes superseded by default with an opt-in to include them, and get on a superseded ADR names its replacement.
+SCOPE, narrowed deliberately after verification. This item now covers ONLY the half that is unambiguous and cheap: (1) one validator, item.ValidStatus, accepting the four values and empty; (2) every write path that takes a status from outside the server validates through it - the imported-artifact path first, since that is untrusted input, and the tool boundary second; (3) superseded is REFUSED from any direct assignment, with the refusal naming the operation that is allowed, because a record cannot truthfully claim to be superseded without naming what replaced it.
 
-REJECTED ALTERNATIVE, and why. engram-mcp wraps insert + status flip + edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing (superseded is a consequence), not the mechanism.
+SPLIT OUT, not done here: the supersession EDGE - minting a replacement that names its predecessor, both IDs in one journal event, and get on a retired ADR naming its replacement - is a design change large enough to deserve its own record, and it depends on this validation existing first. Likewise the find scope=adr default filter, which the earlier version of this item required be MEASURED before shipping: on a workspace with at least five retired ADRs, compare the find output token delta with and without it, and if the difference sits inside the bench noise floor then ship the validation and skip the filter, calling it discipline rather than savings.
 
-TESTS: minting a replacement retires the predecessor and both IDs land in one event; a direct status=superseded write is refused and the refusal names the allowed operation; find scope=adr returns only live decisions by default and all of them with the opt-in; get on a retired ADR names its replacement; an invalid status value is refused.
+REJECTED ALTERNATIVE. engram-mcp wraps insert plus status flip plus edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing - superseded is a consequence - not the mechanism.
 
-MEASURE BEFORE SHIPPING THE FILTER. On a workspace holding at least five retired ADRs, benchmark the find scope=adr output token delta with and without the default filter. If it sits inside the bench noise floor, ship the validation and the edge and skip the filter - it is then discipline rather than savings, and should be justified as such rather than as a token win.
+TESTS: an invalid status is refused at the tool boundary and on the imported-artifact path; a direct status=superseded is refused with the allowed operation named; the four valid values and empty all pass; an artifact carrying a bogus status does not poison the workspace.
 
-VERIFY: go build ./... && go test ./... -count=1 && gofmt -l . empty.
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty.
 
 ## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
 kind: bug
@@ -120,10 +122,11 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 
 ## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
 kind: task
-state: draft
+state: active
 created: 2026-07-29
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+rounds: 2
 grilled: 2026-07-29 open=0
 targets: internal/mcpserver
 
@@ -249,6 +252,29 @@ option: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 option: carry Created on the reject and archive events
 choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 
+## B-01KYQR51GXEQNTJXJ0FJ329KGJ spec.md's append-only intent section has no merge strategy, so any branch merge defeats AppendIntent's idempotency
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/spec, internal/workspace
+
+ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
+
+.spectackle/.gitattributes declares merge=union for journal.ndjson and bench.ndjson - correct, they are append-only logs where a union is exactly right and a duplicate line is faithful. spec.md and work.md have NO strategy, so they take gits default three-way merge.
+
+That is fine for spec.mds rule sections, which are genuinely edited and need a real merge. It is wrong for its ## intent section, which is append-only in practice: every archive appends one line and nothing ever edits an existing one. Two branches that each append a DIFFERENT line produce an interleave or a conflict; two branches that each append the SAME line at a different position produce TWO COPIES, because git sees two independent insertions at two locations and keeps both. Reproduced here: lines 261 and 264 of the root spec.md are the same record with two other records between them.
+
+WHY THE PER-WRITE FIX CANNOT COVER THIS. B-01KYQJDJJVFC2 made AppendIntent idempotent by scanning the section before writing. That guard is per-WRITE and inside one working tree; it cannot see the other branchs write, and by merge time both writes have already happened. So the guard is necessary and not sufficient, and every worktree-based archive - the documented primary workflow - can reintroduce a duplicate that no single write path is in a position to prevent.
+
+DIRECTION, and the choice is a real one:
+(a) A custom merge driver for spec.md that unions and dedupes the intent section while merging the rest normally. Correct but adds a driver every clone must configure, and an unconfigured clone silently falls back to the broken default - which is the worst property a records format can have.
+(b) Move intent lines OUT of spec.md into their own append-only file with merge=union, deduped on READ. Then the format matches the access pattern (append-only, one statement per record), the merge strategy is declarative and needs no local configuration, and duplicates become harmless rather than merely prevented. Costs a format change and a migration for existing bundles.
+(c) Keep the file and dedupe on read wherever the intent section is consumed, accepting duplicates on disk. Cheapest, but it leaves a permanent human-readable artifact - the one thing intent lines exist to be - visibly wrong in every diff.
+
+(b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
+
+VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
+
 ## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
 kind: research
 state: done
@@ -287,3 +313,21 @@ option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op wr
 option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
 blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
 choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+
+## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver
+
+Two inline-enum gaps found by independent judges driving the tricky scenario from tool output alone. Filed together because they are the same defect shape and, unlike the additions reverted in T-01KYQ5047CE5M, judges named these as costing them specifically.
+
+D1, move. Its shape line is shape: move {id*, to*, note}. The destination is the entire point of the call and its legal set is invisible. A judge guessed done and active and said so plainly: complete, closed, finished, in-progress and wip were equally plausible guesses that would have burned calls. The judge also drew the comparison itself - rule DOES inline pattern*:U|E|S|N|O|C and draft DOES inline its kind enum, so move is inconsistent with its own siblings. Another judge independently reported the same absence, adding that the whole state machine - which states exist, which transitions are legal, the intended order - is invisible from any output, and that it only knew done and active because the brief handed it those words.
+
+D2, the EARS pattern letters. pattern*:U|E|S|N|O|C ships six bare single letters with no legend in any output. A judge said it only knew these were EARS patterns from outside knowledge and hedged by copying U off an existing rule. Nothing in the surface lets a caller pick the right letter, which makes the enum present but unusable.
+
+WHY THESE ARE DIFFERENT FROM WHAT WAS JUST REVERTED. T-01KYQ5047CE5M added shapes to tools where discovery was not the bottleneck and measured 59 to 63 calls, so it was reverted. These two are the enums judges actually reached for and could not find, and D1 is an INCONSISTENCY rather than an addition: two sibling tools already pay for their enums, so matching them is closing a gap rather than growing the surface. Note the honest caveat from the same data: judges flagged D1 at 0 wasted calls each, because they guessed correctly. The cost is a near miss, not a measured loss - so this must be measured the same way and reverted the same way if calls do not fall.
+
+DIRECTION. D1: inline the destination enum, in the style draft and rule already use, and echo the legal set on an invalid value. D2: expand the letters where they appear - pattern*:U=ubiquitous|E=event|S=state|N=unwanted|O=optional|C=complex - and consider whether the letters should survive at all if the words cost little more. Both additions must be funded or measured, per the constraint that the metric is tokens per call.
+
+VERIFY: a judged before/after run with four independent agents on the tricky scenario, calls compared against the 59-call reference; plus a byte A/B with both binaries built -buildvcs=false, since a pseudo-version difference silently swung an earlier measurement by 34B per render.

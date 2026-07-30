@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/knowledge"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -1078,5 +1079,135 @@ func TestRoundsExhaustedRefusesInsteadOfReportingSuccess(t *testing.T) {
 	}
 	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "rescope"}); strings.Contains(got, "! ") {
 		t.Fatalf("the handed-back call must work: %q", got)
+	}
+}
+
+// TestStatusFromOutsideIsValidated: item.Item.Status was a bare string whose
+// enum lived only in a doc comment and a jsonschema DESCRIPTION, neither of
+// which validates. The exposure was not a caller typo but an IMPORTED
+// artifact: the ADR-apply path assigned d.Status = e.Status straight from
+// another repository's entry, so a foreign artifact could inject any string —
+// including "superseded", which is a consequence of a replacement and not a
+// claim an artifact is in a position to make (B-01KYNA4PJNF5K).
+func TestStatusFromOutsideIsValidated(t *testing.T) {
+	artifact := func(status string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" +
+			"## adr 2222222222222222\nquestion: which serialization?\ndecision: protobuf\n" +
+			"status: " + status + "\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n"
+	}
+
+	t.Run("a bogus status does not poison the workspace", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("totally-made-up")})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "not accepted from an artifact") {
+			t.Fatalf("an invalid imported status must be refused:\n%s", out)
+		}
+		// and the refusal names the legal set, so the caller learns it
+		for _, want := range item.Statuses() {
+			if !strings.Contains(out, want) {
+				t.Fatalf("the refusal must name %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("superseded is refused even though it is a legal value", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("superseded")})
+		if !strings.Contains(out, "! ARG E") {
+			t.Fatalf("an artifact may not assert superseded:\n%s", out)
+		}
+		if !strings.Contains(out, "consequence") {
+			t.Fatalf("the refusal must say why, not just no:\n%s", out)
+		}
+	})
+
+	t.Run("the legal values still apply", func(t *testing.T) {
+		for _, st := range []string{"proposed", "accepted", "deprecated"} {
+			sess := connectRoot(t, t.TempDir())
+			out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact(st)})
+			if strings.Contains(out, "! ARG E") {
+				t.Fatalf("status %q must be accepted: %s", st, out)
+			}
+		}
+	})
+
+	t.Run("the caller-authored export path is guarded too", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{
+			"op": "export",
+			"entries": []map[string]any{{
+				"kind": "adr", "question": "q?", "decision": "d", "status": "nonsense",
+			}},
+		})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "status") {
+			t.Fatalf("a caller-authored entry's status must be validated:\n%s", out)
+		}
+	})
+}
+
+// TestEmptyQueryEnumeratesInsteadOfLying: find with an empty q reached
+// cache.Search, which answers (nil, nil) for one, and the result rendered as
+// `ok no matches` — a SUCCESSFUL call carrying a false answer on a workspace
+// that had 96 rules. An independent judge called this the worst issue of its
+// run: not a refusal and not an error, so the caller learns nothing and
+// believes something untrue (B-01KYR01E2VFEF).
+func TestEmptyQueryEnumeratesInsteadOfLying(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, stem := range []string{"ALPHA", "BETA"} {
+		out := callText(t, sess, "rule", map[string]any{
+			"op": "add", "pattern": "U", "stem": stem, "dir": ".",
+			"system":   "the " + strings.ToLower(stem) + " module",
+			"response": "return exactly 1 result",
+		})
+		if !strings.Contains(out, "ok "+stem+"-001") {
+			t.Fatalf("setup %s: %q", stem, out)
+		}
+	}
+
+	// the lie: an empty q on a workspace that HAS rules
+	out := callText(t, sess, "find", map[string]any{"scope": "rule"})
+	if strings.Contains(out, "no matches") {
+		t.Fatalf("a workspace with rules must not answer 'no matches':\n%s", out)
+	}
+	for _, want := range []string{"ALPHA-001", "BETA-001"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("enumeration must list %s:\n%s", want, out)
+		}
+	}
+
+	// an unscoped empty query refuses and names what CAN be enumerated,
+	// rather than enumerating everything and burning budget
+	un := callText(t, sess, "find", map[string]any{})
+	if !strings.Contains(un, "! ARG E") || !strings.Contains(un, "rule") {
+		t.Fatalf("an unscoped empty query must refuse with the enumerable set:\n%s", un)
+	}
+	if strings.Contains(un, "ALPHA-001") {
+		t.Fatalf("it must not enumerate everything:\n%s", un)
+	}
+
+	// a genuinely empty scope still says so TRUTHFULLY
+	if got := callText(t, sess, "find", map[string]any{"scope": "bug"}); !strings.Contains(got, "no ") {
+		t.Fatalf("an empty scope must still report emptiness: %q", got)
+	}
+
+	// enumeration is newest-first and stable, so a bounded k surfaces recent
+	// records rather than always the same oldest ones (the validator's point:
+	// a default k=8 over 96 rules that only ever shows the oldest 8 is close
+	// to useless however the corpus grows)
+	first := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1})
+	if !strings.Contains(first, "BETA-001") {
+		t.Fatalf("k=1 must surface the newest record, not the oldest:\n%s", first)
+	}
+	if again := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1}); again != first {
+		t.Fatalf("enumeration order must be stable across calls:\n%q\n%q", first, again)
+	}
+
+	// and matching is unchanged — no cost to a caller who passes a query
+	if got := callText(t, sess, "find", map[string]any{"q": "alpha", "scope": "rule"}); !strings.Contains(got, "ALPHA-001") {
+		t.Fatalf("a real query must still match: %q", got)
+	}
+	if got := callText(t, sess, "find", map[string]any{"q": "nothingmatchesthis", "scope": "rule"}); !strings.Contains(got, "no matches") {
+		t.Fatalf("a query with no hits must still say no matches: %q", got)
 	}
 }
