@@ -273,6 +273,8 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
 [body truncated at tombstone retention cap]
+- B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body: validated pass by verifier-round3 diff 2e369f39702f :: ROUND 4 VERDICT: PASS. I withdraw my round-3 FAIL. The rescope is legitimate, and I reached that on my own evidence, not on the argument for it - including one check I had never run: this record's OWN reproduction, end to end, which now passes. My C3 residual has moved to B-01KYRQXJ99F48 (capGist/IntentLine orphan intent line) and my two other
+[body truncated at tombstone retention cap]
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

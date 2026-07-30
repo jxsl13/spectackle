@@ -341,23 +341,6 @@ FIX DIRECTION. Advisories and the summary are different record types (c versus o
 
 VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
 
-## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
-kind: bug
-state: done
-created: 2026-07-28
-needs: ADR-01KYRQSQDGEH89ERCR8N672AJW
-targets: internal/item/item.go, internal/item/item_test.go, internal/mcpserver/decide.go, internal/mcpserver/knowledge.go, internal/mcpserver/tools.go, internal/lifecycle/lifecycle.go, internal/lifecycle/lifecycle_test.go
-
-internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
-
-REPRODUCTION (found by an independent validator during T-01KYMPN0PNEWV, confirmed pre-existing: git diff origin/main...HEAD -- internal/item/ is empty). knowledge export entries=[{kind: adr, context: "Line one.\nLine two.", decision: go-with-A, status: accepted, options: [...]}] then knowledge apply. get shows decision and status swallowed into the body text; the reloaded items .Decision and .Status are empty strings.
-
-IMPACT is not cosmetic. Every consumer that reads those fields sees them as unset on a record that plainly has them: the archive tombstone retains an empty decision (so an archived multi-paragraph ADR loses which option won - the same loss class LC-001 was written to close, arriving through a different door), knowledge.Extract exports an ADR with no decision, and knowledge apply then reports a spurious divergence between two repositories that actually agree - the validator observed x adr ... ours="" theirs="keep as is" for identical content, caused purely by the local copy being corrupted on reload. Multi-paragraph context and consequences are the NORMAL shape for a real ADR, so this is reachable by ordinary use, not by adversarial input.
-
-DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
-
-VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
-
 ## B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline
 kind: bug
 state: draft
@@ -375,18 +358,6 @@ WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only t
 FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
 
 VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
-
-## ADR-01KYRQSQDGEH89ERCR8N672AJW escalate B-01KYN3E973F20: rescope|reject|override-once
-kind: adr
-state: done
-created: 2026-07-30
-parent: B-01KYN3E973F20VH7DHPE1YSSD7
-decision: rescope
-consequences: Rescope, because the three rounds converged rather than thrashed and what is left belongs to a different contract. Round 1 fixed the reported corruption in the work.md machine header. Round 2 closed a publicly reachable state-machine bypass through targets and the stranded-record ordering. Round 3 closed a regression the fix itself introduced, where the truncation marker manufactured a value the new guard refused and a rejected record became unrevokable. An independent verifier then swept that exhaustively - every cut phase, CRLF, straddling multi-byte runes, revocation to each allowed previous state, a real pre-fix journal for backward compatibility - and passed it, with go test green and bench A/B +0B. The remaining finding is NOT in this record scope: capGist routes through the same composer, so the marker leading newline splits spec.md intent line for an archive note over 400 bytes, and AppendIntent per-line dedupe cannot key the resulting orphan, so it duplicates unbounded on retries. Two independent verifiers reported it and both confirmed it is pre-existing rather than caused by this work, and it damages a different file under a different contract - spec.md living contracts, not work.md records - which is exactly why it gets its own record and its own verification instead of holding this one open while each round finds the next consumer of the same composer. Also filed from these rounds: the status field rides the prose composer while restoreRecord trusts it raw, latent today because every write path pins Status to the enum, and summary truncating with a naked byte slice that can emit invalid UTF-8.
-status: accepted
-
-B-01KYN3E973F20 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-01KYRQSQDGEH8 choose=rescope|reject|override-once.
-choice: rescope
 
 ## B-01KYRQXJ99F48SKET4JYD70HYS the truncation marker splits spec.md intent line and the orphan duplicates without bound on retry
 kind: bug
