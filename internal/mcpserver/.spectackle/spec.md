@@ -150,3 +150,8 @@ Rationale: Three independent judges asked for moves destination enum and the EAR
 WHILE a record pull request is still in draft, the done edge SHALL return on the first CI observation, reporting that no verdict is obtainable yet, without spending the await budget.
 
 Rationale: A draft head under the draft-skip CI pattern concludes every run as skipped, so no verdict exists and none can arrive from the passage of time alone: only an event (the ready flip, a new push) produces one. Waiting there is a fixed cost, measured at 12m per record before the split. The SAME observation at archive is a dispatch window and must be waited out, because refusing there rejects a build that had merely not started (B-01KYQJDJJVFC2). The distinction is per-caller, not per-state: an implementation that short-circuits for both callers was refuted 0/3 by independent validation.
+
+## CI-AWAIT-DISPATCH-001
+WHILE the archive edge has just readied a pull request, the merge gate SHALL keep polling an all-skipped head for the full await budget, and refuse the merge only once that budget is spent.
+
+Rationale: The forge dispatches the ready_for_review run asynchronously, so the first polls legitimately see only the synchronize-skipped run the archive push registered while the PR was still draft. Short-circuiting there refuses a build that had merely not started: B-01KYQJDJJVFC2. A budget spent entirely on skipped runs does mean the head is untested and must not merge (B-01KYDN).
