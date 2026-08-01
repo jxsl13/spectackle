@@ -6,6 +6,7 @@ schema: v1
 kind: task
 state: draft
 created: 2026-07-30
+grilled: 2026-08-01 open=0
 targets: internal/bench, main.go, docs/bench-curves.md
 
 The cost half of B-01KYS711ZFFG0 is done: bench now meters the tools/list payload over the wire and reports schema, session and their deltas. Measured, this workspace pays 24322B before a single tool call - 20023B of tools/list plus 4299B of manifest - against a scripted per-call total of 3039B. So the schema surface alone is 6.6 times the entire scripted run, and the manifest line that had presented itself as THE once-per-session cost is 18 percent of the real one.
