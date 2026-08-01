@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYSPFXHNFZ7R35H9ADD09R8Z give the judge harness the real tool descriptions so the 20KB schema surface has a measurable benefit side
 kind: task
-state: draft
+state: active
 created: 2026-07-30
 grilled: 2026-08-01 open=0
 targets: internal/bench, main.go, docs/bench-curves.md
