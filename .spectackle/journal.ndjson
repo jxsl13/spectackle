@@ -706,3 +706,4 @@
 {"t":"2026-07-30T22:39:11Z","eid":"d2aeab4391721058","ag":"ag-a267","ev":"rule","op":"add","rule":"RECMERGE-004","txt":"WHEN a comment or record states a measurable fact about the program, the author SHALL measure it first and write the observed value into the sentence, as `4299B` rather than a mechanism that merely sounds right."}
 {"t":"2026-08-01T18:59:48Z","eid":"161195ca9bacbd81","ag":"ag-86ba","ev":"create","id":"B-01KYZB4QA9FF4TCA3AQGWT7E5D","k":"bug","ti":"the done edge always burns the full CI await budget, because the verdict it waits for cannot exist while the PR is still draft"}
 {"t":"2026-08-01T19:01:02Z","eid":"6f36238b336d4cde","ag":"ag-9175","ev":"revise","id":"B-01KYZB4QA9FF4TCA3AQGWT7E5D","note":"body revised"}
+{"t":"2026-08-01T19:01:23Z","eid":"e9c64d2080dd524f","ag":"ag-2dc3","ev":"grill","id":"B-01KYZB4QA9FF4TCA3AQGWT7E5D","gr":"2026-08-01 open=0","hash":"7fb5367fb01d8dbc139233e62ea1dd6660e95eec390495982b3c5b6790604bf5"}

@@ -410,6 +410,7 @@ METHOD NOTE worth keeping: this flake was invisible to the harness used through 
 kind: bug
 state: draft
 created: 2026-08-01
+grilled: 2026-08-01 open=0
 targets: internal/mcpserver, internal/forge
 
 targets internal/mcpserver internal/forge
@@ -450,4 +451,3 @@ T-01KYDJ8A3YEQ7RSQ0QM74G69SN proposed a background CI poller pushing red verdict
 B-01KYJW2MP8EWQS0QZ0H2VAE685 filed the stale prose claiming the PR readies at done, and was rejected for SCOPE WIDENING ONLY: a validator found two further instances inside internal/mcpserver - the gitflow.go package-doc edge table, and the tools.go work-summary comment - that the record's declared targets of CONTRIBUTING.md plus internal/forge could not cover. The defect itself was never disputed. This record declares internal/mcpserver and internal/forge and absorbs the prose correction, and the sweep must cover ALL FOUR known sites: .github/workflows/ci.yml lines 6-9, the gitflow.go package-doc edge table, the tools.go work-summary comment, and CONTRIBUTING.md. A sweep that fixes fewer of them repeats the rejection.
 
 SECOND DEFECT, found on the same lifecycle drive, different mechanism, and it belongs to whichever fix touches the archive edge. An edit made AFTER move to=done and BEFORE move to=archived is silently dropped: done checkpoints the working tree into a commit, archived does not, so archive merges a branch that lacks the edit. Measured on this repository's record B-01KYRN44EVEK2 - two independent validators flagged an overbroad comment, the comment was corrected in the working tree, and pr 252 merged WITHOUT the correction while every tool call reported success. That is exactly the verify-then-fix-then-archive path the validate gate exists to create, so the drop lands on the workflow's most load-bearing edge, and it is invisible: the archive prints a merge SHA either way. Either archived checkpoints as done does, or it refuses on a dirty tree naming what is uncommitted. Silently merging a stale head is the one option that must not stand.
-
