@@ -519,9 +519,11 @@ func CheckHeader(it Item) error {
 	// second header line the parser then believed, and the item read back
 	// state=archived: a terminal state no transition can reach, injected
 	// through a public draft argument. Whitespace around an element is
-	// deliberately NOT refused: splitList trims it, which is a one-time
-	// canonicalization that reaches a fixed point on the next write rather
-	// than drifting, so refusing it would break working callers for no gain.
+	// deliberately NOT refused: writers canonicalize through canonList before
+	// they compare or join, so the bytes written are already a fixed point of
+	// the reader and refusing the input would break working callers for no
+	// gain. Refusing it here would also be too late for the field that needs
+	// it — refs deduplicates, and it has to canonicalize before it compares.
 	for _, f := range []struct {
 		name string
 		vs   []string
@@ -557,7 +559,7 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		if it.Parent != "" {
 			b.WriteString("parent: " + it.Parent + "\n")
 		}
-		if refs := dedupeStrings(it.Refs); len(refs) > 0 {
+		if refs := dedupeStrings(canonList(it.Refs)); len(refs) > 0 {
 			b.WriteString("refs: " + strings.Join(refs, ", ") + "\n")
 		}
 		if it.Rounds != 0 {
@@ -595,8 +597,21 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 }
 
 func splitList(v string) []string {
+	return canonList(strings.Split(v, ","))
+}
+
+// canonList applies the reader's per-element canonicalization: surrounding
+// whitespace is trimmed, and empty and "-" placeholder elements are dropped.
+// Returns nil rather than an empty slice when every element drops, so a list
+// that canonicalizes away is indistinguishable from one that was never set.
+//
+// Writers run it too. A list field is only a fixed point of the reader if the
+// bytes written already survive a read unchanged, so any write-side comparison
+// (deduplication, emptiness) has to canonicalize BEFORE it compares — see
+// writeWork's refs line.
+func canonList(ss []string) []string {
 	var out []string
-	for _, s := range strings.Split(v, ",") {
+	for _, s := range ss {
 		if s = strings.TrimSpace(s); s != "" && s != "-" {
 			out = append(out, s)
 		}
@@ -607,6 +622,11 @@ func splitList(v string) []string {
 // dedupeStrings returns ss with duplicates removed, keeping the order of
 // first appearance. Used when rendering Refs so accidental repeats in a
 // proposed reference set don't get written twice.
+//
+// Duplicate means byte-identical, so callers must canonicalize first: " R-1"
+// and "R-1 " are distinct keys here but the same ref once the reader trims
+// them, and passing raw input would write a line that reads back with the
+// duplicates restored.
 func dedupeStrings(ss []string) []string {
 	if len(ss) == 0 {
 		return nil
