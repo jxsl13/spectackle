@@ -408,7 +408,7 @@ METHOD NOTE worth keeping: this flake was invisible to the harness used through 
 
 ## B-01KYZB4QA9FF4TCA3AQGWT7E5D the done edge always burns the full CI await budget, because the verdict it waits for cannot exist while the PR is still draft
 kind: bug
-state: active
+state: done
 created: 2026-08-01
 grilled: 2026-08-01 open=0
 targets: internal/mcpserver, internal/forge
