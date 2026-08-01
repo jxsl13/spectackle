@@ -282,6 +282,67 @@ func TestRefsDuplicatesCollapseOnWrite(t *testing.T) {
 	}
 }
 
+// TestRefsCanonicalOnFirstWrite pins the WRITTEN BYTES, not the reload.
+// TestRefsDuplicatesCollapseOnWrite above asserts only what LoadWork returns,
+// and the reader trims every element on the way in — so it stays green even
+// when the file on disk holds three spellings of one ref. The raw-line
+// assertion is the load-bearing one here.
+func TestRefsCanonicalOnFirstWrite(t *testing.T) {
+	refsLine := func(t *testing.T, root workspace.Root) string {
+		t.Helper()
+		b, err := os.ReadFile(root.WorkPath(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ln := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(ln, "refs:") {
+				return ln
+			}
+		}
+		t.Fatalf("no refs line in:\n%s", b)
+		return ""
+	}
+
+	t.Run("whitespace variants are one ref", func(t *testing.T) {
+		root := ws(t)
+		in := Item{
+			ID: "R-0001", Kind: "research", State: StateDraft, Title: "canon check",
+			Created: "2026-07-24",
+			Refs:    []string{" R-0002", "R-0002 ", "R-0002", "P-0001"},
+		}
+		if err := Upsert(root, in); err != nil {
+			t.Fatal(err)
+		}
+		// Before the fix: "refs:  R-0002, R-0002 , R-0002, P-0001" — three
+		// elements survive dedup because they are not byte-identical.
+		if got, want := refsLine(t, root), "refs: R-0002, P-0001"; got != want {
+			t.Errorf("raw refs line = %q, want %q", got, want)
+		}
+		items, err := LoadWork(root.WorkPath(""), "")
+		if err != nil || len(items) != 1 {
+			t.Fatalf("LoadWork = %+v, %v", items, err)
+		}
+		if got := items[0].Refs; len(got) != 2 {
+			t.Errorf("reloaded Refs = %+v, want 2 elements", got)
+		}
+	})
+
+	t.Run("placeholder and empty elements drop", func(t *testing.T) {
+		root := ws(t)
+		in := Item{
+			ID: "R-0001", Kind: "research", State: StateDraft, Title: "canon check",
+			Created: "2026-07-24",
+			Refs:    []string{"", "  ", "-", "R-0002"},
+		}
+		if err := Upsert(root, in); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := refsLine(t, root), "refs: R-0002"; got != want {
+			t.Errorf("raw refs line = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestUnknownRefs(t *testing.T) {
 	known := map[string]bool{"R-0001": true, "R-0002": true, "P-0001": true}
 
