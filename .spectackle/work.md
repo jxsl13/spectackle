@@ -405,3 +405,40 @@ FINDING 2, a live intermittent suite failure. TestBenchCmpDeltasAndUnitMismatch 
 FIX: use the adaptive shortener in the bench render paths. VERIFY: a test that mints two records in the same millisecond and asserts every rendered ID resolves to exactly one record.
 
 METHOD NOTE worth keeping: this flake was invisible to the harness used through the session that found it, because piping go test into a filter and echoing a marker afterwards discards the exit code. The filter still prints FAIL lines so a failure is visible when it happens, but the run is never actually asserted to have passed. Capture the output and read the exit code directly.
+
+## B-01KYZB4QA9FF4TCA3AQGWT7E5D the done edge always burns the full CI await budget, because the verdict it waits for cannot exist while the PR is still draft
+kind: bug
+state: draft
+created: 2026-08-01
+targets: internal/mcpserver, internal/forge
+
+targets internal/mcpserver internal/forge
+
+MEASURED, end to end, on this repository's own lifecycle (record B-01KYRN44EVEK2, pr 252).
+
+OBSERVED. `move to=done` emitted, in this order:
+  g pr 252 stays draft until archive
+  g pr 252 checks pending - waiting up to 12m0s
+  ! CI W pr 252 checks still pending after 12m0s - verdict unknown at done; archive will wait again
+Wall clock: the call blocked for the entire 12m budget and returned no verdict. Nothing was wrong with the change; the suite was green locally and the archive-time CI run later passed.
+
+EXPECTED. Either a verdict, or an immediate statement that no verdict is obtainable yet. Not a 12-minute wait whose outcome is determined before it starts.
+
+ISOLATED CAUSE, three individually correct decisions that compose into a guaranteed stall:
+1. PR-DRAFT-001, implemented at gitflow.go:429 - done deliberately leaves the pull request in draft; the flip to ready happens at archive.
+2. .github/workflows/ci.yml gates the build job on `github.event.pull_request.draft == false`, so every run on a draft head concludes `skipped`. This is deliberate CI minimization and the file says so.
+3. forge/github.go:516-528 classifies an all-skipped head as ChecksPending WHEN the repo has workflows, and it is right to: skipped is not evidence of green, and reading it as passing would merge untested work (the predecessor-verdict defect B-01KYDN in a new costume).
+Composed: at done the PR is draft, so every run is skipped, so Checks returns Pending, so awaitChecks (gitflow.go:899-927) polls to the deadline. Pending is the ONLY reachable state at done for any repository using the draft-skip pattern that spectackle itself ships. The budget is not a timeout here, it is a fixed cost.
+
+COST. 12m per record at the default budget (workspace.go:170-175). Serial closure of the 19 records currently planned would spend about 3.8 hours waiting for a verdict that is unreachable by construction. The comment at ci.yml:6-9 compounds the confusion: it states the server flips the PR out of draft "at done", which contradicts both PR-DRAFT-001 and gitflow.go:35.
+
+WHY NOT JUST LOWER THE BUDGET. The budget is load-bearing at ARCHIVE, where the flip has happened, a real run is in flight, and waiting is exactly right - it was raised to 12m precisely because a 5m budget expired on unfinished builds and the retry restarted CI, leaving items unclosable (B-01KYQJDJJVFC2). Lowering it to make done cheap re-opens that bug at archive. The two sites need different behavior, not a different constant.
+
+DIRECTION. Distinguish the two reasons Checks returns Pending, which the forge layer currently collapses:
+ (a) a run is genuinely in flight (Status != completed) - waiting is correct, keep the budget; versus
+ (b) every completed run concluded skipped and no run is in flight - the verdict is structurally unavailable until something changes the head's draft status, and polling cannot change that.
+Only (a) deserves the budget. At done, (b) should return immediately with an honest line: no verdict is obtainable while the PR is draft, archive will obtain one. At archive the PR is ready by then, so (b) is not reachable and nothing changes.
+This needs a distinguishable state out of forge.Checks (e.g. ChecksUnavailable, or Pending carrying a reason) rather than a draft-status probe in gitflow, because the condition is a property of the head's runs, not of the lifecycle - a repository whose CI does NOT skip drafts gets real runs on a draft PR and must keep waiting.
+Also correct the stale ci.yml:6-9 comment to say the flip happens at archive.
+
+VERIFY: on a repository with the draft-skip CI pattern, `move to=done` must return in seconds, not in the await budget, and must state that the verdict is unavailable until archive rather than reporting a spent budget; `move to=archived` must still wait the full budget for a genuinely in-flight run, and the B-01KYQJDJJVFC2 regression (archive refusing on a merely-unfinished build) must not reappear.
