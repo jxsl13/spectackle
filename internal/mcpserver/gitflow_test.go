@@ -286,24 +286,54 @@ func runGate(t *testing.T, f *scriptedForge, budget time.Duration) string {
 	return res.String()
 }
 
-// TestMergeGateRefusesUnavailable: at archive, a head whose every run
-// concluded skipped is UNTESTED. ChecksNone deliberately falls through to the
-// merge loop, so if Unavailable is ever left unhandled it inherits that
-// fall-through and merges untested work — the predecessor-verdict defect
-// (B-01KYDN) coming back through the door built to stop it. Asserting the
-// merge count is the load-bearing half: a test that only checked the message
-// would still pass if the refusal were followed by a merge.
-func TestMergeGateRefusesUnavailable(t *testing.T) {
+// TestMergeGateWaitsOutUnavailableDispatchWindow is the regression an
+// independent validator caught before this could ship, and it is the reason
+// Unavailable is terminal at done but transient at archive.
+//
+// Archive pushes its records commit while the pull request is STILL draft,
+// which registers a synchronize-skipped run on the new head. It then runs the
+// local gate, flips the PR ready, and polls with no delay — but the forge
+// dispatches the ready_for_review run asynchronously (forge/github.go's
+// zero-runs branch already measures that latency). So the first polls
+// legitimately observe nothing but the stale skipped run: Unavailable, then
+// the real run appears.
+//
+// A gate that short-circuits there refuses a build that had merely not
+// started, which is B-01KYQJDJJVFC2 — the exact regression this record's
+// VERIFY line forbids. An earlier revision of this test asserted the refusal
+// and so PINNED the bug.
+func TestMergeGateWaitsOutUnavailableDispatchWindow(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksUnavailable, forge.ChecksUnavailable, forge.ChecksPending, forge.ChecksPassing},
+		merges: []forge.MergeResult{{Merged: true, SHA: "abc"}},
+	}
+	out := runGate(t, f, time.Second)
+	if f.nMerges != 1 || !strings.Contains(out, "merged abc") {
+		t.Fatalf("archive refused a head whose CI had merely not been dispatched yet: %d merges, output %q", f.nMerges, out)
+	}
+}
+
+// TestMergeGateRefusesPermanentlyUnavailable: the other side of the same coin.
+// A budget spent seeing NOTHING but skipped runs means the ready flip never
+// took or the forge never dispatched anything — the head is untested and must
+// not merge. ChecksNone deliberately falls through to the merge loop, so an
+// unhandled Unavailable inherits that fall-through and merges untested work
+// (B-01KYDN). Asserting the merge COUNT is the load-bearing half: a test
+// checking only the message would still pass if a merge followed it.
+func TestMergeGateRefusesPermanentlyUnavailable(t *testing.T) {
 	f := &scriptedForge{
 		checks: []forge.CheckState{forge.ChecksUnavailable},
 		merges: []forge.MergeResult{{Merged: true, SHA: "must-not-happen"}},
 	}
-	out := runGate(t, f, time.Second)
+	out := runGate(t, f, 40*time.Millisecond)
 	if f.nMerges != 0 {
 		t.Errorf("merged an untested head: %d merge attempts, output %q", f.nMerges, out)
 	}
 	if !strings.Contains(out, "left open") || !strings.Contains(out, "untested") {
 		t.Errorf("refusal does not say the head is untested: %q", out)
+	}
+	if f.nChecks < 2 {
+		t.Errorf("archive refused after %d checks — it must wait out the dispatch window, not short-circuit", f.nChecks)
 	}
 }
 

@@ -854,7 +854,7 @@ func (s *Server) awaitBudget() time.Duration {
 // done reports the verdict, archive gates the merge on it. Two copies of a
 // budgeted polling loop is how the two would drift.
 func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
-	state := awaitChecks(f, pr, waitBudget, poll, res)
+	state := awaitChecks(f, pr, waitBudget, poll, res, unavailableTransient)
 	switch state {
 	case forge.ChecksFailing:
 		res.addf("! GIT E pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
@@ -863,13 +863,17 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 		res.addf("! GIT E pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
 		return
 	case forge.ChecksUnavailable:
-		// Reachable only if the ready flip did not take, or the forge never
-		// started a run for the ready head. Untested either way. This case
-		// MUST stay explicit: ChecksNone deliberately falls through to the
-		// merge loop below, so an unhandled state here would merge a head
-		// whose every run was skipped — the predecessor-verdict defect
-		// (B-01KYDN) arriving through the door built to keep it out.
-		res.addf("! GIT E pr %d left open: every check concluded skipped and none is running — the head is untested; confirm the pull request left draft and CI started", pr.Number)
+		// Reached only after the FULL budget was spent seeing nothing but
+		// skipped runs (archive passes unavailableTransient), so the ready
+		// flip did not take or the forge never dispatched a run for the ready
+		// head. Untested either way.
+		//
+		// This case MUST stay explicit: ChecksNone deliberately falls through
+		// to the merge loop below, so an unhandled state here inherits that
+		// fall-through and merges a head whose every run was skipped — the
+		// predecessor-verdict defect (B-01KYDN) arriving through the door
+		// built to keep it out.
+		res.addf("! GIT E pr %d left open: every check still skipped after %s — the head is untested; confirm the pull request left draft and CI started", pr.Number, waitBudget)
 		return
 	case "":
 		return // Checks itself failed; awaitChecks already reported it
@@ -905,7 +909,33 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 // state: Passing or None concluded; Failing is a conclusion the caller words
 // (done reports it, archive refuses on it); Pending means the budget ran out;
 // "" means Checks itself errored, already reported here.
-func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) forge.CheckState {
+// unavailableIsTerminal says whether an Unavailable head is a settled answer
+// for THIS caller or merely a window to wait out. The state is identical in
+// both cases — every run concluded, all skipped — and only the caller knows
+// whether anything is coming.
+//
+//	done     terminal. PR-DRAFT-001 keeps the pull request in draft across
+//	         this edge, so the draft-skip workflow will keep concluding every
+//	         run as skipped no matter how long we wait. Return at once.
+//	archive  TRANSIENT, and assuming otherwise cost a verified regression.
+//	         Archive pushes its records commit while the PR is still draft,
+//	         which registers a synchronize-skipped run on the new head; it
+//	         then runs the local gate, flips the PR ready, and polls with no
+//	         delay. GitHub dispatches the ready_for_review run asynchronously
+//	         (the zero-runs branch in forge/github.go already measures that
+//	         latency), so the first polls legitimately see nothing but the
+//	         stale skipped run. Short-circuiting there refuses a build that
+//	         merely had not started — B-01KYQJDJJVFC2 exactly, which this
+//	         record's own VERIFY line forbids reintroducing. Wait out the
+//	         budget; only a budget spent entirely on Unavailable is a verdict.
+type unavailableIsTerminal bool
+
+const (
+	unavailableTerminal  unavailableIsTerminal = true
+	unavailableTransient unavailableIsTerminal = false
+)
+
+func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult, term unavailableIsTerminal) forge.CheckState {
 	deadline := time.Now().Add(waitBudget)
 	waited := false
 	for {
@@ -923,11 +953,19 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 		case forge.ChecksFailing:
 			return state
 		case forge.ChecksUnavailable:
-			// No run is in flight and none of the concluded ones tested
-			// anything, so the budget cannot buy a verdict — only an event can
-			// (the PR leaving draft, or a new push). Return at once instead of
-			// polling to the deadline to report the state we started in.
-			return state
+			if term {
+				return state
+			}
+			// Transient: fall through to the same bounded poll as Pending. The
+			// run we are waiting for has not been dispatched yet.
+			if time.Now().After(deadline) {
+				return state
+			}
+			if !waited {
+				res.addf("g pr %d checks pending — waiting up to %s", pr.Number, waitBudget)
+				waited = true
+			}
+			time.Sleep(poll)
 		case forge.ChecksPending:
 			if time.Now().After(deadline) {
 				return state
@@ -950,7 +988,7 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 // declared done learns that CI disagrees in the same breath, while the
 // context of what changed is still hot.
 func awaitChecksReport(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
-	switch awaitChecks(f, pr, waitBudget, poll, res) {
+	switch awaitChecks(f, pr, waitBudget, poll, res, unavailableTerminal) {
 	case forge.ChecksFailing:
 		res.addf("! CI E pr %d checks failing %s — item stays done; fix and reopen, or archive will refuse the merge", pr.Number, pr.URL)
 	case forge.ChecksPending:
