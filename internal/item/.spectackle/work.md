@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYRN44EVEK2B0Q772MFEPZWK writeWork dedupes refs on untrimmed elements while the reader trims, so duplicates survive one write
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 targets: internal/item/item.go
 
