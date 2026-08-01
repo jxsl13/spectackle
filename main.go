@@ -763,6 +763,7 @@ func benchCmd(args []string) int {
 	baseline := fs.String("baseline", "", "override the baseline binary (default: this one), so two foreign builds can be A/B'd with the current fixture and script")
 	agentPrep := fs.String("agent-prep", "", "prepare a metered judge workspace in DIR: seeded fixture, fixed brief, metering shim (P-01KYDP stage 4)")
 	withManifest := fs.Bool("with-manifest", false, "agent-prep only: prepend the connect-time manifest to the brief (simulates an MCP session) and record its size for the session-cost line")
+	withSchema := fs.Bool("with-schema", false, "agent-prep only: prepend the real tools/list payload (every tool description and input schema, verbatim) to the brief and record its size; default off so historical name-only batches stay comparable")
 	scenario := fs.String("scenario", "basic", "agent-prep only: judge scenario — basic (draft/archive/reject), tricky (rule slots, reopen loop into blocked, decide exit), worktree (swarm flow), or outcome (hidden acceptance tests score first-iteration completeness per token, T-01KYFSQQ)")
 	agentScore := fs.String("agent-score", "", "score a completed judge run in DIR: goal states plus metered bytes; exit non-zero when goals were not reached")
 	nonces := fs.String("nonces", "", "agent-score only: comma-separated prep nonces matched positionally to the score dirs — the out-of-band anchor a workspace re-prep cannot forge")
@@ -775,7 +776,7 @@ func benchCmd(args []string) int {
 		return 1
 	}
 	if *agentPrep != "" {
-		brief, shim, nonce, err := bench.AgentPrep(self, *agentPrep, *withManifest, *scenario)
+		brief, shim, nonce, err := bench.AgentPrep(self, *agentPrep, *withManifest, *withSchema, *scenario)
 		if err != nil {
 			log.Printf("bench: agent-prep: %v", err)
 			return 1

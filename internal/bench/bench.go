@@ -271,17 +271,23 @@ func Script() []Step {
 }
 
 // Run drives the script over a fresh fixture with the given server binary.
-// schemaBytes meters the tools/list response the way a client receives it:
+// toolsListPayload meters the tools/list response the way a client receives it:
 // spawn the server on stdio, complete the handshake, ask for the tool list, and
 // count the bytes of that one response. Marshalling the registered mcp.Tool
 // structs in-process would be simpler and would drift — the wire adds the
 // envelope, and a change to how schemas are emitted would not show up.
 //
-// Returns 0 when anything goes wrong, and 0 means "not metered" everywhere it
-// is read. That distinction matters: an unmeterable side must not be silently
+// Returns the RAW response line alongside its length, because the agent-prep
+// -with-schema mode (T-01KYSPFXHNFZ7) must inject exactly the bytes it reports:
+// rendering the tools some other way would make the injected surface and the
+// metered size two different things, and the whole point of the mode is that
+// they are one thing.
+//
+// Returns ("", 0) when anything goes wrong, and 0 means "not metered" everywhere
+// it is read. That distinction matters: an unmeterable side must not be silently
 // treated as zero bytes, which is the mistake the manifest delta already guards
 // against by refusing to subtract across a measured and an unmeasured side.
-func schemaBytes(bin string) int {
+func toolsListPayload(bin string) (string, int) {
 	// A DEDICATED throwaway root, never the fixture. Serving against the
 	// fixture scaffolds records into it, and the first version of this function
 	// did exactly that: the per-call total moved 3039B -> 3081B purely because
@@ -289,20 +295,20 @@ func schemaBytes(bin string) int {
 	// perturbs its own subject is worse than no probe.
 	root, err := os.MkdirTemp("", "spx-schema-*")
 	if err != nil {
-		return 0
+		return "", 0
 	}
 	defer os.RemoveAll(root)
 	cmd := exec.Command(bin, "serve", "-root", root)
 	stdin, perr := cmd.StdinPipe()
 	if perr != nil {
-		return 0
+		return "", 0
 	}
 	stdout, perr := cmd.StdoutPipe()
 	if perr != nil {
-		return 0
+		return "", 0
 	}
 	if err := cmd.Start(); err != nil {
-		return 0
+		return "", 0
 	}
 	defer func() {
 		_ = stdin.Close()
@@ -316,14 +322,17 @@ func schemaBytes(bin string) int {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
 	} {
 		if _, err := io.WriteString(stdin, msg+"\n"); err != nil {
-			return 0
+			return "", 0
 		}
 	}
 	// READ until the response arrives; do not close stdin first. Closing it
 	// immediately ends the session before the server has written anything —
 	// which is why the smoke gate in the Makefile sleeps before its pipe drains,
 	// and why the first version of this function silently metered 0.
-	type found struct{ n int }
+	type found struct {
+		line string
+		n    int
+	}
 	ch := make(chan found, 1)
 	go func() {
 		sc := bufio.NewScanner(stdout)
@@ -347,18 +356,27 @@ func schemaBytes(bin string) int {
 				continue
 			}
 			if env.ID.String() == "2" && len(env.Result) > 0 {
-				ch <- found{len(line)}
+				ch <- found{line, len(line)}
 				return
 			}
 		}
-		ch <- found{0}
+		ch <- found{"", 0}
 	}()
 	select {
 	case f := <-ch:
-		return f.n
+		return f.line, f.n
 	case <-time.After(30 * time.Second):
-		return 0
+		return "", 0
 	}
+}
+
+// schemaBytes is the size-only view of the tools/list payload, which is all
+// the A/B reporting side needs. Kept as a wrapper rather than a second probe:
+// two spawns would meter two different server processes, and the mode that
+// injects the payload must be able to prove its bytes are the metered ones.
+func schemaBytes(bin string) int {
+	_, n := toolsListPayload(bin)
+	return n
 }
 
 func Run(bin string) (Result, error) {
