@@ -514,18 +514,25 @@ func (g *GitHub) Checks(pr PR) (CheckState, error) {
 		return ChecksPending, nil
 	}
 	if !realGreen {
-		// Every run concluded skipped. That is what a draft-phase head looks
-		// like, and reading it as passing would merge untested work on the
-		// strength of runs that deliberately did nothing — the predecessor-
-		// verdict defect (B-01KYDN) in a new costume. With workflows active a
-		// real run is expected once the pull request is ready, so this is
-		// Pending; without any workflow it is the ordinary no-CI case.
+		// Every run concluded, and every conclusion was skipped. That is what a
+		// draft-phase head looks like, and reading it as passing would merge
+		// untested work on the strength of runs that deliberately did nothing —
+		// the predecessor-verdict defect (B-01KYDN) in a new costume.
+		//
+		// It is equally not Pending, which is what it used to answer. Nothing is
+		// in flight — the loop above proved every run reached "completed" — so
+		// no amount of waiting produces a verdict. A real run is expected once
+		// the pull request leaves draft, but that is an EVENT, not the passage
+		// of time, and the caller that would wait here is the done edge, which
+		// by PR-DRAFT-001 is precisely the edge that leaves the PR in draft.
+		// Answering Pending made every done edge poll to its deadline and then
+		// report the state it started in (B-01KYZB4QA9FF4).
 		hasCI, err := g.hasWorkflows()
 		if err != nil {
 			return "", err
 		}
 		if hasCI {
-			return ChecksPending, nil
+			return ChecksUnavailable, nil
 		}
 		return ChecksNone, nil
 	}

@@ -90,18 +90,31 @@ type Forge interface {
 	Checks(pr PR) (CheckState, error)
 }
 
-// CheckState is the reduced CI verdict for a head commit. Four states, not a
+// CheckState is the reduced CI verdict for a head commit. Five states, not a
 // bool, because the caller's obligations differ for each: Passing merges,
-// Failing refuses loudly, Pending waits within a bounded budget, and None —
+// Failing refuses loudly, Pending waits within a bounded budget, None —
 // a repository with no CI at all — proceeds, since waiting for checks that
-// will never arrive is a hang, not a gate.
+// will never arrive is a hang, not a gate, and Unavailable reports without
+// waiting.
+//
+// Pending and Unavailable are the two halves of what used to be one Pending,
+// and separating them is the whole point: only one of them can be resolved by
+// waiting. Pending means a run is IN FLIGHT — the verdict is coming, so spend
+// the budget. Unavailable means every run has concluded and none of them
+// tested anything (the draft-skip pattern concludes them all as skipped), so
+// no verdict exists for this head and none will until something other than
+// time changes — the pull request leaving draft, or a new push. Polling an
+// Unavailable head cannot do anything but spend the budget and report the
+// state it started in, which is what the done edge did on every single record
+// before this split existed (B-01KYZB4QA9FF4: a measured 12m per record).
 type CheckState string
 
 const (
-	ChecksPassing CheckState = "passing"
-	ChecksFailing CheckState = "failing"
-	ChecksPending CheckState = "pending"
-	ChecksNone    CheckState = "none"
+	ChecksPassing     CheckState = "passing"
+	ChecksFailing     CheckState = "failing"
+	ChecksPending     CheckState = "pending"
+	ChecksNone        CheckState = "none"
+	ChecksUnavailable CheckState = "unavailable"
 )
 
 // ReasonNotReady is the MergeResult.Reason for a merge the forge refused as

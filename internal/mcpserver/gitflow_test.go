@@ -286,6 +286,59 @@ func runGate(t *testing.T, f *scriptedForge, budget time.Duration) string {
 	return res.String()
 }
 
+// TestMergeGateRefusesUnavailable: at archive, a head whose every run
+// concluded skipped is UNTESTED. ChecksNone deliberately falls through to the
+// merge loop, so if Unavailable is ever left unhandled it inherits that
+// fall-through and merges untested work — the predecessor-verdict defect
+// (B-01KYDN) coming back through the door built to stop it. Asserting the
+// merge count is the load-bearing half: a test that only checked the message
+// would still pass if the refusal were followed by a merge.
+func TestMergeGateRefusesUnavailable(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksUnavailable},
+		merges: []forge.MergeResult{{Merged: true, SHA: "must-not-happen"}},
+	}
+	out := runGate(t, f, time.Second)
+	if f.nMerges != 0 {
+		t.Errorf("merged an untested head: %d merge attempts, output %q", f.nMerges, out)
+	}
+	if !strings.Contains(out, "left open") || !strings.Contains(out, "untested") {
+		t.Errorf("refusal does not say the head is untested: %q", out)
+	}
+}
+
+// TestDoneReportUnavailableDoesNotPoll pins the fix for B-01KYZB4QA9FF4: the
+// done edge leaves the PR in draft (PR-DRAFT-001), a draft head's runs all
+// conclude skipped, and no verdict can appear until the PR readies at archive.
+// Polling that state can only spend the budget and report what it started
+// with — measured at a full 12m per record before this.
+//
+// The assertion is the Checks CALL COUNT, not elapsed wall clock. A duration
+// assertion here would be the flake class B-01KYQG88GZEM2 filed twice: a
+// loaded runner makes timing an assertion about the neighbors, not the code.
+// One call proves it returned on the first observation.
+//
+// The budget is deliberately SMALL rather than large. It bounds the mutant,
+// not the fix: correct code returns after one call whatever the budget is,
+// while an implementation that polls this state burns the budget at the poll
+// interval and lands on a count in the dozens. A large budget would make the
+// mutant hang instead of fail, and a hang is not a regression signal.
+func TestDoneReportUnavailableDoesNotPoll(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksUnavailable}}
+	res := &gitFlowResult{}
+	awaitChecksReport(f, forge.PR{Number: 9, URL: "u"}, 40*time.Millisecond, time.Millisecond, res)
+	if f.nChecks != 1 {
+		t.Errorf("polled an unresolvable state %d times, want 1", f.nChecks)
+	}
+	out := res.String()
+	if !strings.Contains(out, "no verdict yet") || !strings.Contains(out, "archive") {
+		t.Errorf("done report does not explain why there is no verdict, or where one comes from: %q", out)
+	}
+	if strings.Contains(out, "waiting up to") {
+		t.Errorf("done report announced a wait it did not perform: %q", out)
+	}
+}
+
 // TestMergeGateWaitsForPendingThenMerges: the CI wait the LLM used to perform
 // by hand, now mechanical — pending twice, then passing, then merged.
 func TestMergeGateWaitsForPendingThenMerges(t *testing.T) {

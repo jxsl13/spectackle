@@ -862,6 +862,15 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 	case forge.ChecksPending:
 		res.addf("! GIT E pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
 		return
+	case forge.ChecksUnavailable:
+		// Reachable only if the ready flip did not take, or the forge never
+		// started a run for the ready head. Untested either way. This case
+		// MUST stay explicit: ChecksNone deliberately falls through to the
+		// merge loop below, so an unhandled state here would merge a head
+		// whose every run was skipped — the predecessor-verdict defect
+		// (B-01KYDN) arriving through the door built to keep it out.
+		res.addf("! GIT E pr %d left open: every check concluded skipped and none is running — the head is untested; confirm the pull request left draft and CI started", pr.Number)
+		return
 	case "":
 		return // Checks itself failed; awaitChecks already reported it
 	case forge.ChecksPassing:
@@ -913,6 +922,12 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 			return state
 		case forge.ChecksFailing:
 			return state
+		case forge.ChecksUnavailable:
+			// No run is in flight and none of the concluded ones tested
+			// anything, so the budget cannot buy a verdict — only an event can
+			// (the PR leaving draft, or a new push). Return at once instead of
+			// polling to the deadline to report the state we started in.
+			return state
 		case forge.ChecksPending:
 			if time.Now().After(deadline) {
 				return state
@@ -940,6 +955,13 @@ func awaitChecksReport(f forge.Forge, pr forge.PR, waitBudget, poll time.Duratio
 		res.addf("! CI E pr %d checks failing %s — item stays done; fix and reopen, or archive will refuse the merge", pr.Number, pr.URL)
 	case forge.ChecksPending:
 		res.addf("! CI W pr %d checks still pending after %s — verdict unknown at done; archive will wait again", pr.Number, waitBudget)
+	case forge.ChecksUnavailable:
+		// The ordinary done edge on any repository whose CI skips draft runs —
+		// which is the pattern this repository ships and documents. Say why no
+		// verdict exists rather than spending the budget to say the same thing
+		// later: the wait is not merely slow here, its outcome is fixed before
+		// it starts (B-01KYZB4QA9FF4).
+		res.addf("g pr %d no verdict yet — every check skipped while the PR is draft; CI runs at archive, when the PR readies", pr.Number)
 	case forge.ChecksPassing:
 		res.addf("g pr %d checks passing", pr.Number)
 	}
