@@ -54,6 +54,24 @@ const (
 	Gone    Class = "gone"    // node no longer exists
 	Stale   Class = "stale"   // rule no longer exists but anchor does
 	Pending Class = "pending" // anchor written before the node was indexable
+
+	// Unresolvable: the anchor's Node is not even SHAPED like a node ID
+	// (graph.ValidNodeID says no) — a file path, a prose fragment, an
+	// unqualified symbol. Before B-01KYN5ZYM1FY2 this rendered as Pending,
+	// byte-identical to a symbol that simply has not been indexed yet, and
+	// the caller had no way to tell "a reindex will clear this" from "no
+	// index state will ever clear this". No reindex resolves it; only
+	// re-editing the rule's applies does.
+	Unresolvable Class = "unresolvable"
+
+	// Bound: the anchor was stamped Pending (CHash "-") and its node HAS
+	// since appeared in the graph — the resolution Pending was waiting for.
+	// It carries NewHash so the caller can write a REAL hash back. It is
+	// deliberately not folded into Moved: the Moved arm refreshes
+	// File/Start/End but never CHash, so a "-" hash would survive the
+	// refresh and the anchor would fall straight back to Pending on the
+	// next check, forever (B-01KYN5ZYM1FY2).
+	Bound Class = "bound"
 )
 
 // NormHash hashes a normalized span: CRLF->LF, per-line trailing whitespace
@@ -348,8 +366,39 @@ func Classify(ws workspace.Root, g graph.Graph, anchors []Anchor, ruleText func(
 		curR := NormHash([]byte(text))
 		r.NewRHash = curR
 		switch {
+		case !graph.ValidNodeID(a.Node):
+			// ARM ORDER IS LOAD-BEARING (B-01KYN5ZYM1FY2). An unresolvable
+			// anchor is necessarily stamped CHash "-" / File "-", because
+			// Stamp could not resolve it either — so if the Pending arm
+			// below ran first it would swallow every unresolvable anchor
+			// and render it as a transient wait. That indistinguishable
+			// render is the defect this arm exists to end.
+			r.Class = Unresolvable
 		case a.CHash == "-" || a.File == "-":
+			// Pending is a WAIT, not a verdict. If the node has appeared in
+			// the graph since the anchor was stamped, resolve it here and
+			// hand the caller a REAL hash to write back (Bound). Without
+			// this arm the wait never ends: nothing else in the pipeline
+			// ever re-stamps a "-" hash, so an anchor added before its
+			// symbol existed would keep the repository's `check` output off
+			// its bare-`ok` shape forever (B-01KYN5ZYM1FY2).
 			r.Class = Pending
+			n, ok := g.Node(a.Node)
+			if !ok {
+				break // genuinely not indexed yet — keep waiting
+			}
+			if stale != nil && stale(n.File) {
+				// Same refusal to judge as the default arm below (DRF-003):
+				// the graph predates the file, so Line/EndLine cannot be
+				// trusted and no SpanHash is computed at all.
+				break
+			}
+			h, err := spanHashOfNode(ws, n)
+			if err != nil {
+				break // file unreadable: keep waiting rather than bind to nothing
+			}
+			r.NewHash = h
+			r.Class = Bound
 		case graphEmpty:
 			r.Class = Pending
 		default:

@@ -440,3 +440,93 @@ func TestRebindByHash(t *testing.T) {
 		t.Fatalf("(d) an ambiguous rebind must not set NewNode: %q", rs[0].NewNode)
 	}
 }
+
+// ---- B-01KYN5ZYM1FY2: unresolvable vs pending ----
+
+// TestClassifyUnresolvableVsPending pins the distinction the bug report is
+// about: an anchor naming a FILE PATH and an anchor naming a symbol that is
+// merely not indexed yet used to classify identically (Pending), because
+// the `CHash == "-"` arm ran first and swallowed both. They are different
+// states — a reindex clears the second and can never clear the first — so
+// they must classify differently, while a healthy stamped anchor stays OK.
+func TestClassifyUnresolvableVsPending(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	src := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	sentence := "The function SHALL return 1 exactly."
+	exists := func(string) (string, bool) { return sentence, true }
+
+	// The exact argument shape from the incident: applies=[<a file path>].
+	path := Anchor{Rule: "X-TST-010", Node: "pkg/f.go", File: "-", CHash: "-",
+		RHash: NormHash([]byte(sentence))}
+	// A real node ID for a symbol the indexer has not reached yet.
+	notYet := Anchor{Rule: "X-TST-011", Node: "go:pkg.NotYet", File: "-", CHash: "-",
+		RHash: NormHash([]byte(sentence))}
+	healthy := Stamp(ws, g, "X-TST-012", sentence, "go:pkg.F")
+
+	rs := Classify(ws, g, []Anchor{path, notYet, healthy}, exists, nil)
+	if rs[0].Class != Unresolvable {
+		t.Fatalf("a path-shaped anchor must classify Unresolvable, got %s", rs[0].Class)
+	}
+	if rs[1].Class != Pending {
+		t.Fatalf("an un-indexed but well-shaped node ID must stay Pending, got %s", rs[1].Class)
+	}
+	if rs[2].Class != OK {
+		t.Fatalf("a stamped anchor must stay OK, got %s", rs[2].Class)
+	}
+}
+
+// TestClassifyPendingBindsWhenNodeAppears pins the other half of
+// B-01KYN5ZYM1FY2: Pending is a WAIT, and the wait has to end. An anchor
+// stamped before its node existed must become Bound — carrying a REAL
+// NewHash for the caller to write back — the moment the node is in the
+// graph. Without this the anchor keeps its "-" hash forever, because
+// nothing else in the pipeline ever re-stamps one.
+func TestClassifyPendingBindsWhenNodeAppears(t *testing.T) {
+	root := t.TempDir()
+	ws := workspace.Root{Dir: root}
+	src := "package x\n\nfunc F() int {\n\treturn 1\n}\n"
+	os.MkdirAll(filepath.Join(root, "pkg"), 0o755)
+	os.WriteFile(filepath.Join(root, "pkg", "f.go"), []byte(src), 0o644)
+
+	sentence := "The function SHALL return 1 exactly."
+	exists := func(string) (string, bool) { return sentence, true }
+
+	// Stamped against an EMPTY graph: pending, exactly as rule op=add
+	// writes it when the symbol is not indexed yet.
+	empty := graph.NewMem()
+	a := Stamp(ws, empty, "X-TST-013", sentence, "go:pkg.F")
+	if a.CHash != "-" {
+		t.Fatalf("setup: stamping against an empty graph must yield a pending anchor, got CHash %q", a.CHash)
+	}
+
+	g := graph.NewMem()
+	g.Upsert([]graph.Node{{ID: "go:pkg.F", File: "pkg/f.go", Line: 3, EndLine: 5}}, nil)
+	rs := Classify(ws, g, []Anchor{a}, exists, nil)
+	if rs[0].Class != Bound {
+		t.Fatalf("a pending anchor whose node is now indexed must classify Bound, got %s", rs[0].Class)
+	}
+	want, err := SpanHash(ws, "pkg/f.go", 3, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs[0].NewHash != want {
+		t.Fatalf("Bound must carry the node's real span hash %q, got %q", want, rs[0].NewHash)
+	}
+
+	// The staleness refusal still wins over binding (DRF-003): a graph
+	// older than the file cannot be trusted for Line/EndLine, so no hash
+	// is computed at all and the anchor keeps waiting.
+	rs = Classify(ws, g, []Anchor{a}, exists, func(string) bool { return true })
+	if rs[0].Class != Pending {
+		t.Fatalf("a stale file must keep the anchor Pending, not bind it, got %s", rs[0].Class)
+	}
+	if rs[0].NewHash != "" {
+		t.Fatalf("a stale-derived Pending must carry no hash, got %q", rs[0].NewHash)
+	}
+}
