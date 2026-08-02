@@ -290,3 +290,4 @@
 {"t":"2026-08-02T17:48:52Z","eid":"622ce92f13afc158","ag":"ag-af9a","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"326a17eaa88c863e","nh":"be6897d79ed41e3a"}
 {"t":"2026-08-02T17:48:52Z","eid":"e742823d0195e70e","ag":"ag-af9a","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"326a17eaa88c863e","nh":"be6897d79ed41e3a"}
 {"t":"2026-08-02T17:52:03Z","eid":"9c34a4be6cb1a1e1","ag":"ag-7855","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"326a17eaa88c863e","nh":"be6897d79ed41e3a"}
+{"t":"2026-08-02T17:52:04Z","eid":"c9d966530150e957","ag":"ag-7855","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"326a17eaa88c863e","nh":"be6897d79ed41e3a"}
