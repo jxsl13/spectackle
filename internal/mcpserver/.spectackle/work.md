@@ -28,7 +28,7 @@ FIX DIRECTION. Per-entry refusals need to reach the exit status. Decide whether 
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/mcpserver/gitflow.go
+targets: internal/workspace, internal/mcpserver, internal/wt
 
 Two residuals surfaced by mutation verification of B-01KYSDBZTEF1A. Neither is a bypass and neither blocked that record; both are worth closing deliberately rather than by accident.
 
