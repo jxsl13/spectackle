@@ -26,7 +26,7 @@ FIX DIRECTION. Per-entry refusals need to reach the exit status. Decide whether 
 
 ## B-01KYSK7HQFFPM8538HAWGRS0P6 reconcileClosureBranch has no test coverage at all, and the records exemption now excuses real files at any depth rather than only at the root
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 rounds: 1
 grilled: 2026-08-02 open=3
