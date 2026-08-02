@@ -44,7 +44,7 @@ VERIFY per RECMERGE-003: for each site, mutate the underlying map - add a value 
 
 ## T-01KYT90WD4FKX8K1AAE71X1DPD no test ever forces cd.Emit to fail, so the escalation broadcast-failure branch is unreachable coverage
 kind: task
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-02 open=0
 targets: internal/mcpserver
