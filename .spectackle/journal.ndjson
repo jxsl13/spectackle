@@ -723,3 +723,4 @@
 {"t":"2026-08-02T11:30:59Z","eid":"f92df380d2f3f7e0","ag":"ag-6d22","ev":"create","id":"B-01KZ13VMF0EXP9691Y21868ZQS","k":"bug","ti":"TestConcurrentApplyMintsOneDecision flakes in CI: the racing applies resolve correctly but the surviving decision is invisible to the querying session"}
 {"t":"2026-08-02T12:18:12Z","eid":"c96da034e756ba02","ag":"ag-51d8","ev":"create","id":"B-01KZ16J3PKERRV6E7BB8F3BZJK","k":"bug","ti":"a single-segment directory target such as docs is honored by the done gate and silently dropped by validate, so every documentation change manufactures an offscope finding"}
 {"t":"2026-08-02T15:57:55Z","eid":"e7cf2c752af92162","ag":"ag-86a0","ev":"grill","id":"B-01KYPC60DWEZ0S0CN1RFTEPGQH","gr":"2026-08-02 open=0","hash":"e5c9f106472a6694e266ba5cf270426551ea372883b8dc73a45cbd0bb0376668"}
+{"t":"2026-08-02T15:57:56Z","eid":"03d0a21bb942fb4e","ag":"ag-0f07","ev":"move","id":"B-01KYPC60DWEZ0S0CN1RFTEPGQH","fr":"draft","to":"active"}
