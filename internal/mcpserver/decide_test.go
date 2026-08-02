@@ -2,11 +2,17 @@ package mcpserver
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	// The "sqlite" driver is registered by internal/coord's own blank import;
+	// this one is here because THIS file opens a second connection to the
+	// coordination DB directly (armCoordEventFailure) and must not depend on
+	// another package's import list to have a driver.
+	_ "modernc.org/sqlite"
 
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
@@ -620,6 +626,182 @@ func TestMoveEscalationAdvertisesLiveOutcomes(t *testing.T) {
 	}
 	if !strings.Contains(second, "rescope|reject") {
 		t.Errorf("move-route refusal does not advertise the live set:\n%s", second)
+	}
+}
+
+// armCoordEventFailure makes the swarm broadcast — and ONLY the swarm
+// broadcast — fail, by installing a BEFORE INSERT trigger on the coordination
+// DB's events table through a SECOND sqlite connection to the same file.
+//
+// This is the seam T-01KYT90WD4FKX needed and it needs no production change.
+// coord.DB.Emit is a plain `INSERT INTO events(...)` (internal/coord/coord.go),
+// so RAISE(ABORT) fails exactly it, while every other coord facility keeps
+// working on its own tables: the ID minter writes `counters` (coord.NextID,
+// reached through s.minter()), the tool gate heartbeats into `agents`. That
+// separation is what makes the failure arm reachable at all — lifecycle.Escalate
+// must SUCCEED first, and only then may the broadcast fail. The record
+// proposed an emitOverride field on Server instead; a test-side connection
+// buys the same coverage with zero production surface.
+//
+// The trigger is scoped to one event kind so an unrelated Emit elsewhere in
+// the same call cannot be the one that fails and quietly move the test off
+// the branch it means to pin. RAISE's message is the string the caller must
+// end up seeing, so the assertions can check the refusal really carries the
+// UNDERLYING error rather than a generic one the server made up.
+func armCoordEventFailure(t *testing.T, s *Server, ev string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+s.main.CoordPath()+
+		"?_txlock=immediate&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatalf("arm: open coord db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	// ev is inlined rather than bound: sqlite refuses parameters inside a
+	// trigger body ("trigger cannot use variables"). Callers pass a literal.
+	if _, err := db.Exec(`CREATE TRIGGER coord_events_unavailable
+		BEFORE INSERT ON events WHEN NEW.ev = '` + ev + `'
+		BEGIN SELECT RAISE(ABORT, 'coord events unavailable'); END`); err != nil {
+		t.Fatalf("arm: install trigger: %v", err)
+	}
+}
+
+// TestMoveEscalationBroadcastFailureIsHonest pins the OTHER escalation refusal
+// in move — the one taken when the coordination broadcast fails after the
+// escalation already happened (tools.go, `escalate broadcast failed`).
+// TestMoveEscalationAdvertisesLiveOutcomes above covers the success arm; this
+// arm was executed ZERO times by the whole package, so deleting it, dropping
+// its COORD E line, or passing nil options to roundsRefusal all left the suite
+// green. Its contract is honest reporting under partial failure: the item IS
+// blocked, telling the siblings is what failed, and the caller must hear both
+// facts (T-01KYT90WD4FKX).
+//
+// The two-escalation setup is load-bearing, not ceremony. On a FIRST
+// escalation the ADR's live options are byte-identical to blockedExitOutcomes'
+// nil fallback, so a first-escalation test passes even with the options
+// argument nil-ed and proves nothing about the CALL SITE. Spending
+// override-once first makes the live set (rescope|reject) differ from the
+// fallback, which is the only state in which the argument is observable —
+// the same reason the sibling test above escalates twice (B-01KYS7111XFHZ).
+func TestMoveEscalationBroadcastFailureIsHonest(t *testing.T) {
+	s, sess := connectRootWithServer(t, t.TempDir())
+	id := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "escalation broadcast failure",
+		"body": "a body of ordinary length",
+	})
+	adrOf := func(out string) string {
+		i := strings.Index(out, "ADR-")
+		if i < 0 {
+			t.Fatalf("no ADR id in: %s", out)
+		}
+		j := i + len("ADR-")
+		for j < len(out) && (out[j] >= '0' && out[j] <= '9' || out[j] >= 'A' && out[j] <= 'Z') {
+			j++
+		}
+		return out[i:j]
+	}
+	// The reopen budget is server-counted, so the escalation is driven the way
+	// a caller reaches it: ping-pong done<->active until the budget is spent.
+	escalate := func() string {
+		var last string
+		for i := 0; i < 12 && !strings.Contains(last, "rounds exhausted"); i++ {
+			to := "done"
+			if i%2 == 1 {
+				to = "active"
+			}
+			last = callText(t, sess, "move", map[string]any{"id": id, "to": to})
+		}
+		if !strings.Contains(last, "rounds exhausted") {
+			t.Fatalf("escalation never reached: %s", last)
+		}
+		return last
+	}
+	first := escalate()
+	// SPEND override-once. Without this the live option set equals the
+	// hard-coded fallback and assertion (d) below cannot fail.
+	callText(t, sess, "decide", map[string]any{"op": "answer", "id": adrOf(first), "choose": "override-once"})
+
+	armCoordEventFailure(t, s, "escalate")
+	out := escalate()
+
+	// (a) the failure is reported, and named as the broadcast rather than the
+	// escalation — the LLM must not conclude the move simply failed.
+	if !strings.Contains(out, "! COORD E") || !strings.Contains(out, "escalate broadcast failed") {
+		t.Errorf("failure-route refusal does not report the broadcast failure:\n%s", out)
+	}
+	// (b) the underlying error travels with it. A branch that swallowed the
+	// cause and printed a fixed string would still pass (a).
+	if !strings.Contains(out, "coord events unavailable") {
+		t.Errorf("failure-route refusal drops the underlying coord error:\n%s", out)
+	}
+	// (c) the rounds refusal FOLLOWS the COORD E line rather than replacing
+	// it: the caller needs both what broke and how to leave blocked.
+	coord, rounds := strings.Index(out, "! COORD E"), strings.Index(out, "rounds exhausted")
+	if rounds < 0 {
+		t.Errorf("failure-route refusal lost the rounds-exhausted block:\n%s", out)
+	} else if coord >= 0 && coord > rounds {
+		t.Errorf("COORD E line must precede the rounds-exhausted block:\n%s", out)
+	}
+	// (d) the exit options are the ADR's LIVE set, not the nil fallback:
+	// override-once is spent and the parser now refuses it.
+	if strings.Contains(out, "override-once") {
+		t.Errorf("failure-route refusal advertises spent override-once:\n%s", out)
+	}
+	// (e) and it still teaches the options that WILL be accepted.
+	if !strings.Contains(out, "rescope|reject") {
+		t.Errorf("failure-route refusal does not advertise the live set:\n%s", out)
+	}
+	// (f) the STORE, not just the wording: the escalation must not be rolled
+	// back merely because the broadcast failed. Asserting only on the refusal
+	// text would pass just as happily if a later refactor undid the blocked
+	// write on this path, which is the regression the record exists to stop.
+	if got := callText(t, sess, "get", map[string]any{"id": id}); !strings.Contains(got, " blocked") {
+		t.Errorf("escalation was rolled back by a failed broadcast — item is not blocked:\n%s", got)
+	}
+	it, ok, err := item.Get(s.ws, fullID(t, s, id))
+	if err != nil || !ok {
+		t.Fatalf("re-read %s: ok=%v err=%v", id, ok, err)
+	}
+	if it.State != item.StateBlocked {
+		t.Errorf("item state is %q, want %q — a failed broadcast must not undo the escalation", it.State, item.StateBlocked)
+	}
+}
+
+// TestRejectBroadcastFailureIsHonest is the same contract one arm over, on the
+// route move takes into rejected (tools.go, `reject broadcast failed`), which
+// was equally unexecuted by this package. Its shape differs on purpose and the
+// difference is what is pinned: the rejection has ALREADY landed on disk, so
+// losing the broadcast is a WARN carried alongside a successful move, not a
+// refusal (SPX-SWM-002). Silently dropping it would let a sibling repeat the
+// exact work the rejection exists to prevent (T-01KYT90WD4FKX).
+func TestRejectBroadcastFailureIsHonest(t *testing.T) {
+	s, sess := connectRootWithServer(t, t.TempDir())
+	prop := draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "broadcast failure on reject",
+		"body": "a body of ordinary length",
+	})
+	armCoordEventFailure(t, s, "reject")
+	out := callText(t, sess, "move", map[string]any{
+		"id": prop, "to": "rejected", "note": "the broadcast is what failed, not the rejection",
+	})
+	if !strings.Contains(out, "! COORD E") || !strings.Contains(out, "reject broadcast failed") {
+		t.Errorf("reject route does not report the broadcast failure:\n%s", out)
+	}
+	if !strings.Contains(out, "coord events unavailable") {
+		t.Errorf("reject route drops the underlying coord error:\n%s", out)
+	}
+	// A W, never an E-only refusal: the move itself succeeded and the record
+	// line for the new state must still be there.
+	if strings.Contains(out, "! ARG E") || strings.Contains(out, "REFUSED") {
+		t.Errorf("failed broadcast must not turn a landed rejection into a refusal:\n%s", out)
+	}
+	// The ACTION, not the wording. A rejection leaves work.md for the
+	// rejection corpus, so the durable evidence that it LANDED is that the
+	// corpus can find it — the same thing TestRejectionCorpusAndRevocation
+	// pins on the healthy path.
+	if got := callText(t, sess, "find", map[string]any{
+		"q": "broadcast failure on reject", "scope": "rejection",
+	}); !strings.Contains(got, prop) {
+		t.Errorf("rejection was rolled back by a failed broadcast — not in the corpus:\n%s\nmove said:\n%s", got, out)
 	}
 }
 
