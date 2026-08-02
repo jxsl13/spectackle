@@ -266,6 +266,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYZB4QA9FF4TCA3AQGWT7E5D the done edge always burns the full CI await budget, because the verdict it waits for cannot exist while the PR is still draft: validated pass by verifier-await-2 diff c017b15c30d4
 - B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active: validated pass by verifier-doneedge-2 diff ce4a0b0989b6
 - B-01KYN5ZYM1FY2TBZHXC43V68TE rule applies renders a never-resolvable anchor identically to a not-yet-indexed one, and the difference only surfaces as a red CI gate after the PR leaves draft: validated pass by verifier-anchor diff a33795a43ded :: 3/3 independent lenses pass on the VERIFY line. Clause 1: anchorclass_test.go:38 TestRuleAddNamesUnresolvableApplies calls rule op=add applies=["demo.go"], asserts the render says unresolvable and NOT 'pending (node not indexed yet)'. Clause 2: drift_test.go TestClassifyUnresolvableVsPending separates path-shaped/unindexed/healthy in one Class [body truncated at tombstone retention cap]
+- B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline: validated pass by verifier-inject diff bf05ad446c15
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

@@ -308,25 +308,6 @@ FIX DIRECTION. Advisories and the summary are different record types (c versus o
 
 VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
 
-## B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline
-kind: bug
-state: done
-created: 2026-07-30
-grilled: 2026-08-02 open=0
-targets: internal/item, internal/mcpserver, internal/lifecycle
-
-Two findings from independent verification of B-01KYN3E973F20, both confirmed pre-existing on the pre-fix binary and both the same class as that bug: a value that the writer emits and the parser then reads as STRUCTURE.
-
-O1, heading injection through body. draft {body: "## T-9999 phantom\nkind: bug\nstate: archived"} exits 0 and is accepted. On reload the injected line matches reItemHeading, so the parser starts a NEW item block there: a phantom record appears with the injected kind and state, and the host record loses its entire body to the phantom. This is the same outcome the targets fix in B-01KYN3E973F20 closed, reached through a field that is free-form by design. That is why it is separate rather than an oversight in that fix - the header guard has no business refusing body prose, so the answer has to be different: escape or indent a body line that matches reItemHeading on write, or refuse a body that would parse as a new record. A phantom record in a terminal state is worse than a mangled body, because state is what the state machine trusts.
-
-O2, newline in dir. draft {dir: "a\nb"} exits 0 and creates a directory literally named with an embedded newline, and the resulting state record line is split in two - so the dense line grammar itself is broken for that record, which is what every caller parses. dir is not stored in the machine header, which is why the header guard does not see it.
-
-WHY BOTH MATTER. The record grammar is line-oriented end to end. Guarding only the machine header covers where the reported corruption happened, not every place a caller-supplied newline becomes a line break in output an agent parses.
-
-FIX DIRECTION. Treat the line grammar as the invariant rather than the header: refuse or escape a newline in any caller-supplied value that reaches a rendered record line (dir is the clear case), and handle the body separately since it legitimately holds prose - most likely by refusing a body line that matches reItemHeading, which is a narrow and explainable rule.
-
-VERIFY. A test asserting a heading-shaped body line does not produce a second item on reload and does not empty the host body, and a test asserting dir with a newline is refused. Both must exit non-zero per SRF-001.
-
 ## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
 kind: bug
 state: draft
