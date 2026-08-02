@@ -46,6 +46,7 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 kind: bug
 state: draft
 created: 2026-07-29
+grilled: 2026-08-02 open=0
 targets: internal/mcpserver
 
 REPRODUCED just now, in this repository. An R-item drafted and then moved straight to done - a legitimate path for a research record, which needs no implementation branch - hit:
