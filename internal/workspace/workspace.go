@@ -47,13 +47,153 @@ const Dot = ".spectackle"
 //
 // The test is per SEGMENT, not a substring: a file named ".spectacklefoo" is
 // ordinary work, which the older HasPrefix spelling would have swallowed.
+//
+// It is also per NAME, not per directory (B-01KYSK7HQFFPM). The first version
+// of this predicate exempted anything under a `.spectackle` segment, which
+// made the folder a smuggling surface at every depth: a .go file or a shell
+// script dropped into one passed the scope gate and was then committed under
+// the server's own records subject. Four such paths were measured passing at
+// exit 0. The Go toolchain ignores dot-directories, so nothing BUILT from
+// there — but that is a language-specific accident the predicate never
+// stated, and a script or asset under a records dir is perfectly reachable in
+// any other language. So the exemption now lists the names the server
+// actually writes and refuses everything else.
+//
+// The anchor is the FIRST `.spectackle` segment, and that choice is load
+// bearing: a path can contain two (the retained migration backup holds whole
+// copies of nested bundles), and the two readings disagree. Last-match would
+// exempt `.spectackle/anything/.spectackle/work.md`, re-opening the smuggling
+// hole one directory deeper; first-match keeps the outermost records folder
+// in charge of everything below it.
+//
+// Below that anchor three shapes are records:
+//
+//   - the folder itself;
+//   - a gitignored-or-server-owned SUBTREE — `cache/`, `wt/`, or a retained
+//     `migrate-backup-*` — exempt wholesale, since their contents are the
+//     server's own scratch and are not enumerable;
+//   - a direct CHILD file whose basename the server writes (the bundle files,
+//     the scaffolded git dotfiles, or one of the two temp spellings).
+//
+// Anything else under a records folder is ordinary work and must face the
+// scope gate like any other file.
 func IsRecordsPath(rel string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(rel), "/") {
+	segs := strings.Split(filepath.ToSlash(rel), "/")
+	i := -1
+	for j, seg := range segs {
 		if seg == Dot {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		return false
+	}
+	if i == len(segs)-1 {
+		return true // the records folder itself
+	}
+	child := segs[i+1]
+	// Whole subtrees, and ONLY under the ROOT records folder (i == 0).
+	//
+	// All three are root-only by construction: CacheDir and the worktree path
+	// are filepath.Join(r.Dir, Dot, …) with no context segment, and migrate
+	// writes its backup to filepath.Join(dir, Dot, backup). A nested records
+	// folder never legitimately contains any of them.
+	//
+	// Root-anchoring is the fix for a measured hole, not tidiness. Anchored
+	// only on the NAME, `internal/x/.spectackle/wt/evil.sh` and
+	// `internal/x/.spectackle/migrate-backup-v9/evil.go` were both measured
+	// reaching wt.DirtyFiles and passing the gate at exit 0 — the attacker
+	// cost is naming a directory `wt` inside any nested records folder. At the
+	// root the scaffolded .gitignore hides such a directory, but EnsureScaffold
+	// writes no .gitignore for a nested context (see ctx != "" below), so
+	// nested folders had nothing masking it.
+	//
+	// The exemption is still required at the root, and the ignore line alone
+	// is not enough there: a workspace scaffolded by an older build has a
+	// .gitignore without it, exactly the way pre-wt/ workspaces did, and its
+	// RETAINED migration backup would then reach the scope gate as undeclared
+	// work that NO transition could clear — the gate is a pre-Move guard while
+	// every records commit that could absorb the backup runs downstream of it.
+	// That deadlock is what this predicate exists to prevent, and it was
+	// measured against a real post-migration tree.
+	if i == 0 && (child == "cache" || child == "wt" || migrateBackupRe.MatchString(child)) {
+		return true
+	}
+	if i != len(segs)-2 {
+		return false // a deeper file under some other subdirectory
+	}
+	return isRecordsFileName(child)
+}
+
+// migrateBackupPrefix duplicates internal/migrate's unexported backupPrefix
+// (migrate.go:84). It is spelled out rather than imported because the backup
+// is RETAINED after a successful migration and is not removed by anything, so
+// this package has to recognize it from the outside; a change there without a
+// change here is caught by TestIsRecordsPathCoversRetainedMigrationBackup.
+const migrateBackupPrefix = "migrate-backup-"
+
+// migrateBackupRe matches the retained backup DIRECTORY, and it is anchored
+// on the version suffix rather than the bare prefix on purpose. migrate names
+// it backupPrefix+From (migrate.go:199) where From is a "v<n>" stamp, so
+// `migrate-backup-v0` is the only shape any release produces and `v[0-9]+`
+// covers every future one.
+//
+// A bare HasPrefix test was measured to exempt `migrate-backup-` itself — an
+// attacker-chosen SUBTREE whose every file the gate would then wave through.
+// The scaffolded .gitignore hides such a directory today, but not in the
+// pre-line workspaces this exemption exists for, which is precisely where it
+// would have mattered.
+var migrateBackupRe = regexp.MustCompile(`^` + regexp.QuoteMeta(migrateBackupPrefix) + `v[0-9]+$`)
+
+// recordsTempRe matches the two temp-file spellings the server can leave
+// inside a records folder: journal.Rewrite's `os.CreateTemp(dot, "journal-*")`
+// (journal.go:219) and migrate's `os.CreateTemp(dir, "."+base+".tmp*")`
+// (migrate.go:744). Both are renamed away on success, but a crash between
+// create and rename strands one, and a stranded temp file must not deadlock
+// the scope gate the way the migration backup did.
+//
+// Both branches are as NARROW as their producers, because this is an exemption
+// from the scope gate and every character of slack in it is a file an author
+// names freely. os.CreateTemp always substitutes decimal digits for its `*`,
+// so both counts are `+` rather than `*`; and migrate's temp basename is
+// always a bundle file, so the middle is that same closed set rather than
+// `[^/]+`. The wider form was measured waving `.spectackle/.evil.tmp`,
+// `.spectackle/.payload.sh.tmp` and `internal/x/.spectackle/.attack.sh.tmp9`
+// straight through the gate and into the records commit.
+var recordsTempRe = regexp.MustCompile(
+	`^(?:journal-[0-9]+|\.(?:` + recordsBundleAlt + `)\.tmp[0-9]+)$`)
+
+// recordsBundleAlt is the bundle basenames as a regexp alternation, built from
+// the same list isRecordsFileName switches on so the two cannot drift.
+var recordsBundleAlt = func() string {
+	quoted := make([]string, 0, len(recordsBundleNames))
+	for _, n := range recordsBundleNames {
+		quoted = append(quoted, regexp.QuoteMeta(n))
+	}
+	return strings.Join(quoted, "|")
+}()
+
+// recordsBundleNames are the files the server writes directly inside a records
+// folder. Exhaustive by construction: the bundle files (item.go, spec/author.go,
+// journal.go, drift.go), the two dotfiles EnsureScaffold maintains, and
+// config.yaml. `git ls-files` over this repository's own tracked records
+// returns exactly this set.
+var recordsBundleNames = []string{
+	"spec.md", "work.md", "journal.ndjson", "bench.ndjson", "anchors.tsv",
+	"config.yaml", ".gitignore", ".gitattributes",
+}
+
+// isRecordsFileName reports whether a basename directly inside a records
+// folder is one the server writes: a bundle file, or one of the two temp
+// spellings a crash can strand (see recordsTempRe).
+func isRecordsFileName(name string) bool {
+	for _, n := range recordsBundleNames {
+		if name == n {
 			return true
 		}
 	}
-	return false
+	return recordsTempRe.MatchString(name)
 }
 
 // SchemaStamp is injected into every server-written file's frontmatter.
@@ -739,7 +879,17 @@ func (r Root) EnsureScaffold(ctx string) error {
 	}
 	// ensure-lines, not write-if-absent: repos scaffolded by older versions
 	// have a .gitignore without wt/ and must not start committing worktrees.
-	if err := ensureLines(filepath.Join(dot, ".gitignore"), "cache/", "wt/"); err != nil {
+	//
+	// migrate-backup-*/ is the same story one release later. A successful
+	// schema migration copies every bundle file into
+	// .spectackle/migrate-backup-<from>/ and RETAINS it (migrate.go:84), so
+	// without this line a migrated workspace grows a dozen untracked files
+	// that wt.CommitRecords would sweep into a records commit and that the
+	// scope gate would otherwise have to reason about. Ignoring them keeps
+	// both out of the question; IsRecordsPath above still exempts the
+	// subtree, because this line only reaches a workspace once something
+	// calls EnsureScaffold and the backup can predate that (B-01KYSK7HQFFPM).
+	if err := ensureLines(filepath.Join(dot, ".gitignore"), "cache/", "wt/", migrateBackupPrefix+"*/"); err != nil {
 		return err
 	}
 	if !fileExists(filepath.Join(dot, "config.yaml")) {

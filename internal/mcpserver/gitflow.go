@@ -776,7 +776,8 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 		return string(out), err
 	}
 	base := s.gitBase()
-	if _, err := git("merge", "--no-ff", "-m", "spectackle(reconcile): "+shortDisplayID(id)+" base into live closure branch", base); err == nil {
+	mergeOut, err := git("merge", "--no-ff", "-m", "spectackle(reconcile): "+shortDisplayID(id)+" base into live closure branch", base)
+	if err == nil {
 		return nil
 	}
 	conflicted, _ := git("diff", "--name-only", "--diff-filter=U")
@@ -788,6 +789,19 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 		} else {
 			outside = append(outside, f)
 		}
+	}
+	// A merge that failed with NO unmerged paths never started: a dirty or
+	// untracked file in the way ("would be overwritten by merge"), a
+	// pre-existing merge state, a bad base ref. Falling through classified
+	// both lists empty, so `add --` ran with no pathspec (exit 0, staging
+	// nothing) and the operator got "closure reconcile commit: ... no changes
+	// added to commit" — a message about the wrong step entirely, which says
+	// nothing about the file actually blocking. Refuse with the merge's OWN
+	// output, which names it (B-01KYSK7HQFFPM).
+	if len(inside)+len(outside) == 0 {
+		_, _ = git("merge", "--abort")
+		res.addf("! GIT E %s closure reconcile: merging %s failed with no conflicted paths — %s", id, base, oneLine(mergeOut))
+		return errors.New("closure reconcile failed")
 	}
 	if len(outside) > 0 {
 		_, _ = git("merge", "--abort")
@@ -824,6 +838,14 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 	res.addf("g reconciled %s into the live closure branch (.spectackle resolved to base)", base)
 	return nil
 }
+
+// oneLine folds multi-line git output into a single result line. Every
+// gitFlowResult line is one line by contract (the renderer and the orchestrator
+// both split on newlines), so quoting a raw git message verbatim would smear a
+// refusal across several lines and hide the marker prefix on all but the first.
+// Collapsing runs of whitespace keeps the substance — git puts the offending
+// path on its own indented line, and that is exactly what the refusal is for.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // pinHead stamps the pull request with the local branch head, so the CI await
 // polls the commit that was actually pushed (B-01KYDN: a branch ref asked

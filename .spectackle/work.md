@@ -416,3 +416,22 @@ WHY THIS IS RECORDED AND NOT WAIVED, which is the part worth keeping. The untest
 So the two techniques are not redundant and neither subsumes the other. The static untested: finding is cheap and catches the class that adversarial verification structurally misses. This workspace's health line already warns waiver-rate 55 percent over the last 20 verdicts; a finding that three verifiers could not have produced is precisely the kind that must not be reflexively waived. B-01KZ16J3PKERR covers a different half of the same waiver problem - findings that are FALSE and must be waived - and the two together are the argument for looking at what the pack says rather than at how often it is right.
 
 VERIFY: a table-driven test over graph.ValidNodeID naming each boundary case above and asserting both directions; a check-level test placing both anchor classes in one workspace and asserting the E finding, the pending tally count and the state summary counters simultaneously; and validate on a record touching internal/graph no longer emits untested:ValidNodeID.
+
+## T-01KZ24H1F9EYY99M87KK4HR5AX pin two properties that are correct but unpinned: the escalation ADR title length, and the move route's non-zero exit
+kind: task
+state: draft
+created: 2026-08-02
+refs: T-01KYQ503AGE6TV1NWY3EAVZSA6
+targets: internal/lifecycle, internal/mcpserver
+
+Two properties of T-01KYQ503AGE6T's earlier landings are correct in the code and pinned by nothing. Both were found by an independent validator that mutated already-merged lines rather than only the diff under review, and both are invisible to CI today.
+
+GAP 1, the sharper one. The escalation ADR title fix (D3) is entirely unpinned. Reverting internal/lifecycle/lifecycle.go:383 from shortID(it.ID) back to the full it.ID leaves ./internal/lifecycle, ./internal/mcpserver, ./internal/item and ./internal/knowledge ALL GREEN - measured, not inferred. The whole point of that change was that an escalation ADR's title renders at the same length as the record it names, and the record's own TESTS line asks for exactly that assertion. It was never written. A regression here restores the defect silently.
+
+GAP 2. The MOVE route's non-zero exit is unpinned, which is the ironic half. That route is the one this record calls genuinely fixed and pinned, and its guard test internal/mcpserver/knowledge_test.go:1072 goes through callText - which DISCARDS res.IsError. So the test can see the refusal text and cannot see the exit code at all. refuse() does set IsError, so the behavior is right; the assertion simply is not there. Only the three routes added later assert it, via a callRaw helper whose own comment concedes the gap.
+
+WHY THIS PAIR IS WORTH ONE RECORD. Both are the same failure: a property was fixed, described in the record, and never converted into an assertion, so the fix survives only as long as nobody edits that line. That is distinct from a missing test for untested code - here the code is right TODAY and the tests certify a neighboring property, which reads as coverage. SRF-001's exit-code half is precisely the kind of contract that decays silently, because a wrong exit code still prints the right words.
+
+DIRECTION. Pin the title length with a test that asserts the ADR title contains shortID(it.ID) and NOT the full ID, so both halves are stated. Convert the move-route guard to assert res.IsError through a raw CallTool, reusing the callRaw helper the newer file already provides rather than adding a second one. Neither needs a production change; if either requires one, that is itself the finding.
+
+VERIFY: reverting lifecycle.go's shortID call fails a test; converting the move-route guard makes a mutated refuse-to-text change fail on the exit code rather than only on the prose.

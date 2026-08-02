@@ -909,9 +909,166 @@ func TestIsRecordsPath(t *testing.T) {
 		{"internal/spectackle/x.go", false},              // no leading dot
 		{"pkg/a.go", false},
 		{"", false},
+
+		// B-01KYSK7HQFFPM: the exemption is by NAME, not by directory. These
+		// four were MEASURED passing the real scope gate at exit 0 under the
+		// any-file-under-a-.spectackle-segment spelling, at the root and at
+		// depth, in a compiled language and in a scripting one.
+		{".spectackle/evil.go", false},
+		{"internal/mcpserver/.spectackle/evil.go", false},
+		{"a/b/c/.spectackle/payload.sh", false},
+		{"a/b/c/.spectackle/notes.txt", false},
+		// First-match anchoring, spelled out: under last-match this smuggles
+		// a .go file back in one directory deeper.
+		{".spectackle/evil/.spectackle/work.md", false},
+		{".spectackle/evil/x.go", false},
+
+		// Every allowlisted basename, at the root and nested, so dropping any
+		// one of them from the list deadlocks the gate on a file the server
+		// writes and cannot stop writing.
+		{".spectackle/journal.ndjson", true},
+		{".spectackle/bench.ndjson", true},
+		{".spectackle/anchors.tsv", true},
+		{".spectackle/config.yaml", true},
+		{".spectackle/.gitignore", true},
+		{".spectackle/.gitattributes", true},
+		{"internal/x/.spectackle/spec.md", true},
+		{"internal/x/.spectackle/bench.ndjson", true},
+		{"internal/x/.spectackle/anchors.tsv", true},
+		{"internal/x/.spectackle/config.yaml", true},
+		{"internal/x/.spectackle/.gitignore", true},
+		{"internal/x/.spectackle/.gitattributes", true},
+		// The temp spellings: journal.Rewrite's and migrate's writeAtomic's.
+		{"internal/x/.spectackle/journal-123456", true},
+		{".spectackle/.work.md.tmp998877", true},
+		{"internal/x/.spectackle/journal-notatemp.go", false},
+
+		// The temp exemption must be exactly as narrow as its producers.
+		// An independent validator drove every one of these past the REAL
+		// scope gate and into wt.CommitRecords, using the earlier
+		// `\.[^/]+\.tmp[0-9]*` spelling: `[^/]+` admits any basename and
+		// `[0-9]*` admits none, so any dotfile ending in .tmp was exempt at
+		// any depth — an arbitrary-content file with an author-chosen name.
+		// os.CreateTemp always substitutes decimal digits, and migrate's temp
+		// basename is always a bundle file, so neither slack was ever needed.
+		{".spectackle/.evil.tmp", false},
+		{".spectackle/.payload.sh.tmp", false},
+		{".spectackle/.evil.go.tmp", false},
+		{".spectackle/.x.tmp0", false},
+		{"internal/x/.spectackle/.attack.sh.tmp9", false},
+		{".spectackle/.work.md.tmp", false}, // real basename, but no digits
+		{"internal/x/.spectackle/.spec.md.tmp42", true},
+
+		// The backup subtree is anchored on the version stamp, not the bare
+		// prefix: `migrate-backup-` alone was an attacker-nameable subtree
+		// whose every file the gate waved through. Only migrate's own
+		// backupPrefix+From shape ("v" plus digits) is exempt.
+		{".spectackle/migrate-backup-/evil.sh", false},
+		{".spectackle/migrate-backup-vx/evil.sh", false},
+		{".spectackle/migrate-backup-v0/COMPLETE", true},
+		{".spectackle/migrate-backup-v12/core/.spectackle/work.md", true},
+
+		// The three subtree exemptions are ROOT-ONLY, because all three are
+		// root-only by construction (CacheDir, the worktree path and migrate's
+		// backup are all filepath.Join(root, Dot, …) with no context segment).
+		// Anchored on the name alone, both of the next two were measured
+		// reaching wt.DirtyFiles and passing the real gate at exit 0 — the
+		// attacker cost is naming a directory `wt` inside a NESTED records
+		// folder, where EnsureScaffold writes no .gitignore to mask it.
+		{"internal/x/.spectackle/wt/evil.sh", false},
+		{"internal/x/.spectackle/cache/evil.sh", false},
+		{"internal/x/.spectackle/migrate-backup-v9/evil.go", false},
+		{".spectackle/wt/anything/at/all", true},
+		{".spectackle/cache/index.db", true},
+
+		// The gitignored / server-owned subtrees, exempt wholesale because
+		// their contents are not enumerable from here.
+		{".spectackle/cache/parse.db", true},
+		{".spectackle/wt/T-0001/internal/x/main.go", true},
 	} {
 		if got := IsRecordsPath(c.in); got != c.want {
 			t.Errorf("IsRecordsPath(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestIsRecordsPathCoversRetainedMigrationBackup is the correction the naive
+// allowlist needed, kept as its own test because it is the one exemption whose
+// justification is not "the server writes this name" but "the server writes
+// this SUBTREE and never removes it".
+//
+// internal/migrate copies every bundle file into
+// .spectackle/migrate-backup-<from>/<rel> and writes a COMPLETE marker beside
+// them, and migrate.go:84 says the backup is RETAINED. Refusing those paths
+// makes the scope gate — a PRE-Move guard — fire on files no downstream
+// records commit can ever absorb, which is the unclearable deadlock this
+// predicate exists to prevent. Driving the REAL gate against a post-migration
+// tree refused all six backup files before this exemption existed, while
+// `go test ./...` stayed 32-ok, because nothing else drives a migrated tree.
+//
+// Note the last row: the backup holds whole copies of NESTED bundles, so the
+// path contains two `.spectackle` segments. It is exempt via the first
+// segment's subtree rule, not the second's — which is why the anchor choice is
+// documented on IsRecordsPath rather than left to the reader.
+func TestIsRecordsPathCoversRetainedMigrationBackup(t *testing.T) {
+	for _, p := range []string{
+		".spectackle/migrate-backup-v0",
+		".spectackle/migrate-backup-v0/COMPLETE",
+		".spectackle/migrate-backup-v0/.spectackle/work.md",
+		".spectackle/migrate-backup-v0/core/.spectackle/work.md",
+		".spectackle/migrate-backup-v0/core/.spectackle/journal.ndjson",
+	} {
+		if !IsRecordsPath(p) {
+			t.Errorf("IsRecordsPath(%q) = false — the retained migration backup would hit the pre-Move scope gate, which no transition can clear", p)
+		}
+	}
+	// The exemption is anchored on the prefix, not on "anything hyphenated".
+	for _, p := range []string{
+		".spectackle/migrate-backupv0/COMPLETE",
+		".spectackle/backup-v0/COMPLETE",
+	} {
+		if IsRecordsPath(p) {
+			t.Errorf("IsRecordsPath(%q) = true — the backup exemption is wider than %q*", p, "migrate-backup-")
+		}
+	}
+}
+
+// TestScaffoldIgnoresRetainedMigrationBackup pins the OTHER half of the same
+// correction, and it has to be a separate assertion: the two fixes mask each
+// other. With the backup gitignored it never reaches DirtyFiles, so the
+// predicate exemption alone is untestable through the gate on a freshly
+// scaffolded workspace — and with the predicate exemption in place the missing
+// ignore line costs nothing at the gate, only a dozen untracked files that
+// wt.CommitRecords would sweep into a records commit (wt.go:559 matches on
+// `.spectackle/` prefix and would take the whole backup with it).
+//
+// ensure-lines, not write-if-absent, is the point: this must reach workspaces
+// that were scaffolded before the line existed, which is every workspace that
+// has already migrated.
+func TestScaffoldIgnoresRetainedMigrationBackup(t *testing.T) {
+	root := t.TempDir()
+	dot := filepath.Join(root, Dot)
+	if err := os.MkdirAll(dot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A workspace scaffolded by an older build: cache/ and wt/ only.
+	if err := os.WriteFile(filepath.Join(dot, ".gitignore"), []byte("cache/\nwt/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Root{Dir: root, Cfg: defaultConfig()}).EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dot, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, l := range strings.Split(string(raw), "\n") {
+		got[strings.TrimSpace(l)] = true
+	}
+	for _, want := range []string{"cache/", "wt/", "migrate-backup-*/"} {
+		if !got[want] {
+			t.Errorf("scaffolded .gitignore is missing %q; have %q", want, raw)
 		}
 	}
 }
