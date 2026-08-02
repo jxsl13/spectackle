@@ -292,8 +292,32 @@ func Parse(data []byte) (Artifact, error) {
 		return Artifact{}, fmt.Errorf("knowledge: front matter kind %q != %q", fm.Kind, kindDoc)
 	}
 
-	body, _ := ears.StripFrontMatter(src)
+	// bodyStartLine is the 1-based line number, IN src, of lines[0] — the
+	// offset StripFrontMatter has always returned and this function used to
+	// discard. Every yaml error below is reported to a caller that holds src
+	// and nothing else, so the coordinate has to be src's (B-01KYRVXQ02FDH):
+	// handing yaml only one entry's slice made it count from that slice's
+	// own first line, and `line 6` of an entry starting at src line 31
+	// resolves, in the caller's text, to a line with nothing wrong with it.
+	// Misdirection costs more than silence — the reader spends the whole
+	// recovery budget at the wrong place before doubting the message.
+	//
+	// The fix is padding rather than post-hoc arithmetic on the message: yaml
+	// reports line numbers through several shapes (scanner errors, TypeError
+	// lists) and rewriting each is a parsing job on prose. Leading blank
+	// lines shift every one of them uniformly and change nothing about a
+	// successful parse — verified against gopkg.in/yaml.v3 v3.0.1, block
+	// scalars included.
+	body, bodyStartLine := ears.StripFrontMatter(src)
 	lines := strings.Split(body, "\n")
+	// pad returns one entry's yaml chunk (lines[i+1:j]) prefixed with enough
+	// blank lines that yaml's own numbering coincides with src's: the chunk's
+	// first line is lines[i+1], which is src line bodyStartLine+i+1, so it
+	// must become yaml's line bodyStartLine+i+1 — that is bodyStartLine+i
+	// blanks ahead of it.
+	pad := func(i, j int) []byte {
+		return []byte(strings.Repeat("\n", bodyStartLine+i) + strings.Join(lines[i+1:j], "\n"))
+	}
 	var entries []Entry
 	var resolutions []Resolution
 	for i := 0; i < len(lines); i++ {
@@ -302,7 +326,7 @@ func Parse(data []byte) (Artifact, error) {
 			for ; j < len(lines) && !strings.HasPrefix(lines[j], "## "); j++ {
 			}
 			var doc resolutionDoc
-			if err := yaml.Unmarshal([]byte(strings.Join(lines[i+1:j], "\n")), &doc); err != nil {
+			if err := yaml.Unmarshal(pad(i, j), &doc); err != nil {
 				return Artifact{}, fmt.Errorf("knowledge: resolution %s %s: %w", m[1], m[2], err)
 			}
 			doc.Winner.Kind = EntryKind(m[1])
@@ -323,7 +347,7 @@ func Parse(data []byte) (Artifact, error) {
 		for ; j < len(lines) && !strings.HasPrefix(lines[j], "## "); j++ {
 		}
 		var e Entry
-		if err := yaml.Unmarshal([]byte(strings.Join(lines[i+1:j], "\n")), &e); err != nil {
+		if err := yaml.Unmarshal(pad(i, j), &e); err != nil {
 			return Artifact{}, fmt.Errorf("knowledge: entry %s %s: %w", m[1], m[2], err)
 		}
 		e.Kind = EntryKind(m[1])
