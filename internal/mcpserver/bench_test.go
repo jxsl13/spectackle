@@ -7,6 +7,7 @@ package mcpserver
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -343,5 +344,53 @@ func TestBenchEvBenchSurvivesFold(t *testing.T) {
 	}
 	if !strings.Contains(ev.Body, "time=100") || !strings.Contains(ev.Sum, "Δ-10") {
 		t.Fatalf("EvBench must survive with raw values and delta intact: sum=%q body=%q", ev.Sum, ev.Body)
+	}
+}
+
+// TestBenchPutRefusesUnrenderableDir pins the bench half of B-01KYRN4VBEEXQ.
+// benchIn.Dir bypasses lifecycle.ScopeFor entirely — it reaches
+// BenchPath(dirOf(in.Dir)), which scaffolds the directory, and it is rendered
+// into the `m ...` record line and into every EvBench journal event this op
+// appends. Measured before the guard: `dir="p\nq"` exited 0 and created a
+// directory literally named with an embedded newline; `dir="../benchescape"`
+// scaffolded OUTSIDE the workspace root. Both are asserted on the FILESYSTEM,
+// because a message-only assertion passes while the directory still exists.
+func TestBenchPutRefusesUnrenderableDir(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer(t, root)
+	// Deliberately NOT benchRefuse: its t.Fatalf on an accepted call would
+	// short-circuit the filesystem assertions below, and those are the ones
+	// that see the actual damage.
+	for _, dir := range []string{"p\nq", "../benchescape"} {
+		res, _, err := s.bench(benchIn{Op: "put", Dir: dir, Name: "escape", Frame: benchFrame,
+			Metrics: "time:ns/op:-", Results: "go: time=100"})
+		if err != nil {
+			t.Fatalf("transport error, want an in-band refusal: %v", err)
+		}
+		msg := resText(t, res, nil)
+		if res == nil || !res.IsError {
+			t.Errorf("bench put accepted dir %q: %q", dir, msg)
+			continue
+		}
+		if !strings.Contains(msg, "! ARG E") || !strings.Contains(msg, "dir") {
+			t.Errorf("refusal must name the dir argument: %q", msg)
+		}
+		if got := len(strings.Split(strings.TrimRight(msg, "\n"), "\n")); got != 1 {
+			t.Errorf("the refusal spans %d lines, breaking the record grammar: %q", got, msg)
+		}
+	}
+	if err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.ContainsAny(d.Name(), "\r\n") {
+			t.Errorf("bench created a path with an embedded line break: %q", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "..", "benchescape")); !os.IsNotExist(err) {
+		t.Fatalf("bench scaffolding landed outside the workspace root: %v", err)
 	}
 }

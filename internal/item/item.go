@@ -8,6 +8,8 @@ package item
 import (
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -539,7 +541,80 @@ func CheckHeader(it Item) error {
 			}
 		}
 	}
+	// Body is free-form prose by design, so the guard above has no business
+	// touching it — but the record grammar is line-oriented end to end, and
+	// there is exactly ONE line shape a body can carry that the reader treats
+	// as STRUCTURE rather than text: the item heading. Parse's body loop
+	// stops at the first line matching reItemHeading, so a body
+	// carrying "## T-9999 phantom\nkind: bug\nstate: archived" reads back as
+	// a SECOND item with the caller's chosen kind and state — and the host
+	// record loses every byte of body from that line on to the phantom
+	// (B-01KYRN4VBEEXQ). A phantom in a terminal state is worse than a
+	// mangled body: state is what the state machine trusts.
+	//
+	// This is deliberately the ONLY body shape refused. A bare "key: value"
+	// body line is inert — Parse's header loop only runs before the blank
+	// line writeWork emits, so it never sees body text — and
+	// "## NOTANID something" is inert too, because reItemHeading requires a
+	// real ID. Both were measured. The regexp is SHARED with the reader
+	// rather than copied: a guard that drifts from the parser it guards is
+	// the defect, not the fix.
+	for _, l := range strings.Split(it.Body, "\n") {
+		if reItemHeading.MatchString(l) {
+			return fmt.Errorf("body line %q has the shape of an item heading; it would be read back as a NEW record and take the rest of this one's body with it — indent it, or drop the leading ##", l)
+		}
+	}
 	return nil
+}
+
+// CheckDir refuses a context dir a caller may not supply, for the same
+// line-grammar reason CheckHeader exists (B-01KYRN4VBEEXQ). dir is not stored
+// in the machine header, so CheckHeader never sees it — yet it lands in the
+// dense record line every caller parses, in journal events, and, being a path,
+// on disk: `dir: "a\nb"` created a directory literally named with an embedded
+// newline AND split that record's line in two, breaking the grammar for the
+// one record the caller had just asked about.
+//
+// The traversal clause rides along because it is the same argument and the
+// same branch: `dir: "../escape"` scaffolded a .spectackle tree OUTSIDE the
+// workspace root, which no context dir may ever name. Both forms were
+// measured through the public draft, rule, bench and knowledge arguments.
+//
+// It lives in package item, next to CheckHeader, so the call sites in
+// internal/mcpserver need no import they do not already have.
+func CheckDir(dir string) error {
+	if strings.ContainsAny(dir, "\r\n") {
+		return fmt.Errorf("dir %q holds a line break; a context dir is one path on one line, and the record line naming it would be split in two", dir)
+	}
+	if dir == "" {
+		return nil
+	}
+	if strings.HasPrefix(dir, "/") || filepath.IsAbs(dir) {
+		return fmt.Errorf("dir %q is absolute; a context dir is relative to the workspace root", dir)
+	}
+	if c := path.Clean(filepath.ToSlash(dir)); c == ".." || strings.HasPrefix(c, "../") {
+		return fmt.Errorf("dir %q escapes the workspace root", dir)
+	}
+	return nil
+}
+
+// NormalizeBody is to CheckHeader's body clause what NormalizeHeaderValue is
+// to its prose clauses: the coercion for the paths
+// that have no caller to refuse to. A body reconstructed from a JOURNAL event
+// was written by an earlier binary (or by a path that predates the guard), so
+// refusing it there does not protect the record — it STRANDS it, leaving a
+// rejected item that can never be revoked. Prefixing the offending line with
+// contIndent is enough: the reader's heading match is anchored at the start of
+// the line, so an indented "## T-9999 ..." is body text again, and the
+// character added is the same one every continuation line already carries.
+func NormalizeBody(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		if reItemHeading.MatchString(l) {
+			lines[i] = contIndent + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func writeWork(root workspace.Root, ctx string, items []Item) error {
