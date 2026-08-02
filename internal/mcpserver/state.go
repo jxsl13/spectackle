@@ -355,6 +355,13 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 		return r.Text, ok
 	}, nil)
 	ok, pending, moved := 0, 0, 0
+	// Unresolvable and Bound are counted, never rendered as `d` lines
+	// (B-01KYN5ZYM1FY2). Both would otherwise fall into the default arm
+	// below, which is doubly wrong here: the summary line would silently
+	// stop summing to the total, and — because state saves nothing — a
+	// `d bound` line would reappear in every single snapshot for an anchor
+	// that check() resolves on its first run.
+	unresolvable, bound := 0, 0
 	var d []string
 	for _, r := range results {
 		switch r.Class {
@@ -364,13 +371,20 @@ func (s *Server) stateDriftSection(c *spec.Cascade) (string, error) {
 			pending++
 		case drift.Moved:
 			moved++
+		case drift.Unresolvable:
+			unresolvable++
+		case drift.Bound:
+			// state is a pure read: it reports that check() WILL bind this
+			// anchor, it does not bind it.
+			bound++
 		default: // evolved, tightened, diverged, gone, stale — check() is where these heal/audit
 			d = append(d, fmt.Sprintf("d %s %s %s %s:%d-%d",
 				r.Class, r.Anchor.Rule, r.Anchor.Node, r.Anchor.File, r.Anchor.Start, r.Anchor.End))
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "ok anchors total=%d ok=%d pending=%d moved=%d\n", len(results), ok, pending, moved)
+	fmt.Fprintf(&b, "ok anchors total=%d ok=%d pending=%d moved=%d bound=%d unresolvable=%d\n",
+		len(results), ok, pending, moved, bound, unresolvable)
 	for _, l := range d {
 		b.WriteString(l + "\n")
 	}

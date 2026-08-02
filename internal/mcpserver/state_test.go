@@ -57,7 +57,10 @@ func TestStateSeededSections(t *testing.T) {
 	if !strings.Contains(out, "ok rules total=1 dirs=1") {
 		t.Fatalf("state rules summary: %q", out)
 	}
-	if !strings.Contains(out, "ok anchors total=1 ok=0 pending=1 moved=0") {
+	// bound= and unresolvable= joined this line with B-01KYN5ZYM1FY2: state's
+	// drift summary must SUM to total, and both new classes would otherwise
+	// have fallen into the default arm and gone uncounted.
+	if !strings.Contains(out, "ok anchors total=1 ok=0 pending=1 moved=0 bound=0 unresolvable=0") {
 		t.Fatalf("state drift summary: %q", out)
 	}
 	// self is always registered in coord.db on Open — #swarm must at least

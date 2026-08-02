@@ -1669,10 +1669,30 @@ func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string 
 	var b strings.Builder
 	for _, node := range applies {
 		a := drift.Stamp(s.ws, s.g, ruleID, sentence, graph.NodeID(node))
+		// The Upsert happens for EVERY class including unresolvable: a rule
+		// whose applies names something with no anchor row reads as an
+		// orphan to MCP-004's detector, and a row plus a loud warning is a
+		// better state than a silent hole. The row is what `check` later
+		// re-reports as an E finding until the applies is corrected.
 		anchors = drift.Upsert(anchors, a)
-		if a.CHash == "-" {
+		switch {
+		case !graph.ValidNodeID(graph.NodeID(node)):
+			// B-01KYN5ZYM1FY2: this used to render byte-identically to the
+			// pending case below, so a mistyped applies (a file path, most
+			// often) looked like a transient state a reindex would clear.
+			// It never clears — say so at the one moment the caller still
+			// has the argument in hand.
+			fmt.Fprintf(&b, "! ANCHOR W %s %s unresolvable — anchors name graph nodes (go:pkg.Symbol), not paths\n", ruleID, node)
+			// Best-effort hint ONLY. Find RANKS substring matches, it does
+			// not resolve; the top hit for a path is usually a symbol
+			// declared in that file, but nothing guarantees it, so this is
+			// worded as a question and never auto-applied.
+			if hits := s.g.Find(node, 1, graph.KUnknown); len(hits) > 0 {
+				fmt.Fprintf(&b, "  did you mean %s?\n", hits[0].ID)
+			}
+		case a.CHash == "-":
 			fmt.Fprintf(&b, "a %s %s pending (node not indexed yet)\n", ruleID, node)
-		} else {
+		default:
 			fmt.Fprintf(&b, "a %s %s %s:%d-%d %s\n", ruleID, node, a.File, a.Start, a.End, a.CHash)
 		}
 	}
@@ -2130,6 +2150,11 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}, s.staleFile)
 	changed := false
 	pending := 0
+	// unresolvable is counted separately from pending on purpose: pending is
+	// a benign wait folded into the trailing `ok ... anchors pending` line,
+	// while unresolvable is a defect that will never clear on its own
+	// (B-01KYN5ZYM1FY2) and gets its own E finding per anchor.
+	unresolvable := 0
 	healed, audited := 0, 0
 	// rebind write-backs collected during the loop, applied in two phases
 	// after it: delete every stale (Rule, oldNode) row FIRST, then upsert
@@ -2165,6 +2190,36 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		case drift.OK:
 		case drift.Pending:
 			pending++
+		case drift.Unresolvable:
+			// B-01KYN5ZYM1FY2: an anchor naming something that is not a node
+			// ID never resolves, so folding it into the benign `ok N anchors
+			// pending` line hid a permanent defect behind a transient-looking
+			// count. NAMING THE CLEARING PATH IS PART OF THE FINDING: an
+			// emptied applies is refused by ruleEdit, so re-editing applies to
+			// the CORRECT node is the only measured escape — an E finding with
+			// no stated remedy would redden this repository's own exact-shape
+			// CI gate permanently over a typo.
+			unresolvable++
+			lines = append(lines, fmt.Sprintf(
+				"! ANCHOR E %s %s unresolvable — not a node ID (go:pkg.Symbol); fix with rule op=edit id=%s applies=[\"<correct node>\"]",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.Rule))
+		case drift.Bound:
+			// The pending wait ended: the node is in the graph now, so write
+			// a REAL hash back. This deliberately does NOT reuse the Moved
+			// arm below — Moved refreshes File/Start/End but never CHash, so
+			// the "-" would survive and the anchor would be re-classified
+			// Pending on the very next check, forever (B-01KYN5ZYM1FY2).
+			n, _ := s.g.Node(r.Anchor.Node)
+			end := n.EndLine
+			if end == 0 {
+				end = n.Line
+			}
+			a := r.Anchor
+			a.File, a.Start, a.End, a.CHash = n.File, n.Line, end, r.NewHash
+			anchors = drift.Upsert(anchors, a)
+			changed = true
+			lines = append(lines, fmt.Sprintf("d bound %s %s %s:%d-%d %s",
+				a.Rule, a.Node, a.File, a.Start, a.End, a.CHash))
 		case drift.Moved:
 			// hash-first re-resolution may have re-bound the anchor to a
 			// renumbered node ID (B-01KYJB3SGK) — the refresh follows the
@@ -2277,6 +2332,14 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}
 	if pending > 0 {
 		lines = append(lines, fmt.Sprintf("ok %d anchors pending (nodes not in the graph yet)", pending))
+	}
+	if unresolvable > 0 {
+		// One tally beside the per-anchor E findings above: the count is what
+		// a CI reader greps, the findings are what a human fixes. It is
+		// deliberately NOT folded into the `ok ... pending` line — that line
+		// promises a state the next index clears, and these never clear
+		// (B-01KYN5ZYM1FY2).
+		lines = append(lines, fmt.Sprintf("! ANCHOR E - %d unresolvable anchors — no reindex clears these; correct each rule's applies", unresolvable))
 	}
 
 	// compact-due signals
