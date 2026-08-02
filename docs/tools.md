@@ -686,6 +686,25 @@ the record and — because an `adr` tombstone retains its body and decision
 the way a `research` one retains its finding — in the journal after the ADR
 is archived. No side is ever adopted automatically.
 
+**The artifact and the record lines share one result** — `export` and
+`merge` both print their dense records (`ok export …`, `x <kind> <key> …`,
+`ok merge …`) AFTER the artifact on the same text result, so the obvious
+composition, feeding one op's output straight into the next, hands those
+records to the artifact parser. `merge` and `apply` therefore refuse such
+input by name, before parsing: `<label> lines <n>-<m> are record lines, not
+artifact content: "…"`, where `<label>` is the path you passed or `body`
+and the line numbers are in **your** input's coordinate system. The check
+covers the whole trailing run, not just the last line, because a merge with
+conflicts emits several `x` records ahead of its `ok`. Both failure modes
+it replaces were worse than a refusal (B-01KYRVXQ02FDH): a raw yaml
+complaint naming a line number that was entry-relative and therefore
+unlocatable in what the caller sent, or — where no `## ` heading preceded
+the records — no error at all, the records silently dropped and `entries=0
+conflicts=0` reported. The clean composition is the documented one: write
+with `export path=` and read with `apply path=`, where only the artifact
+ever reaches the file. Any yaml error `apply`/`merge` does surface names a
+line of the bytes you supplied.
+
 Merging is unconditional, not gated on how many artifacts arrived: `Merge`
 buckets entries across AND within artifacts, and `export` of a workspace
 that answered one question twice emits a single artifact carrying both, so

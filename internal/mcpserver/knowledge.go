@@ -301,6 +301,9 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", p, err)
 		}
+		if err := recordBlockRefusal(p, string(raw)); err != nil {
+			return nil, err
+		}
 		a, err := knowledge.Parse(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
@@ -308,6 +311,9 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		out = append(out, a)
 	}
 	if strings.TrimSpace(body) != "" {
+		if err := recordBlockRefusal("body", body); err != nil {
+			return nil, err
+		}
 		a, err := knowledge.Parse([]byte(body))
 		if err != nil {
 			return nil, fmt.Errorf("parse body: %w", err)
@@ -315,6 +321,66 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// recordBlockRefusal diagnoses the one wrong call the knowledge tool's own
+// output shape invites, and it must run BEFORE knowledge.Parse
+// (B-01KYRVXQ02FDH). `export` and `merge` print their dense record lines
+// AFTER the artifact on the SAME text result, so the obvious composition —
+// feed what one op printed into the next — hands those record lines to the
+// artifact parser. Both outcomes of that were worse than a refusal:
+//
+//   - where a `## ` heading precedes them, yaml chokes on a plain scalar
+//     with no colon and the caller gets a raw parser complaint about a
+//     coordinate it has to map itself;
+//   - where none does — merge's own output, whose trailing block follows the
+//     last entry of a condensate, or any artifact whose records land outside
+//     every entry — Parse's heading loop `continue`s straight past them and
+//     reports NOTHING. Measured: piping a conflicting merge's output back
+//     into merge exited 0 with `entries=0 conflicts=0`, dropping two
+//     conflict records a human still had to adjudicate.
+//
+// The silent face is why this is a pre-Parse check rather than a nicer
+// error message: there is no error to improve.
+//
+// label names the input in the caller's own vocabulary — the path it
+// passed, or "body".
+func recordBlockRefusal(label, s string) error {
+	block, firstN := trailingRecordBlock(s)
+	if len(block) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s lines %d-%d are record lines, not artifact content: %q — knowledge export/merge print their record lines after the artifact on the same stream; drop the trailing record block, or export with path= and apply with path=",
+		label, firstN, firstN+len(block)-1, strings.Join(block, "\n"))
+}
+
+// trailingRecordBlock walks BACKWARDS from the end of s over the final run
+// of non-blank lines for as long as they are dense records (`ok ` or `x `,
+// the convention every tool here shares — docs/tools.md), and returns that
+// run together with the 1-based line number of its FIRST line in s.
+//
+// The whole RUN matters, not merely the last line: a merge with conflicts
+// emits one `x` record per competing entry BEFORE its `ok` trailer, so a
+// message naming only the final line would have the caller strip one line,
+// call again, and hit a second, differently-worded failure. One refusal has
+// to describe the entire thing to be dropped.
+//
+// Returns (nil, 0) when nothing trails — a well-formed artifact ends in
+// entry yaml, and this check must be invisible on it.
+func trailingRecordBlock(s string) (block []string, firstN int) {
+	lines := strings.Split(s, "\n")
+	i := len(lines) - 1
+	for i >= 0 && strings.TrimSpace(lines[i]) == "" {
+		i--
+	}
+	last := i
+	for i >= 0 && (strings.HasPrefix(lines[i], "ok ") || strings.HasPrefix(lines[i], "x ")) {
+		i--
+	}
+	if i == last {
+		return nil, 0
+	}
+	return lines[i+1 : last+1], i + 2
 }
 
 // provenanceSources collapses one entry's Sources+DerivedFrom into a

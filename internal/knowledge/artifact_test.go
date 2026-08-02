@@ -2,6 +2,8 @@ package knowledge
 
 import (
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -351,5 +353,59 @@ func TestParseKeepsWireKeyWhenNothingToHash(t *testing.T) {
 	}
 	if got.Entries[0].Key == got.Entries[1].Key {
 		t.Fatalf("unhashable entries must keep distinct wire keys, both got %q", got.Entries[0].Key)
+	}
+}
+
+// TestParseErrorLineIsInputCoordinates pins B-01KYRVXQ02FDH's line-number
+// face at this package's own gate: a yaml complaint Parse surfaces must
+// carry a line number in the CALLER'S coordinate system, because the caller
+// holds the bytes it passed in and nothing else. Parse used to hand yaml
+// only the failing entry's slice of the body, so the reported number was
+// entry-relative — `line 6` of an entry that started at line 17 of the
+// input, a coordinate that resolves in the caller's own text to a line with
+// nothing wrong with it. Misdirection is worse than no error: the reader
+// spends the recovery budget at the wrong place first.
+func TestParseErrorLineIsInputCoordinates(t *testing.T) {
+	raw, err := Marshal(sampleArtifact())
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	if !strings.HasSuffix(src, "\n") {
+		src += "\n"
+	}
+	// exactly what `knowledge op=export` appends to its own artifact — a
+	// plain scalar with no colon, which yaml refuses inside the mapping
+	// the preceding entry opened.
+	const bad = "ok export entries=3 rule=1 adr=1 intent=1"
+	src += bad + "\n"
+
+	// the line the caller would count to, 1-based, in the bytes it passed.
+	want := 0
+	for i, l := range strings.Split(src, "\n") {
+		if l == bad {
+			want = i + 1
+			break
+		}
+	}
+	if want == 0 {
+		t.Fatalf("fixture is wrong, %q is not a line of the input", bad)
+	}
+
+	_, err = Parse([]byte(src))
+	if err == nil {
+		t.Fatalf("appending %q parsed cleanly, the fixture no longer reproduces anything", bad)
+	}
+	m := regexp.MustCompile(`line (\d+)`).FindStringSubmatch(err.Error())
+	if m == nil {
+		t.Fatalf("parse error carries no line coordinate at all: %v", err)
+	}
+	got, convErr := strconv.Atoi(m[1])
+	if convErr != nil {
+		t.Fatal(convErr)
+	}
+	if got != want {
+		t.Fatalf("parse error names line %d; %q is line %d of the input Parse was handed — the caller cannot locate line %d: %v",
+			got, bad, want, got, err)
 	}
 }
