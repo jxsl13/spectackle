@@ -6,6 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-28
+grilled: 2026-08-02 open=1
 targets: internal/mcpserver, internal/drift, internal/graph
 
 Hit while landing T-01KYMPN0PNEWV. rule op=add applies=[internal/knowledge/artifact.go] was accepted and rendered a internal/knowledge/artifact.go pending (node not indexed yet). That reads as a transient state that a reindex will clear. It is not: anchors bind GRAPH NODES, whose names are go:pkg.Symbol, and a file path is not a node name in any index state, so the anchor stays pending forever. spectackle reindex (259 files, 2861 nodes) did not change it.
