@@ -568,6 +568,219 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 	}
 }
 
+// TestDoneWithoutActivePushesNothing pins B-01KYPC60DWEZ0: an item that goes
+// draft -> done WITHOUT ever entering active has no branch by construction —
+// the active edge (work op=start) is what creates one — so the done edge must
+// neither push nor probe a ref nobody ever made. Before the guard, this
+// entirely legitimate research closure rendered two false failures against a
+// transition that SUCCEEDED:
+//
+//	! GIT E R-… push: git push -u origin spectackle/R-…: exit status 1: error: src refspec spectackle/R-… does not match any
+//	! GIT E spectackle/R-… ahead probe: … unknown revision or path not in the working tree
+//
+// on the one record kind whose normal lifecycle skips active — research is
+// drafted, read and closed — so the false alarm fired precisely on the path
+// that was working correctly.
+func TestDoneWithoutActivePushesNothing(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "research", "title": "read the papers, then close the record"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "! ") {
+			t.Fatalf("a never-active done reported a failure against a transition that succeeded:\n%s", out)
+		}
+	}
+	if strings.Contains(out, "push") || strings.Contains(out, " pr ") {
+		t.Fatalf("a never-active done narrated branch or pull request work:\n%s", out)
+	}
+	// The ACTION, not the wording: the push was SKIPPED, not papered over.
+	// No item branch exists locally to have pushed...
+	if wt.BranchExists(root, taskBranch(id)) {
+		t.Fatalf("a never-active done minted the item branch %s", taskBranch(id))
+	}
+	// ...and nothing reached the remote either — zero bytes pushed, which a
+	// guard that merely swallowed the error message would not achieve.
+	refs, err := exec.Command("git", "-C", root, "ls-remote", "--heads", "origin").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(refs), "spectackle/") {
+		t.Fatalf("a never-active done pushed an item branch to origin:\n%s", refs)
+	}
+	// and the transition itself still lands
+	if !strings.Contains(out, "done") {
+		t.Fatalf("the move must still report the item done:\n%s", out)
+	}
+}
+
+// countingForge counts the CI polls made through it, so a test can assert the
+// AWAIT RAN rather than that a line about it was printed — a guard that
+// short-circuits the done edge silences the line and the poll together, and
+// only the poll count tells the two apart.
+type countingForge struct {
+	forge.Forge
+	polls *int
+}
+
+func (f *countingForge) Checks(pr forge.PR) (forge.CheckState, error) {
+	*f.polls++
+	return f.Forge.Checks(pr)
+}
+
+// TestWasActiveButBranchDeletedStillAwaitsCI is why B-01KYPC60DWEZ0's guard
+// tests everActive AND branch absence, never branch absence alone.
+//
+// `work op=abort` deletes the LOCAL item branch (swarm.go's wt.DiscardBranch
+// -> git branch -D) while the pushed remote branch and the OPEN DRAFT PR
+// survive. So "no local branch" is a strictly LARGER population than "never
+// active", and a bare BranchExists guard would bail out of the done edge for
+// an item that has real, reviewable work in flight — silencing the local
+// gate, the PR-DRAFT-001 line, the head-resolve degradation notice and the
+// entire CI await, and with them the blocking-await contract gitFlowReady
+// documents in its own words (T-01KYDJC). Invisibly: the rest of the package
+// suite passes under that wrong predicate.
+func TestWasActiveButBranchDeletedStillAwaitsCI(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	// count the CI polls the done edge makes, through whatever forge the
+	// injected override builds
+	polls := 0
+	s.mu.Lock()
+	base := s.forgeOverride
+	s.forgeOverride = func() (forge.Forge, error) {
+		f, err := base()
+		if err != nil {
+			return nil, err
+		}
+		return &countingForge{Forge: f, polls: &polls}, nil
+	}
+	s.mu.Unlock()
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "aborted worktree, live pull request",
+		"targets": []string{"work.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "work in flight")
+
+	// exactly what `work op=abort` leaves behind: the local branch is gone,
+	// the checkout is back on the default branch, the remote branch and the
+	// draft pull request the activation opened both survive
+	closureGit(t, root, "checkout", "-q", "main")
+	closureGit(t, root, "branch", "-D", taskBranch(id))
+	if wt.BranchExists(root, taskBranch(id)) {
+		t.Fatalf("fixture failed to delete the local branch %s", taskBranch(id))
+	}
+	f, ferr := s.forgeOverride()
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if _, ok, _ := f.Find(taskBranch(id)); !ok {
+		t.Fatalf("fixture premise broken: no open pull request for %s after activation", taskBranch(id))
+	}
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	if !strings.Contains(out, "g local gates passed") {
+		t.Fatalf("branch-deleted done skipped the local gate:\n%s", out)
+	}
+	if !strings.Contains(out, "stays draft until archive") {
+		t.Fatalf("branch-deleted done lost the PR-DRAFT-001 line:\n%s", out)
+	}
+	if !strings.Contains(out, "head resolve") {
+		t.Fatalf("branch-deleted done lost the head-resolve degradation notice:\n%s", out)
+	}
+	if !strings.Contains(out, "nothing to wait for") {
+		t.Fatalf("branch-deleted done lost the CI await:\n%s", out)
+	}
+	// The ACTION behind that last line: the forge was actually polled. A
+	// short-circuited edge prints nothing AND polls nothing, and only the
+	// count distinguishes "awaited and had no checks" from "never awaited".
+	if polls == 0 {
+		t.Fatalf("the CI await never reached the forge (0 polls):\n%s", out)
+	}
+}
+
+// TestActiveThenDoneStillPushesWork is the OVER-SUPPRESSION guard, and it
+// asserts the remote rather than the render for a specific measured reason:
+// dietGreen (RENDER-PARITY-001) collapses a fully green active->done to the
+// single artifact line, so `strings.Contains(out, "push")` cannot discriminate
+// a guard that pushed from one that silently skipped. Only the remote can.
+//
+// It exists because an independent validator refuted the first landing of this
+// record: replacing the gitFlowSync guard with an unconditional `if true`
+// deleted the done-edge push for EVERY item, and the ENTIRE repository suite
+// stayed green. Over-suppression is the one failure mode these guards
+// introduce, and nothing was watching it.
+func TestActiveThenDoneStillPushesWork(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "ordinary work reaches the remote",
+		"targets": []string{"work.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n\nfunc Work() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// The work file must be reachable from the REMOTE branch ref. A guard
+	// that skipped the push leaves origin without it (or without the ref at
+	// all), whatever the render said.
+	remote := "refs/remotes/origin/" + taskBranch(id)
+	out, err := exec.Command("git", "-C", root, "ls-tree", "-r", "--name-only", remote).Output()
+	if err != nil {
+		t.Fatalf("done did not push %s to origin: %v", taskBranch(id), err)
+	}
+	if !strings.Contains(string(out), "work.go") {
+		t.Fatalf("the remote branch does not carry the work committed while active:\n%s", out)
+	}
+}
+
+// TestArchiveWithoutActiveMergesOnline is B-01KYDS's records-only closure in
+// ONLINE mode, kept green here so the never-active discriminator this record
+// adds to the done edge is never "simplified" into the archive edge, which
+// solves the same absent branch by CREATING it and merging. (Done cannot copy
+// that: EnsureBranch checks the new branch OUT, and archive can only afford
+// that because it merges immediately and has a restore-on-strand defer.)
+func TestArchiveWithoutActiveMergesOnline(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "bug", "title": "closed on paper only, online"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "records-only closure"})
+
+	if strings.Contains(out, "! GIT E") {
+		t.Fatalf("online records-only closure raised a git error:\n%s", out)
+	}
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("online records-only closure did not merge:\n%s", out)
+	}
+	// mechanically: the offline forge deletes a merged PR, so its absence
+	// from the open set IS the merge
+	f, ferr := s.forgeOverride()
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if pr, ok, _ := f.Find(taskBranch(id)); ok {
+		t.Fatalf("a merged PR must leave the open set: %+v", pr)
+	}
+}
+
 // TestArchiveForwardSkipFlipsDraftReady pins B-01KYDS's second half: a legal
 // active -> archived forward skip reaches the merge with the pull request
 // still draft (done's ready flip never ran). A draft can never merge — the
