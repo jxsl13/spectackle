@@ -46,6 +46,7 @@ VERIFY per RECMERGE-003: for each site, mutate the underlying map - add a value 
 kind: task
 state: draft
 created: 2026-07-30
+grilled: 2026-08-02 open=0
 targets: internal/mcpserver
 
 Found by the callsite verifier of B-01KYS7111XFHZ as its own chosen mutation, and it is orthogonal to that record - the branch is untouched by it and was already correct.
