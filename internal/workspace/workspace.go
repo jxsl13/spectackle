@@ -93,16 +93,31 @@ func IsRecordsPath(rel string) bool {
 		return true // the records folder itself
 	}
 	child := segs[i+1]
-	// Whole subtrees. cache/ and wt/ are in the scaffolded .gitignore, and
-	// migrate-backup-* is now too (EnsureScaffold below) — but the ignore
-	// line alone is not enough: a workspace scaffolded by an older build has
-	// a .gitignore without it, exactly the way pre-wt/ workspaces did, and
-	// its retained backup would then reach the scope gate as undeclared work
-	// that NO transition could clear (the gate is a pre-Move guard, while
-	// every records commit that could absorb the backup runs downstream of
-	// it). That is verbatim the deadlock this predicate exists to prevent,
-	// and it was measured against a real post-migration tree.
-	if child == "cache" || child == "wt" || migrateBackupRe.MatchString(child) {
+	// Whole subtrees, and ONLY under the ROOT records folder (i == 0).
+	//
+	// All three are root-only by construction: CacheDir and the worktree path
+	// are filepath.Join(r.Dir, Dot, …) with no context segment, and migrate
+	// writes its backup to filepath.Join(dir, Dot, backup). A nested records
+	// folder never legitimately contains any of them.
+	//
+	// Root-anchoring is the fix for a measured hole, not tidiness. Anchored
+	// only on the NAME, `internal/x/.spectackle/wt/evil.sh` and
+	// `internal/x/.spectackle/migrate-backup-v9/evil.go` were both measured
+	// reaching wt.DirtyFiles and passing the gate at exit 0 — the attacker
+	// cost is naming a directory `wt` inside any nested records folder. At the
+	// root the scaffolded .gitignore hides such a directory, but EnsureScaffold
+	// writes no .gitignore for a nested context (see ctx != "" below), so
+	// nested folders had nothing masking it.
+	//
+	// The exemption is still required at the root, and the ignore line alone
+	// is not enough there: a workspace scaffolded by an older build has a
+	// .gitignore without it, exactly the way pre-wt/ workspaces did, and its
+	// RETAINED migration backup would then reach the scope gate as undeclared
+	// work that NO transition could clear — the gate is a pre-Move guard while
+	// every records commit that could absorb the backup runs downstream of it.
+	// That deadlock is what this predicate exists to prevent, and it was
+	// measured against a real post-migration tree.
+	if i == 0 && (child == "cache" || child == "wt" || migrateBackupRe.MatchString(child)) {
 		return true
 	}
 	if i != len(segs)-2 {

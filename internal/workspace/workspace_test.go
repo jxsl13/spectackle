@@ -968,6 +968,19 @@ func TestIsRecordsPath(t *testing.T) {
 		{".spectackle/migrate-backup-v0/COMPLETE", true},
 		{".spectackle/migrate-backup-v12/core/.spectackle/work.md", true},
 
+		// The three subtree exemptions are ROOT-ONLY, because all three are
+		// root-only by construction (CacheDir, the worktree path and migrate's
+		// backup are all filepath.Join(root, Dot, …) with no context segment).
+		// Anchored on the name alone, both of the next two were measured
+		// reaching wt.DirtyFiles and passing the real gate at exit 0 — the
+		// attacker cost is naming a directory `wt` inside a NESTED records
+		// folder, where EnsureScaffold writes no .gitignore to mask it.
+		{"internal/x/.spectackle/wt/evil.sh", false},
+		{"internal/x/.spectackle/cache/evil.sh", false},
+		{"internal/x/.spectackle/migrate-backup-v9/evil.go", false},
+		{".spectackle/wt/anything/at/all", true},
+		{".spectackle/cache/index.db", true},
+
 		// The gitignored / server-owned subtrees, exempt wholesale because
 		// their contents are not enumerable from here.
 		{".spectackle/cache/parse.db", true},
