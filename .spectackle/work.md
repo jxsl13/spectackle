@@ -44,8 +44,9 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 
 ## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
 kind: bug
-state: done
+state: active
 created: 2026-07-29
+rounds: 1
 grilled: 2026-08-02 open=0
 targets: internal/mcpserver
 
