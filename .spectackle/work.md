@@ -110,7 +110,7 @@ VERIFY once decided: for scoping, a workspace with a finding outside the queried
 kind: bug
 state: draft
 created: 2026-07-29
-targets: internal/bench, internal/mcpserver
+targets: internal/bench, internal/mcpserver, internal/wt, internal/workspace, internal/ignore, internal/index, main_test.go
 
 OBSERVED in CI twice, on branches whose diffs touch neither test nor anything they exercise. The failure is a t.TempDir CLEANUP error, not an assertion - the test logic passes and then the harness cannot remove its own temp dir:
 
