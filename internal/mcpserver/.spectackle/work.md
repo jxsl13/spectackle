@@ -28,7 +28,7 @@ FIX DIRECTION. Per-entry refusals need to reach the exit status. Decide whether 
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/mcpserver/knowledge.go
+targets: internal/mcpserver, internal/knowledge, docs
 
 Found by an independent verifier while checking something else, and it cost that verifier a wrong hypothesis before it identified the cause - which is the real damage here.
 
