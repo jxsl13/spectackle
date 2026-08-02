@@ -620,6 +620,85 @@ func TestRejectSnapshotKeepsFeedbackFields(t *testing.T) {
 	}
 }
 
+// TestRevokeSurvivesHeadingShapedJournalBody is the restore-path half of
+// B-01KYRN4VBEEXQ. The body guard added to item.CheckHeader protects the
+// CALLER path, but a reject event written by an older binary can already carry
+// a heading-shaped body line — and a rejected item that cannot be revoked is
+// unreachable, which is worse than a body line one space to the right. So
+// lastReject normalizes instead of refusing, and both facts are asserted: the
+// revocation SUCCEEDS, and the item it writes back is one item, not two.
+//
+// Same generalization TestRestoreRecordAlwaysWritable already models for the
+// prose fields, reached through the body.
+func TestRevokeSurvivesHeadingShapedJournalBody(t *testing.T) {
+	root := ws(t)
+	task := draftID(t, root, "task", "legacy reject", "the host body", "", "", nil)
+	if _, err := Move(root, task, item.StateRejected, "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	// Overwrite the snapshot with what a pre-guard binary could have written:
+	// a body whose second line reads back as a new item heading.
+	forged := "still mine\n## T-9999 phantom\nkind: bug\nstate: archived"
+	if err := journal.Append(root, "", journal.Event{
+		Ev: journal.EvReject, ID: task, K: "task", Ti: "legacy reject",
+		Note: "not needed", Body: forged,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := Move(root, task, item.StateDraft, "")
+	if err != nil {
+		t.Fatalf("a legacy reject snapshot stranded the item: %v", err)
+	}
+	if revoked.State != item.StateDraft {
+		t.Fatalf("revoked to %q, want draft", revoked.State)
+	}
+	items, err := item.LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("revocation produced %d items, want 1: %+v", len(items), items)
+	}
+	if items[0].ID != task {
+		t.Fatalf("revocation wrote %s, want %s", items[0].ID, task)
+	}
+	if !strings.Contains(items[0].Body, "T-9999 phantom") {
+		t.Errorf("the defanged line was dropped rather than indented: %q", items[0].Body)
+	}
+}
+
+// TestTombstoneBodyStaysWritable is the archive-side sibling of the test
+// above: a tombstone reconstructed from a pre-guard archive event has to be
+// writable, because callers Upsert it back (the un-archive path, and the
+// cross-root tombstone materialization in the refs check). Refusing there
+// would strand the record for good — there is no caller to report to.
+func TestTombstoneBodyStaysWritable(t *testing.T) {
+	root := ws(t)
+	if err := journal.Append(root, "", journal.Event{
+		Ev: journal.EvArchive, ID: "T-0001", K: "task", Ti: "legacy archive",
+		Body: "still mine\n## T-9999 phantom\nkind: bug\nstate: archived",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, ok, err := Tombstone(root, "T-0001")
+	if err != nil || !ok {
+		t.Fatalf("Tombstone(T-0001) = %v, %v", ok, err)
+	}
+	if err := item.CheckHeader(out); err != nil {
+		t.Fatalf("tombstone body is unwritable, stranding the record: %v", err)
+	}
+	if err := item.Upsert(root, out); err != nil {
+		t.Fatalf("tombstone could not be written back: %v", err)
+	}
+	items, err := item.LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("writing the tombstone back produced %d items, want 1: %+v", len(items), items)
+	}
+}
+
 // TestTombstone checks the read-only afterlife of an archived item: Tombstone
 // reconstructs it from its archive journal event (state=archived, kind/title
 // carried over, body = journal summary), and reports ok=false for anything

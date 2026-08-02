@@ -835,7 +835,14 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 			}
 			out := item.Item{
 				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
-				State: item.StateArchived, Body: body,
+				// NormalizeBody, not CheckHeader's refusal: this body comes
+				// off a journal event, not off a caller. An event written
+				// before the body guard landed (B-01KYRN4VBEEXQ) can carry a
+				// heading-shaped line, and refusing here would leave the
+				// tombstone permanently unreadable instead of protecting
+				// anything — the same asymmetry NormalizeHeaderValue
+				// documents for the prose fields.
+				State: item.StateArchived, Body: item.NormalizeBody(body),
 			}
 			restoreRecord(&out, e)
 			return out, true, nil
@@ -856,7 +863,11 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 		if e.Ev == journal.EvReject && e.ID == id {
 			out := item.Item{
 				ID: e.ID, Kind: e.K, State: item.StateRejected, Title: e.Ti,
-				Dir: e.Dir, Body: e.Body,
+				// Same reason as Tombstone's: revocation of a rejected item
+				// has to keep working over journals written before the body
+				// guard existed, so the heading-shaped line is indented back
+				// into prose rather than refused (B-01KYRN4VBEEXQ).
+				Dir: e.Dir, Body: item.NormalizeBody(e.Body),
 			}
 			restoreRecord(&out, e)
 			return out, true, nil

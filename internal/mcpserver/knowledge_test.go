@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -157,6 +158,49 @@ func TestKnowledgeExportBrownfieldRejectsMalformed(t *testing.T) {
 	})
 	if !strings.HasPrefix(out, "! ARG E -") {
 		t.Fatalf("malformed brownfield entry should reject: %q", out)
+	}
+}
+
+// TestKnowledgeEntryRefusesUnrenderableDir is the knowledge sibling of the
+// draft/rule/bench dir guards (B-01KYRN4VBEEXQ). knowledgeEntryIn.Dir is
+// caller-supplied and reaches knowledge.Provenance verbatim, so a newline in
+// it splits a rendered artifact line in two — the artifact is the portable
+// record grammar another workspace parses. The "../" form is refused on the
+// same argument for the same reason it is everywhere else.
+//
+// Deliberately unrelated to the internal spec.AuthorReq{Dir: ""} call this
+// package makes elsewhere: that one supplies its own value and no caller can
+// reach it.
+func TestKnowledgeEntryRefusesUnrenderableDir(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, dir := range []string{"a\nb", "../kescape"} {
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "knowledge", Arguments: map[string]any{
+				"op": "export",
+				"entries": []map[string]any{
+					{"kind": "rule", "dir": dir, "text": "The system SHALL log to stderr only."},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("transport: %v", err)
+		}
+		if !res.IsError {
+			t.Fatalf("knowledge export accepted entry dir %q", dir)
+		}
+		tc, ok := res.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content is %T, want TextContent", res.Content[0])
+		}
+		if !strings.Contains(tc.Text, "! ARG E") || !strings.Contains(tc.Text, "dir") {
+			t.Fatalf("refusal must name the dir argument: %q", tc.Text)
+		}
+		// The refusal must not itself carry the caller's line break into the
+		// record grammar the agent parses.
+		if got := len(strings.Split(strings.TrimRight(tc.Text, "\n"), "\n")); got != 1 {
+			t.Fatalf("the refusal spans %d lines: %q", got, tc.Text)
+		}
 	}
 }
 

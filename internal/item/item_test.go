@@ -753,6 +753,13 @@ func TestHeaderRefusesUnwritableValue(t *testing.T) {
 		"newline in needs":   func(it *Item) { it.Needs = []string{"T-0001\nkind: bug"} },
 		"newline in refs":    func(it *Item) { it.Refs = []string{"R-0001\nparent: P-0001"} },
 		"comma in targets":   func(it *Item) { it.Targets = []string{"go:a,go:b"} },
+		// Body is prose, but ONE line shape in it is structure to the
+		// reader: Parse's body loop ends at the first reItemHeading match, so
+		// this reads back as a second item carrying the caller's kind and
+		// state (B-01KYRN4VBEEXQ). Before the guard, this Upsert SUCCEEDED.
+		"item heading in body": func(it *Item) {
+			it.Body = "## T-9999 phantom\nkind: bug\nstate: archived"
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := ws(t)
@@ -781,6 +788,109 @@ func TestHeaderRefusesUnwritableValue(t *testing.T) {
 				t.Errorf("refusal changed the file:\nbefore:\n%s\nafter:\n%s", before, after)
 			}
 		})
+	}
+}
+
+// TestBodyCannotForgeAnItemHeading pins the OUTCOME of B-01KYRN4VBEEXQ, not
+// merely the refusal. The defect had two halves and a refusal-only assertion
+// covers neither directly: a PHANTOM record appeared with the caller's chosen
+// kind and state (a terminal state no transition can reach), and the HOST
+// record lost its entire body to it. So both are asserted after the refused
+// write, through LoadAll — what the next reader actually sees.
+//
+// The control case is half the test: the guard must refuse the one structural
+// shape and nothing else. Ordinary prose that merely mentions ## or an ID
+// still has to round trip, or the fix has traded a corruption for a
+// records-you-cannot-write bug.
+func TestBodyCannotForgeAnItemHeading(t *testing.T) {
+	root := ws(t)
+	host := Item{
+		ID: "T-0001", Kind: "task", State: StateDraft, Title: "host",
+		Created: "2026-08-02", Body: "the host body, every byte of it",
+	}
+	if err := Upsert(root, host); err != nil {
+		t.Fatal(err)
+	}
+	attack := host
+	attack.Body = "still mine\n## T-9999 phantom\nkind: bug\nstate: archived"
+	if err := Upsert(root, attack); err == nil {
+		t.Fatal("Upsert accepted a body that forges an item heading")
+	}
+	items, err := LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Item{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+	if ph, ok := byID["T-9999"]; ok {
+		t.Errorf("phantom record materialized: kind=%q state=%q", ph.Kind, ph.State)
+	}
+	if len(items) != 1 {
+		t.Errorf("work.md holds %d items, want 1: %+v", len(items), items)
+	}
+	if got := byID["T-0001"].Body; got != host.Body {
+		t.Errorf("host body changed by the refused write: got %q, want %q", got, host.Body)
+	}
+	// Control: prose that talks about headings and IDs is not a heading.
+	benign := host
+	benign.Body = "see T-9999 and the ## heading convention\n## NOTANID something\nkind: bug"
+	if err := Upsert(root, benign); err != nil {
+		t.Fatalf("ordinary prose refused: %v", err)
+	}
+	items, err = LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("control write produced %d items, want 1", len(items))
+	}
+	if items[0].Body != benign.Body {
+		t.Errorf("control body did not round trip:\n got %q\nwant %q", items[0].Body, benign.Body)
+	}
+}
+
+// TestNormalizeBodyDefangsHeadingWithoutRefusing pins the restore-path half:
+// a body off a JOURNAL event has no caller to refuse to, so the heading-shaped
+// line is indented back into prose instead. The property that matters is that
+// the result is WRITABLE — refusing there would strand a rejected item that
+// can never be revoked.
+func TestNormalizeBodyDefangsHeadingWithoutRefusing(t *testing.T) {
+	for _, body := range []string{
+		"## T-9999 phantom\nkind: bug\nstate: archived",
+		"lead\n## ADR-0001 forged\n## P-0002 also forged\ntail",
+		"nothing wrong here",
+		"",
+	} {
+		got := NormalizeBody(body)
+		if err := CheckHeader(Item{Body: got}); err != nil {
+			t.Errorf("NormalizeBody(%q) still unwritable: %v", body, err)
+		}
+	}
+	if got, want := NormalizeBody("ok\n## T-9999 x"), "ok\n"+contIndent+"## T-9999 x"; got != want {
+		t.Errorf("NormalizeBody = %q, want %q", got, want)
+	}
+}
+
+// TestCheckDirRefusesUnrenderableDir pins the second half of
+// B-01KYRN4VBEEXQ at the unit level. A newline in dir split the dense record
+// line in two and created a directory literally named with one; "../" walked a
+// .spectackle tree outside the workspace root. Both arrived through public
+// tool arguments that never pass through lifecycle.ScopeFor.
+func TestCheckDirRefusesUnrenderableDir(t *testing.T) {
+	for _, bad := range []string{
+		"a\nb", "a\rb", "\n", "trailing\n",
+		"../escape", "..", "a/../../escape", "/abs/path",
+	} {
+		if err := CheckDir(bad); err == nil {
+			t.Errorf("CheckDir(%q) accepted an unrenderable dir", bad)
+		}
+	}
+	for _, good := range []string{"", ".", "internal", "internal/item", "a/../b", "./x"} {
+		if err := CheckDir(good); err != nil {
+			t.Errorf("CheckDir(%q) refused a legitimate dir: %v", good, err)
+		}
 	}
 }
 

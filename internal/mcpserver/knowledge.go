@@ -230,6 +230,15 @@ func knowledgeEntryFromIn(e knowledgeEntryIn, source string) (knowledge.Entry, e
 		return knowledge.Entry{}, fmt.Errorf("status %q invalid (want %s)",
 			e.Status, strings.Join(item.Statuses(), "|"))
 	}
+	// The entry's dir is caller-supplied and lands verbatim in the
+	// Provenance of every exported entry, which is a rendered line in the
+	// artifact — the same class as draft's and bench's dir
+	// (B-01KYRN4VBEEXQ). Unrelated to the spec.AuthorReq{Dir: ""} call this
+	// file makes further down: that one is internal and supplies its own
+	// value.
+	if err := item.CheckDir(e.Dir); err != nil {
+		return knowledge.Entry{}, err
+	}
 	payload := knowledge.Entry{
 		Text: e.Text, Rationale: e.Rationale,
 		Question: e.Question, Context: e.Context, Decision: e.Decision,

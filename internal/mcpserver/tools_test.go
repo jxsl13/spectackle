@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1443,6 +1444,238 @@ func TestNeedSlotFallbackIsError(t *testing.T) {
 	tc, ok := res.Content[0].(*mcp.TextContent)
 	if !ok || !strings.Contains(tc.Text, "need pattern") {
 		t.Fatalf("need grammar lost from the refusal text: %v", res.Content[0])
+	}
+}
+
+// noNewlineDirUnder walks the tree and fails if any directory name carries a
+// line break. `ls -b` showed a directory literally named `a\nb` under the
+// workspace root before B-01KYRN4VBEEXQ; asserting on the filesystem rather
+// than on the refusal message is the point — a test that only reads the
+// message passes while the directory is still created.
+func noNewlineDirUnder(t *testing.T, root string) {
+	t.Helper()
+	if err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.ContainsAny(d.Name(), "\r\n") {
+			t.Errorf("a path with an embedded line break was created: %q", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+}
+
+// TestDraftRefusesNewlineInDir pins O2 of B-01KYRN4VBEEXQ through the wire.
+// `draft {dir: "a\nb"}` exited 0, created a directory whose name held a
+// newline, and split the dense `i ...` record line in two — so the one
+// grammar every caller parses was broken for the record it had just asked
+// for. sess.CallTool directly, not callText, because SRF-001's requirement is
+// the non-zero exit and callText cannot see IsError.
+func TestDraftRefusesNewlineInDir(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "draft", Arguments: map[string]any{
+			"kind": "task", "title": "split me", "dir": "a\nb",
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content is %T, want TextContent", res.Content[0])
+	}
+	// t.Error, not t.Fatal: the filesystem assertion below is the one that
+	// sees the actual damage, and it must still run when the call succeeded.
+	if !res.IsError {
+		t.Errorf("a dir holding a newline must refuse with IsError per SRF-001: %q", tc.Text)
+	} else {
+		if !strings.Contains(tc.Text, "! ARG E") || !strings.Contains(tc.Text, "dir") {
+			t.Errorf("refusal must name the dir argument: %q", tc.Text)
+		}
+		if got := len(strings.Split(strings.TrimRight(tc.Text, "\n"), "\n")); got != 1 {
+			t.Errorf("the refusal itself spans %d lines, breaking the record grammar: %q", got, tc.Text)
+		}
+	}
+	noNewlineDirUnder(t, root)
+}
+
+// TestDraftRefusesDirEscapingRoot: the same argument, the other way out. A
+// "../" dir scaffolded a .spectackle tree OUTSIDE the workspace root, which no
+// context dir may name. Asserted on the filesystem — the parent of the temp
+// root is where it landed.
+func TestDraftRefusesDirEscapingRoot(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "draft", Arguments: map[string]any{
+			"kind": "task", "title": "escape me", "dir": "../draftescape",
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Error("a dir escaping the workspace root must refuse with IsError")
+	}
+	if _, err := os.Stat(filepath.Join(root, "..", "draftescape")); !os.IsNotExist(err) {
+		t.Fatalf("scaffolding landed outside the workspace root: %v", err)
+	}
+}
+
+// TestRuleAddRefusesNewlineInDir: rule op=add takes the same caller-supplied
+// dir and hands it to spec.AddRule, which scaffolds it — a second live route
+// to the same corruption, and the reason the guard sits on the argument at
+// every call site rather than once inside the writer.
+func TestRuleAddRefusesNewlineInDir(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, dir := range []string{"a\nb", "../ruleescape"} {
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "rule", Arguments: map[string]any{
+				"op": "add", "dir": dir, "pattern": "E", "stem": "ESC-DIR",
+				"system":   "host wrapper",
+				"response": "check cudaGetLastError and propagate its numeric value to the caller",
+				"trigger":  "a kernel launch statement returns",
+			},
+		})
+		if err != nil {
+			t.Fatalf("transport: %v", err)
+		}
+		tc, ok := res.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content is %T, want TextContent", res.Content[0])
+		}
+		if !res.IsError {
+			t.Errorf("rule add accepted dir %q: %q", dir, tc.Text)
+			continue
+		}
+		if !strings.Contains(tc.Text, "! ARG E") || !strings.Contains(tc.Text, "dir") {
+			t.Errorf("refusal must name the dir argument: %q", tc.Text)
+		}
+		if got := len(strings.Split(strings.TrimRight(tc.Text, "\n"), "\n")); got != 1 {
+			t.Errorf("the refusal spans %d lines: %q", got, tc.Text)
+		}
+	}
+	noNewlineDirUnder(t, root)
+	if _, err := os.Stat(filepath.Join(root, "..", "ruleescape")); !os.IsNotExist(err) {
+		t.Fatalf("rule scaffolding landed outside the workspace root: %v", err)
+	}
+}
+
+// TestDraftRefusesHeadingShapedBody pins O1 of B-01KYRN4VBEEXQ at the gate:
+// `draft {body: "## T-9999 phantom\nkind: bug\nstate: archived"}` exited 0 and
+// was accepted, and on reload a phantom record appeared carrying the caller's
+// kind and a TERMINAL state no transition can reach. The assertion is on the
+// ACTION — what `state` counts afterward — not only on the refusal wording.
+func TestDraftRefusesHeadingShapedBody(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	// One legitimate item first, so the count afterward is a real number
+	// rather than an empty render, and so the phantom would be the SECOND.
+	draftID(t, sess, map[string]any{"kind": "task", "title": "real", "body": "real body"})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "draft", Arguments: map[string]any{
+			"kind": "task", "title": "host", "body": "mine\n## T-9999 phantom\nkind: bug\nstate: archived",
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("a body forging an item heading must refuse with IsError")
+	}
+	assertNoMintedIDAdvertised(t, res)
+	// A leading space must not buy the caller a pass: lifecycle.Draft
+	// TrimSpaces the body itself, so an untrimmed check would accept this and
+	// then trim it INTO a heading one call later.
+	res, err = sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "draft", Arguments: map[string]any{
+			"kind": "task", "title": "host", "body": "  ## T-9999 phantom\nkind: bug\nstate: archived",
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("a leading-space body that trims into a heading must refuse too")
+	}
+	assertNoMintedIDAdvertised(t, res)
+	out := callText(t, sess, "state", nil)
+	if strings.Contains(out, "T-9999") {
+		t.Fatalf("phantom record reachable from state: %q", out)
+	}
+	if !strings.Contains(out, "total=1") {
+		t.Fatalf("expected total=1 after two refused drafts: %q", out)
+	}
+}
+
+// reMintedIDAdvertised matches headerSafe's refusal, the one the WRITE path
+// produces: `refused: <id> not written — ...`. Its ID has already been minted,
+// which is precisely why draft pre-checks the body before it mints
+// (tools.go, B-01KYRN4VBEEXQ) — a refusal that names a record the caller can
+// never get sends agents looking for it.
+//
+// This is an assertion on the message and nothing else, deliberately: the
+// pre-check and the write-path guard refuse the SAME calls, so no observable
+// side effect distinguishes them. The dangerous action itself — the phantom
+// record — is asserted separately by each caller via `state`.
+var reMintedIDAdvertised = regexp.MustCompile(`refused: ` + anchoredIDPat() + ` not written`)
+
+// anchoredIDPat borrows item.IDRe's own ID grammar rather than restating it —
+// the ID schemes are versioned (ADR-0013 added a second one) and a copy here
+// would stop matching the day a third lands, quietly turning the assertion
+// above into a no-op.
+func anchoredIDPat() string {
+	return strings.TrimSuffix(strings.TrimPrefix(item.IDRe.String(), "^"), "$")
+}
+
+func assertNoMintedIDAdvertised(t *testing.T, res *mcp.CallToolResult) {
+	t.Helper()
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content is %T, want TextContent", res.Content[0])
+	}
+	if !strings.Contains(tc.Text, "! ARG E") {
+		t.Fatalf("refusal must be an argument refusal: %q", tc.Text)
+	}
+	if reMintedIDAdvertised.MatchString(tc.Text) {
+		t.Fatalf("refusal advertises a record that was never written: %q", tc.Text)
+	}
+}
+
+// TestReviseRefusesHeadingShapedBody: revision is the SECOND live route into a
+// body and it bypasses draft's pre-mint check entirely, so the guard has to be
+// on the revise path too. Asserted through `state`'s total — before the fix it
+// reported two items, the second a `done` proposal the caller chose.
+func TestReviseRefusesHeadingShapedBody(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	id := draftID(t, sess, map[string]any{
+		"kind": "task", "title": "host", "body": "the host body",
+	})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "draft", Arguments: map[string]any{
+			"id": id, "body": "## P-0001 injected\nkind: proposal\nstate: done",
+		},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("revision accepted a body that forges an item heading")
+	}
+	// Without the pre-check the refusal is item.Upsert's raw error, which
+	// carries no `! ARG E` prefix at all — an SRF-001 grammar an agent parses
+	// silently degraded into free text.
+	assertNoMintedIDAdvertised(t, res)
+	out := callText(t, sess, "state", nil)
+	if !strings.Contains(out, "total=1") {
+		t.Fatalf("expected total=1 after the refused revision: %q", out)
+	}
+	if strings.Contains(out, "P-0001") {
+		t.Fatalf("phantom proposal reachable from state: %q", out)
 	}
 }
 

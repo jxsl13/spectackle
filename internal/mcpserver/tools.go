@@ -810,6 +810,15 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	// The derivation runs ONCE, here, and its answer is passed as an
 	// explicit dir — including "." when it resolved to root, so Draft
 	// never re-derives it node-blind (cross-val-node finding 1).
+	//
+	// An EXPLICIT dir short-circuits that derivation entirely, so it never
+	// passes the sanity checks every derived dir gets: it goes straight to
+	// the writer, to the record line, and to disk. Hence its own check, here,
+	// before the mint, for the same reason the header check below is here
+	// (B-01KYRN4VBEEXQ).
+	if err := item.CheckDir(in.Dir); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	dir := in.Dir
 	if dir == "" {
 		if d, derr := lifecycle.ScopeFor(s.ws, "", targets, s.nodeFile); derr == nil {
@@ -823,9 +832,14 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	// nothing is persisted either way, but the refusal it produces names the ID
 	// it had already minted — advertising a record the caller cannot get. Fail
 	// here and the message names the offending argument instead.
+	//
+	// Body is TrimSpace'd to match what lifecycle.Draft itself stores: check
+	// the untrimmed value and " ## T-9999 phantom"
+	// slips past, only to be trimmed INTO a heading-shaped line one call
+	// later — where the refusal names an ID that has already been minted.
 	if err := item.CheckHeader(item.Item{
 		Title: in.Title, Kind: in.Kind, Parent: in.Parent,
-		Targets: targets, Refs: in.Refs,
+		Targets: targets, Refs: in.Refs, Body: strings.TrimSpace(in.Body),
 	}); err != nil {
 		return refuse("! ARG E - " + err.Error())
 	}
@@ -1454,6 +1468,13 @@ func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, 
 	p := ears.PatternFromString(in.Pattern)
 	sentence, err := ears.Compose(p, slotsOf(in))
 	if err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
+	// Same caller-supplied dir, same disk and same record line as draft's
+	// (B-01KYRN4VBEEXQ): spec.AddRule scaffolds the context dir it is handed.
+	// Checked before blockedByLease so the refusal names the argument rather
+	// than reporting a lease on a dir that cannot exist.
+	if err := item.CheckDir(in.Dir); err != nil {
 		return refuse("! ARG E - " + err.Error())
 	}
 	if s.wtItem == "" {
@@ -3021,6 +3042,14 @@ func (s *Server) reviseDraft(in draftIn) (*mcp.CallToolResult, any, error) {
 		changed = append(changed, "title")
 	}
 	if in.Body != "" && in.Body != it.Body {
+		// Revision is the SECOND live route into a record's body, and it
+		// writes through item.Upsert below — whose refusal would surface as a
+		// raw error rather than an argument refusal. Pre-check here so a
+		// heading-shaped body line is reported as the bad argument it is
+		// (B-01KYRN4VBEEXQ). TrimSpace matches what a fresh draft stores.
+		if err := item.CheckHeader(item.Item{Body: strings.TrimSpace(in.Body)}); err != nil {
+			return refuse("! ARG E - " + err.Error())
+		}
 		it.Body = in.Body
 		changed = append(changed, "body")
 	}
