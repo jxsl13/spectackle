@@ -312,7 +312,7 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/item/item.go, internal/mcpserver/tools.go
+targets: internal/item, internal/mcpserver, internal/lifecycle
 
 Two findings from independent verification of B-01KYN3E973F20, both confirmed pre-existing on the pre-fix binary and both the same class as that bug: a value that the writer emits and the parser then reads as STRUCTURE.
 
