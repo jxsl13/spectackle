@@ -310,7 +310,7 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYRN4VBEEXQ8ZVMCR1WCTPTX a heading-shaped body line forges a phantom record and steals the host body, and dir accepts a newline
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 grilled: 2026-08-02 open=0
 targets: internal/item, internal/mcpserver, internal/lifecycle
