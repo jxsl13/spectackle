@@ -140,14 +140,19 @@ func TestPrepIgnoresHarnessArtifacts(t *testing.T) {
 		}
 	}
 	self := benchSelfBinary(t)
-	if _, _, _, err := AgentPrep(self, dir, false, "outcome"); err != nil {
+	// Prepped WITH both sidecar modes on: the enumerated list below is the
+	// only thing standing between a new harness artifact and B-01KYH3SP
+	// coming back — a fixture that goes dirty makes the offline archive merge
+	// refuse FOREVER. manifest.size was covered by harnessIgnore but never
+	// enumerated here; schema.size (T-01KYSPFXHNFZ7) is both, from the start.
+	if _, _, _, err := AgentPrep(self, dir, true, true, "outcome"); err != nil {
 		t.Fatal(err)
 	}
 	out, err := exec.Command("git", "-C", dir, "status", "--porcelain").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"meter.log", "meter.sh", "brief.md", "journal.baseline", "trap.hash", "scenario", "transcript.log"} {
+	for _, f := range []string{"meter.log", "meter.sh", "brief.md", "journal.baseline", "trap.hash", "scenario", "transcript.log", "manifest.size", "schema.size"} {
 		if strings.Contains(string(out), f) {
 			t.Fatalf("harness artifact %s is git-visible:\n%s", f, out)
 		}
@@ -184,7 +189,7 @@ func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
 			t.Fatalf("%v: %v %s", cmd, err, out)
 		}
 	}
-	_, shim, _, err := AgentPrep(self, dir, false, "outcome")
+	_, shim, _, err := AgentPrep(self, dir, false, false, "outcome")
 	if err != nil {
 		t.Fatal(err)
 	}
