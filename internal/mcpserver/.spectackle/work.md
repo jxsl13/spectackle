@@ -66,6 +66,7 @@ FIX DIRECTION. Exempt records by NAME rather than by directory: the server write
 kind: bug
 state: draft
 created: 2026-07-30
+grilled: 2026-08-02 open=0
 targets: internal/mcpserver
 
 Split out of B-01KYS7111XFHZ rather than folded into it, because it needs its own reproduction and that record was already carrying a severe unrecoverable-state fix.
