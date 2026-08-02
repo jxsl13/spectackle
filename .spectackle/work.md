@@ -437,3 +437,22 @@ Second-order: because targetPath is also what normalizeTargets uses (tools.go:28
 NOT THE FIX, stated so it is not re-attempted: widening the heuristic to "anything without a colon is a path" collides with the node-ID form targetPath exists to split (go:pkg.Fn). The two consumers wanting different things is the actual design question - the done gate wants "is this file inside a declared area", validate wants the same, and only one of them is asking targetPath. The narrow repair is to make validate use inTargetScope, which already encodes the intended semantics including the root-dir case; the broader question is why two implementations exist at all.
 
 VERIFY: an item declaring a single-segment directory target and changing a file under it passes the done edge AND renders no offscope finding; a genuinely undeclared file still produces one; and the root-dir target keeps allowing everything at both gates.
+
+## T-01KZ1WJ2XGEFKB9DMGQWW62AWB characterize graph.ValidNodeID directly and pin both anchor classes in one check run
+kind: task
+state: draft
+created: 2026-08-02
+refs: B-01KYN5ZYM1FY2TBZHXC43V68TE, B-01KZ16J3PKERRV6E7BB8F3BZJK
+targets: internal/graph, internal/mcpserver
+
+Two coverage gaps left by B-01KYN5ZYM1FY2, plus the reason they are worth one record rather than a waiver.
+
+GAP 1. graph.ValidNodeID has NO direct test. Confirmed: grep over every _test.go in the tree returns nothing. It is exercised only through drift.Classify and the two mcpserver surfaces, so its own boundary behavior is uncharacterized - missing colon, empty name after the colon, empty string, unknown lang, a lang that is a prefix of a known one, leading or trailing whitespace, and a node ID whose lang segment contains a slash or a dot. Each of those is a distinct branch of strings.Cut plus a map lookup, and none is pinned. The consequence is not hypothetical: this function decides whether a rule anchor is reported as a permanent CI error, so a false positive reddens the gate with no reindex able to clear it.
+
+GAP 2. No single check-level test puts BOTH an unresolvable and a genuine pending anchor in ONE check run. The separation is currently pinned by one test per class. An independent validator wrote the combined case in a throwaway copy and confirmed the property holds today (one E finding, ok 1 anchors pending with count 1 rather than 2, and the state line reading pending=1 unresolvable=1), but nothing in the tree keeps it holding. The interesting failure mode is a counter that double-counts or a tally line that sums the wrong set, which per-class tests cannot see.
+
+WHY THIS IS RECORDED AND NOT WAIVED, which is the part worth keeping. The untested:ValidNodeID finding came from the validate pack's static check. THREE independent adversarial verifiers, running 191 tool calls including six code mutations, all returned pass - and none of them noticed. They were not careless: every one of them exercised ValidNodeID through its call sites and watched a mutation there fail a test. That is exactly what mutation testing proves, and exactly what it does not: killing a mutant at a call site shows the CALL SITE is pinned, not that the function is characterized. A newly exported predicate can be fully mutation-covered through its consumers and still have no test that states what it means on its own.
+
+So the two techniques are not redundant and neither subsumes the other. The static untested: finding is cheap and catches the class that adversarial verification structurally misses. This workspace's health line already warns waiver-rate 55 percent over the last 20 verdicts; a finding that three verifiers could not have produced is precisely the kind that must not be reflexively waived. B-01KZ16J3PKERR covers a different half of the same waiver problem - findings that are FALSE and must be waived - and the two together are the argument for looking at what the pack says rather than at how often it is right.
+
+VERIFY: a table-driven test over graph.ValidNodeID naming each boundary case above and asserting both directions; a check-level test placing both anchor classes in one workspace and asserting the E finding, the pending tally count and the state summary counters simultaneously; and validate on a record touching internal/graph no longer emits untested:ValidNodeID.
