@@ -159,6 +159,19 @@ func (s *Server) gitEnabled() bool {
 // PR body first line, every .spectackle record) keep the FULL ID — the
 // audit join and replay resolve exact IDs, never prefixes. Legacy or
 // short-shaped IDs pass through unchanged.
+// codeCommitSubject composes the subject of a code checkpoint commit. It is
+// the ONE place that format is written, because it is also the format
+// validate.go's attribution greps for, and the two drifted apart once already:
+// three writers composed it inline while validate_test.go's fixture composed a
+// DIFFERENT format inline, so the regression test that pins the diff-binding
+// contract passed against a subject the server no longer produced. Green test,
+// dead gate — every verdict bound to an empty diff for as long as that lasted
+// (B-01KYS6Y5NKF42). Two functions obliged to agree about a permanent artifact
+// is the shape that produced it; one is the fix.
+func codeCommitSubject(id, subject string) string {
+	return "spectackle " + shortDisplayID(id) + ": " + subject
+}
+
 func shortDisplayID(id string) string {
 	kind, body, ok := strings.Cut(id, "-")
 	if !ok || len(body) <= ids.MinRecordPrefixLen {
@@ -231,7 +244,7 @@ func (s *Server) gitFlowOffline(it item.Item, subject string, state string, gate
 		res.addf("! GIT E %s offline: HEAD is unborn or detached — check out a branch, then retry", shortDisplayID(it.ID))
 		return res
 	}
-	if committed, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+subject); err != nil {
+	if committed, err := wt.CommitCode(dir, codeCommitSubject(it.ID, subject)); err != nil {
 		res.addf("! GIT E %s commit: %s", shortDisplayID(it.ID), err)
 		return res
 	} else if committed {
@@ -284,7 +297,7 @@ func (s *Server) gitFlowStart(it item.Item) *gitFlowResult {
 		res.addf("! GIT E %s branch: %s", it.ID, err)
 		return res
 	}
-	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": "+it.Title); err != nil {
+	if _, err := wt.CommitCode(dir, codeCommitSubject(it.ID, it.Title)); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 	}
 	s.gitCommitRecords(res, it, item.StateActive)
@@ -394,11 +407,37 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 	}
 	branch := s.itemBranch(it.ID)
 	dir := s.ws.Dir
-	if _, err := wt.CommitCode(dir, "spectackle "+shortDisplayID(it.ID)+": checkpoint"); err != nil {
+	if _, err := wt.CommitCode(dir, codeCommitSubject(it.ID, "checkpoint")); err != nil {
 		res.addf("! GIT E %s commit: %s", it.ID, err)
 		return res
 	}
 	s.gitCommitRecords(res, it, item.StateDone)
+	// B-01KYPC60DWEZ0: an item that never entered active has no branch BY
+	// CONSTRUCTION — the active edge (work op=start) is the only thing that
+	// creates one — so pushing here answers "src refspec … does not match
+	// any" against a transition that SUCCEEDED, and does it on the one
+	// record kind whose normal lifecycle skips active (research is drafted,
+	// read, closed). Nothing is suppressed by returning here: there is no
+	// branch to be up to date with, and the commits ABOVE this line are what
+	// keeps "nothing uncommitted after a full loop" true.
+	//
+	// BOTH conjuncts, and the order matters more than the brevity: branch
+	// absence ALONE is a strictly larger population, because `work op=abort`
+	// deletes the local item branch (wt.DiscardBranch) while the pushed
+	// remote branch and the open draft PR survive. Bailing on that item
+	// would silence its local gate, its PR-DRAFT-001 line and its whole CI
+	// await — the blocking-await contract gitFlowReady states below
+	// (T-01KYDJC) — for work that is genuinely in flight.
+	if !s.everActive(it.ID) && !wt.BranchExists(dir, branch) {
+		return res
+	}
+	// KNOWN SMELL, recorded rather than fixed (found while measuring
+	// B-01KYPC60DWEZ0, out of its scope): the err branch below renders "g
+	// <branch> up to date", so a FAILED unpushed probe reads as a green
+	// no-op — one function away from gitOpenPR's own "an error is not a
+	// deferral" rule, which refuses exactly that dress-up for the ahead
+	// probe. Changing it here would change what a broken probe reports, so
+	// it belongs to its own record, not to this one.
 	unpushed, err := wt.HasUnpushedCommits(dir, s.effectiveGit().Remote, branch)
 	if err != nil || !unpushed {
 		res.addf("g %s up to date", branch)
@@ -429,6 +468,26 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	branch := s.itemBranch(it.ID)
 	if r := s.gitFlowSync(it); r.String() != "" {
 		res.lines = append(res.lines, r.lines...)
+	}
+	// B-01KYPC60DWEZ0, the second half. gitFlowSync deliberately does not
+	// abort this edge when it fails, so silencing the push alone leaves the
+	// ahead probe inside gitOpenPR still asking git about a ref that was
+	// never created ("unknown revision or path not in the working tree") —
+	// the same false failure, one line further down. The same both-conjunct
+	// predicate for the same reason (see gitFlowSync): an aborted-but-live
+	// item has no local branch and must still reach the gate and the await.
+	//
+	// Skipping s.runGate() on this narrowed path loses nothing that used to
+	// happen: today the never-active item never reaches the gate either —
+	// gitOpenPR fails on the ahead probe and the Find bail below returns —
+	// and it mirrors gitFlowMerge's offline arm, which already discriminates
+	// on s.everActive for this same population. Creating the branch the way
+	// gitFlowMerge does is NOT the answer here: EnsureBranch CHECKS OUT the
+	// new branch, which archive can afford because it merges immediately and
+	// restores on strand, while a plain done would simply park the caller on
+	// spectackle/<id>.
+	if !s.everActive(it.ID) && !wt.BranchExists(s.ws.Dir, branch) {
+		return res
 	}
 	f, err := s.forgeFor()
 	if err != nil {
@@ -482,7 +541,7 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	// same breath as declaring done, not at archive time. The verdict is
 	// pinned to the exact local head just pushed (B-01KYDN).
 	s.pinHead(&pr, branch, res)
-	awaitChecksReport(f, pr, mergeWaitBudget, mergePollInterval, res)
+	awaitChecksReport(f, pr, s.awaitBudget(), mergePollInterval, res)
 	// green done collapses to its outcome artifact: the CI verdict on the
 	// still-draft PR (gates passing and PR-DRAFT-001 are implied by
 	// reaching it) — any CI W/E or gate line keeps the full surface. The
@@ -687,7 +746,7 @@ func (s *Server) gitFlowMerge(it item.Item) *gitFlowResult {
 		res.addf("g pr %d ready %s", pr.Number, pr.URL)
 	}
 	s.pinHead(&pr, branch, res)
-	awaitChecksAndMerge(f, pr, mergeWaitBudget, mergePollInterval, res)
+	awaitChecksAndMerge(f, pr, s.awaitBudget(), mergePollInterval, res)
 	// Post-condition (B-01KYG56Y, the meta-lesson made mechanical):
 	// per-diff review cannot see cross-feature interaction bugs, so the
 	// flow checks its own invariant — after an archive closure no open PR
@@ -724,7 +783,7 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 	var outside []string
 	var inside []string
 	for _, f := range strings.Fields(conflicted) {
-		if strings.Contains(f, workspace.Dot+"/") || strings.HasPrefix(f, workspace.Dot) {
+		if workspace.IsRecordsPath(f) {
 			inside = append(inside, f)
 		} else {
 			outside = append(outside, f)
@@ -742,7 +801,17 @@ func (s *Server) reconcileClosureBranch(res *gitFlowResult, id string) error {
 			return errors.New("closure reconcile failed")
 		}
 	}
-	if _, err := git("add", "-A", "--", workspace.Dot); err != nil {
+	// Stage the resolved records by PATH, not by a root pathspec. This was
+	// `add -A -- .spectackle`, which matches only the root context — so once the
+	// classifier above became nesting-aware, a nested-only records conflict was
+	// classified `inside`, `checkout --theirs` ran, and then this add failed
+	// with "pathspec did not match any files", leaving the file unmerged and
+	// aborting the merge. It failed CLOSED, so nothing was lost, but the
+	// `inside` verdict could not be acted on and the operator saw a reconcile-add
+	// error instead of a resolvable conflict. Staging the exact files the
+	// classifier resolved needs no pathspec and cannot drift from it again
+	// (B-01KYSDBZTEF1A).
+	if _, err := git(append([]string{"add", "--"}, inside...)...); err != nil {
 		_, _ = git("merge", "--abort")
 		res.addf("! GIT E %s closure reconcile add: %s", id, err)
 		return errors.New("closure reconcile failed")
@@ -784,10 +853,30 @@ func (s *Server) pinHead(pr *forge.PR, branch string, res *gitFlowResult) {
 // strongly than it forbids latency. A background finisher with its own
 // notification channel is future work, and the budget bounds the damage.
 var (
-	mergeWaitBudget   = 5 * time.Minute
 	mergePollInterval = 10 * time.Second
 	mergeRetryBudget  = 8 // not-ready retries, one poll interval apart
 )
+
+// awaitBudget is how long a closure waits for the head's CI verdict, from
+// the workspace's git config. It was a hardcoded 5 minutes, which sat INSIDE
+// this repository's own CI duration distribution (3m43s-5m38s over ten runs),
+// so archives refused on builds that were merely unfinished — and since a
+// refusal compensates by journaling an event, the retry pushed a new commit
+// which started CI over. The wait could not converge, and two finished,
+// independently validated items sat unclosable (B-01KYQJDJJVFC2).
+//
+// This is a revision of that bug's own stated direction, which argued a
+// bigger budget only moves the boundary and that resumability was the real
+// fix. Reading the closure changed my mind: making the wait resumable means
+// either not journaling the compensation (which the design wants, so the
+// refusal is recorded truthfully) or merging a head that lacks the newest
+// records. Both are worse than a wait with real margin, and the code's own
+// comment already framed the budget as bounding damage rather than as a
+// correctness boundary. Resumability stays filed for when margin is not
+// enough.
+func (s *Server) awaitBudget() time.Duration {
+	return s.main.Cfg.Git.AwaitBudget()
+}
 
 // awaitChecksAndMerge is the merge gate (ADR-01KYDB: merge after
 // verification), in its mechanically checkable half: the head's CI verdict.
@@ -811,13 +900,26 @@ var (
 // done reports the verdict, archive gates the merge on it. Two copies of a
 // budgeted polling loop is how the two would drift.
 func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
-	state := awaitChecks(f, pr, waitBudget, poll, res)
+	state := awaitChecks(f, pr, waitBudget, poll, res, unavailableTransient)
 	switch state {
 	case forge.ChecksFailing:
 		res.addf("! GIT E pr %d left open: checks failing — a red head is never merged mechanically", pr.Number)
 		return
 	case forge.ChecksPending:
 		res.addf("! GIT E pr %d left open: checks still pending after %s — retry budget spent, merge it once CI concludes", pr.Number, waitBudget)
+		return
+	case forge.ChecksUnavailable:
+		// Reached only after the FULL budget was spent seeing nothing but
+		// skipped runs (archive passes unavailableTransient), so the ready
+		// flip did not take or the forge never dispatched a run for the ready
+		// head. Untested either way.
+		//
+		// This case MUST stay explicit: ChecksNone deliberately falls through
+		// to the merge loop below, so an unhandled state here inherits that
+		// fall-through and merges a head whose every run was skipped — the
+		// predecessor-verdict defect (B-01KYDN) arriving through the door
+		// built to keep it out.
+		res.addf("! GIT E pr %d left open: every check still skipped after %s — the head is untested; confirm the pull request left draft and CI started", pr.Number, waitBudget)
 		return
 	case "":
 		return // Checks itself failed; awaitChecks already reported it
@@ -853,7 +955,33 @@ func awaitChecksAndMerge(f forge.Forge, pr forge.PR, waitBudget, poll time.Durat
 // state: Passing or None concluded; Failing is a conclusion the caller words
 // (done reports it, archive refuses on it); Pending means the budget ran out;
 // "" means Checks itself errored, already reported here.
-func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) forge.CheckState {
+// unavailableIsTerminal says whether an Unavailable head is a settled answer
+// for THIS caller or merely a window to wait out. The state is identical in
+// both cases — every run concluded, all skipped — and only the caller knows
+// whether anything is coming.
+//
+//	done     terminal. PR-DRAFT-001 keeps the pull request in draft across
+//	         this edge, so the draft-skip workflow will keep concluding every
+//	         run as skipped no matter how long we wait. Return at once.
+//	archive  TRANSIENT, and assuming otherwise cost a verified regression.
+//	         Archive pushes its records commit while the PR is still draft,
+//	         which registers a synchronize-skipped run on the new head; it
+//	         then runs the local gate, flips the PR ready, and polls with no
+//	         delay. GitHub dispatches the ready_for_review run asynchronously
+//	         (the zero-runs branch in forge/github.go already measures that
+//	         latency), so the first polls legitimately see nothing but the
+//	         stale skipped run. Short-circuiting there refuses a build that
+//	         merely had not started — B-01KYQJDJJVFC2 exactly, which this
+//	         record's own VERIFY line forbids reintroducing. Wait out the
+//	         budget; only a budget spent entirely on Unavailable is a verdict.
+type unavailableIsTerminal bool
+
+const (
+	unavailableTerminal  unavailableIsTerminal = true
+	unavailableTransient unavailableIsTerminal = false
+)
+
+func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult, term unavailableIsTerminal) forge.CheckState {
 	deadline := time.Now().Add(waitBudget)
 	waited := false
 	for {
@@ -870,6 +998,20 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 			return state
 		case forge.ChecksFailing:
 			return state
+		case forge.ChecksUnavailable:
+			if term {
+				return state
+			}
+			// Transient: fall through to the same bounded poll as Pending. The
+			// run we are waiting for has not been dispatched yet.
+			if time.Now().After(deadline) {
+				return state
+			}
+			if !waited {
+				res.addf("g pr %d checks pending — waiting up to %s", pr.Number, waitBudget)
+				waited = true
+			}
+			time.Sleep(poll)
 		case forge.ChecksPending:
 			if time.Now().After(deadline) {
 				return state
@@ -892,11 +1034,18 @@ func awaitChecks(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res
 // declared done learns that CI disagrees in the same breath, while the
 // context of what changed is still hot.
 func awaitChecksReport(f forge.Forge, pr forge.PR, waitBudget, poll time.Duration, res *gitFlowResult) {
-	switch awaitChecks(f, pr, waitBudget, poll, res) {
+	switch awaitChecks(f, pr, waitBudget, poll, res, unavailableTerminal) {
 	case forge.ChecksFailing:
 		res.addf("! CI E pr %d checks failing %s — item stays done; fix and reopen, or archive will refuse the merge", pr.Number, pr.URL)
 	case forge.ChecksPending:
 		res.addf("! CI W pr %d checks still pending after %s — verdict unknown at done; archive will wait again", pr.Number, waitBudget)
+	case forge.ChecksUnavailable:
+		// The ordinary done edge on any repository whose CI skips draft runs —
+		// which is the pattern this repository ships and documents. Say why no
+		// verdict exists rather than spending the budget to say the same thing
+		// later: the wait is not merely slow here, its outcome is fixed before
+		// it starts (B-01KYZB4QA9FF4).
+		res.addf("g pr %d no verdict yet — every check skipped while the PR is draft; CI runs at archive, when the PR readies", pr.Number)
 	case forge.ChecksPassing:
 		res.addf("g pr %d checks passing", pr.Number)
 	}
@@ -1048,10 +1197,25 @@ func (s *Server) gitScopeRefusal(id, to string) *mcp.CallToolResult {
 			}
 		}
 	}
+	// A declared source file implicitly covers its _test.go sibling. Every
+	// record in this workspace is required to ship tests, so the sibling is
+	// never the undeclared work this gate exists to catch — that is an
+	// unrelated file absorbed under an item's name, which is what the doc
+	// comment above describes. Requiring `foo_test.go` next to a declared
+	// `foo.go` was therefore pure ceremony, and it was not free: it cost three
+	// reject-to-draft-widen cycles in a single session, each of which rewrites
+	// the record and re-runs the edges. Scoped to the EXACT sibling rather than
+	// the directory, so the gate still refuses an unrelated test file
+	// (B-01KYSDBZTEF1A).
+	for _, t := range scope {
+		if strings.HasSuffix(t, ".go") && !strings.HasSuffix(t, "_test.go") {
+			scope = append(scope, strings.TrimSuffix(t, ".go")+"_test.go")
+		}
+	}
 	var out []string
 	for _, f := range dirty {
-		if f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/") {
-			continue // records are the server's own commit
+		if workspace.IsRecordsPath(f) {
+			continue // records are the server's own commit, at any context depth
 		}
 		if inTargetScope(f, scope) {
 			continue

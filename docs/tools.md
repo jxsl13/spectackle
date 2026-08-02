@@ -86,8 +86,8 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
 ### 1. `find` — unified search (code + every lifecycle subcategory)
 
 ```json
-{"type":"object","required":["q"],"properties":{
-  "q":    {"type":"string"},
+{"type":"object","properties":{
+  "q":    {"type":"string","description":"text or ID fragment; omit to ENUMERATE an explicit scope"},
   "scope":{"enum":["code","rule","spec","proposal","task","bug","research","adr","rejection","history","all"],"default":"all"},
   "k":    {"type":"integer","default":8},
   "focus":{"type":"string","default":""},
@@ -95,7 +95,19 @@ counter), `grilled: <YYYY-MM-DD>` (last `grill` stamp), and `needs:
   "cur":  {"type":"string","default":""}}}
 ```
 `code`→graph, everything else→FTS5. **`rejection` and `history` are the
-learn-before-planning scopes** — the loop starts here. `focus` (scope=code
+learn-before-planning scopes** — the loop starts here.
+
+**An omitted `q` enumerates**, for any scope but `code` and `all`: `find
+{"scope":"rule"}` lists the rules rather than searching for nothing. It used
+to answer `ok no matches` on a workspace holding 96 of them, because an empty
+query sanitizes to nothing and the FTS path returns no rows — a successful
+call carrying a false answer, which an independent judge ranked worse than a
+refusal since the caller learns the workspace is empty instead of learning
+what to pass (B-01KYR01E2VFEF). Enumeration is a separate query (kind filter,
+no MATCH), shares the same render, and is bounded by `k` and `budget`/`cur`
+like every other result. Unscoped or `scope=code` refuses and names the
+scopes that can be enumerated — "everything" is not a meaningful request.
+A genuinely empty scope still reports emptiness truthfully. `focus` (scope=code
 only, SPX-GRA-004) re-ranks matches by deterministic personalized PageRank
 seeded at that node — "near what I'm working on" beats global degree rank;
 empty keeps the global ordering, an unknown focus answers `nf`. Every read
@@ -673,6 +685,25 @@ lands the winner as an accepted ADR while the losing side stays readable in
 the record and — because an `adr` tombstone retains its body and decision
 the way a `research` one retains its finding — in the journal after the ADR
 is archived. No side is ever adopted automatically.
+
+**The artifact and the record lines share one result** — `export` and
+`merge` both print their dense records (`ok export …`, `x <kind> <key> …`,
+`ok merge …`) AFTER the artifact on the same text result, so the obvious
+composition, feeding one op's output straight into the next, hands those
+records to the artifact parser. `merge` and `apply` therefore refuse such
+input by name, before parsing: `<label> lines <n>-<m> are record lines, not
+artifact content: "…"`, where `<label>` is the path you passed or `body`
+and the line numbers are in **your** input's coordinate system. The check
+covers the whole trailing run, not just the last line, because a merge with
+conflicts emits several `x` records ahead of its `ok`. Both failure modes
+it replaces were worse than a refusal (B-01KYRVXQ02FDH): a raw yaml
+complaint naming a line number that was entry-relative and therefore
+unlocatable in what the caller sent, or — where no `## ` heading preceded
+the records — no error at all, the records silently dropped and `entries=0
+conflicts=0` reported. The clean composition is the documented one: write
+with `export path=` and read with `apply path=`, where only the artifact
+ever reaches the file. Any yaml error `apply`/`merge` does surface names a
+line of the bytes you supplied.
 
 Merging is unconditional, not gated on how many artifacts arrived: `Merge`
 buckets entries across AND within artifacts, and `export` of a workspace

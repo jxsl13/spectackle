@@ -282,6 +282,67 @@ func TestRefsDuplicatesCollapseOnWrite(t *testing.T) {
 	}
 }
 
+// TestRefsCanonicalOnFirstWrite pins the WRITTEN BYTES, not the reload.
+// TestRefsDuplicatesCollapseOnWrite above asserts only what LoadWork returns,
+// and the reader trims every element on the way in — so it stays green even
+// when the file on disk holds three spellings of one ref. The raw-line
+// assertion is the load-bearing one here.
+func TestRefsCanonicalOnFirstWrite(t *testing.T) {
+	refsLine := func(t *testing.T, root workspace.Root) string {
+		t.Helper()
+		b, err := os.ReadFile(root.WorkPath(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ln := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(ln, "refs:") {
+				return ln
+			}
+		}
+		t.Fatalf("no refs line in:\n%s", b)
+		return ""
+	}
+
+	t.Run("whitespace variants are one ref", func(t *testing.T) {
+		root := ws(t)
+		in := Item{
+			ID: "R-0001", Kind: "research", State: StateDraft, Title: "canon check",
+			Created: "2026-07-24",
+			Refs:    []string{" R-0002", "R-0002 ", "R-0002", "P-0001"},
+		}
+		if err := Upsert(root, in); err != nil {
+			t.Fatal(err)
+		}
+		// Before the fix: "refs:  R-0002, R-0002 , R-0002, P-0001" — three
+		// elements survive dedup because they are not byte-identical.
+		if got, want := refsLine(t, root), "refs: R-0002, P-0001"; got != want {
+			t.Errorf("raw refs line = %q, want %q", got, want)
+		}
+		items, err := LoadWork(root.WorkPath(""), "")
+		if err != nil || len(items) != 1 {
+			t.Fatalf("LoadWork = %+v, %v", items, err)
+		}
+		if got := items[0].Refs; len(got) != 2 {
+			t.Errorf("reloaded Refs = %+v, want 2 elements", got)
+		}
+	})
+
+	t.Run("placeholder and empty elements drop", func(t *testing.T) {
+		root := ws(t)
+		in := Item{
+			ID: "R-0001", Kind: "research", State: StateDraft, Title: "canon check",
+			Created: "2026-07-24",
+			Refs:    []string{"", "  ", "-", "R-0002"},
+		}
+		if err := Upsert(root, in); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := refsLine(t, root), "refs: R-0002"; got != want {
+			t.Errorf("raw refs line = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestUnknownRefs(t *testing.T) {
 	known := map[string]bool{"R-0001": true, "R-0002": true, "P-0001": true}
 
@@ -612,5 +673,252 @@ func TestMixedSchemeWorkFile(t *testing.T) {
 	}
 	if got := UnknownRefs(old.ID, []string{"T-" + strings.Repeat("Z", 26)}, known); len(got) != 1 {
 		t.Fatalf("UnknownRefs accepted an unknown record ID: %v", got)
+	}
+}
+
+// TestHeaderFieldRoundTrip is the property test B-01KYN3E973F20 asked for. The
+// bug survived because every existing test used single-line ADR values, so the
+// table is deliberately made of the values that break a naive line-per-field
+// header: embedded newlines, continuation lines shaped exactly like header
+// fields, the ": " separator inside a value, significant leading and trailing
+// whitespace, and a line that looks like an item heading.
+func TestHeaderFieldRoundTrip(t *testing.T) {
+	vals := []string{
+		"Line one.\nLine two.",                // the reported reproduction
+		"a\nb\nc",                             // more than one continuation
+		"cost: higher memory\nlatency: lower", // continuations shaped like fields
+		"  leading and trailing  ",            // whitespace is significant
+		"\nleading newline is allowed",        // writes an empty value line
+		"kind: text",                          // separator inside the value
+		"ends with a separator: ",             // and at the very end
+		"## looks like an item heading",       // as the whole value
+		"a\n## looks like an item heading",    // and as a continuation
+		"tab\there",                           // whitespace that is not a space
+		"unicode — em dash, umlaut ü",         // not byte-sliced anywhere
+	}
+	for _, v := range vals {
+		t.Run(strings.ReplaceAll(v, "\n", `\n`), func(t *testing.T) {
+			root := ws(t)
+			in := Item{
+				ID: "ADR-0001", Kind: "adr", State: StateDraft, Title: "which cache",
+				Created: "2026-07-30", Status: "accepted",
+				Context: v, Decision: v, Consequences: v,
+				Body: "body stays body.\n\nSecond paragraph.",
+			}
+			if err := Upsert(root, in); err != nil {
+				t.Fatalf("Upsert: %v", err)
+			}
+			items, err := LoadWork(root.WorkPath(""), "")
+			if err != nil || len(items) != 1 {
+				t.Fatalf("LoadWork = %+v, %v", items, err)
+			}
+			got := items[0]
+			for _, f := range []struct {
+				name, want, got string
+			}{
+				{"Context", v, got.Context},
+				{"Decision", v, got.Decision},
+				{"Consequences", v, got.Consequences},
+				{"Status", in.Status, got.Status},
+				{"Title", in.Title, got.Title},
+				{"Kind", in.Kind, got.Kind},
+				{"Body", in.Body, got.Body},
+			} {
+				if f.got != f.want {
+					t.Errorf("%s: got %q, want %q", f.name, f.got, f.want)
+				}
+			}
+		})
+	}
+}
+
+// TestHeaderRefusesUnwritableValue pins the other half of the fix: a value the
+// header cannot represent is refused at the write path, and the refusal leaves
+// the file exactly as it was. The guard runs while the buffer is built, before
+// os.WriteFile — the ordering matters, because a guard that fires after the
+// write is how a content-less ADR became permanent once before.
+func TestHeaderRefusesUnwritableValue(t *testing.T) {
+	for name, bad := range map[string]func(*Item){
+		"blank line in prose": func(it *Item) { it.Context = "a\n\nb" },
+		"trailing newline":    func(it *Item) { it.Consequences = "a\n" },
+		"newline in title":    func(it *Item) { it.Title = "two\nlines" },
+		"newline in status":   func(it *Item) { it.Status = "acce\npted" },
+		"carriage in created": func(it *Item) { it.Created = "2026-07-30\r" },
+		// The list fields are comma-joined onto one header line, so a newline
+		// in an element wrote a second header line the parser then believed.
+		// Reachable through the public draft tool: this exact targets value
+		// made an item read back state=archived, a terminal state no
+		// transition can reach.
+		"newline in targets": func(it *Item) { it.Targets = []string{"go:x\nstate: archived"} },
+		"newline in needs":   func(it *Item) { it.Needs = []string{"T-0001\nkind: bug"} },
+		"newline in refs":    func(it *Item) { it.Refs = []string{"R-0001\nparent: P-0001"} },
+		"comma in targets":   func(it *Item) { it.Targets = []string{"go:a,go:b"} },
+		// Body is prose, but ONE line shape in it is structure to the
+		// reader: Parse's body loop ends at the first reItemHeading match, so
+		// this reads back as a second item carrying the caller's kind and
+		// state (B-01KYRN4VBEEXQ). Before the guard, this Upsert SUCCEEDED.
+		"item heading in body": func(it *Item) {
+			it.Body = "## T-9999 phantom\nkind: bug\nstate: archived"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := ws(t)
+			keep := Item{
+				ID: "ADR-0001", Kind: "adr", State: StateDraft, Title: "keep me",
+				Created: "2026-07-30", Decision: "redis", Status: "accepted",
+			}
+			if err := Upsert(root, keep); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(root.WorkPath(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			it := keep
+			it.ID = "ADR-0002"
+			bad(&it)
+			if err := Upsert(root, it); err == nil {
+				t.Fatal("Upsert accepted a value the header cannot read back")
+			}
+			after, err := os.ReadFile(root.WorkPath(""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("refusal changed the file:\nbefore:\n%s\nafter:\n%s", before, after)
+			}
+		})
+	}
+}
+
+// TestBodyCannotForgeAnItemHeading pins the OUTCOME of B-01KYRN4VBEEXQ, not
+// merely the refusal. The defect had two halves and a refusal-only assertion
+// covers neither directly: a PHANTOM record appeared with the caller's chosen
+// kind and state (a terminal state no transition can reach), and the HOST
+// record lost its entire body to it. So both are asserted after the refused
+// write, through LoadAll — what the next reader actually sees.
+//
+// The control case is half the test: the guard must refuse the one structural
+// shape and nothing else. Ordinary prose that merely mentions ## or an ID
+// still has to round trip, or the fix has traded a corruption for a
+// records-you-cannot-write bug.
+func TestBodyCannotForgeAnItemHeading(t *testing.T) {
+	root := ws(t)
+	host := Item{
+		ID: "T-0001", Kind: "task", State: StateDraft, Title: "host",
+		Created: "2026-08-02", Body: "the host body, every byte of it",
+	}
+	if err := Upsert(root, host); err != nil {
+		t.Fatal(err)
+	}
+	attack := host
+	attack.Body = "still mine\n## T-9999 phantom\nkind: bug\nstate: archived"
+	if err := Upsert(root, attack); err == nil {
+		t.Fatal("Upsert accepted a body that forges an item heading")
+	}
+	items, err := LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Item{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+	if ph, ok := byID["T-9999"]; ok {
+		t.Errorf("phantom record materialized: kind=%q state=%q", ph.Kind, ph.State)
+	}
+	if len(items) != 1 {
+		t.Errorf("work.md holds %d items, want 1: %+v", len(items), items)
+	}
+	if got := byID["T-0001"].Body; got != host.Body {
+		t.Errorf("host body changed by the refused write: got %q, want %q", got, host.Body)
+	}
+	// Control: prose that talks about headings and IDs is not a heading.
+	benign := host
+	benign.Body = "see T-9999 and the ## heading convention\n## NOTANID something\nkind: bug"
+	if err := Upsert(root, benign); err != nil {
+		t.Fatalf("ordinary prose refused: %v", err)
+	}
+	items, err = LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("control write produced %d items, want 1", len(items))
+	}
+	if items[0].Body != benign.Body {
+		t.Errorf("control body did not round trip:\n got %q\nwant %q", items[0].Body, benign.Body)
+	}
+}
+
+// TestNormalizeBodyDefangsHeadingWithoutRefusing pins the restore-path half:
+// a body off a JOURNAL event has no caller to refuse to, so the heading-shaped
+// line is indented back into prose instead. The property that matters is that
+// the result is WRITABLE — refusing there would strand a rejected item that
+// can never be revoked.
+func TestNormalizeBodyDefangsHeadingWithoutRefusing(t *testing.T) {
+	for _, body := range []string{
+		"## T-9999 phantom\nkind: bug\nstate: archived",
+		"lead\n## ADR-0001 forged\n## P-0002 also forged\ntail",
+		"nothing wrong here",
+		"",
+	} {
+		got := NormalizeBody(body)
+		if err := CheckHeader(Item{Body: got}); err != nil {
+			t.Errorf("NormalizeBody(%q) still unwritable: %v", body, err)
+		}
+	}
+	if got, want := NormalizeBody("ok\n## T-9999 x"), "ok\n"+contIndent+"## T-9999 x"; got != want {
+		t.Errorf("NormalizeBody = %q, want %q", got, want)
+	}
+}
+
+// TestCheckDirRefusesUnrenderableDir pins the second half of
+// B-01KYRN4VBEEXQ at the unit level. A newline in dir split the dense record
+// line in two and created a directory literally named with one; "../" walked a
+// .spectackle tree outside the workspace root. Both arrived through public
+// tool arguments that never pass through lifecycle.ScopeFor.
+func TestCheckDirRefusesUnrenderableDir(t *testing.T) {
+	for _, bad := range []string{
+		"a\nb", "a\rb", "\n", "trailing\n",
+		"../escape", "..", "a/../../escape", "/abs/path",
+	} {
+		if err := CheckDir(bad); err == nil {
+			t.Errorf("CheckDir(%q) accepted an unrenderable dir", bad)
+		}
+	}
+	for _, good := range []string{"", ".", "internal", "internal/item", "a/../b", "./x"} {
+		if err := CheckDir(good); err != nil {
+			t.Errorf("CheckDir(%q) refused a legitimate dir: %v", good, err)
+		}
+	}
+}
+
+// TestParseOptionsAcceptsBothEscalationSpellings pins the two spellings
+// lifecycle.Escalate's sentence has used. The body was deliberately changed
+// from `outcome=` to `choose=` because following the old text failed twice, and
+// no parser was updated — this regex lived in two packages, so a value that had
+// to change in two places changed in neither, and every escalation ADR silently
+// accepted free text (B-01KYS7111XFHZ). Both stay matched permanently: records
+// carrying either are already in journals and must remain answerable.
+func TestParseOptionsAcceptsBothEscalationSpellings(t *testing.T) {
+	for _, body := range []string{
+		"T-1 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-1 outcome=rescope|reject|override-once.",
+		"T-1 exhausted its feedback rounds (3). Resolve via decide op=answer id=ADR-1 choose=rescope|reject|override-once.",
+	} {
+		got := ParseOptions(body)
+		want := []string{"rescope", "reject", "override-once"}
+		if len(got) != len(want) {
+			t.Fatalf("ParseOptions(%q) = %v, want %v", body, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Errorf("ParseOptions option %d = %q, want %q", i, got[i], want[i])
+			}
+		}
+	}
+	// Free text still yields nil, or every text decision would start refusing.
+	if got := ParseOptions("just prose, no enumeration here"); got != nil {
+		t.Errorf("free text parsed as options: %v", got)
 	}
 }

@@ -53,6 +53,51 @@ const (
 	LangGLSL   Lang = "glsl"
 )
 
+// allLangs enumerates every Lang the const block above declares. Go has no
+// reflection over a const block, so this list is the single machine-readable
+// enumeration of the language tags — T-01KYT2EHRMEAH will sweep the other
+// hand-maintained language tables onto it rather than adding a third copy.
+// Adding a Lang const without adding it here makes ValidNodeID reject IDs
+// that the indexer legitimately mints, so the two must be edited together.
+var allLangs = []Lang{
+	LangGo, LangC, LangCpp, LangCuda, LangAsm, LangObjC, LangMSL,
+	LangPy, LangJS, LangTS, LangRs, LangJava, LangRb, LangPHP,
+	LangKt, LangSwift, LangCs, LangScala, LangSh, LangLua, LangZig,
+	LangPerl, LangDart, LangGroovy, LangEx, LangErl, LangJl, LangHs,
+	LangMl, LangR, LangF90, LangGLSL,
+}
+
+// langSet is allLangs as a lookup, built once at init: ValidNodeID runs once
+// per anchor per check, so a linear scan of 32 tags is avoidable work.
+var langSet = func() map[Lang]bool {
+	m := make(map[Lang]bool, len(allLangs))
+	for _, l := range allLangs {
+		m[l] = true
+	}
+	return m
+}()
+
+// ValidNodeID reports whether id has the SHAPE of a node ID minted by
+// ids.Mint: "<known-lang>:<non-empty qualified name>". It answers a
+// different question than Graph.Node — "could this string ever name a
+// node?", not "does this node exist right now?" — which is what lets the
+// drift classifier tell a permanently unresolvable anchor (a file path, say)
+// apart from one that is merely waiting on the next index (B-01KYN5ZYM1FY2).
+// It lives in package graph because index imports graph and the reverse
+// would cycle.
+//
+// KNOWN INCOMPLETENESS: langspec.Spec.Lang is a free string minted at
+// internal/langspec/langspec.go:266, so a third-party language spec carrying
+// a Lang absent from the const block above would have its perfectly real
+// nodes reported unresolvable here. That trade is deliberate — the class
+// this guards against (a path or prose string that can never resolve) is the
+// common, silently-permanent one — but it is the reason a new Lang const
+// MUST be added to allLangs in the same change.
+func ValidNodeID(id NodeID) bool {
+	lang, name, ok := strings.Cut(string(id), ":")
+	return ok && name != "" && langSet[Lang(lang)]
+}
+
 // NodeKind classifies a node.
 type NodeKind uint8
 

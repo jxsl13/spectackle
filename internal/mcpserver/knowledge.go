@@ -215,6 +215,30 @@ func (s *Server) knowledgeExport(in knowledgeIn) (*mcp.CallToolResult, any, erro
 // (that is Merge's job, later, on artifacts this op produces).
 func knowledgeEntryFromIn(e knowledgeEntryIn, source string) (knowledge.Entry, error) {
 	kind := knowledge.EntryKind(strings.ToLower(strings.TrimSpace(e.Kind)))
+	// The other untrusted status entry point: a caller composing entries for
+	// a repository with no bundle. The enum lived only in this field's
+	// jsonschema DESCRIPTION, which validates nothing (B-01KYNA4PJNF5K).
+	//
+	// ValidStatus only — "superseded" IS allowed here, and the asymmetry with
+	// applyADREntry is the point rather than an oversight. Exporting says
+	// "this repository's decision is superseded", a true historical fact
+	// about the source, recorded against Entry.Sources. Importing the same
+	// value would say "this workspace's decision is superseded", which the
+	// importer cannot know: it holds no replacement record. Describing your
+	// own history and adopting someone else's claim are different acts.
+	if !item.ValidStatus(e.Status) {
+		return knowledge.Entry{}, fmt.Errorf("status %q invalid (want %s)",
+			e.Status, strings.Join(item.Statuses(), "|"))
+	}
+	// The entry's dir is caller-supplied and lands verbatim in the
+	// Provenance of every exported entry, which is a rendered line in the
+	// artifact — the same class as draft's and bench's dir
+	// (B-01KYRN4VBEEXQ). Unrelated to the spec.AuthorReq{Dir: ""} call this
+	// file makes further down: that one is internal and supplies its own
+	// value.
+	if err := item.CheckDir(e.Dir); err != nil {
+		return knowledge.Entry{}, err
+	}
 	payload := knowledge.Entry{
 		Text: e.Text, Rationale: e.Rationale,
 		Question: e.Question, Context: e.Context, Decision: e.Decision,
@@ -286,6 +310,9 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", p, err)
 		}
+		if err := recordBlockRefusal(p, string(raw)); err != nil {
+			return nil, err
+		}
 		a, err := knowledge.Parse(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
@@ -293,6 +320,9 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		out = append(out, a)
 	}
 	if strings.TrimSpace(body) != "" {
+		if err := recordBlockRefusal("body", body); err != nil {
+			return nil, err
+		}
 		a, err := knowledge.Parse([]byte(body))
 		if err != nil {
 			return nil, fmt.Errorf("parse body: %w", err)
@@ -300,6 +330,66 @@ func (s *Server) knowledgeGatherArtifacts(paths []string, body string) ([]knowle
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// recordBlockRefusal diagnoses the one wrong call the knowledge tool's own
+// output shape invites, and it must run BEFORE knowledge.Parse
+// (B-01KYRVXQ02FDH). `export` and `merge` print their dense record lines
+// AFTER the artifact on the SAME text result, so the obvious composition —
+// feed what one op printed into the next — hands those record lines to the
+// artifact parser. Both outcomes of that were worse than a refusal:
+//
+//   - where a `## ` heading precedes them, yaml chokes on a plain scalar
+//     with no colon and the caller gets a raw parser complaint about a
+//     coordinate it has to map itself;
+//   - where none does — merge's own output, whose trailing block follows the
+//     last entry of a condensate, or any artifact whose records land outside
+//     every entry — Parse's heading loop `continue`s straight past them and
+//     reports NOTHING. Measured: piping a conflicting merge's output back
+//     into merge exited 0 with `entries=0 conflicts=0`, dropping two
+//     conflict records a human still had to adjudicate.
+//
+// The silent face is why this is a pre-Parse check rather than a nicer
+// error message: there is no error to improve.
+//
+// label names the input in the caller's own vocabulary — the path it
+// passed, or "body".
+func recordBlockRefusal(label, s string) error {
+	block, firstN := trailingRecordBlock(s)
+	if len(block) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s lines %d-%d are record lines, not artifact content: %q — knowledge export/merge print their record lines after the artifact on the same stream; drop the trailing record block, or export with path= and apply with path=",
+		label, firstN, firstN+len(block)-1, strings.Join(block, "\n"))
+}
+
+// trailingRecordBlock walks BACKWARDS from the end of s over the final run
+// of non-blank lines for as long as they are dense records (`ok ` or `x `,
+// the convention every tool here shares — docs/tools.md), and returns that
+// run together with the 1-based line number of its FIRST line in s.
+//
+// The whole RUN matters, not merely the last line: a merge with conflicts
+// emits one `x` record per competing entry BEFORE its `ok` trailer, so a
+// message naming only the final line would have the caller strip one line,
+// call again, and hit a second, differently-worded failure. One refusal has
+// to describe the entire thing to be dropped.
+//
+// Returns (nil, 0) when nothing trails — a well-formed artifact ends in
+// entry yaml, and this check must be invisible on it.
+func trailingRecordBlock(s string) (block []string, firstN int) {
+	lines := strings.Split(s, "\n")
+	i := len(lines) - 1
+	for i >= 0 && strings.TrimSpace(lines[i]) == "" {
+		i--
+	}
+	last := i
+	for i >= 0 && (strings.HasPrefix(lines[i], "ok ") || strings.HasPrefix(lines[i], "x ")) {
+		i--
+	}
+	if i == last {
+		return nil, 0
+	}
+	return lines[i+1 : last+1], i + 2
 }
 
 // provenanceSources collapses one entry's Sources+DerivedFrom into a
@@ -632,6 +722,30 @@ func (s *Server) applyADREntry(e knowledge.Entry) (string, bool, error) {
 	var bodyLines []string
 	for _, o := range e.Options {
 		bodyLines = append(bodyLines, "option: "+o)
+	}
+	// Validate BEFORE minting. lifecycle.Draft persists the item and journals
+	// a create event, so a check placed after it left a permanent,
+	// content-less ADR behind on every refusal — and an export of that
+	// workspace re-emitted the stray as an ordinary entry, which a third
+	// workspace then promoted to a full accepted ADR. The guard meant to keep
+	// bad data out was manufacturing worse data than it rejected.
+	//
+	// UNTRUSTED input: this status was authored by another repository. The
+	// asymmetry with the export path is deliberate — see
+	// knowledgeEntryFromIn.
+	if !item.ValidStatus(e.Status) || e.Status == "superseded" {
+		return fmt.Sprintf("! ARG E - apply adr %s: status %q not adoptable from an artifact (want %s; adopting superseded would assert a replacement this workspace does not have)\n",
+			e.Key, e.Status, strings.Join(item.Statuses(), "|")), false, nil
+	}
+	// Same ordering, same reason, for the values rather than the status: the
+	// fields below are written by the Upsert AFTER the mint, so a paragraph
+	// break in an imported Context left a content-less ADR behind that an
+	// export then re-emitted as an ordinary entry.
+	if err := item.CheckHeader(item.Item{
+		Title: e.Question, Context: e.Context, Decision: e.Decision,
+		Consequences: e.Consequences, Status: e.Status,
+	}); err != nil {
+		return fmt.Sprintf("! ARG E - apply adr %s: %s\n", e.Key, err.Error()), false, nil
 	}
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", e.Question, strings.Join(bodyLines, "\n"), "", "", nil)
 	if err != nil {

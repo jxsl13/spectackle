@@ -285,6 +285,62 @@ func ruleBlock(abs, id string, line int) (lines []string, start, end int, err er
 // AppendIntent appends one line to the `## intent` prose section of a
 // context dir's spec bundle (creating file and section as needed) — the
 // archive-time delta merge target.
+// reIntentID matches both record-ID eras (ADR-0013's UUIDv7 form and the
+// legacy sequential one). Deliberately a local pattern rather than an import
+// of internal/item: spec owns rules and prose and does not otherwise depend
+// on the lifecycle package, and a string shape is not worth that coupling.
+var reIntentID = regexp.MustCompile(`^(?:ADR|[PTBRD])-(?:[0-9]{4}|[0-9A-HJKMNP-TV-Z]{10,})$`)
+
+// intentSpan returns the half-open line range of the `## intent` section —
+// its first content line and the line index of the next heading (or len).
+// Both are 0 when there is no such section, so a caller's loop over
+// [lo, hi) is empty and nothing outside is ever touched.
+func intentSpan(lines []string) (int, int) {
+	start := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) == "## intent" {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return 0, 0
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "## ") {
+			end = i
+			break
+		}
+	}
+	return start + 1, end
+}
+
+// intentRecordID pulls the record ID out of an intent line ("- <ID> <title>…"),
+// or "" when the line is not one. It is the idempotency key for AppendIntent:
+// the ID identifies the record, while the rest of the line varies between
+// archive attempts that carry different notes.
+func intentRecordID(line string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(line), "- ")
+	if !ok {
+		return ""
+	}
+	id, _, _ := strings.Cut(rest, " ")
+	if !reIntentID.MatchString(id) {
+		return ""
+	}
+	return id
+}
+
+// intentDebrisMarker is the text of internal/lifecycle's truncationMarker with
+// its separator stripped. It is duplicated rather than imported because
+// lifecycle imports this package, so the dependency cannot run the other way.
+// The duplication is pinned by TestTruncationMarkerMatchesSpecDebris in
+// internal/lifecycle, which can see both for the same reason the import cannot
+// be reversed: lifecycle already depends on this package. That test fails if
+// either side is changed alone, so the two cannot drift apart silently.
+const intentDebrisMarker = "[body truncated at tombstone retention cap]"
+
 func AppendIntent(ws workspace.Root, ctx, line string) error {
 	if err := ws.EnsureScaffold(ctx); err != nil {
 		return err
@@ -298,6 +354,108 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 			content = "---\nschema: " + workspace.SchemaStamp + "\n---\n"
 		}
 		lines := strings.Split(content, "\n")
+		// One intent line per record, ever. The archive closure appends this
+		// BEFORE its git merge can succeed, and a stranded closure compensates
+		// the item archived->done without removing what already ran — so every
+		// retry used to append another copy. That is not a log: `## intent` is
+		// the set of statements about what LANDED, and the retry is the
+		// operator's only response to a closure that timed out waiting for CI,
+		// which means the duplication scaled with CI slowness rather than with
+		// anything the author did (B-01KYQJDJJVFC2: three, two and two copies
+		// of single lines, measured). Idempotent on the record ID, because a
+		// second attempt legitimately carries a different note or gist and
+		// must not count as a different line.
+		//
+		// Per LINE, not per call. `line` is not always one line: knowledge
+		// apply's applyIntentEntry passes a whole prose section, many bullets
+		// at once. Keying the whole call on its FIRST bullet's ID dropped the
+		// entire blob — brand-new records included — whenever that one bullet
+		// collided, while still reporting success. A silently skipped intent
+		// line is permanent history loss, and that made the guard worse than
+		// the duplication it replaced.
+		// Also HEAL duplicates already on disk, as insurance rather than as a
+		// cure for a proven mechanism. Duplicates were observed live in this
+		// repository (three copies of one record's line), but a validator
+		// could not reproduce them with plain git: the ort strategy
+		// recognizes the byte-identical hunk and merges to one copy. The
+		// likeliest source was hand-resolved records conflicts during a long
+		// multi-agent session, not git's default merge — so the earlier claim
+		// that a three-way merge keeps both insertions is withdrawn
+		// (B-01KYQR51GXEQN). What stands is narrower and still worth having:
+		// the write-time guard is per-write and cannot see a duplicate that
+		// arrived by any other route, and `## intent` is a permanent
+		// human-read artifact where a duplicate is visibly wrong.
+		//
+		// Healing here rather than in a merge driver: a driver needs local git
+		// config, and an unconfigured clone falls back silently. This function
+		// already reads the file and scans it to enforce one-line-per-record,
+		// so the fix costs nothing extra and converges on the next archive.
+		// Scoped to the `## intent` section, which is the only part of this
+		// file AppendIntent owns. Scanning every line instead deleted
+		// lookalikes elsewhere: a bullet in a rule's free-form Rationale, or
+		// in one of the whitelisted prose sections (notes/design/context),
+		// keyed the same as a real intent line — so whichever came SECOND in
+		// file order was dropped, which for a lookalike above `## intent`
+		// meant deleting the genuine record. A heal must not reach outside
+		// the invariant it enforces.
+		lo, hi := intentSpan(lines)
+		have := map[string]bool{}
+		healed := false
+		var kept []string
+		for i, l := range lines {
+			if i < lo || i >= hi {
+				kept = append(kept, l)
+				continue
+			}
+			id := intentRecordID(l)
+			if id == "" {
+				// An ID-less line is NOT debris by default: applyIntentEntry
+				// passes a whole imported prose section through here, and
+				// dropping every line without an ID would delete it. That
+				// broader heal was written first and rejected — two pinned
+				// tests encode the opposite contract, and they are right.
+				//
+				// Exactly one ID-less shape is known debris: a stray
+				// truncation marker, left when the shared truncator still led
+				// with a newline and split a capped gist across two lines. It
+				// carries no ID, so the dedupe below could never key it, and it
+				// accumulated one copy per call — 15 of them in this
+				// repository's own spec.md when the cause was found
+				// (B-01KYRQXJ99F48). The producer is fixed; this removes what
+				// it already wrote.
+				if strings.TrimSpace(l) == intentDebrisMarker {
+					healed = true
+					continue
+				}
+				kept = append(kept, l)
+				continue
+			}
+			if have[id] {
+				healed = true // a duplicate of a record already listed above
+				continue
+			}
+			have[id] = true
+			kept = append(kept, l)
+		}
+		lines = kept
+
+		var keep []string
+		for _, l := range strings.Split(line, "\n") {
+			if id := intentRecordID(l); id != "" && have[id] {
+				continue
+			}
+			keep = append(keep, l)
+		}
+		if len(keep) == 0 {
+			// nothing to append — but a heal may still be pending, and
+			// dropping it here would leave the duplicates for a caller who
+			// never appends again
+			if !healed {
+				return nil
+			}
+			return os.WriteFile(abs, []byte(strings.Join(lines, "\n")), 0o644)
+		}
+		line = strings.Join(keep, "\n")
 		// find the intent section's end (last non-empty line before next heading)
 		secStart := -1
 		for i, l := range lines {
@@ -364,3 +522,7 @@ func ctxFromSpecRel(rel string) string {
 	}
 	return strings.TrimSuffix(rel, suffix)
 }
+
+// IntentDebrisMarker exposes intentDebrisMarker so internal/lifecycle can
+// assert its truncation marker still matches the text this package heals.
+func IntentDebrisMarker() string { return intentDebrisMarker }

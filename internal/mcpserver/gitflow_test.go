@@ -11,6 +11,8 @@ import (
 	"github.com/jxsl13/spectackle/internal/forge"
 
 	"github.com/jxsl13/spectackle/internal/item"
+	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
 
@@ -284,6 +286,89 @@ func runGate(t *testing.T, f *scriptedForge, budget time.Duration) string {
 	return res.String()
 }
 
+// TestMergeGateWaitsOutUnavailableDispatchWindow is the regression an
+// independent validator caught before this could ship, and it is the reason
+// Unavailable is terminal at done but transient at archive.
+//
+// Archive pushes its records commit while the pull request is STILL draft,
+// which registers a synchronize-skipped run on the new head. It then runs the
+// local gate, flips the PR ready, and polls with no delay — but the forge
+// dispatches the ready_for_review run asynchronously (forge/github.go's
+// zero-runs branch already measures that latency). So the first polls
+// legitimately observe nothing but the stale skipped run: Unavailable, then
+// the real run appears.
+//
+// A gate that short-circuits there refuses a build that had merely not
+// started, which is B-01KYQJDJJVFC2 — the exact regression this record's
+// VERIFY line forbids. An earlier revision of this test asserted the refusal
+// and so PINNED the bug.
+func TestMergeGateWaitsOutUnavailableDispatchWindow(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksUnavailable, forge.ChecksUnavailable, forge.ChecksPending, forge.ChecksPassing},
+		merges: []forge.MergeResult{{Merged: true, SHA: "abc"}},
+	}
+	out := runGate(t, f, time.Second)
+	if f.nMerges != 1 || !strings.Contains(out, "merged abc") {
+		t.Fatalf("archive refused a head whose CI had merely not been dispatched yet: %d merges, output %q", f.nMerges, out)
+	}
+}
+
+// TestMergeGateRefusesPermanentlyUnavailable: the other side of the same coin.
+// A budget spent seeing NOTHING but skipped runs means the ready flip never
+// took or the forge never dispatched anything — the head is untested and must
+// not merge. ChecksNone deliberately falls through to the merge loop, so an
+// unhandled Unavailable inherits that fall-through and merges untested work
+// (B-01KYDN). Asserting the merge COUNT is the load-bearing half: a test
+// checking only the message would still pass if a merge followed it.
+func TestMergeGateRefusesPermanentlyUnavailable(t *testing.T) {
+	f := &scriptedForge{
+		checks: []forge.CheckState{forge.ChecksUnavailable},
+		merges: []forge.MergeResult{{Merged: true, SHA: "must-not-happen"}},
+	}
+	out := runGate(t, f, 40*time.Millisecond)
+	if f.nMerges != 0 {
+		t.Errorf("merged an untested head: %d merge attempts, output %q", f.nMerges, out)
+	}
+	if !strings.Contains(out, "left open") || !strings.Contains(out, "untested") {
+		t.Errorf("refusal does not say the head is untested: %q", out)
+	}
+	if f.nChecks < 2 {
+		t.Errorf("archive refused after %d checks — it must wait out the dispatch window, not short-circuit", f.nChecks)
+	}
+}
+
+// TestDoneReportUnavailableDoesNotPoll pins the fix for B-01KYZB4QA9FF4: the
+// done edge leaves the PR in draft (PR-DRAFT-001), a draft head's runs all
+// conclude skipped, and no verdict can appear until the PR readies at archive.
+// Polling that state can only spend the budget and report what it started
+// with — measured at a full 12m per record before this.
+//
+// The assertion is the Checks CALL COUNT, not elapsed wall clock. A duration
+// assertion here would be the flake class B-01KYQG88GZEM2 filed twice: a
+// loaded runner makes timing an assertion about the neighbors, not the code.
+// One call proves it returned on the first observation.
+//
+// The budget is deliberately SMALL rather than large. It bounds the mutant,
+// not the fix: correct code returns after one call whatever the budget is,
+// while an implementation that polls this state burns the budget at the poll
+// interval and lands on a count in the dozens. A large budget would make the
+// mutant hang instead of fail, and a hang is not a regression signal.
+func TestDoneReportUnavailableDoesNotPoll(t *testing.T) {
+	f := &scriptedForge{checks: []forge.CheckState{forge.ChecksUnavailable}}
+	res := &gitFlowResult{}
+	awaitChecksReport(f, forge.PR{Number: 9, URL: "u"}, 40*time.Millisecond, time.Millisecond, res)
+	if f.nChecks != 1 {
+		t.Errorf("polled an unresolvable state %d times, want 1", f.nChecks)
+	}
+	out := res.String()
+	if !strings.Contains(out, "no verdict yet") || !strings.Contains(out, "archive") {
+		t.Errorf("done report does not explain why there is no verdict, or where one comes from: %q", out)
+	}
+	if strings.Contains(out, "waiting up to") {
+		t.Errorf("done report announced a wait it did not perform: %q", out)
+	}
+}
+
 // TestMergeGateWaitsForPendingThenMerges: the CI wait the LLM used to perform
 // by hand, now mechanical — pending twice, then passing, then merged.
 func TestMergeGateWaitsForPendingThenMerges(t *testing.T) {
@@ -480,6 +565,219 @@ func TestArchiveNeverActiveItemLandsRecords(t *testing.T) {
 	}
 	if strings.TrimSpace(string(branches)) != "" {
 		t.Fatalf("offline lifecycle minted an item branch:\n%s", branches)
+	}
+}
+
+// TestDoneWithoutActivePushesNothing pins B-01KYPC60DWEZ0: an item that goes
+// draft -> done WITHOUT ever entering active has no branch by construction —
+// the active edge (work op=start) is what creates one — so the done edge must
+// neither push nor probe a ref nobody ever made. Before the guard, this
+// entirely legitimate research closure rendered two false failures against a
+// transition that SUCCEEDED:
+//
+//	! GIT E R-… push: git push -u origin spectackle/R-…: exit status 1: error: src refspec spectackle/R-… does not match any
+//	! GIT E spectackle/R-… ahead probe: … unknown revision or path not in the working tree
+//
+// on the one record kind whose normal lifecycle skips active — research is
+// drafted, read and closed — so the false alarm fired precisely on the path
+// that was working correctly.
+func TestDoneWithoutActivePushesNothing(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "research", "title": "read the papers, then close the record"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "! ") {
+			t.Fatalf("a never-active done reported a failure against a transition that succeeded:\n%s", out)
+		}
+	}
+	if strings.Contains(out, "push") || strings.Contains(out, " pr ") {
+		t.Fatalf("a never-active done narrated branch or pull request work:\n%s", out)
+	}
+	// The ACTION, not the wording: the push was SKIPPED, not papered over.
+	// No item branch exists locally to have pushed...
+	if wt.BranchExists(root, taskBranch(id)) {
+		t.Fatalf("a never-active done minted the item branch %s", taskBranch(id))
+	}
+	// ...and nothing reached the remote either — zero bytes pushed, which a
+	// guard that merely swallowed the error message would not achieve.
+	refs, err := exec.Command("git", "-C", root, "ls-remote", "--heads", "origin").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(refs), "spectackle/") {
+		t.Fatalf("a never-active done pushed an item branch to origin:\n%s", refs)
+	}
+	// and the transition itself still lands
+	if !strings.Contains(out, "done") {
+		t.Fatalf("the move must still report the item done:\n%s", out)
+	}
+}
+
+// countingForge counts the CI polls made through it, so a test can assert the
+// AWAIT RAN rather than that a line about it was printed — a guard that
+// short-circuits the done edge silences the line and the poll together, and
+// only the poll count tells the two apart.
+type countingForge struct {
+	forge.Forge
+	polls *int
+}
+
+func (f *countingForge) Checks(pr forge.PR) (forge.CheckState, error) {
+	*f.polls++
+	return f.Forge.Checks(pr)
+}
+
+// TestWasActiveButBranchDeletedStillAwaitsCI is why B-01KYPC60DWEZ0's guard
+// tests everActive AND branch absence, never branch absence alone.
+//
+// `work op=abort` deletes the LOCAL item branch (swarm.go's wt.DiscardBranch
+// -> git branch -D) while the pushed remote branch and the OPEN DRAFT PR
+// survive. So "no local branch" is a strictly LARGER population than "never
+// active", and a bare BranchExists guard would bail out of the done edge for
+// an item that has real, reviewable work in flight — silencing the local
+// gate, the PR-DRAFT-001 line, the head-resolve degradation notice and the
+// entire CI await, and with them the blocking-await contract gitFlowReady
+// documents in its own words (T-01KYDJC). Invisibly: the rest of the package
+// suite passes under that wrong predicate.
+func TestWasActiveButBranchDeletedStillAwaitsCI(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	// count the CI polls the done edge makes, through whatever forge the
+	// injected override builds
+	polls := 0
+	s.mu.Lock()
+	base := s.forgeOverride
+	s.forgeOverride = func() (forge.Forge, error) {
+		f, err := base()
+		if err != nil {
+			return nil, err
+		}
+		return &countingForge{Forge: f, polls: &polls}, nil
+	}
+	s.mu.Unlock()
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "aborted worktree, live pull request",
+		"targets": []string{"work.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "work in flight")
+
+	// exactly what `work op=abort` leaves behind: the local branch is gone,
+	// the checkout is back on the default branch, the remote branch and the
+	// draft pull request the activation opened both survive
+	closureGit(t, root, "checkout", "-q", "main")
+	closureGit(t, root, "branch", "-D", taskBranch(id))
+	if wt.BranchExists(root, taskBranch(id)) {
+		t.Fatalf("fixture failed to delete the local branch %s", taskBranch(id))
+	}
+	f, ferr := s.forgeOverride()
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if _, ok, _ := f.Find(taskBranch(id)); !ok {
+		t.Fatalf("fixture premise broken: no open pull request for %s after activation", taskBranch(id))
+	}
+
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	if !strings.Contains(out, "g local gates passed") {
+		t.Fatalf("branch-deleted done skipped the local gate:\n%s", out)
+	}
+	if !strings.Contains(out, "stays draft until archive") {
+		t.Fatalf("branch-deleted done lost the PR-DRAFT-001 line:\n%s", out)
+	}
+	if !strings.Contains(out, "head resolve") {
+		t.Fatalf("branch-deleted done lost the head-resolve degradation notice:\n%s", out)
+	}
+	if !strings.Contains(out, "nothing to wait for") {
+		t.Fatalf("branch-deleted done lost the CI await:\n%s", out)
+	}
+	// The ACTION behind that last line: the forge was actually polled. A
+	// short-circuited edge prints nothing AND polls nothing, and only the
+	// count distinguishes "awaited and had no checks" from "never awaited".
+	if polls == 0 {
+		t.Fatalf("the CI await never reached the forge (0 polls):\n%s", out)
+	}
+}
+
+// TestActiveThenDoneStillPushesWork is the OVER-SUPPRESSION guard, and it
+// asserts the remote rather than the render for a specific measured reason:
+// dietGreen (RENDER-PARITY-001) collapses a fully green active->done to the
+// single artifact line, so `strings.Contains(out, "push")` cannot discriminate
+// a guard that pushed from one that silently skipped. Only the remote can.
+//
+// It exists because an independent validator refuted the first landing of this
+// record: replacing the gitFlowSync guard with an unconditional `if true`
+// deleted the done-edge push for EVERY item, and the ENTIRE repository suite
+// stayed green. Over-suppression is the one failure mode these guards
+// introduce, and nothing was watching it.
+func TestActiveThenDoneStillPushesWork(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "ordinary work reaches the remote",
+		"targets": []string{"work.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n\nfunc Work() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// The work file must be reachable from the REMOTE branch ref. A guard
+	// that skipped the push leaves origin without it (or without the ref at
+	// all), whatever the render said.
+	remote := "refs/remotes/origin/" + taskBranch(id)
+	out, err := exec.Command("git", "-C", root, "ls-tree", "-r", "--name-only", remote).Output()
+	if err != nil {
+		t.Fatalf("done did not push %s to origin: %v", taskBranch(id), err)
+	}
+	if !strings.Contains(string(out), "work.go") {
+		t.Fatalf("the remote branch does not carry the work committed while active:\n%s", out)
+	}
+}
+
+// TestArchiveWithoutActiveMergesOnline is B-01KYDS's records-only closure in
+// ONLINE mode, kept green here so the never-active discriminator this record
+// adds to the done edge is never "simplified" into the archive edge, which
+// solves the same absent branch by CREATING it and merging. (Done cannot copy
+// that: EnsureBranch checks the new branch OUT, and archive can only afford
+// that because it merges immediately and has a restore-on-strand defer.)
+func TestArchiveWithoutActiveMergesOnline(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "bug", "title": "closed on paper only, online"})
+	out := callText(t, sess, "move", map[string]any{"id": id, "to": "archived", "note": "records-only closure"})
+
+	if strings.Contains(out, "! GIT E") {
+		t.Fatalf("online records-only closure raised a git error:\n%s", out)
+	}
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("online records-only closure did not merge:\n%s", out)
+	}
+	// mechanically: the offline forge deletes a merged PR, so its absence
+	// from the open set IS the merge
+	f, ferr := s.forgeOverride()
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if pr, ok, _ := f.Find(taskBranch(id)); ok {
+		t.Fatalf("a merged PR must leave the open set: %+v", pr)
 	}
 }
 
@@ -755,5 +1053,154 @@ func TestOnlineRenderParity(t *testing.T) {
 			t.Fatalf("edge %s: online renders %d g-lines vs offline %d — parity allows at most +1 (the artifact)",
 				edge, on[edge], off[edge])
 		}
+	}
+}
+
+// TestGitScopeRefusalIgnoresNestedRecords pins the deadlock B-01KYSDBZTEF1A
+// recorded, at the exact expression that caused it. gitScopeRefusal exempts
+// server-owned records, but the exemption used to read
+//
+//	f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+//
+// which only matches the ROOT context. Context dirs nest, so when the server
+// re-scoped an item into internal/mcpserver and wrote that item's own block
+// into internal/mcpserver/.spectackle/, the gate counted the write as
+// undeclared work and refused the item's archive — a state no transition could
+// clear, since the same gate guards every direction. Reproduced live twice
+// before the fix.
+//
+// This compares the old and new expressions directly, which pins the PREDICATE
+// only. That is not sufficient on its own and the original version of this file
+// pretended otherwise: it claimed a gate-level test was impractical because the
+// re-scope needs an established context dir. That excuse was wrong — a verifier
+// built the full scenario through the public path — and the cost of believing it
+// was measured: re-inlining the old expression in the gate left the entire suite
+// green. TestGitScopeRefusalUsesTheRecordsPredicate below is the test that
+// actually holds the line; this one narrows the failure when that one trips.
+func TestGitScopeRefusalIgnoresNestedRecords(t *testing.T) {
+	rootAnchored := func(f string) bool {
+		return f == workspace.Dot || strings.HasPrefix(f, workspace.Dot+"/")
+	}
+	// Every path the server can write records to, root and nested.
+	for _, f := range []string{
+		".spectackle/work.md",
+		".spectackle/journal.ndjson",
+		"internal/mcpserver/.spectackle/work.md",
+		"internal/mcpserver/.spectackle/journal.ndjson",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if !workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = false; the gate would blame the caller for a server write", f)
+		}
+	}
+	// The nested cases are exactly what the old spelling missed — assert that,
+	// so this test fails if anyone reintroduces the root-anchored form.
+	for _, f := range []string{
+		"internal/mcpserver/.spectackle/work.md",
+		"a/b/c/.spectackle/spec.md",
+	} {
+		if rootAnchored(f) {
+			t.Fatalf("fixture is wrong: %q was already matched by the root-anchored form, so this test proves nothing", f)
+		}
+	}
+	// And ordinary work must still be counted, including the near miss the old
+	// HasPrefix spelling would have swallowed.
+	for _, f := range []string{"pkg/a.go", ".spectacklefoo", "internal/.spectacklefoo/x.go"} {
+		if workspace.IsRecordsPath(f) {
+			t.Errorf("IsRecordsPath(%q) = true; real work would bypass the scope gate", f)
+		}
+	}
+}
+
+// TestGitScopeRefusalUsesTheRecordsPredicate and its sibling below drive
+// gitScopeRefusal ITSELF, not the predicate it calls. The first versions of
+// these tests did not, and an independent verifier proved the consequence by
+// mutation: re-inlining the old root-anchored expression here, or deleting the
+// sibling widening entirely, left the whole suite GREEN. Pinning a helper is not
+// pinning the gate that uses it — the same green-test/dead-gate shape this
+// record set out to remove (B-01KYSDBZTEF1A).
+func TestGitScopeRefusalUsesTheRecordsPredicate(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	s := newTestServer(t, root)
+	id := draftForScope(t, s, root, []string{"pkg/a.go"})
+
+	// A NESTED context's records write must not be blamed on the caller. This is
+	// the deadlock: the server re-scopes an item into a nested context, writes
+	// that item's own block there, and the gate then refuses the item's own
+	// transition with nothing able to clear it.
+	writeFile(t, root, "internal/mcpserver/.spectackle/journal.ndjson", "{}\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused a NESTED records write — the deadlock is back: %v", r)
+	}
+	// The root context's records too, which the old expression did cover.
+	writeFile(t, root, ".spectackle/journal.ndjson", "{}\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused a ROOT records write: %v", r)
+	}
+	// And genuine undeclared work must STILL be refused, including the near miss
+	// the old HasPrefix spelling would have excused.
+	for _, f := range []string{"SECRET_NOTE.md", ".spectacklefoo/x.go", "internal/.spectacklefoo/x.go"} {
+		writeFile(t, root, f, "x\n")
+		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
+			t.Errorf("gate ALLOWED undeclared work %q — the gate is bypassable", f)
+		}
+		rmForScope(t, root, f)
+	}
+}
+
+// TestGitScopeRefusalCoversSiblingTest drives the sibling widening through the
+// gate. Deleting the widening from production must fail this.
+func TestGitScopeRefusalCoversSiblingTest(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	s := newTestServer(t, root)
+	id := draftForScope(t, s, root, []string{"pkg/a.go"})
+
+	writeFile(t, root, "pkg/a_test.go", "package pkg\n")
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Errorf("gate refused the declared file's own _test.go sibling: %v", r)
+	}
+	rmForScope(t, root, "pkg/a_test.go")
+
+	// Only the EXACT sibling. An unrelated test file, a near-miss name, and a
+	// same-named test in another directory must all still be refused.
+	for _, f := range []string{"pkg/b_test.go", "pkg/a_test.go.bak", "pkg/sub/a_test.go"} {
+		writeFile(t, root, f, "x\n")
+		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
+			t.Errorf("gate ALLOWED %q — the sibling rule is broader than the exact sibling", f)
+		}
+		rmForScope(t, root, f)
+	}
+}
+
+func gitInitForScope(t *testing.T, root string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "t@t.t"}, {"config", "user.name", "t"},
+		{"config", "gc.auto", "0"}, {"config", "maintenance.auto", "false"},
+		{"commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+}
+
+func draftForScope(t *testing.T, s *Server, root string, targets []string) string {
+	t.Helper()
+	it, err := lifecycle.Draft(s.ws, s.minter(), "task", "scope fixture", "body", "", "", targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return it.ID
+}
+
+func rmForScope(t *testing.T, root, rel string) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+		t.Fatal(err)
 	}
 }

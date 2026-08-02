@@ -2,117 +2,185 @@
 schema: v1
 ---
 
-## ADR-01KYJMWE1NFJ7VZ82GX3YK0FMZ Benchmark frames: os/arch/cpu/ram/gpu are required keys. May a machine-independent benchmark (byte counts, token curves) use the sentinel any (dimension irrelevant) so one key spans hosts, or must every benchmark pin real host values?
-kind: adr
-state: done
-created: 2026-07-27
-decision: allow the any sentinel for machine-independent dims
-consequences: Machine-independent benchmarks (byte counts, token curves) share one unique key across hosts via any; none stays for genuinely absent hardware; host-dependent benchmarks still pin all five real values. The key canonicalization treats any as a first-class value, and cmp across frames renders the sentinel verbatim.
-status: accepted
-
-kind: radio
-option: allow the any sentinel for machine-independent dims
-option: always pin real host values - no sentinel
-blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
-choice: allow the any sentinel for machine-independent dims
-
-## ADR-01KYJMWEWQE48T3PR76TYQRD3H Benchmark history at default depth 1: when a new version supersedes the old, what survives? The put-time delta summary (better/worse/tie per metric) is always journaled; should the superseded RAW metric values also ride the journal event (bounded per-put growth, richer regression forensics), or is the summary enough?
-kind: adr
-state: done
-created: 2026-07-27
-decision: raw values ride the journal event too
-consequences: USER CHOSE the richer option over the lean recommendation: every put that supersedes a version appends the outgoing versions full metric values to the journaled delta event - bounded per-put growth, full regression forensics at depth 1. The put event schema carries prior impl/metric values alongside the better/worse/tie summary; compaction keeps the event class.
-status: accepted
-
-kind: radio
-option: summary only - raw superseded values are destroyed
-option: raw values ride the journal event too
-blocks: P-01KYJMVX2QES89YTP3KXSJPA7J
-choice: raw values ride the journal event too
-
-## ADR-01KYKTGGPREG2B7XJ1FTY25E7S Worktree contention: enforce the lease at work op=start, or keep merge-layer arbitration?
-kind: adr
-state: done
-created: 2026-07-28
-context: The swarm-contention benchmark (M-01KYKSKKPDFNT, B-01KYKSKMHNE2H) proved work op=start creates NO file-target lease despite SPX-SWM-003 documenting an auto-claim: two concurrent agents on the same declared target both start, both implement, and the slower one pays a full implement-then-resolve round at submit (measured ~20 calls wasted vs 1 refused call). Convergence is safe either way - zero lost updates. The choice is the coordination contract.
-decision: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
-status: accepted
-
-kind: radio
-option: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
-option: warn: start renders the l-line naming the holder but proceeds - informed parallelism, the second agent chooses
-option: redocument: leases stay advisory for the worktree flow; SPX-SWM-003 and work docs updated to name the merge layer as arbiter - never blocks
-blocks: B-01KYKSKMHNE2HS9H235BG6DV4B
-choice: enforce: start claims normalized targets, live foreign overlap refuses with the l-line naming the holder - token-minimal, matches the docs as written (recommended)
-
-## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
-kind: adr
-state: done
-created: 2026-07-28
-context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
-decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-status: accepted
-
-kind: radio
-option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
-option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
-blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
-choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
-
-## B-01KYN3E973F20VH7DHPE1YSSD7 a newline in an ADR header field silently swallows every field after it into the body
-kind: bug
-state: draft
-created: 2026-07-28
-targets: internal/item
-
-internal/item/item.go LoadWork parses the machine header as a run of contiguous key: value lines and breaks at the first line without a ": " separator. A field VALUE containing a newline therefore ends the header early: its continuation line has no separator, the loop breaks, and every header field written after it becomes part of Body instead of a struct field. Silent - no error, no warning.
-
-REPRODUCTION (found by an independent validator during T-01KYMPN0PNEWV, confirmed pre-existing: git diff origin/main...HEAD -- internal/item/ is empty). knowledge export entries=[{kind: adr, context: "Line one.\nLine two.", decision: go-with-A, status: accepted, options: [...]}] then knowledge apply. get shows decision and status swallowed into the body text; the reloaded items .Decision and .Status are empty strings.
-
-IMPACT is not cosmetic. Every consumer that reads those fields sees them as unset on a record that plainly has them: the archive tombstone retains an empty decision (so an archived multi-paragraph ADR loses which option won - the same loss class LC-001 was written to close, arriving through a different door), knowledge.Extract exports an ADR with no decision, and knowledge apply then reports a spurious divergence between two repositories that actually agree - the validator observed x adr ... ours="" theirs="keep as is" for identical content, caused purely by the local copy being corrupted on reload. Multi-paragraph context and consequences are the NORMAL shape for a real ADR, so this is reachable by ordinary use, not by adversarial input.
-
-DIRECTION, not a decision - the fix needs the design context behind the work.md format. Either the header parser learns continuation lines (indented, or explicitly terminated), or the writer escapes newlines on the way out and unescapes on the way in, or the writer refuses a value it cannot round-trip rather than writing one that silently truncates. Whichever is chosen, the round trip needs a property test over values containing newlines, leading/trailing whitespace and separator characters - the existing tests only exercise single-line values, which is why this survived.
-
-VERIFY: a test that writes every ADR field with an embedded newline, reloads, and asserts field-for-field equality.
-
-## B-01KYN5ZYM1FY2TBZHXC43V68TE rule applies renders a never-resolvable anchor identically to a not-yet-indexed one, and the difference only surfaces as a red CI gate after the PR leaves draft
-kind: bug
-state: draft
-created: 2026-07-28
-targets: internal/mcpserver, internal/drift
-
-Hit while landing T-01KYMPN0PNEWV. rule op=add applies=[internal/knowledge/artifact.go] was accepted and rendered a internal/knowledge/artifact.go pending (node not indexed yet). That reads as a transient state that a reindex will clear. It is not: anchors bind GRAPH NODES, whose names are go:pkg.Symbol, and a file path is not a node name in any index state, so the anchor stays pending forever. spectackle reindex (259 files, 2861 nodes) did not change it.
-
-WHY IT MATTERS BEYOND THE CONFUSION. The repositorys own CI self-hosting gate requires the check tool to print exactly ok. A pending anchor makes check print ok 2 anchors pending (nodes not in the graph yet), which is a truthful non-error but not the literal ok, so the build fails. Because the archive edge flips the PR out of draft BEFORE awaiting checks (gitflow.go, the pr.Draft arm), the first red signal arrives after the one draft-to-ready flip PR-DRAFT-001 exists to make single, and archive refuses with closure merge did not complete. So a wrong anchor argument, accepted silently at rule-add time, surfaces as a merge failure several steps later with nothing pointing back at the cause.
-
-OBSERVED vs EXPECTED. Observed: identical pending render for two different conditions, and no signal until the merge gate. Expected: a not-yet-indexed anchor (a symbol that will exist) and an unresolvable one (a string that is not a node name) are different states and should not render the same. A path-shaped argument is a particularly cheap case to catch - it contains a separator and a file extension and matches no node - so the add path can say so at the moment the caller can still fix it.
-
-DIRECTION, not a decision. Options, roughly increasing in strictness: (a) render the two states distinctly, e.g. a <rule> <anchor> unresolvable - anchors name graph nodes (go:pkg.Symbol), not paths; (b) additionally suggest the node, since find scope=code already resolves a path to the symbols declared in it; (c) refuse a path-shaped applies outright at rule op=add. Whichever is chosen, check should distinguish never-resolvable from pending in its own output too, since a permanently pending anchor is a defect while a freshly added one is not.
-
-VERIFY: a test that adds a rule with a path-shaped applies and asserts the render names it unresolvable; a test that check separates the two classes.
-
 ## B-01KYNA4PJNF5KAH6M0640ZY7ZT ADR status superseded is assignable free text: nothing links a replacement to what it retires, and retired decisions never leave find scope=adr
 kind: bug
-state: draft
+state: active
 created: 2026-07-28
+rounds: 1
+grilled: 2026-07-29 open=0
 targets: internal/item, internal/mcpserver
 
-Found by a researched comparison against edg-l/engram-mcp, then verified directly against this codebase.
+VERIFIED against the code, and the exposure is wider than first filed.
 
-TODAY. item.Item.Status is a bare string (internal/item/item.go:92); the enum proposed|accepted|superseded|deprecated exists only in a doc comment there and in a jsonschema DESCRIPTION at internal/mcpserver/tools.go:117, which is documentation, not validation - nothing rejects an arbitrary value. The only place all four values appear in executable code is a test. find scope=adr maps to kinds {adr} (internal/mcpserver/tools.go:323) with no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one in the render. And nothing anywhere records WHICH decision replaced a retired one: supersession is an assertion an agent types into a field, with no edge, no event, and no way to ask what superseded ADR-X.
+TODAY. item.Item.Status is a bare string. The enum proposed|accepted|superseded|deprecated exists in exactly two places, neither of which validates: a doc comment at internal/item/item.go and a jsonschema DESCRIPTION at internal/mcpserver/tools.go. Nothing rejects an arbitrary value. Worse than a caller typo: internal/mcpserver/knowledge.go's ADR-apply path assigns d.Status = e.Status straight from an IMPORTED artifact, so a foreign repository can inject any string into this workspace - including superseded, which is supposed to be a consequence rather than a claim. find scope=adr also has no status predicate, so a retired decision occupies result slots forever and is indistinguishable from a live one.
 
-WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted on answer (T-01KYMPN0PNEWV, just landed). As repositories exchange knowledge repeatedly, decisions on the same question accumulate: the workspace ends up holding several accepted ADRs for one question, ordered by nothing, with the superseding relationship recorded nowhere. The feature that just shipped to stop conflicts from vanishing therefore has no answer to which surviving decision is current. find scope=adr degrades monotonically as a repository ages, which also makes it a token-cost regression on the hottest research path.
+WHY IT MATTERS NOW, not hypothetically. knowledge apply mints an ADR per merge conflict and flips it to accepted (T-01KYMPN0PNEWV, landed). As repositories exchange knowledge repeatedly, decisions on one question accumulate; nothing records which replaced which, so the feature built to stop conflicts vanishing has no answer to which surviving decision is current. find scope=adr therefore degrades monotonically as a repository ages, on the hottest research path.
 
-DIRECTION, decided by the comparison. Make superseded UNREACHABLE BY ASSIGNMENT: it becomes a consequence of minting a replacement that names its predecessor, never a value an agent writes. Concretely: (1) validate Status against the four values at the write path, refusing anything else; (2) refuse a direct transition to superseded, with the refusal naming the operation that IS allowed; (3) the replacement path writes ONE journal event carrying both IDs - compaction's keep-list already preserves decide forever, so the edge survives archival without new retention machinery; (4) find scope=adr excludes superseded by default with an opt-in to include them, and get on a superseded ADR names its replacement.
+SCOPE, narrowed deliberately after verification. This item now covers ONLY the half that is unambiguous and cheap: (1) one validator, item.ValidStatus, accepting the four values and empty; (2) every write path that takes a status from outside the server validates through it - the imported-artifact path first, since that is untrusted input, and the tool boundary second; (3) superseded is REFUSED from any direct assignment, with the refusal naming the operation that is allowed, because a record cannot truthfully claim to be superseded without naming what replaced it.
 
-REJECTED ALTERNATIVE, and why. engram-mcp wraps insert + status flip + edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing (superseded is a consequence), not the mechanism.
+SPLIT OUT, not done here: the supersession EDGE - minting a replacement that names its predecessor, both IDs in one journal event, and get on a retired ADR naming its replacement - is a design change large enough to deserve its own record, and it depends on this validation existing first. Likewise the find scope=adr default filter, which the earlier version of this item required be MEASURED before shipping: on a workspace with at least five retired ADRs, compare the find output token delta with and without it, and if the difference sits inside the bench noise floor then ship the validation and skip the filter, calling it discipline rather than savings.
 
-TESTS: minting a replacement retires the predecessor and both IDs land in one event; a direct status=superseded write is refused and the refusal names the allowed operation; find scope=adr returns only live decisions by default and all of them with the opt-in; get on a retired ADR names its replacement; an invalid status value is refused.
+REJECTED ALTERNATIVE. engram-mcp wraps insert plus status flip plus edge in one SQLite transaction to avoid orphaned pairs. Do not copy that: an append-only journal makes orphans impossible when both IDs ride a single event, so the transaction is machinery this design does not need. Copy the framing - superseded is a consequence - not the mechanism.
 
-MEASURE BEFORE SHIPPING THE FILTER. On a workspace holding at least five retired ADRs, benchmark the find scope=adr output token delta with and without the default filter. If it sits inside the bench noise floor, ship the validation and the edge and skip the filter - it is then discipline rather than savings, and should be justified as such rather than as a token win.
+TESTS: an invalid status is refused at the tool boundary and on the imported-artifact path; a direct status=superseded is refused with the allowed operation named; the four valid values and empty all pass; an artifact carrying a bogus status does not poison the workspace.
 
-VERIFY: go build ./... && go test ./... -count=1 && gofmt -l . empty.
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty.
+
+## P-01KYQ4YK7MEA3BP26HSQ7CWZ4R the tool surface is valid but under-directs: a refusal that looks like success, and shapes withheld until after a failure
+kind: proposal
+state: approved
+created: 2026-07-29
+refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+grilled: 2026-07-29 open=0
+targets: internal/mcpserver, internal/lifecycle
+
+Anchored on R-01KYQ4XNAFFNY: four independent agents drove the tricky scenario from tool output alone, 79 calls. All four finished, so the surface is VALID; what it is not is economical or trustworthy, and one defect is correctness rather than wording.
+
+THE CORRECTNESS DEFECT. A move that is REFUSED returns exit 0 and prints an i line byte-identical in shape to a successful move, naming a state the caller never asked for (internal/mcpserver/tools.go, both rounds-exhausted sites use text() where they mean refuse()). Three judges read it as moved-plus-warning; one then issued five further move calls against an item that was never in active. A caller that trusts the primary line is driven into a loop the severity marker on the NEXT line silently contradicts. This is the one item that can produce an invalid result rather than merely an expensive one.
+
+THE ECONOMIC DEFECT, one shape. Every judge is instructed to start at state; state renders counters and no next step, so all four discovered argument shapes by firing empty objects at each tool - 8 calls spent on discovery the first call could have carried. The same pattern repeats: rule prints a flat 14-field union with only op starred, and emits the correct op-conditional shape only AFTER the first attempt fails; the rounds refusal names the decide tool and its three choices but withholds the callable JSON that sibling refusals do provide; draft alone carries no shape line at all and never enumerates its kinds. In every case the right text already exists somewhere in the codebase and is withheld until the caller has paid a round trip for it.
+
+THE FUNDING CONSTRAINT, which shapes the work. The metric is tokens per call, so additions must be paid for by removals, not appended. Judges identified unused output on the hottest path: the graph section on a workspace with no edges, the swarm section when the only agent is this session with no leases and no worktrees, and the build suffix on the version string. None was used by any judge in 79 calls. A next-step line on state is roughly covered by those three.
+
+SCOPE, two tasks by disjoint concern. One: stop lying about outcomes - refusals refuse, and a verification command reports what it verified. Two: put the shape where the caller already is, funded by deleting output nobody reads. The second is meaningless without a before/after judged measurement, so it carries one.
+
+DELIBERATELY NOT IN SCOPE. The silent dead ends judges flagged - rule op=add discarding slots irrelevant to the chosen pattern, and move accepting a note that never surfaces - are real and are the worst class (the caller learns nothing), but each needs its own decision about whether the input should be refused or honored, and neither cost a judge a call. File them; do not fold them in here.
+
+## T-01KYQ503AGE6TV1NWY3EAVZSA6 a refusal must refuse: the rounds-exhausted move stops reporting success, and check reports what it checked
+kind: task
+state: active
+created: 2026-07-29
+parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+rounds: 1
+grilled: 2026-07-29 open=0
+targets: internal/mcpserver, internal/lifecycle
+
+Closes the correctness half of P-01KYQ4YK7MEA3. Three judges misread the same output; one acted on the misreading.
+
+D1 CORRECTNESS, internal/mcpserver/tools.go, the two rounds-exhausted returns (the coord-emit-failed arm and the normal arm). Both call text(), so the CLI exits 0, and both print i <id> <kind> blocked <dir> <title> - the same shape the item record renderer emits for a SUCCESSFUL move, differing only in the state word. The requested transition did not happen; the item was forced to blocked instead. FIX: return refuse() at both sites so the exit code matches the outcome, and drop the i line - a record line for a state the caller did not request is the thing being misread. Say what did not happen before saying what is now true: move to <requested> REFUSED - rounds exhausted, item is now blocked. Then give the resolution as a CALLABLE object, not a prose list of choices, because the sibling refusal for rule already hands back a shape line and the inconsistency is itself what cost a call: decide {\"op\":\"answer\",\"id\":\"<adr>\",\"choose\":\"rescope|reject|override-once\"}, with the outcome of each choice named (rescope to draft, reject to rejected, override-once to active) since that is what the caller is actually deciding between. Dropping the i line reclaims most of the bytes the callable object costs, and this is a cold path that fires once per escalation.
+
+D2, same file, the check tool's zero-findings return. It returns the bare string ok. Goal-shaped questions are phrased in terms of findings and severities, and a two-character answer on a VERIFICATION command is indistinguishable from a no-op stub - three of four judges spent a confirming state call, which costs several hundred bytes, to believe it. FIX: report what was checked and what was found, from counts the same scan already has: ok check <path> 0 findings (E=0 W=0) - <n> rules <n> dirs <n> items. Net positive despite being longer, because it deletes the corroborating call it currently provokes.
+
+D3, internal/lifecycle, the escalation ADR title. It is built from the FULL item ID while every display path renders through the short form, so state shows the same record at two different truncation lengths one line apart - inviting a caller to paste a long ID where a short one is expected. FIX: build the title from the short form, which is already used one line above in the same function. Titles minted before this keep the long form; nothing resolves against titles, so no migration.
+
+TESTS: a rounds-exhausted move returns a refusal (non-zero) whose text names the refused destination and carries a callable decide object, and does NOT contain an i record line; a clean check names its counts and severities; an escalation ADR title renders at the same length as the record it names. Assert the ABSENCE of the i line explicitly - that is the defect, and a test that only checks the new text would pass with the old line still there.
+
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty. Then re-run a judge: bench -agent-prep DIR -scenario tricky, drive it, and confirm the rounds refusal is not misread. SCOPE: the two rounds returns, the check zero-findings return, the escalation title. Do NOT touch state's sections or any shape line - that is the sibling task. ROLLBACK: revert.
+
+## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
+kind: task
+state: active
+created: 2026-07-29
+parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
+rounds: 2
+grilled: 2026-07-29 open=0
+targets: internal/mcpserver
+
+Closes the economy half of P-01KYQ4YK7MEA3. 8 of 79 judged calls were spent rediscovering argument shapes that the codebase already knows.
+
+D1, internal/mcpserver/state.go. Every judge is told to start at state and none learned anything actionable from it. Add a final section naming the tools and the discovery rule in one line - that empty arguments return a shape. This is the hottest path on the surface, so it must be PAID FOR, not appended. Fund it in the same function: suppress the graph section when there are no edges and no typed-pass finding, suppress the swarm section when the only agent row is this session with no leases and no worktrees, and emit the version without its build suffix. No judge used any of the three in 79 calls; together they roughly cover the addition. Measure the net, and if it is positive, say so in the archive note rather than claiming a win.
+
+D2, the rule tool. Empty arguments render a flat union of fourteen properties with only op starred, which reads as everything-else-optional; a judge then sent a plausible add and was bounced with a DIFFERENT and correct op-conditional shape. The good text already exists in the failure path. FIX: emit the op-conditional form the first time, so the shape a caller sees is the shape they can call.
+
+D3, the draft tool. It is the only tool whose refusal carries no shape line at all, and it never enumerates the legal kinds - an unenumerated required string is the worst discoverability hole on the surface, because a wrong guess is a silent semantic error rather than a refusal. FIX: emit the same shape line every sibling emits, with the kind enum spelled out.
+
+D4, decide op=answer. It reports the decision but never what happened to the item the decision unblocked, so a judge must call get to learn whether the rescope landed. FIX: name the resulting item state in the same line.
+
+MEASUREMENT IS PART OF THIS TASK, not optional. Before: four judges already ran this scenario (R-01KYQ4XNAFFNY) at 79 calls. After: prep four fresh tricky workspaces, run four fresh independent judges with the same prompt, and record calls and metered bytes as a benchmark version against the before run. The claim to test is fewer calls at no more bytes per call. If calls do not fall, the additions are not earning their place and should be reverted rather than kept for plausibility.
+
+TESTS: state renders the next-step line; state omits graph/swarm on a solo workspace with no edges and no leases, and still renders them when either is non-trivial; rule with empty arguments returns the op-conditional shape; draft with empty arguments returns a shape line naming every kind; decide op=answer names the item's resulting state.
+
+VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty, plus the four-judge after-run. SCOPE: state.go's sections, the rule/draft shape emission, decide's answer line. Do NOT touch the rounds refusal or check - sibling task. ROLLBACK: revert.
+
+## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver, internal/drift
+
+REPRODUCED while adding SRF-001. Sequence: rule op=add with applies (anchor stamped against the rule text), then rule op=edit changing pattern/system/response to fix the sentence. The edit succeeded silently. The very next check reported d audit SRF-001 go:mcpserver.roundsRefusal ... tightened, and the repositorys own TestCheckOnOwnRepo failed with unexpected drift audit on own repo. Re-issuing rule op=edit with the SAME applies list re-stamped the anchor and cleared it.
+
+OBSERVED vs EXPECTED. Observed: an edit that touches only the rule SENTENCE leaves every anchor stamped against the old sentence, so the rule is immediately in an audit-class drift state (tightened blocks, per the auditGate contract) with no signal at edit time. Expected: either the edit re-stamps the anchors it already has, or it says it did not and names the follow-up. The current behavior lets a caller edit a rule into a state the same servers check refuses, and only discover it on the next check - or, as here, in CI.
+
+WHY IT MATTERS. Editing a rules wording to fix a lint finding or an awkward sentence is a NORMAL, encouraged action - the composer even prepends The, so a first attempt often needs one. That routine action silently arms a gate. The cost is not the re-stamp itself but the discovery: the failure surfaces far from its cause, attached to a different tool.
+
+DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is not obviously right: an anchor exists so a human notices when a rule and its code drift apart, and a text edit is exactly when that judgment might be wanted. So the choice is (a) re-stamp on edit and treat the sentence as authoritative, (b) refuse the edit while anchors are stamped against the old text and say so, or (c) allow it but return a line naming the anchors now stale and the exact call that re-stamps them. (c) preserves the judgment and removes the surprise; (a) is cheapest; (b) is probably too strict for a wording fix.
+
+VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
+
+## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/mcpserver
+
+Found by a validator while reviewing an unrelated change to checks clean-tree line.
+
+OBSERVED. check with path api, path cli and no path at all return IDENTICAL rule and dir counts and identical finding lines. in.Path is used to LABEL output; the scan itself is spec.Load(s.ws.Dir), which always walks the whole workspace. So a caller who narrows to a directory gets the same answer as a caller who did not, with no signal that narrowing did nothing.
+
+EXPECTED, one of two, and this needs a decision rather than a patch: either path scopes the scan (findings, coverage gaps and counts all restricted to that subtree), or the argument is removed so nobody can believe it does. A third option - keep it and say it is advisory - is the worst of the three, because the render currently juxtaposes the queried path with global counts, which reads as scoped.
+
+MITIGATED, not fixed, in the meantime: the clean-tree line no longer prints the path beside the counts, so at least the misleading juxtaposition is gone (the counts render bare). The argument still exists and still does nothing.
+
+WHY IT MATTERS beyond tidiness. check is the loops verification step and the thing CI gates on. A caller scoping to the directory they touched, seeing counts that look scoped, and concluding their subtree is clean, has been told something false about the rest of the workspace - or, if they read it the other way, has been given a global answer they did not ask for. Neither is a good outcome for a verification command.
+
+VERIFY once decided: for scoping, a workspace with a finding outside the queried path reports it with no path and does NOT report it with the path; for removal, the argument is gone from the schema and the docs.
+
+## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
+kind: bug
+state: draft
+created: 2026-07-29
+targets: internal/bench, internal/mcpserver
+
+OBSERVED in CI twice, on branches whose diffs touch neither test nor anything they exercise. The failure is a t.TempDir CLEANUP error, not an assertion - the test logic passes and then the harness cannot remove its own temp dir:
+
+  TempDir RemoveAll cleanup: unlinkat /tmp/TestXxx/001/.git/objects: directory not empty
+
+AFFECTED TESTS, two now, in different packages:
+1. TestPrepIgnoresHarnessArtifacts in internal/bench, CI run 30468777911.
+2. TestResearchDemandFiresAndCloses in internal/mcpserver, CI run 30538761350, which blocked the archive of B-01KYS6Y5NKF42 - the archive edge correctly refused to merge a red head, so a flake in an unrelated package costs a full archive retry.
+
+CAUSE. A test that runs git in a t.TempDir leaves git background work in flight - object writes, and on some git versions a maintenance or gc hook - so RemoveAll races a directory that is still being written. It is timing-dependent: both tests pass locally and in isolation, and repeated full local runs stay green, which is why this only ever appears on a loaded CI runner.
+
+WHY IT MATTERS BEYOND THE NOISE. The archive closure waits on CI and refuses to merge a red head, by design. So any flake anywhere in the suite converts into a stranded archive plus a retry, and a retry restarts CI. The cost is not the failed assertion, it is the lifecycle stall - which is exactly the coupling await_checks was tuned for. A flaky suite raises the effective cost of every archive in the repository.
+
+FIX DIRECTION. Do not rely on t.TempDir cleanup for a directory that git has written into. Either create the repo under a directory the test removes itself, tolerantly and after waiting for git to settle, or configure the test git to do no background work - gc.auto=0, maintenance.auto=false, core.fsmonitor=false - or point GIT_OBJECT_DIRECTORY somewhere the harness owns. A shared test helper that creates a git repo with background work disabled would fix both call sites and every future one, and the two occurrences in different packages are the argument for the helper over two local patches.
+
+VERIFY. The helper must be used by every test that runs git in a temp dir - enumerate them rather than fixing the two known ones. A test asserting the helper repo config disables background maintenance. Then re-run the full suite repeatedly under load, since a single green run proves nothing about a timing race.
+
+## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
+kind: bug
+state: done
+created: 2026-07-29
+targets: internal/store, internal/bench
+
+SECOND instance of the same class in one session, so it is filed as a class rather than as another one-off.
+
+OBSERVED. TestSQLiteStoreBatchedPutsAreFast failed in CI run on spectackle/B-01KYPC11VKF0Q-close after 19.44s, on a branch whose diff does not touch internal/store. It passes locally and passed on a rerun of the same commit. The name says what it asserts: a wall-clock upper bound. A GitHub runner is a shared, contended machine, so the bound holds or not depending on neighbors, not on the code. The sibling instance is B-01KYQA4WXEFAT, a fixture whose t.TempDir cleanup races gits background writes - different mechanism, same consequence.
+
+WHY IT MATTERS. Both live inside make test / make cover, which are REQUIRED gates. A flake there blocks a merge that has nothing to do with it, and the first response is always to look for a real regression in the diff - this session spent two separate investigations doing exactly that, one per instance. A gate that fails for reasons unrelated to the change teaches its operator to retry rather than to read, which is precisely the habit that lets a real failure through.
+
+DIRECTION. Wall-clock is the wrong instrument for what these tests want. A batched-put test is really asserting that the batch path does ONE transaction rather than N, which is observable directly - count the transactions, or compare the batched path against a deliberately unbatched one and assert a RATIO, which is stable under contention because both sides slow down together. If a wall-clock bound is genuinely wanted, it belongs in a benchmark that is recorded and compared over time (the bench record type exists for exactly this), not in a boolean gate.
+
+SURVEY FIRST, then fix: grep the suite for other time.Since / Duration comparisons in assertions. Fixing one and leaving three is the same outcome as fixing none, because the gate is only as reliable as its flakiest member.
+
+VERIFY: the chosen assertion survives a loop under -count=20 with the machine deliberately loaded, and no test in the required gate asserts an absolute wall-clock bound.
+
+## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
+kind: adr
+state: done
+created: 2026-07-28
+context: No event type has a Created field, so lastReject reconstructs an item without one and item.Upsert defaults it to time.Now(). The corruption is silent and the wrong value is indistinguishable from a real one. Record IDs are UUIDv7 and already encode mint time; ids.ParseRecordID reads it. Legacy sequential IDs (P-0007) do not.
+decision: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
+consequences: Hybrid, chosen by the maintainer. Derive Created from the record IDs UUIDv7 mint time; write it onto the reject/archive event ONLY for legacy sequential IDs (P-0007), which carry no timestamp and which this codebase commits to parsing for as long as the program exists. Rejected: carrying it unconditionally, because it duplicates a fact a modern ID already asserts and the two can then disagree, and it does nothing for records already archived without it. Rejected: deriving only, because it leaves legacy records with no date at all. The hybrid pays bytes for the legacy minority, cannot disagree with a modern ID, and repairs already-archived modern records retroactively with no migration. The invariant that matters: revoke must never stamp time.Now() over a real date again.
+status: accepted
+
+kind: radio
+option: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
+option: carry Created on the reject and archive events
+choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
 
 ## R-01KYNA6NJ3F109VTE35QYRM64Q gap hunt: where else does a lifecycle boundary compress a record's substance away
 kind: research
@@ -138,189 +206,69 @@ OFF-CLASS, found in passing and NOT part of P-01KYN5YCXGENM - transactional-boun
 
 CONSUMED BY: P-01KYN5YCXGENM and its child tasks. The reusable learning is the method, not the list: plant a marker, cross the boundary, grep the whole tree, and treat recoverable-only-by-raw-grep as a finding rather than a pass.
 
-## ADR-01KYNA70PQFTBSAP0QHYXMTVGT Created has no journal channel, so revoking a rejected record lets Upsert stamp today over the real date. Carry Created in the event, or derive it from the record ID?
+## ADR-01KYMKEG7YE2PS8DSJZJW799P9 knowledge merge reports conflicts but no op can resolve them — which shape should resolution take?
 kind: adr
 state: done
 created: 2026-07-28
-context: No event type has a Created field, so lastReject reconstructs an item without one and item.Upsert defaults it to time.Now(). The corruption is silent and the wrong value is indistinguishable from a real one. Record IDs are UUIDv7 and already encode mint time; ids.ParseRecordID reads it. Legacy sequential IDs (P-0007) do not.
-decision: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
-consequences: Hybrid, chosen by the maintainer. Derive Created from the record IDs UUIDv7 mint time; write it onto the reject/archive event ONLY for legacy sequential IDs (P-0007), which carry no timestamp and which this codebase commits to parsing for as long as the program exists. Rejected: carrying it unconditionally, because it duplicates a fact a modern ID already asserts and the two can then disagree, and it does nothing for records already archived without it. Rejected: deriving only, because it leaves legacy records with no date at all. The hybrid pays bytes for the legacy minority, cannot disagree with a modern ID, and repairs already-archived modern records retroactively with no migration. The invariant that matters: revoke must never stamp time.Now() over a real date again.
+context: The gap hunt proved (P-01KYMCKE8DEW7) that internal/knowledge implements Resolve/Apply so a human can pick a winning decision and carry it forward with the loser preserved, but no MCP op reaches it: knowledge accepts export|merge|apply only. merge honestly reports conflicting ADRs as x lines and EXCLUDES them from the condensate, so applying that condensate lands NEITHER side and the only way to carry a curated outcome forward is hand-editing the artifact markdown - defeating the server-is-the-only-writer model.
+decision: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
 status: accepted
 
 kind: radio
-option: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
-option: carry Created on the reject and archive events
-choice: derive from the record ID (UUIDv7 mint time, via ids.ParseRecordID)
+option: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
+option: knowledge op=resolve key=<conflict key> choose=<source> - a direct op writing the winner plus a resolution block into the condensate; smallest new surface, but a second decision channel beside decide
+option: document-only: state that conflicts are deliberately excluded and curation happens outside the tool; zero code, but the promise that curation is a humans call keeps having no call
+blocks: P-01KYMCKE8DEW7BZ3FNCMJTNSG2
+choice: decide-integration: each conflict mints an ADR in the applying workspace and answering it selects the winner - reuses ASK-SURFACE-001 and the existing decide UI, no new grammar, heaviest to build
 
-## B-01KYPC60DWEZ0S0CN1RFTEPGQH the done edge pushes a branch that was never created when a record goes straight to done without passing through active
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/mcpserver
-
-REPRODUCED just now, in this repository. An R-item drafted and then moved straight to done - a legitimate path for a research record, which needs no implementation branch - hit:
-
-! GIT E R-01KYNA6NJ3F109VTE35QYRM64Q push: git push -u origin spectackle/R-01KYNA6NJ3F10: exit status 1: error: src refspec spectackle/R-01KYNA6NJ3F10 does not match any
-
-OBSERVED vs EXPECTED. The state transition itself succeeded - the item reads done afterward - so this is a noisy, misleading failure rather than a broken edge: it reports a GIT E against an item that is now in the state the caller asked for. Expected: an item that never entered active has no branch by construction (work op=start is what creates one), so the done edge should not attempt a push at all, and certainly should not report an error for the absence of something it never made. git branch -a confirms no such ref exists locally either.
-
-WHY IT MATTERS beyond the noise. A GIT E line trains the reader that something needs fixing; here nothing does. Worse, it is emitted on the one record kind whose normal lifecycle SKIPS active - research is drafted, read, and closed - so the false alarm fires precisely on the path that is working correctly. It also costs tokens on every such transition and, per RENDER-PARITY, an error line that means nothing is the most expensive kind.
-
-ISOLATED CAUSE, likely. The done edge derives a branch name from the item ID unconditionally and pushes it, rather than first asking whether this item ever had a worktree or branch. The coord worktree ledger and the swarm state already know the answer; the item's own history (did it ever reach active) answers it too.
-
-DIRECTION. Gate the push on the item having actually had a branch. Prefer asking the ledger over inferring from state, since a branch can outlive a state transition. When there is no branch, say nothing at all - a record that never needed one is not an event worth a line.
-
-TESTS: draft an item, move it straight to done, and assert the render carries no GIT line and no error; the same for draft to archived; and the existing active-then-done path still pushes and still reports.
-
-## R-01KYQ4XNAFFNYSTNRKC28BR3N3 judged friction: four independent agents drive the tricky scenario from tool output alone
-kind: research
-state: done
-created: 2026-07-29
-targets: internal/mcpserver
-
-METHOD. Four fresh agents, each given only bench -agent-prep -scenario tricky's 15-line brief and the metered CLI, with no documentation and no access to the source. The brief states outright that the tool outputs themselves are the only guide. Goals span the hard transitions: mint an EARS rule with a slot-complete response, drive a task through repeated done/active reopens until the server refuses and escalates, resolve the minted decision by rescope, and finish with a clean check. 79 tool calls across the four runs.
-
-HEADLINE. 4/4 reached DONE, so the surface is VALID - an agent can complete the scenario from the outputs alone. The cost is where it fails: 18, 26, and two comparable runs, against a floor nearer 12. Friction is concentrated in discoverability, and one item is a correctness defect rather than wording.
-
-RANKED, by judges affected times calls wasted:
-1. state emits no next step and no shape hint (4 judges, 8 calls). Every judge is told to start at state; all four then discovered argument shapes by firing empty objects at each tool. state renders version, rules, graph, swarm counters and nothing actionable.
-2. rule with empty args prints a flat 14-field union with only op starred (4 judges, 4 calls), reading as everything-else-optional. The correct op-conditional shape ALREADY EXISTS and is emitted only after the first failure.
-3. The rounds refusal names the decide tool and the three choices but not the callable JSON (4 judges, 4 calls), while sibling refusals do hand back a shape line - the inconsistency is what costs the call.
-4. CORRECTNESS, not wording: the rounds refusal returns exit 0 and prints an i line byte-identical in shape to a successful move, for a state the caller never requested (3 judges, 5 calls). Judges read it as moved-plus-warning; one then issued five further move calls against a blocked item. Both sites use text() where they mean refuse().
-5. check returns the bare string ok (4 judges, 3 calls) - indistinguishable from a no-op on a verification command, so judges spent a confirming state call.
-6. draft is the only tool whose error carries no shape line, and it never enumerates the legal kinds (4 judges, 3 calls).
-7. decide op=answer never reports what happened to the blocked item it resolved (3 judges, 3 calls).
-Lower: check's shape is unreachable because empty args are valid; the same record renders at two truncation lengths one line apart, inviting a paste error; move's shape omits the to enum and the rounds budget is invisible until spent.
-
-SILENT DEAD ENDS, the class judges called worst because nothing is learned: rule op=add accepts and discards slots irrelevant to the chosen EARS pattern; move accepts a note that never appears in any output.
-
-THE PAYING CONSTRAINT. Additions must be funded by removals, since the metric is tokens per call. Judges identified the funding: the graph section on a workspace with zero edges, the swarm section when the only agent is this session with no leases or worktrees, and the version string's build suffix - none of which any judge used, together roughly covering the cost of a next-step line on state.
-
-CONSUMED BY: the proposal this research anchors. The reusable method: give an agent the brief and nothing else, count calls rather than asking it whether the wording was clear, and rank by judges-affected times calls-wasted so a single judge's stumble does not outrank a systematic one.
-
-## P-01KYQ4YK7MEA3BP26HSQ7CWZ4R the tool surface is valid but under-directs: a refusal that looks like success, and shapes withheld until after a failure
-kind: proposal
-state: approved
-created: 2026-07-29
-refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
-grilled: 2026-07-29 open=0
-targets: internal/mcpserver, internal/lifecycle
-
-Anchored on R-01KYQ4XNAFFNY: four independent agents drove the tricky scenario from tool output alone, 79 calls. All four finished, so the surface is VALID; what it is not is economical or trustworthy, and one defect is correctness rather than wording.
-
-THE CORRECTNESS DEFECT. A move that is REFUSED returns exit 0 and prints an i line byte-identical in shape to a successful move, naming a state the caller never asked for (internal/mcpserver/tools.go, both rounds-exhausted sites use text() where they mean refuse()). Three judges read it as moved-plus-warning; one then issued five further move calls against an item that was never in active. A caller that trusts the primary line is driven into a loop the severity marker on the NEXT line silently contradicts. This is the one item that can produce an invalid result rather than merely an expensive one.
-
-THE ECONOMIC DEFECT, one shape. Every judge is instructed to start at state; state renders counters and no next step, so all four discovered argument shapes by firing empty objects at each tool - 8 calls spent on discovery the first call could have carried. The same pattern repeats: rule prints a flat 14-field union with only op starred, and emits the correct op-conditional shape only AFTER the first attempt fails; the rounds refusal names the decide tool and its three choices but withholds the callable JSON that sibling refusals do provide; draft alone carries no shape line at all and never enumerates its kinds. In every case the right text already exists somewhere in the codebase and is withheld until the caller has paid a round trip for it.
-
-THE FUNDING CONSTRAINT, which shapes the work. The metric is tokens per call, so additions must be paid for by removals, not appended. Judges identified unused output on the hottest path: the graph section on a workspace with no edges, the swarm section when the only agent is this session with no leases and no worktrees, and the build suffix on the version string. None was used by any judge in 79 calls. A next-step line on state is roughly covered by those three.
-
-SCOPE, two tasks by disjoint concern. One: stop lying about outcomes - refusals refuse, and a verification command reports what it verified. Two: put the shape where the caller already is, funded by deleting output nobody reads. The second is meaningless without a before/after judged measurement, so it carries one.
-
-DELIBERATELY NOT IN SCOPE. The silent dead ends judges flagged - rule op=add discarding slots irrelevant to the chosen pattern, and move accepting a note that never surfaces - are real and are the worst class (the caller learns nothing), but each needs its own decision about whether the input should be refused or honored, and neither cost a judge a call. File them; do not fold them in here.
-
-## T-01KYQ5047CE5MSBF7KTM3BGKVQ put the shape where the caller already is, funded by deleting output no judge read
-kind: task
-state: draft
-created: 2026-07-29
-parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
-refs: R-01KYQ4XNAFFNYSTNRKC28BR3N3
-grilled: 2026-07-29 open=0
-targets: internal/mcpserver
-
-Closes the economy half of P-01KYQ4YK7MEA3. 8 of 79 judged calls were spent rediscovering argument shapes that the codebase already knows.
-
-D1, internal/mcpserver/state.go. Every judge is told to start at state and none learned anything actionable from it. Add a final section naming the tools and the discovery rule in one line - that empty arguments return a shape. This is the hottest path on the surface, so it must be PAID FOR, not appended. Fund it in the same function: suppress the graph section when there are no edges and no typed-pass finding, suppress the swarm section when the only agent row is this session with no leases and no worktrees, and emit the version without its build suffix. No judge used any of the three in 79 calls; together they roughly cover the addition. Measure the net, and if it is positive, say so in the archive note rather than claiming a win.
-
-D2, the rule tool. Empty arguments render a flat union of fourteen properties with only op starred, which reads as everything-else-optional; a judge then sent a plausible add and was bounced with a DIFFERENT and correct op-conditional shape. The good text already exists in the failure path. FIX: emit the op-conditional form the first time, so the shape a caller sees is the shape they can call.
-
-D3, the draft tool. It is the only tool whose refusal carries no shape line at all, and it never enumerates the legal kinds - an unenumerated required string is the worst discoverability hole on the surface, because a wrong guess is a silent semantic error rather than a refusal. FIX: emit the same shape line every sibling emits, with the kind enum spelled out.
-
-D4, decide op=answer. It reports the decision but never what happened to the item the decision unblocked, so a judge must call get to learn whether the rescope landed. FIX: name the resulting item state in the same line.
-
-MEASUREMENT IS PART OF THIS TASK, not optional. Before: four judges already ran this scenario (R-01KYQ4XNAFFNY) at 79 calls. After: prep four fresh tricky workspaces, run four fresh independent judges with the same prompt, and record calls and metered bytes as a benchmark version against the before run. The claim to test is fewer calls at no more bytes per call. If calls do not fall, the additions are not earning their place and should be reverted rather than kept for plausibility.
-
-TESTS: state renders the next-step line; state omits graph/swarm on a solo workspace with no edges and no leases, and still renders them when either is non-trivial; rule with empty arguments returns the op-conditional shape; draft with empty arguments returns a shape line naming every kind; decide op=answer names the item's resulting state.
-
-VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . empty, plus the four-judge after-run. SCOPE: state.go's sections, the rule/draft shape emission, decide's answer line. Do NOT touch the rounds refusal or check - sibling task. ROLLBACK: revert.
-
-## B-01KYQ939RXEZCA55ZGS46SYSES check path only labels the output; the scan is always workspace-wide
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/mcpserver
-
-Found by a validator while reviewing an unrelated change to checks clean-tree line.
-
-OBSERVED. check with path api, path cli and no path at all return IDENTICAL rule and dir counts and identical finding lines. in.Path is used to LABEL output; the scan itself is spec.Load(s.ws.Dir), which always walks the whole workspace. So a caller who narrows to a directory gets the same answer as a caller who did not, with no signal that narrowing did nothing.
-
-EXPECTED, one of two, and this needs a decision rather than a patch: either path scopes the scan (findings, coverage gaps and counts all restricted to that subtree), or the argument is removed so nobody can believe it does. A third option - keep it and say it is advisory - is the worst of the three, because the render currently juxtaposes the queried path with global counts, which reads as scoped.
-
-MITIGATED, not fixed, in the meantime: the clean-tree line no longer prints the path beside the counts, so at least the misleading juxtaposition is gone (the counts render bare). The argument still exists and still does nothing.
-
-WHY IT MATTERS beyond tidiness. check is the loops verification step and the thing CI gates on. A caller scoping to the directory they touched, seeing counts that look scoped, and concluding their subtree is clean, has been told something false about the rest of the workspace - or, if they read it the other way, has been given a global answer they did not ask for. Neither is a good outcome for a verification command.
-
-VERIFY once decided: for scoping, a workspace with a finding outside the queried path reports it with no path and does NOT report it with the path; for removal, the argument is gone from the schema and the docs.
-
-## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/bench
-
-OBSERVED in CI run 30468777911, on a branch whose diff does not touch this test or anything it exercises:
-
---- FAIL: TestPrepIgnoresHarnessArtifacts (1.68s)
-    testing.go:1369: TempDir RemoveAll cleanup: unlinkat /tmp/TestPrepIgnoresHarnessArtifacts.../001/.git/objects: directory not empty
-
-The assertion did not fail - the TEST BODY passed and the failure came from t.TempDirs deferred RemoveAll. The fixture git-inits and commits inside the temp dir; git leaves background work (gc, pack) that keeps writing into .git/objects after the command returns, so cleanup races it. Passes locally, including under the exact CI invocation (go test -coverprofile), which is characteristic: the race needs a slower or more contended filesystem to lose.
-
-WHY IT MATTERS more than an ordinary flake. This test is inside make cover, which is a REQUIRED CI gate. A flake there blocks a merge that has nothing to do with it, and the failure text points at testing.go rather than at anything a reader would connect to git - the first response is to look for a real regression in the diff, which is exactly the wasted work a gate should not manufacture. It cost that here.
-
-DIRECTION. The durable fix is to stop git from leaving background work in a throwaway fixture: git init with gc disabled (gc.auto=0), and/or commit with the maintenance/auto-gc paths off, so nothing is still writing when the test returns. A t.Cleanup that waits or retries the removal treats the symptom and still leaves a race. Whichever is chosen, apply it to every bench fixture that git-inits, not just this test - the others differ only in timing.
-
-VERIFY: the fixture creates no background git process (assert gc.auto is 0 in the created repo), and the test survives a loop under -count=20 on a loaded machine.
-
-## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/mcpserver, internal/drift
-
-REPRODUCED while adding SRF-001. Sequence: rule op=add with applies (anchor stamped against the rule text), then rule op=edit changing pattern/system/response to fix the sentence. The edit succeeded silently. The very next check reported d audit SRF-001 go:mcpserver.roundsRefusal ... tightened, and the repositorys own TestCheckOnOwnRepo failed with unexpected drift audit on own repo. Re-issuing rule op=edit with the SAME applies list re-stamped the anchor and cleared it.
-
-OBSERVED vs EXPECTED. Observed: an edit that touches only the rule SENTENCE leaves every anchor stamped against the old sentence, so the rule is immediately in an audit-class drift state (tightened blocks, per the auditGate contract) with no signal at edit time. Expected: either the edit re-stamps the anchors it already has, or it says it did not and names the follow-up. The current behavior lets a caller edit a rule into a state the same servers check refuses, and only discover it on the next check - or, as here, in CI.
-
-WHY IT MATTERS. Editing a rules wording to fix a lint finding or an awkward sentence is a NORMAL, encouraged action - the composer even prepends The, so a first attempt often needs one. That routine action silently arms a gate. The cost is not the re-stamp itself but the discovery: the failure surfaces far from its cause, attached to a different tool.
-
-DIRECTION, not a decision. Re-stamping automatically is the obvious fix but is not obviously right: an anchor exists so a human notices when a rule and its code drift apart, and a text edit is exactly when that judgment might be wanted. So the choice is (a) re-stamp on edit and treat the sentence as authoritative, (b) refuse the edit while anchors are stamped against the old text and say so, or (c) allow it but return a line naming the anchors now stale and the exact call that re-stamps them. (c) preserves the judgment and removes the surprise; (a) is cheapest; (b) is probably too strict for a wording fix.
-
-VERIFY once decided: add a rule with applies, edit its text, and assert the chosen behavior - that check is clean afterward, or that the edit refused, or that the edit named the stale anchors and the re-stamp call.
-
-## B-01KYQBCAD8FF7T0NF9MM84YQ41 a refused archive leaves its spec.md intent line behind, so retrying appends a duplicate every time
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/lifecycle, internal/mcpserver
-
-Flagged as off-class by the R-01KYNA6NJ3F10 gap hunt and left untriaged. It has now bitten for real, so it is filed with the reproduction.
-
-MECHANISM. lifecycle.archive appends the intent line to spec.md FIRST, then journals, then removes the item, and the git-flow closure runs after all of that. When the closure fails - a red CI head, a merge that does not complete - the archive is refused WHOLE and the item is compensated back to done. The compensation does not remove the intent line. spec.AppendIntent already ran and nothing rolls it back.
-
-REPRODUCED, three times in one session without trying. Three archive attempts for T-01KYQ503AGE6T were each refused with GIT E archive refused whole: closure merge did not complete - item stays done, retry once green. spec.md then carried the SAME intent line for that record three times. It surfaced as a git merge conflict between two branches of the records, where one side had the line tripled and the other had it once - which is how it was noticed at all.
-
-WHY IT MATTERS. spec.md's intent section is the permanent human-readable history and is reviewed in diffs. Duplicates there are not cosmetic: they misreport how many times a thing was archived, they inflate a file every later read pays for, and because the retry path is the NORMAL response to a transient CI failure, the duplication scales with how flaky CI is rather than with anything the author did. The same compensation path also leaves folded-away done children removed from work.md while the parent returns to done - the second half of the same defect, and the reason this is a transactional-boundary bug rather than a formatting one.
-
-DIRECTION. Either order the effects so the irreversible one runs last - journal and remove only after the closure has actually completed, making AppendIntent the final step - or give the compensation a real undo that removes the line it appended and restores the folded children. Ordering is the stronger fix: an undo path is itself code that can fail halfway, and this bug exists precisely because a partial sequence had no undo. Whichever is chosen, the child-folding half must be covered too.
-
-VERIFY: force a closure failure (a red head), attempt archive twice, and assert spec.md carries exactly one intent line for the record and that any done child folded by the attempt is still present in work.md.
-
-## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
+## B-01KYR01E2VFEF8KT5GV91VAWSP find with an empty q answers ok no matches while the workspace has rules — a silent lie, worse than a refusal
 kind: bug
 state: active
 created: 2026-07-29
+targets: internal/mcpserver
+
+Found by an independent judge driving the tricky scenario from tool output alone, and called the WORST issue of that run.
+
+OBSERVED. find {q: \"\", scope: \"rule\"} returns exactly ok no matches, on a workspace where state had just reported rules total=8 dirs=5. An ok plus no matches is indistinguishable from this workspace has no rules. The judge recovered only because it remembered the state count and happened to guess the search term api; its own conclusion was that a user who trusted this would conclude there was nothing to model their new rule on.
+
+WHY IT IS THE WORST CLASS. It is not a refusal and not an error - it is a successful call returning a factually false answer, with no hint that the empty q was the problem. A refusal would have taught the caller what to supply. This is the same shape as the accepted-but-did-nothing dead ends judges rank above ordinary refusals in severity, and it sits on find, the tool the loop opens with (find scope=rejection|history is the documented learn-before-planning step).
+
+RELATED, same judge, same root: there is NO discoverable way to enumerate rules. Every find mode requires a substring guess, and scope=rule looks like it should enumerate but does not. The judge only located the existing api rules because the goal text named the directory.
+
+DIRECTION, and these are alternatives not a list: (a) refuse an empty q, naming what to pass - the minimum, and it at least stops the lie; (b) treat an empty q as list-all within the scope, which also closes the enumeration gap in the same change and is what a reader plainly expects from scope=rule; (c) keep requiring q but document a wildcard in the shape line. (b) is the strongest: it makes the obvious reading correct instead of teaching a workaround. Whichever is chosen, the invariant is that no query which was never executed may answer ok.
+
+VERIFY: on a workspace with rules, find with an empty q must not answer ok no matches - it either refuses with what to pass, or returns the rules; and a scope with genuinely zero records still answers no matches truthfully.
+
+## B-01KYR02HQ3F8KAW6JR3VSY4XVR move hides its destination enum while draft and rule inline theirs, and the EARS pattern letters ship with no legend
+kind: bug
+state: done
+created: 2026-07-29
+rounds: 1
+targets: internal/spec, internal/workspace
+
+ROOT CAUSE of a whole sessions worth of duplicate intent lines, found after the per-write guard was already fixed and duplicates kept appearing.
+
+.spectackle/.gitattributes declares merge=union for journal.ndjson and bench.ndjson - correct, they are append-only logs where a union is exactly right and a duplicate line is faithful. spec.md and work.md have NO strategy, so they take gits default three-way merge.
+
+That is fine for spec.mds rule sections, which are genuinely edited and need a real merge. It is wrong for its ## intent section, which is append-only in practice: every archive appends one line and nothing ever edits an existing one. Two branches that each append a DIFFERENT line produce an interleave or a conflict; two branches that each append the SAME line at a different position produce TWO COPIES, because git sees two independent insertions at two locations and keeps both. Reproduced here: lines 261 and 264 of the root spec.md are the same record with two other records between them.
+
+WHY THE PER-WRITE FIX CANNOT COVER THIS. B-01KYQJDJJVFC2 made AppendIntent idempotent by scanning the section before writing. That guard is per-WRITE and inside one working tree; it cannot see the other branchs write, and by merge time both writes have already happened. So the guard is necessary and not sufficient, and every worktree-based archive - the documented primary workflow - can reintroduce a duplicate that no single write path is in a position to prevent.
+
+DIRECTION, and the choice is a real one:
+(a) A custom merge driver for spec.md that unions and dedupes the intent section while merging the rest normally. Correct but adds a driver every clone must configure, and an unconfigured clone silently falls back to the broken default - which is the worst property a records format can have.
+(b) Move intent lines OUT of spec.md into their own append-only file with merge=union, deduped on READ. Then the format matches the access pattern (append-only, one statement per record), the merge strategy is declarative and needs no local configuration, and duplicates become harmless rather than merely prevented. Costs a format change and a migration for existing bundles.
+(c) Keep the file and dedupe on read wherever the intent section is consumed, accepting duplicates on disk. Cheapest, but it leaves a permanent human-readable artifact - the one thing intent lines exist to be - visibly wrong in every diff.
+
+(b) is the shape the evidence points at: the journal already proves the pattern works, since merge=union plus faithful-duplicate semantics has caused no trouble at all this session while spec.md caused several rounds of it.
+
+VERIFY once decided: two worktrees each archive a different record, merge both to main, and assert one line per record and no conflict; then two worktrees each archive the SAME record and assert one line survives.
+
+## B-01KYPC11VKF0QBF0HCPY3QCRJE Goal and Rules are parse-only: three gate paths read a field no tool can set
+kind: bug
+state: done
+created: 2026-07-29
 refs: R-01KYNA6NJ3F109VTE35QYRM64Q
-grilled: 2026-07-29 open=0
-targets: internal/item, internal/mcpserver, internal/journal, internal/lifecycle, internal/replay
+targets: internal/item, internal/mcpserver
 
 VERIFIED, not inferred. Across the whole tree, it.Goal is assigned at exactly one site (internal/item/item.go:244) and it.Rules at exactly one (internal/item/item.go:248) - both inside LoadWork, i.e. the parser reading back what is already on disk. No tool writes either. draft and the draft-revise path set only Title/Body/Targets/Refs.
 
@@ -335,3 +283,158 @@ THE DECISION THIS NEEDS, before any code. Two coherent answers and they lead to 
 Do not implement either until that is decided; the wrong choice adds surface to a tool whose stated constraint is minimal surface. Evidence to gather first: whether ANY record in this repository's history ever carried a non-empty goal or rules line (search the journal's reject/archive events, which do carry Rls) - if the answer is never, in a repository that has dogfooded itself for its entire life, that is strong evidence for (b).
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
+
+## B-01KYRJ3WSCE148S8S2GRWXFDJ4 the journal-compaction advisory suppresses check ok summary and prints twice, turning the required CI gate red
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/mcpserver/validate.go, .github/workflows/ci.yml
+
+OBSERVED. Once the journal passes the compaction threshold, check stops emitting its summary line entirely and emits only advisories, with the journal advisory DUPLICATED:
+
+  c . journal 504 events since last compact
+  c . journal 504 events since last compact
+  (no ok line, exit 0)
+
+EXPECTED: the ok check 0 findings (E=0 W=0) - N rules N dirs summary, with advisories in addition to it, not instead of it.
+
+WHY IT MATTERS. The CI self-hosting gate asserts the exact shape len(lines)==1 and lines[0].startswith(ok check ) and 0 findings (E=0 W=0) in lines[0]. Three lines and no ok line fails that test, so the required gate goes red on a workspace whose code and spec are both clean. The trigger is elapsed journal events, not a code change, so it fires on whatever branch happens to cross the threshold - and it blocks the archive edge, which waits on CI. It did exactly that here: the rule op=add that recorded RECMERGE-002 pushed the count past the threshold and the next archive attempt could not have merged.
+
+ISOLATED. Not a regression from the current branch: the pre-fix baseline binary, built -buildvcs=false from the parent commit, produces the same output on the same workspace (plus a staleness hint of its own). compact {apply:true} clears it and check immediately returns the single clean ok line - 99 rules 24 dirs - so the summary is being displaced by the advisory, not lost to a scan failure.
+
+TWO DEFECTS, likely one cause. (1) The advisory path returns early or overwrites the summary instead of appending to it. (2) The same journal advisory is emitted twice for the same dir - a duplicate the caller pays for on every check while the condition is live.
+
+FIX DIRECTION. Advisories and the summary are different record types (c versus ok) and must compose: emit every c record AND the ok line. Then decide what the gate asserts - either it accepts advisory lines alongside the ok summary, or check gains a mode that suppresses advisories for gate use. The gate asserting a single line is what turned a soft nudge into a hard failure, so whichever is chosen, the CI expression and the render have to be changed together. Dedupe the advisory per dir.
+
+VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
+
+## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/lifecycle/lifecycle.go, internal/mcpserver/tools.go, internal/spec/author.go
+
+Two adversarially verified findings that share one cause: the archive effects are not transactional and the gates sit on only one of the two paths that run them.
+
+FINDING 1, HIGH, gate bypass in two calls. Every archive gate lives in the mcpserver move handler and keys on the item NAMED in the call. lifecycle.archive() then folds every done child away with a journal EvArchive plus item.Remove, with no gate at all. So parenting a record to any item and moving THAT item to done archives the child through the parent, skipping three gates: the research-consumption gate that is documented as hard regardless of feedback config, the feedback.validate=require verdict gate, and the child own open-children gate - the fold archives a child whose direct archive the server would refuse. Two calls, no refusal, exit 0.
+
+FIX DIRECTION: the gates must move to where the effect happens rather than to where the call names an item, or the fold must run each child through the same gate set and refuse the parent transition if any child fails. The second is likely correct - a parent cannot legitimately archive a child that is not itself archivable - and it makes the refusal name the child.
+
+FINDING 2, HIGH, compensation is partial while claiming to be whole. When the archive edge strands, tools.go compensates the item archived back to done and refuses with archive refused whole. Two effects the same call already committed are NOT undone. First, done children folded away by lifecycle.archive() stay archived and become unreachable - move on them returns unknown item - so a REFUSED transition permanently destroys sibling records. Second, spec.AppendIntent line is not rolled back, and because AppendIntent dedupes by record ID, the successful RETRY note is silently discarded and the living spec permanently records the FAILED attempt note as the item outcome. This is the untriaged suspicion already noted in work.md, now reproduced, and the intent-note freeze is the part nobody had suspected.
+
+The phrase refused whole is therefore untruthful in the SRF-001 sense: it names an outcome the code did not deliver. Either the effects become transactional - stage the fold and the intent append, commit them only when the edge succeeds - or the refusal must enumerate what it could not undo. Given the retry after a stranded closure is documented as normal operator behavior, the first is the real fix; the dedupe-by-ID behavior means the note damage is silent and permanent, which is the worst combination.
+
+RELATED: move to=rejected has no open-children gate at all - lifecycle.Move guards openChildren only for archived - so rejecting a parent orphans live children whose parent then resolves to neither work.md nor a tombstone, and Draft refuses to add any new child under it. Two boundaries both remove a record from work.md and only one checks children.
+
+VERIFY. A parent with a done child that would fail its own archive gate: archiving the parent must refuse and name the child. A stranded archive: assert the folded children are still live, that a retry appends the retry note rather than keeping the failed one, and that the refusal enumerates anything it could not undo. Rejecting a parent with live children must be gated the same way archiving is.
+
+## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
+kind: bug
+state: draft
+created: 2026-07-30
+targets: internal/ids/ids.go, internal/bench/bench.go
+
+Both found by independent verification of B-01KYS6Y5NKF42, measured rather than reasoned, and both pre-existing rather than caused by that change - but the first became load-bearing when attribution started depending on the short prefix.
+
+FINDING 1, the documented collision probability is wrong by 16 times. internal/ids MinRecordPrefixLen doc comment claims the 13-character short prefix leaves a 2 to the minus 15 collision chance, and ids_test.go TestPrefixPinsFivePMinusTwoTimestampBits mirrors the claim. The true figure is 2 to the minus 11.
+
+EXACT DERIVATION, independently reproduced twice. A 13-character Crockford base32 prefix pins 5 times 13 minus 2 equals 63 bits, per the formula ids.go itself uses - two slack bits in the first character. Against MintRecordIDAt byte layout: bytes 0 through 5 are the 48-bit timestamp; byte 6 high nibble is the UUIDv7 version, hard-fixed to 0111, and it falls INSIDE the 63-bit window; byte 6 low nibble is 4 random bits; byte 7 contributes 8 random bits of which only the first 7 fall inside the cutoff, since 63 equals 48 plus 8 plus 7. The variant bits in byte 8 start at bit 64 and are outside the window entirely. Random bits inside the prefix: 4 plus 7 equals 11, not 15.
+
+MEASURED, by instrumenting MintRecordIDAt directly: 2 million same-millisecond mints produced exactly 2048 distinct 13-character prefixes, which is 2 to the 11; 5 million independent same-millisecond pairs collided at 1 in 2048.3. So the exact constant is 1 in 2048, and the earlier 1 in 2070 figure was a measurement approximation about 1 percent off.
+
+WHY IT MATTERS NOW. B-01KYS6Y5NKF42 changed the validation attribution grep from the full record ID to the short prefix - the only form that matches what the code-commit writers produce. Prefix collisions are therefore a silent cross-attribution vector: two records whose short forms collide each inherit the other commits in their attributed diff. That residual is now stated in validate.go itemDiff. The failure direction is conservative - a larger attributed diff means more staleness, more risk trips, more findings - with one permissive edge confirmed in code: validateComputed skips the untouched finding for a target whenever the attributed file set already contains that path, so a colliding sibling touching a declared target masks it.
+
+FIX: correct the constant and carry the derivation in the doc comment, including the version-nibble point, so the error is not re-derived. Correct ids_test.go, which currently pins the wrong claim. Then decide, with the right number in hand, whether 13 characters is still the correct adaptive floor - 1 in 2048 for same-millisecond mints is a different design conversation than 1 in 32768, particularly for a swarm that mints in parallel by design.
+
+FINDING 2, a live intermittent suite failure. TestBenchCmpDeltasAndUnitMismatch fails intermittently with ids: prefix matches 2 records, naming two IDs that differ only past the 13th character. Cause: internal/bench renders shortDisplayID, a FIXED 13-character prefix, where it should render the adaptive ShortenRecordID that widens until unambiguous in the current workspace. The adaptive shortener exists for exactly this. Observed once, then 8 of 8 passes in isolation and clean full runs after, so it is a genuine flake keyed on two bench records minted in the same millisecond - and by the corrected figure that is a 1 in 2048 event per pair, not 1 in 32768.
+
+FIX: use the adaptive shortener in the bench render paths. VERIFY: a test that mints two records in the same millisecond and asserts every rendered ID resolves to exactly one record.
+
+METHOD NOTE worth keeping: this flake was invisible to the harness used through the session that found it, because piping go test into a filter and echoing a marker afterwards discards the exit code. The filter still prints FAIL lines so a failure is visible when it happens, but the run is never actually asserted to have passed. Capture the output and read the exit code directly.
+
+## B-01KZ10JP6BFV9B5EGWVVP6R8H3 two merged records carry validation verdicts from orchestrator-spawned validators, which the tombstones do not disclose
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYRN44EVEK2B0Q772MFEPZWK, B-01KYZB4QA9FF4TCA3AQGWT7E5D
+targets: .
+
+The journal for two merged records implies an independent validation verdict that was not independent in the sense the gate means. Filed so later sessions do not read more assurance into those tombstones than the evidence supports. User-authorized on 2026-08-01 to leave both merged and record this note; the standing policy is now VALIDATOR-PROVENANCE-001.
+
+AFFECTED. B-01KYRN44EVEK2 (pr 252) and B-01KYZB4QA9FF4 (pr 253). Both archived on verdicts recorded by validator identities that an orchestrator spawned and named (verifier-w1, verifier-await-2). feedback.validate=require exists to demand a second PARTY before archive; it was handed a second PROCESS. A safety classifier caught this on the third record and refused to record that verdict, which is how it surfaced.
+
+WHAT THE EVIDENCE ACTUALLY IS, so the correction is not overstated in the other direction. The verification was technically real and adversarial, not a rubber stamp. On B-01KYZB4QA9FF4 the panel returned 0/3 and REFUTED the implementation, reproducing against the real forge.GitHub over httptest a regression that would have made the archive gate refuse any build whose CI had not yet been dispatched - B-01KYQJDJJVFC2 rebuilt inside its own fix, with a test that pinned the wrong behavior. That defect was found and corrected BEFORE merge because of this process. On B-01KYRN44EVEK2 two lenses independently flagged an overbroad comment. So the finding is narrow: the verdicts are not worthless, they are misattributed.
+
+NOT A CODE DEFECT. Nothing in the server behaved incorrectly - the gate refused an anonymous validator exactly as designed and had no way to distinguish a spawned agent from any other second identity, which is the open question rather than a bug. Whether an identity check SHOULD be able to tell them apart is a separate design question and is not proposed here.
+
+VERIFY: this record is discoverable from a search for validation provenance, and names both affected record IDs and both PR numbers, so a session auditing either tombstone finds it.
+
+## B-01KZ13VMF0EXP9691Y21868ZQS TestConcurrentApplyMintsOneDecision flakes in CI: the racing applies resolve correctly but the surviving decision is invisible to the querying session
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYQG88GZEM2ARX29J4ADQCX5, B-01KYQA4WXEFATTX2FV30DATGDJ, B-01KYSX35RKFYBRX6YAB9E9DHBW
+targets: internal/mcpserver, internal/knowledge
+
+THIRD member of the CI-flake class already filed twice (B-01KYQG88GZEM2 wall-clock assertions, B-01KYQA4WXEFAT TempDir/git race), and the first whose mechanism is cross-session record visibility rather than timing of the assertion itself.
+
+OBSERVED, GitHub Actions run 30745293519 on branch spectackle/B-01KYSX35RKFYB, in the make cover step:
+  --- FAIL: TestConcurrentApplyMintsOneDecision (0.05s)
+      knowledge_test.go:874: two racing applies must leave exactly one decision, got []
+The captured tool output in the same failure shows the concurrency resolution WORKED. Racer B minted one ADR and reported added=1 conflicts=1 with need decision ADR-01KZ132ZN5F8R. Racer A saw it, correctly yielded, and reported added=0 settled=1. Exactly one decision existed. The assertion still failed because decisionIDs, queried through A's session, returned an EMPTY list - so the ADR that demonstrably existed was not visible to the querying session at that moment.
+
+So the defect is NOT double-minting, which is what the test was written to catch and what its name says. It is that a record minted through one session is not reliably visible to a query on another session immediately afterward. The test name and its failure message both point at the wrong mechanism, which will mislead the next person who sees it red.
+
+NOT CAUSED BY THE CHANGE IT BLOCKED. It surfaced while archiving B-01KYSX35RKFYB, whose only edit is Server.resolveDecision. knowledge apply never calls resolveDecision. Measured: the identical head was re-run and PASSED (same run id, same SHA, rerun --failed), which is the definition of intermittent.
+
+NOT REPRODUCIBLE LOCALLY on an M-series laptop: 15 runs plain, 10 runs with -race, and 15 runs of the same test against origin/main without the change, all green. A shared, contended runner is the only environment that has produced it, exactly like the two prior members of this class.
+
+RELATED, and probably the same root: the implementer of B-01KYSX35RKFYB had to nil Server.scCache in test helpers because that field memoizes the known-ID set for one tool call, and a cached scope can predate an ADR minted between calls. That is the same staleness in a form the tests could see and work around.
+
+DIRECTION, not decided here. Either the query path must be made to observe a just-committed record deterministically (find the memo or index refresh that a second session misses, and make the mint publish through it), or - if cross-session immediacy is genuinely not promised - the test must stop asserting it and the promise must be written down. What must NOT happen is a retry loop in the test: that converts a real visibility question into a hidden sleep, and this class already has two members that were only found because they failed loudly.
+
+VERIFY: the mechanism is named correctly (visibility, not double-mint) in whatever fix lands; the test either observes a deterministic publish point or is rewritten to assert only what the system promises; and 200 consecutive runs under artificial CPU contention stay green.
+
+## B-01KZ16J3PKERRV6E7BB8F3BZJK a single-segment directory target such as docs is honored by the done gate and silently dropped by validate, so every documentation change manufactures an offscope finding
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYRVXQ02FDH9YBAFG64SH13N
+targets: internal/mcpserver
+
+Two gates compute declared-target scope differently, and the disagreement is total for any SINGLE-SEGMENT directory target: docs, cmd, poc, bin, examples. The done edge honors it; validate silently drops it and reports every file under it as offscope.
+
+ISOLATED CAUSE, one expression. internal/mcpserver/tools.go:2852, targetPath ends with
+    return t, strings.ContainsAny(t, "./")
+The heuristic is "a target is a path when it contains a dot or a slash". internal/mcpserver contains a slash and passes; docs contains neither and returns ok=false. validate.go:344-352 iterates targets and `continue`s on !ok, so the target is not merely unmatched - it is removed from consideration, and the file then falls through to `if !in && len(it.Targets) > 0` and is emitted as `v offscope`.
+
+The other gate never consults targetPath. inTargetScope (internal/mcpserver/gitflow.go:1193-1204) does a plain prefix match: f == t || strings.HasPrefix(f, t+"/"), plus a root-dir escape. docs/tools.md against target docs matches there.
+
+OBSERVED end to end on B-01KYRVXQ02FDH, whose declared targets were internal/mcpserver, internal/knowledge, docs. `move to=done` ACCEPTED the changed docs/tools.md - no refusal, the transition completed. The very next `validate` render on the same item and the same diff emitted `! VALIDATE E B-01KYRVXQ02FDH unaddressed findings: offscope:docs/tools.md`. Same item, same targets, same file, opposite verdicts.
+
+CONSEQUENCE, and why this is not cosmetic. The offscope finding must be addressed or waived before archive, so every record that legitimately edits documentation manufactures a finding whose only correct disposition is a waiver. That trains the waiver reflex on a false positive, and this workspace's own health line already warns waiver-rate 55% over the last 20 verdicts. A gate whose noise must be routinely waived stops being read.
+
+Second-order: because targetPath is also what normalizeTargets uses (tools.go:2855-2865), a single-segment target survives normalization unchanged (the else branch keeps t), so the value looks correct everywhere it is DISPLAYED. The failure is only in the consumer that filters on ok.
+
+NOT THE FIX, stated so it is not re-attempted: widening the heuristic to "anything without a colon is a path" collides with the node-ID form targetPath exists to split (go:pkg.Fn). The two consumers wanting different things is the actual design question - the done gate wants "is this file inside a declared area", validate wants the same, and only one of them is asking targetPath. The narrow repair is to make validate use inTargetScope, which already encodes the intended semantics including the root-dir case; the broader question is why two implementations exist at all.
+
+VERIFY: an item declaring a single-segment directory target and changing a file under it passes the done edge AND renders no offscope finding; a genuinely undeclared file still produces one; and the root-dir target keeps allowing everything at both gates.
+
+## T-01KZ1WJ2XGEFKB9DMGQWW62AWB characterize graph.ValidNodeID directly and pin both anchor classes in one check run
+kind: task
+state: draft
+created: 2026-08-02
+refs: B-01KYN5ZYM1FY2TBZHXC43V68TE, B-01KZ16J3PKERRV6E7BB8F3BZJK
+targets: internal/graph, internal/mcpserver
+
+Two coverage gaps left by B-01KYN5ZYM1FY2, plus the reason they are worth one record rather than a waiver.
+
+GAP 1. graph.ValidNodeID has NO direct test. Confirmed: grep over every _test.go in the tree returns nothing. It is exercised only through drift.Classify and the two mcpserver surfaces, so its own boundary behavior is uncharacterized - missing colon, empty name after the colon, empty string, unknown lang, a lang that is a prefix of a known one, leading or trailing whitespace, and a node ID whose lang segment contains a slash or a dot. Each of those is a distinct branch of strings.Cut plus a map lookup, and none is pinned. The consequence is not hypothetical: this function decides whether a rule anchor is reported as a permanent CI error, so a false positive reddens the gate with no reindex able to clear it.
+
+GAP 2. No single check-level test puts BOTH an unresolvable and a genuine pending anchor in ONE check run. The separation is currently pinned by one test per class. An independent validator wrote the combined case in a throwaway copy and confirmed the property holds today (one E finding, ok 1 anchors pending with count 1 rather than 2, and the state line reading pending=1 unresolvable=1), but nothing in the tree keeps it holding. The interesting failure mode is a counter that double-counts or a tally line that sums the wrong set, which per-class tests cannot see.
+
+WHY THIS IS RECORDED AND NOT WAIVED, which is the part worth keeping. The untested:ValidNodeID finding came from the validate pack's static check. THREE independent adversarial verifiers, running 191 tool calls including six code mutations, all returned pass - and none of them noticed. They were not careless: every one of them exercised ValidNodeID through its call sites and watched a mutation there fail a test. That is exactly what mutation testing proves, and exactly what it does not: killing a mutant at a call site shows the CALL SITE is pinned, not that the function is characterized. A newly exported predicate can be fully mutation-covered through its consumers and still have no test that states what it means on its own.
+
+So the two techniques are not redundant and neither subsumes the other. The static untested: finding is cheap and catches the class that adversarial verification structurally misses. This workspace's health line already warns waiver-rate 55 percent over the last 20 verdicts; a finding that three verifiers could not have produced is precisely the kind that must not be reflexively waived. B-01KZ16J3PKERR covers a different half of the same waiver problem - findings that are FALSE and must be waived - and the two together are the argument for looking at what the pack says rather than at how often it is right.
+
+VERIFY: a table-driven test over graph.ValidNodeID naming each boundary case above and asserting both directions; a check-level test placing both anchor classes in one workspace and asserting the E finding, the pending tally count and the state summary counters simultaneously; and validate on a record touching internal/graph no longer emits untested:ValidNodeID.

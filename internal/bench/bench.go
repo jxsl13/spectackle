@@ -21,13 +21,17 @@
 package bench
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Step is one scripted tool call. Refusals are part of the surface under
@@ -62,6 +66,23 @@ type Result struct {
 	// (T-01KYE3 — 7238 bytes stayed invisible through eleven benchmarked
 	// landings for lack of this line).
 	ManifestBytes int
+
+	// SchemaBytes is the tools/list payload's size: every tool's description
+	// and input schema, as the wire delivers it at connect time.
+	//
+	// It is metered because it was the largest thing nobody was counting. The
+	// manifest line presented itself as THE once-per-session cost at 4.3KB,
+	// while a real handshake writes 24623B — tools/list is 81% of it, measured,
+	// and the initialize result is ~95% manifest text, so schema+manifest tracks
+	// the real wire to within 1.2% rather than double-counting. So every
+	// byte-economy conclusion drawn from this benchmark was reasoning about a
+	// denominator missing three quarters of what a session actually pays, and
+	// BENCH-001 ("revert a surface change whose judged metric did not improve")
+	// is only as trustworthy as the metric it defers to (B-01KYS711ZFFG0).
+	//
+	// Measured over the wire rather than by marshalling the tool structs, so it
+	// cannot drift from what a client receives.
+	SchemaBytes int
 }
 
 // StepResult is one call's metering.
@@ -250,6 +271,114 @@ func Script() []Step {
 }
 
 // Run drives the script over a fresh fixture with the given server binary.
+// toolsListPayload meters the tools/list response the way a client receives it:
+// spawn the server on stdio, complete the handshake, ask for the tool list, and
+// count the bytes of that one response. Marshalling the registered mcp.Tool
+// structs in-process would be simpler and would drift — the wire adds the
+// envelope, and a change to how schemas are emitted would not show up.
+//
+// Returns the RAW response line alongside its length, because the agent-prep
+// -with-schema mode (T-01KYSPFXHNFZ7) must inject exactly the bytes it reports:
+// rendering the tools some other way would make the injected surface and the
+// metered size two different things, and the whole point of the mode is that
+// they are one thing.
+//
+// Returns ("", 0) when anything goes wrong, and 0 means "not metered" everywhere
+// it is read. That distinction matters: an unmeterable side must not be silently
+// treated as zero bytes, which is the mistake the manifest delta already guards
+// against by refusing to subtract across a measured and an unmeasured side.
+func toolsListPayload(bin string) (string, int) {
+	// A DEDICATED throwaway root, never the fixture. Serving against the
+	// fixture scaffolds records into it, and the first version of this function
+	// did exactly that: the per-call total moved 3039B -> 3081B purely because
+	// the metering had touched the workspace it was measuring. A probe that
+	// perturbs its own subject is worse than no probe.
+	root, err := os.MkdirTemp("", "spx-schema-*")
+	if err != nil {
+		return "", 0
+	}
+	defer os.RemoveAll(root)
+	cmd := exec.Command(bin, "serve", "-root", root)
+	stdin, perr := cmd.StdinPipe()
+	if perr != nil {
+		return "", 0
+	}
+	stdout, perr := cmd.StdoutPipe()
+	if perr != nil {
+		return "", 0
+	}
+	if err := cmd.Start(); err != nil {
+		return "", 0
+	}
+	defer func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	// One line per JSON-RPC message, exactly as the smoke gate drives it.
+	for _, msg := range []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"bench","version":"0"}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`,
+	} {
+		if _, err := io.WriteString(stdin, msg+"\n"); err != nil {
+			return "", 0
+		}
+	}
+	// READ until the response arrives; do not close stdin first. Closing it
+	// immediately ends the session before the server has written anything —
+	// which is why the smoke gate in the Makefile sleeps before its pipe drains,
+	// and why the first version of this function silently metered 0.
+	type found struct {
+		line string
+		n    int
+	}
+	ch := make(chan found, 1)
+	go func() {
+		sc := bufio.NewScanner(stdout)
+		// Headroom, not a present need: the payload is ~20KB against bufio's
+		// 64KB default. It is here so a grown tool surface fails loudly at the
+		// 8MB cap rather than silently truncating at 64KB.
+		sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+		for sc.Scan() {
+			line := sc.Text()
+			// Decode the id rather than substring-matching `"id":2`. A tool
+			// DESCRIPTION containing that literal would false-match, and more
+			// importantly a one-character slip to `"id":1` silently meters the
+			// initialize result instead — 4598B against 20023B, a 4.4x
+			// understatement reported with full confidence. A verifier proved
+			// the magnitude-only assertions here did not catch that.
+			var env struct {
+				ID     json.Number     `json:"id"`
+				Result json.RawMessage `json:"result"`
+			}
+			if err := json.Unmarshal([]byte(line), &env); err != nil {
+				continue
+			}
+			if env.ID.String() == "2" && len(env.Result) > 0 {
+				ch <- found{line, len(line)}
+				return
+			}
+		}
+		ch <- found{"", 0}
+	}()
+	select {
+	case f := <-ch:
+		return f.line, f.n
+	case <-time.After(30 * time.Second):
+		return "", 0
+	}
+}
+
+// schemaBytes is the size-only view of the tools/list payload, which is all
+// the A/B reporting side needs. Kept as a wrapper rather than a second probe:
+// two spawns would meter two different server processes, and the mode that
+// injects the payload must be able to prove its bytes are the metered ones.
+func schemaBytes(bin string) int {
+	_, n := toolsListPayload(bin)
+	return n
+}
+
 func Run(bin string) (Result, error) {
 	dir, err := os.MkdirTemp("", "spectackle-bench-*")
 	if err != nil {
@@ -267,6 +396,7 @@ func Run(bin string) (Result, error) {
 	if out, err := exec.Command(bin, "manifest").Output(); err == nil {
 		res.ManifestBytes = len(out)
 	}
+	res.SchemaBytes = schemaBytes(bin)
 	captured := map[string]string{}
 	var all strings.Builder
 
@@ -456,6 +586,18 @@ func Report(r Result) string {
 	// not comparable across generations, and the label is how a reader of
 	// two reports knows whether they may compare them at all.
 	fmt.Fprintf(&b, "bench total %dB ~%d tokens valid=%v fixture=v3\n", r.Bytes, r.Tokens, r.Valid)
+	if r.SchemaBytes > 0 {
+		fmt.Fprintf(&b, "bench schema %dB ~%d tokens (tools/list, once per session, excluded from total)\n", r.SchemaBytes, r.SchemaBytes/4)
+	}
+	if r.SchemaBytes > 0 && r.ManifestBytes > 0 {
+		// The session line is the honest denominator: what a connect actually
+		// costs before a single tool call. It is printed because reading the
+		// manifest line alone understated it roughly fourfold, and every
+		// surface-trim argument in this repository was ranked against that
+		// understatement.
+		ses := r.SchemaBytes + r.ManifestBytes
+		fmt.Fprintf(&b, "bench session %dB ~%d tokens (schema+manifest, paid once before any call)\n", ses, ses/4)
+	}
 	if r.ManifestBytes > 0 {
 		fmt.Fprintf(&b, "bench manifest %dB ~%d tokens (once per session, excluded from total)\n", r.ManifestBytes, r.ManifestBytes/4)
 	}
@@ -493,6 +635,15 @@ func AB(baseline, candidate string) (string, error) {
 		fmt.Fprintf(&out, "bench manifest delta %+dB (once per session, separate multiplier)\n", b.ManifestBytes-a.ManifestBytes)
 	case a.ManifestBytes > 0 || b.ManifestBytes > 0:
 		out.WriteString("bench manifest delta n/a — one side predates the manifest subcommand; compare the per-side manifest lines by hand\n")
+	}
+	// Same measured-versus-unmeasured guard as above, for the same reason: a
+	// side that could not be metered reads as 0, and subtracting it would report
+	// the schema as having grown or shrunk by its own entire size.
+	switch {
+	case a.SchemaBytes > 0 && b.SchemaBytes > 0:
+		fmt.Fprintf(&out, "bench schema delta %+dB (tools/list, once per session, separate multiplier)\n", b.SchemaBytes-a.SchemaBytes)
+	case a.SchemaBytes > 0 || b.SchemaBytes > 0:
+		out.WriteString("bench schema delta n/a — one side could not be metered; compare the per-side schema lines by hand\n")
 	}
 	d := b.Bytes - a.Bytes
 	switch {

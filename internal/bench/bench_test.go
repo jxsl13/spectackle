@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -144,7 +145,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, _, err := AgentPrep(bin, dir, false, "basic")
+	brief, shim, _, err := AgentPrep(bin, dir, false, false, "basic")
 	if err != nil {
 		t.Fatalf("AgentPrep: %v", err)
 	}
@@ -198,7 +199,7 @@ func TestAgentJudgePrepAndScore(t *testing.T) {
 	// Short-of-goals workspace: prep only, nothing driven — invalid, and
 	// the missing goals are named as absent.
 	dir2 := t.TempDir()
-	if _, _, _, err := AgentPrep(bin, dir2, false, "basic"); err != nil {
+	if _, _, _, err := AgentPrep(bin, dir2, false, false, "basic"); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := exec.Command(filepath.Join(dir2, "meter.sh"), "call", "-root", dir2, "state", "{}").CombinedOutput(); err != nil {
@@ -296,7 +297,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, _, _, err := AgentPrep(bin, dir, true, "basic")
+	brief, _, _, err := AgentPrep(bin, dir, true, false, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestAgentPrepWithManifest(t *testing.T) {
 
 	// Plain prep: no sidecar, no session line, brief without preamble.
 	dir2 := t.TempDir()
-	brief2, _, _, err := AgentPrep(bin, dir2, false, "basic")
+	brief2, _, _, err := AgentPrep(bin, dir2, false, false, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,6 +348,186 @@ func TestAgentPrepWithManifest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir2, "manifest.size")); !os.IsNotExist(err) {
 		t.Fatal("plain prep wrote a manifest.size sidecar")
+	}
+}
+
+// TestAgentPrepWithSchema pins T-01KYSPFXHNFZ7: -with-schema prepends the
+// VERBATIM tools/list payload to the brief and records its size in the
+// schema.size sidecar, the scored report names the regime, and the DEFAULT
+// stays name-only so historical batches — every reference curve in
+// docs/bench-curves.md was measured name-only — cannot be silently mixed
+// with a with-schema batch. The default half asserts ABSENCE, not merely
+// the presence of the other mode: a flipped default would pass a
+// presence-only test.
+func TestAgentPrepWithSchema(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and drives the real binary: skipped in -short")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	dir := t.TempDir()
+	brief, _, _, err := AgentPrep(bin, dir, false, true, "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefBytes, err := os.ReadFile(brief)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Ground truth from the same probe the mode injects, so the assertion
+	// cannot drift when a tool description is edited.
+	payload, n := toolsListPayload(bin)
+	if n == 0 {
+		t.Fatal("toolsListPayload metered 0 — the probe failed, not the mode")
+	}
+	// Anchor on a TOP-LEVEL tool Description, never an inputSchema property
+	// description. Measured on the live payload, the two are encoded
+	// differently: inputSchema is marshalled by the default HTML-escaping
+	// encoder, so get's property text arrives as `sec:<dir>`, while
+	// the top-level description fields carry the same `sec:<dir>#<name>`
+	// unescaped. A test anchored on the wrong one fails for the wrong reason
+	// — encoding, not injection.
+	var decoded struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		t.Fatalf("decode tools/list payload: %v", err)
+	}
+	var desc string
+	for _, tool := range decoded.Result.Tools {
+		if tool.Name == "get" {
+			desc = tool.Description
+		}
+	}
+	if len(desc) < 40 {
+		t.Fatalf("no usable top-level description for tool get (%q) — the payload shape changed", desc)
+	}
+	if !strings.Contains(string(briefBytes), desc) {
+		t.Fatalf("with-schema brief does not carry the get description VERBATIM:\nwant substring: %q", desc)
+	}
+	if !strings.Contains(string(briefBytes), "Connect-time tool schemas") {
+		t.Fatalf("with-schema brief missing the schema header:\n%.200s", briefBytes)
+	}
+
+	sidecar, err := os.ReadFile(filepath.Join(dir, "schema.size"))
+	if err != nil {
+		t.Fatalf("schema.size sidecar missing: %v", err)
+	}
+	if strings.TrimSpace(string(sidecar)) != fmt.Sprint(n) {
+		t.Fatalf("sidecar %s does not match tools/list payload length %d", sidecar, n)
+	}
+	// Magnitude guard, same discipline as TestSchemaMeteringIsRealAndInert:
+	// the sidecar must prove a real read, not a silent zero dressed up as a
+	// measurement. Deliberately loose — a byte count every schema edit had to
+	// chase would be a maintenance tax, not a signal.
+	if n < 4000 {
+		t.Errorf("schema.size = %d; under 4KB means the tools/list read silently failed", n)
+	}
+
+	if out, err := exec.Command(filepath.Join(dir, "meter.sh"), "call", "-root", dir, "state", "{}").CombinedOutput(); err != nil {
+		t.Fatalf("metered call: %v: %s", err, out)
+	}
+	sc, err := ScoreAgentRun(bin, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.SchemaBytes != n {
+		t.Fatalf("score SchemaBytes = %d, want %d", sc.SchemaBytes, n)
+	}
+	rep := AgentReport(sc)
+	if !strings.Contains(rep, "brief-mode with-schema") {
+		t.Fatalf("report does not name the with-schema regime:\n%s", rep)
+	}
+	// The session line must render for -with-schema ALONE: gated on the
+	// manifest sidecar only, it would go missing exactly when the largest
+	// session cost is present.
+	if !strings.Contains(rep, fmt.Sprintf("agent session=%dB (schema %d + manifest 0 + tools %d)", n+sc.Bytes, n, sc.Bytes)) {
+		t.Fatalf("session line missing or not schema-aware:\n%s", rep)
+	}
+
+	// Both flags together: the FILE order must be manifest-then-schema,
+	// matching a real session — instructions arrive at initialize, tools/list
+	// only after. Both branches prepend, so this order is the opposite of the
+	// order the branches run in, which is exactly why it is pinned.
+	dirBoth := t.TempDir()
+	briefBoth, _, _, err := AgentPrep(bin, dirBoth, true, true, "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bothBytes, err := os.ReadFile(briefBoth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iMan := strings.Index(string(bothBytes), "Connect-time server instructions")
+	iSch := strings.Index(string(bothBytes), "Connect-time tool schemas")
+	if iMan < 0 || iSch < 0 {
+		t.Fatalf("both-flag brief missing a preamble: manifest at %d, schema at %d", iMan, iSch)
+	}
+	if iMan > iSch {
+		t.Fatalf("both-flag brief is schema-then-manifest (manifest at %d, schema at %d); a real session reads the manifest FIRST", iMan, iSch)
+	}
+
+	// An UNMETERABLE schema side must REFUSE the prep, not sail on with a
+	// zero. A with-schema run whose brief carries no schema would be set
+	// beside name-only history as if it were a with-schema batch — the exact
+	// unlabeled-regime mixing this whole mode exists to prevent. Driven
+	// through a wrapper that forwards everything except `serve`, so the
+	// tools/list probe fails while fixture and seed still succeed.
+	stubDir := t.TempDir()
+	stub := filepath.Join(stubDir, "spx-noserve")
+	if err := os.WriteFile(stub, fmt.Appendf(nil,
+		"#!/bin/sh\nif [ \"$1\" = serve ]; then exit 1; fi\nexec %q \"$@\"\n", bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dirStub := t.TempDir()
+	if _, _, _, err := AgentPrep(stub, dirStub, false, true, "basic"); err == nil {
+		t.Fatal("with-schema prep succeeded although tools/list metered 0 bytes")
+	} else if !strings.Contains(err.Error(), "not metered") {
+		t.Fatalf("unexpected error for an unmeterable schema side: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dirStub, "schema.size")); !os.IsNotExist(err) {
+		t.Fatal("refused prep still wrote a schema.size sidecar")
+	}
+
+	// Default mode: no schema anywhere, and the report says so.
+	dir2 := t.TempDir()
+	brief2, _, _, err := AgentPrep(bin, dir2, false, false, "basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b2, _ := os.ReadFile(brief2)
+	if strings.Contains(string(b2), "inputSchema") {
+		t.Fatal("default brief gained the tools/list payload — the name-only default flipped")
+	}
+	if _, err := os.Stat(filepath.Join(dir2, "schema.size")); !os.IsNotExist(err) {
+		t.Fatal("default prep wrote a schema.size sidecar")
+	}
+	if out, err := exec.Command(filepath.Join(dir2, "meter.sh"), "call", "-root", dir2, "state", "{}").CombinedOutput(); err != nil {
+		t.Fatalf("metered call: %v: %s", err, out)
+	}
+	sc2, err := ScoreAgentRun(bin, dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc2.SchemaBytes != 0 {
+		t.Fatalf("default run scored SchemaBytes = %d, want 0", sc2.SchemaBytes)
+	}
+	rep2 := AgentReport(sc2)
+	if !strings.Contains(rep2, "agent brief-mode name-only") {
+		t.Fatalf("default report is not labeled name-only — an unlabeled batch is worse than no batch:\n%s", rep2)
+	}
+	if strings.Contains(rep2, "with-schema") {
+		t.Fatalf("default report claims the with-schema regime:\n%s", rep2)
 	}
 }
 
@@ -368,7 +549,7 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, _, err := AgentPrep(bin, dir, false, "tricky")
+	brief, shim, _, err := AgentPrep(bin, dir, false, false, "tricky")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +603,7 @@ func TestTrickyScenarioPrepAndScore(t *testing.T) {
 
 	// Rule-only workspace: invalid, decide and task goals absent.
 	dir2 := t.TempDir()
-	_, shim2, _, err := AgentPrep(bin, dir2, false, "tricky")
+	_, shim2, _, err := AgentPrep(bin, dir2, false, false, "tricky")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +641,7 @@ func TestMeterTamperDetection(t *testing.T) {
 
 	prep := func() (dir, shim string) {
 		d := t.TempDir()
-		_, sh, _, err := AgentPrep(bin, d, false, "basic")
+		_, sh, _, err := AgentPrep(bin, d, false, false, "basic")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -554,7 +735,7 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	brief, shim, _, err := AgentPrep(bin, dir, false, "worktree")
+	brief, shim, _, err := AgentPrep(bin, dir, false, false, "worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -617,7 +798,7 @@ func TestWorktreeScenarioPrepAndScore(t *testing.T) {
 
 	// The cheat: direct edit on main, no work calls — flow must fail it.
 	dir2 := t.TempDir()
-	_, shim2, _, err := AgentPrep(bin, dir2, false, "worktree")
+	_, shim2, _, err := AgentPrep(bin, dir2, false, false, "worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +836,7 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	_, shim, nonce1, err := AgentPrep(bin, dir, false, "basic")
+	_, shim, nonce1, err := AgentPrep(bin, dir, false, false, "basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -689,7 +870,7 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 
 	// ...and a re-prep (fresh nonce, consistent workspace) is caught ONLY
 	// by the anchor: every in-workspace check sees a coherent picture.
-	if _, _, nonce2, err := AgentPrep(bin, dir, false, "basic"); err != nil {
+	if _, _, nonce2, err := AgentPrep(bin, dir, false, false, "basic"); err != nil {
 		t.Fatal(err)
 	} else if nonce2 == nonce1 {
 		t.Fatal("re-prep kept the nonce — the anchor would be meaningless")
@@ -703,5 +884,113 @@ func TestShimGuardAndNonceAnchor(t *testing.T) {
 	}
 	if !sc2.Disqualified || !strings.Contains(sc2.DisqualifyReason, "anchor") {
 		t.Fatalf("re-prep not caught by the anchor:\n%s", AgentReport(sc2))
+	}
+}
+
+// TestSchemaMeteringIsRealAndInert pins both halves of the tools/list metering
+// (B-01KYS711ZFFG0), and each half is a bug this function actually had.
+//
+// The first: the metering must return a real measurement, not 0. Closing stdin
+// before reading ends the session before the server writes anything, so the
+// first version silently reported 0 and the schema line vanished from the report
+// entirely — a metric that is absent looks exactly like a metric that is zero.
+//
+// The second half of this test is deliberately WEAKER than it first looks, and
+// says so rather than implying otherwise. Serving against the FIXTURE dir
+// scaffolds records into it and moved the per-call total 3039B -> 3081B, so the
+// act of measuring changed the number measured. But comparing two Run calls
+// cannot catch that: each Run builds its own fresh fixture, so the perturbation
+// happens identically in both and the totals still agree — verified by mutation,
+// which this test does NOT kill. What actually prevents it is the signature:
+// schemaBytes takes no workspace root, so it has nothing to perturb, and
+// reintroducing the bug requires changing the signature in a way a reader sees.
+// That assertion is GONE, and its removal is the second lesson here. It claimed
+// the scripted total does not wander between runs. It does: each Run mints fresh
+// record IDs, and a same-millisecond pair can need a longer disambiguating
+// prefix (see internal/ids), which shifts rendered byte totals. It passed ~30
+// local runs and failed on a loaded CI runner at 4162B vs 4168B, blocking an
+// unrelated archive. So it asserted a property the program does not have, in
+// service of a guarantee it could not check either way.
+//
+// What remains below asserts what IS stable: the schema and manifest sizes.
+// Neither carries a record ID — schemaBytes uses its own throwaway root, and
+// manifest() is a compile-time const plus a defect-report paragraph whose URL
+// comes from the MODULE PATH (debug.ReadBuildInfo's bi.Main.Path). It never
+// reads bi.Main.Version, so the size does not move with how the binary was
+// built: measured 4299B under plain `go build`, under -buildvcs=false, and
+// under -ldflags injecting a fake version.
+//
+// That measurement is here because two earlier versions of this sentence were
+// wrong. "Static text" was imprecise (ReadBuildInfo is a runtime call), and the
+// correction was worse — it claimed manifest bytes swing with the version and
+// cited BENCH-001. They do not, and BENCH-001's incident is the VERSION LINE in
+// the render, a different metric. A precise-sounding sentence that invents a
+// mechanism is harder to catch than a vague one, so this states what was
+// measured rather than what sounds right.
+//
+// Mutation-verified: making SchemaBytes vary between calls fails it.
+func TestSchemaMeteringIsRealAndInert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	bin := t.TempDir() + "/spx"
+	cmd := exec.Command("go", "build", "-o", bin, "../..")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+
+	// Half one: a real measurement. The floor is deliberately loose — this
+	// asserts "metered at all", not a byte count that every schema edit would
+	// have to chase. tools/list carries a dozen tools with descriptions and
+	// input schemas, so anything under 4KB means the read failed.
+	got := schemaBytes(bin)
+	if got < 4096 {
+		t.Errorf("schemaBytes = %d; the tools/list read failed and the metric is silently absent", got)
+	}
+	// It must also be the largest per-session cost, which is the whole reason
+	// this field exists: the manifest line presented itself as THE session cost
+	// while being a fraction of it.
+	man, err := exec.Command(bin, "manifest").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A floor RELATIVE to the manifest, not merely above it. The looser check
+	// let a verifier's mutation through: metering the initialize response
+	// instead of tools/list reports 4598B, which still clears a bare
+	// "> manifest" test because initialize is mostly the manifest text plus an
+	// envelope. Schema is measured at ~4.7x the manifest, so 2x is a wide
+	// margin that still refuses the wrong response outright.
+	if got <= 2*len(man) {
+		t.Errorf("schema %dB is not comfortably above 2x manifest %dB — this is what metering the WRONG response line looks like (initialize is mostly manifest text)", got, len(man))
+	}
+
+	// Half two: Run carries the measurement at all. NOT a reproducibility check
+	// — the per-call total is legitimately NOT byte-stable across runs, because
+	// each Run mints fresh record IDs and the adaptive shortener picks a prefix
+	// width from what is unambiguous in that workspace, so two runs can render
+	// IDs of different widths. An earlier version of this test asserted equality
+	// and passed locally, then failed on a loaded CI runner at 4162B vs 4168B.
+	// It was asserting a property the program does not have.
+	//
+	// It also never pinned what it claimed: a verifier showed by mutation that
+	// comparing two Runs cannot detect the metering perturbing its fixture,
+	// since each Run builds its own. The real protection is the signature —
+	// schemaBytes takes no workspace root, so it has nothing to perturb. The
+	// schema and manifest figures ARE stable, because they carry no record IDs.
+	a, err := Run(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Run(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SchemaBytes != b.SchemaBytes || a.ManifestBytes != b.ManifestBytes {
+		t.Errorf("session measurements are not stable: schema %d/%d, manifest %d/%d — these carry no record IDs and must not wander",
+			a.SchemaBytes, b.SchemaBytes, a.ManifestBytes, b.ManifestBytes)
+	}
+	if a.SchemaBytes == 0 || b.SchemaBytes == 0 {
+		t.Errorf("Run did not carry the schema measurement: %d, %d", a.SchemaBytes, b.SchemaBytes)
 	}
 }

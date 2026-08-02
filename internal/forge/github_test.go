@@ -377,12 +377,23 @@ func TestTransportRetryNetworkError(t *testing.T) {
 // must read Pending while workflows exist, or the await after the ready flip
 // would merge untested work on the strength of runs that deliberately did
 // nothing (B-01KYDN's predecessor-verdict defect in a new costume).
-func TestGitHubChecksAllSkippedIsPendingWithCI(t *testing.T) {
+// TestGitHubChecksAllSkippedIsUnavailableWithCI: every run concluded, and
+// every conclusion was skipped. That is not Passing (skipped tested nothing)
+// and it is not Pending either — Pending promises that waiting resolves it,
+// and nothing is in flight to resolve. It is Unavailable: only an event (the
+// PR leaving draft, a new push) can produce a verdict for this head.
+//
+// This test previously asserted ChecksPending, and that assertion is what made
+// every done edge poll to its deadline for a verdict that could not arrive
+// (B-01KYZB4QA9FF4). The distinguishing case is
+// TestGitHubChecksInFlightRunStaysPending below: keep both, because the whole
+// value of the split is that these two inputs answer differently.
+func TestGitHubChecksAllSkippedIsUnavailableWithCI(t *testing.T) {
 	for _, tc := range []struct {
 		workflows string
 		want      CheckState
 	}{
-		{`{"workflows":[{"state":"active"}]}`, ChecksPending},
+		{`{"workflows":[{"state":"active"}]}`, ChecksUnavailable},
 		{`{"workflows":[]}`, ChecksNone},
 	} {
 		g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
@@ -397,6 +408,28 @@ func TestGitHubChecksAllSkippedIsPendingWithCI(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Fatalf("all-skipped with workflows=%s: %s, %v; want %s", tc.workflows, got, err, tc.want)
 		}
+	}
+}
+
+// TestGitHubChecksInFlightRunStaysPending is the other half of the
+// Pending/Unavailable split: a run that has NOT reached "completed" is coming,
+// so the caller must still spend its budget waiting. If this ever answers
+// Unavailable, the archive gate stops waiting for real CI and merges on the
+// first poll — far worse than the stall the split was introduced to remove.
+// The skipped sibling is present deliberately: a mixed head must be read by
+// the in-flight run, not by the concluded one.
+func TestGitHubChecksInFlightRunStaysPending(t *testing.T) {
+	g := newTestGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if strings.Contains(r.URL.Path, "/actions/workflows") {
+			w.Write([]byte(`{"workflows":[{"state":"active"}]}`))
+			return
+		}
+		w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"skipped"},{"status":"in_progress","conclusion":""}]}`))
+	})
+	got, err := g.Checks(PR{Number: 1, Branch: "b"})
+	if err != nil || got != ChecksPending {
+		t.Fatalf("in-flight run among skipped: %s, %v; want pending", got, err)
 	}
 }
 

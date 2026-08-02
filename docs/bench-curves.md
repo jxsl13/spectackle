@@ -18,6 +18,7 @@ numbers a text change is compared against.
 |---|---|---|
 | `basic` | task drafted → archived; bug drafted → rejected with note; check ok | `find scope=history` / `scope=rejection`, check taxonomy |
 | `basic -with-manifest` | same, with the connect-time manifest prepended to the brief (simulates an MCP session; manifest bytes reported as a separate session line) | as basic + `manifest.size` sidecar |
+| `basic -with-schema` | same, with the verbatim `tools/list` payload — every tool description and input schema, ~20KB — prepended to the brief, so the schema surface has a measurable BENEFIT side and not only the measured cost (T-01KYSPFXHNFZ7) | as basic + `schema.size` sidecar; the report's `brief-mode` line names the regime |
 | `tricky` | rule with slots under the W001 lint; reopen loop until the server side-steps to blocked; decide `rescope` exit so the task ends draft; check E-free | `find scope=rule`, live state listing, decide-answer call in the meter |
 | `worktree` | code change delivered through `work start` → edit under the reported root → `submit` (cross-process reattach); task ends done; check E-free | file content on disk, live listing, exit-0 `work start`+`submit` calls in the meter (`flow=` — a direct edit on main scores invalid) |
 
@@ -29,6 +30,11 @@ anchored command, all-valid gate. Bytes are the tool-output diet
 separate per-session figure. Run-to-run noise floor on identical builds:
 ±2B per scripted A/B run; judge batches carry real variance — quote
 spreads, never single runs.
+
+Every curve below was measured NAME-ONLY — the judge received tool names
+without descriptions — so none of them is comparable to a `-with-schema`
+batch, which hands the agent ~20KB more context before its first call; read
+the `agent brief-mode` line on any batch before setting it beside these rows.
 
 <!-- BASELINE-TABLE: filled from the anchored regression batch of the day
      this document landed; update whenever a text change moves a curve,

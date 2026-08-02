@@ -1,11 +1,13 @@
 package mcpserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/knowledge"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
@@ -155,6 +158,49 @@ func TestKnowledgeExportBrownfieldRejectsMalformed(t *testing.T) {
 	})
 	if !strings.HasPrefix(out, "! ARG E -") {
 		t.Fatalf("malformed brownfield entry should reject: %q", out)
+	}
+}
+
+// TestKnowledgeEntryRefusesUnrenderableDir is the knowledge sibling of the
+// draft/rule/bench dir guards (B-01KYRN4VBEEXQ). knowledgeEntryIn.Dir is
+// caller-supplied and reaches knowledge.Provenance verbatim, so a newline in
+// it splits a rendered artifact line in two — the artifact is the portable
+// record grammar another workspace parses. The "../" form is refused on the
+// same argument for the same reason it is everywhere else.
+//
+// Deliberately unrelated to the internal spec.AuthorReq{Dir: ""} call this
+// package makes elsewhere: that one supplies its own value and no caller can
+// reach it.
+func TestKnowledgeEntryRefusesUnrenderableDir(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, dir := range []string{"a\nb", "../kescape"} {
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "knowledge", Arguments: map[string]any{
+				"op": "export",
+				"entries": []map[string]any{
+					{"kind": "rule", "dir": dir, "text": "The system SHALL log to stderr only."},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("transport: %v", err)
+		}
+		if !res.IsError {
+			t.Fatalf("knowledge export accepted entry dir %q", dir)
+		}
+		tc, ok := res.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content is %T, want TextContent", res.Content[0])
+		}
+		if !strings.Contains(tc.Text, "! ARG E") || !strings.Contains(tc.Text, "dir") {
+			t.Fatalf("refusal must name the dir argument: %q", tc.Text)
+		}
+		// The refusal must not itself carry the caller's line break into the
+		// record grammar the agent parses.
+		if got := len(strings.Split(strings.TrimRight(tc.Text, "\n"), "\n")); got != 1 {
+			t.Fatalf("the refusal spans %d lines: %q", got, tc.Text)
+		}
 	}
 }
 
@@ -1078,5 +1124,385 @@ func TestRoundsExhaustedRefusesInsteadOfReportingSuccess(t *testing.T) {
 	}
 	if got := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "rescope"}); strings.Contains(got, "! ") {
 		t.Fatalf("the handed-back call must work: %q", got)
+	}
+}
+
+// TestStatusFromOutsideIsValidated: item.Item.Status was a bare string whose
+// enum lived only in a doc comment and a jsonschema DESCRIPTION, neither of
+// which validates. The exposure was not a caller typo but an IMPORTED
+// artifact: the ADR-apply path assigned d.Status = e.Status straight from
+// another repository's entry, so a foreign artifact could inject any string —
+// including "superseded", which is a consequence of a replacement and not a
+// claim an artifact is in a position to make (B-01KYNA4PJNF5K).
+func TestStatusFromOutsideIsValidated(t *testing.T) {
+	artifact := func(status string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" +
+			"## adr 2222222222222222\nquestion: which serialization?\ndecision: protobuf\n" +
+			"status: " + status + "\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n"
+	}
+
+	t.Run("a bogus status does not poison the workspace", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("totally-made-up")})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "not adoptable") {
+			t.Fatalf("an invalid imported status must be refused:\n%s", out)
+		}
+		// and the refusal names the legal set, so the caller learns it
+		for _, want := range item.Statuses() {
+			if !strings.Contains(out, want) {
+				t.Fatalf("the refusal must name %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("superseded is refused even though it is a legal value", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("superseded")})
+		if !strings.Contains(out, "! ARG E") {
+			t.Fatalf("an artifact may not assert superseded:\n%s", out)
+		}
+		// the refusal must say WHY, so the caller learns the rule rather than
+		// just being blocked by it
+		if !strings.Contains(out, "replacement this workspace does not have") {
+			t.Fatalf("the refusal must say why, not just no:\n%s", out)
+		}
+	})
+
+	t.Run("the legal values still apply", func(t *testing.T) {
+		for _, st := range []string{"proposed", "accepted", "deprecated"} {
+			sess := connectRoot(t, t.TempDir())
+			out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact(st)})
+			if strings.Contains(out, "! ARG E") {
+				t.Fatalf("status %q must be accepted: %s", st, out)
+			}
+		}
+	})
+
+	t.Run("a refusal leaves NO stray record behind", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		before := callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"})
+		out := callText(t, sess, "knowledge", map[string]any{"op": "apply", "body": artifact("superseded")})
+		if !strings.Contains(out, "! ARG E") {
+			t.Fatalf("setup: expected a refusal:\n%s", out)
+		}
+		// lifecycle.Draft persists and journals, so a check placed AFTER it
+		// left a permanent content-less ADR — which an export then re-emitted
+		// and a third workspace promoted to a full accepted ADR. The guard
+		// meant to keep bad data out was manufacturing worse data.
+		after := callText(t, sess, "find", map[string]any{"q": "serialization", "scope": "adr"})
+		if after != before {
+			t.Fatalf("a refused apply must mint nothing:\nbefore: %q\nafter:  %q", before, after)
+		}
+		if st := callText(t, sess, "state", map[string]any{}); strings.Contains(st, "adr ") {
+			t.Fatalf("a refused apply left a stray record in state:\n%s", st)
+		}
+	})
+
+	t.Run("export MAY assert superseded — the asymmetry is deliberate", func(t *testing.T) {
+		// Exporting says "this repository's decision is superseded", a true
+		// fact about the source recorded against Entry.Sources. Importing the
+		// same value would say it about the IMPORTER, which holds no
+		// replacement record. Describing your own history and adopting
+		// someone else's claim are different acts, so export allows what
+		// apply refuses. Pinned so nobody "fixes" the asymmetry away.
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{
+			"op": "export",
+			"entries": []map[string]any{{
+				"kind": "adr", "question": "which serialization?", "decision": "protobuf",
+				"status": "superseded",
+			}},
+		})
+		if strings.Contains(out, "! ARG E") {
+			t.Fatalf("export must be able to state its own superseded history:\n%s", out)
+		}
+		if !strings.Contains(out, "status: superseded") {
+			t.Fatalf("the exported artifact must carry the status verbatim:\n%s", out)
+		}
+	})
+
+	t.Run("the caller-authored export path is guarded too", func(t *testing.T) {
+		sess := connectRoot(t, t.TempDir())
+		out := callText(t, sess, "knowledge", map[string]any{
+			"op": "export",
+			"entries": []map[string]any{{
+				"kind": "adr", "question": "q?", "decision": "d", "status": "nonsense",
+			}},
+		})
+		if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "status") {
+			t.Fatalf("a caller-authored entry's status must be validated:\n%s", out)
+		}
+	})
+}
+
+// TestEmptyQueryEnumeratesInsteadOfLying: find with an empty q reached
+// cache.Search, which answers (nil, nil) for one, and the result rendered as
+// `ok no matches` — a SUCCESSFUL call carrying a false answer on a workspace
+// that had 96 rules. An independent judge called this the worst issue of its
+// run: not a refusal and not an error, so the caller learns nothing and
+// believes something untrue (B-01KYR01E2VFEF).
+func TestEmptyQueryEnumeratesInsteadOfLying(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+	for _, stem := range []string{"ALPHA", "BETA"} {
+		out := callText(t, sess, "rule", map[string]any{
+			"op": "add", "pattern": "U", "stem": stem, "dir": ".",
+			"system":   "the " + strings.ToLower(stem) + " module",
+			"response": "return exactly 1 result",
+		})
+		if !strings.Contains(out, "ok "+stem+"-001") {
+			t.Fatalf("setup %s: %q", stem, out)
+		}
+	}
+
+	// the lie: an empty q on a workspace that HAS rules
+	out := callText(t, sess, "find", map[string]any{"scope": "rule"})
+	if strings.Contains(out, "no matches") {
+		t.Fatalf("a workspace with rules must not answer 'no matches':\n%s", out)
+	}
+	for _, want := range []string{"ALPHA-001", "BETA-001"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("enumeration must list %s:\n%s", want, out)
+		}
+	}
+
+	// an unscoped empty query refuses and names what CAN be enumerated,
+	// rather than enumerating everything and burning budget
+	un := callText(t, sess, "find", map[string]any{})
+	if !strings.Contains(un, "! ARG E") || !strings.Contains(un, "rule") {
+		t.Fatalf("an unscoped empty query must refuse with the enumerable set:\n%s", un)
+	}
+	if strings.Contains(un, "ALPHA-001") {
+		t.Fatalf("it must not enumerate everything:\n%s", un)
+	}
+
+	// a genuinely empty scope still says so TRUTHFULLY
+	if got := callText(t, sess, "find", map[string]any{"scope": "bug"}); !strings.Contains(got, "no ") {
+		t.Fatalf("an empty scope must still report emptiness: %q", got)
+	}
+
+	// enumeration is newest-first and stable, so a bounded k surfaces recent
+	// records rather than always the same oldest ones (the validator's point:
+	// a default k=8 over 96 rules that only ever shows the oldest 8 is close
+	// to useless however the corpus grows)
+	first := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1})
+	if !strings.Contains(first, "BETA-001") {
+		t.Fatalf("k=1 must surface the newest record, not the oldest:\n%s", first)
+	}
+	if again := callText(t, sess, "find", map[string]any{"scope": "rule", "k": 1}); again != first {
+		t.Fatalf("enumeration order must be stable across calls:\n%q\n%q", first, again)
+	}
+
+	// and matching is unchanged — no cost to a caller who passes a query
+	if got := callText(t, sess, "find", map[string]any{"q": "alpha", "scope": "rule"}); !strings.Contains(got, "ALPHA-001") {
+		t.Fatalf("a real query must still match: %q", got)
+	}
+	if got := callText(t, sess, "find", map[string]any{"q": "nothingmatchesthis", "scope": "rule"}); !strings.Contains(got, "no matches") {
+		t.Fatalf("a query with no hits must still say no matches: %q", got)
+	}
+}
+
+// ---- B-01KYRVXQ02FDH: the artifact and the record lines share one stream ----
+
+// reReportedLine catches BOTH coordinate shapes a refusal on artifact input
+// can carry: the raw yaml scanner's `line N`, and the record-block
+// refusal's `lines N-M` range. Every number either shape reports has to
+// resolve against the bytes the CALLER supplied — that is the whole point
+// of B-01KYRVXQ02FDH, whose original message named `line 6`, a coordinate
+// in the failing entry's private numbering that pointed, in the caller's
+// own input, at the front-matter fence.
+var reReportedLine = regexp.MustCompile(`lines? (\d+)(?:-(\d+))?`)
+
+// isRecordLine mirrors the dense-record convention every tool here shares
+// (docs/tools.md): `ok ` for a success trailer, `x ` for a per-item
+// exception record.
+func isRecordLine(s string) bool {
+	return strings.HasPrefix(s, "ok ") || strings.HasPrefix(s, "x ")
+}
+
+// reportedLines returns every line coordinate a result names, ascending.
+func reportedLines(t *testing.T, result string) []int {
+	t.Helper()
+	var out []int
+	for _, m := range reReportedLine.FindAllStringSubmatch(result, -1) {
+		for _, g := range m[1:] {
+			if g == "" {
+				continue
+			}
+			n, err := strconv.Atoi(g)
+			if err != nil {
+				t.Fatalf("unparsable line coordinate %q in %q", g, result)
+			}
+			out = append(out, n)
+		}
+	}
+	sort.Ints(out)
+	return out
+}
+
+// assertNamesOnlyRecordLines is the gate-level assertion B-01KYRVXQ02FDH
+// asks for: whatever coordinates the refusal reports, each one must index a
+// real line of the caller's input AND that line must be one of the record
+// lines the caller accidentally piped in. A coordinate that lands on valid
+// artifact content is the defect, whether the number is out of range or
+// merely wrong.
+func assertNamesOnlyRecordLines(t *testing.T, result, input string) {
+	t.Helper()
+	inLines := strings.Split(input, "\n")
+	nums := reportedLines(t, result)
+	if len(nums) == 0 {
+		t.Fatalf("refusal names no line coordinate at all, so the caller cannot locate the problem: %q", result)
+	}
+	for _, n := range nums {
+		if n < 1 || n > len(inLines) {
+			t.Fatalf("refusal names line %d, but the caller's input has only %d lines: %q", n, len(inLines), result)
+		}
+		if !isRecordLine(inLines[n-1]) {
+			t.Fatalf("refusal names line %d, which in the caller's input is %q — valid artifact content, not the record line at fault: %q",
+				n, inLines[n-1], result)
+		}
+	}
+}
+
+// assertPipedBackIsDiagnosed pins the acceptable outcomes of feeding a
+// tool result that carries record lines back into apply: either it just
+// works, or the refusal names the trailing record block BY NAME and every
+// coordinate in it resolves in the caller's coordinate system. What is not
+// acceptable is the third outcome the bug produced — a raw yaml complaint
+// about a line the caller looks up and finds nothing wrong with.
+func assertPipedBackIsDiagnosed(t *testing.T, result, input string) {
+	t.Helper()
+	if !strings.HasPrefix(result, "! ") {
+		if !strings.Contains(result, "ok applied") {
+			t.Fatalf("piping export output into apply neither refused nor applied: %q", result)
+		}
+		return
+	}
+	if !strings.Contains(result, "ok export entries=") {
+		t.Fatalf("refusal does not quote the trailing record line it choked on: %q", result)
+	}
+	if !strings.Contains(result, "record line") {
+		t.Fatalf("refusal does not identify the trailing content AS record lines: %q", result)
+	}
+	assertNamesOnlyRecordLines(t, result, input)
+}
+
+// TestExportOutputPipesIntoApply pins B-01KYRVXQ02FDH on the export→apply
+// composition, over BOTH transports (inline body and a file via path).
+//
+// The workspace is deliberately non-empty: with zero entries the artifact
+// has no `## ` heading at all, the trailing `ok export ...` line lands
+// outside every entry block, and Parse's heading loop skips it — so the
+// empty case cannot fail and would make this test vacuous.
+//
+// BEFORE the fix the body route returned
+// `! ARG E - parse body: knowledge: entry rule <key>: yaml: line 6: could
+// not find expected ':'` — and line 6 of what the caller sent is the
+// front-matter fence `---`.
+func TestExportOutputPipesIntoApply(t *testing.T) {
+	src := t.TempDir()
+	srcSess := connectRoot(t, src)
+
+	callText(t, srcSess, "rule", map[string]any{
+		"op": "add", "pattern": "U", "stem": "PIPE",
+		"system": "the export path", "response": "survive a round trip through apply",
+	})
+	callText(t, srcSess, "decide", map[string]any{
+		"op": "ask", "question": "how should retries work?",
+		"kind": "text", "context": "jobs fail transiently",
+	})
+	callText(t, srcSess, "decide", map[string]any{
+		"op": "answer", "id": "ADR-0001", "choose": "retry up to 3 times with backoff",
+		"consequences": "slightly higher tail latency",
+	})
+
+	out := callText(t, srcSess, "knowledge", map[string]any{"op": "export"})
+	if !strings.Contains(out, "ok export entries=") {
+		t.Fatalf("export did not emit its record line, the fixture is wrong: %q", out)
+	}
+
+	// 1. the inline route: the caller pastes what export printed.
+	dst := t.TempDir()
+	assertPipedBackIsDiagnosed(t,
+		callText(t, connectRoot(t, dst), "knowledge", map[string]any{"op": "apply", "body": out}),
+		out)
+
+	// 2. the file route: the caller redirects what export printed into a
+	// file and applies that. Same bytes, same contract.
+	dst2 := t.TempDir()
+	p := writeTempArtifact(t, t.TempDir(), "piped.md", []byte(out))
+	assertPipedBackIsDiagnosed(t,
+		callText(t, connectRoot(t, dst2), "knowledge", map[string]any{"op": "apply", "path": p}),
+		out)
+}
+
+// TestMergeOutputPipesIntoMerge pins the OTHER face of B-01KYRVXQ02FDH,
+// which a line-number fix alone does not reach: when the record lines land
+// where no `## ` heading precedes them, Parse's heading loop `continue`s
+// straight past them and reports NO error at all. Measured before the fix:
+// piping a conflicting merge's own output back into merge exited 0 with
+// `ok merge sources=0 entries=0 conflicts=0` — three record lines, two of
+// them the conflicts a human still has to adjudicate, silently dropped.
+//
+// The conflicting shape also pins the RUN, not just the last line: merge
+// prints one `x` record per competing entry BEFORE its `ok` trailer, so a
+// message naming only the final line walks the caller into a second,
+// different failure.
+func TestMergeOutputPipesIntoMerge(t *testing.T) {
+	root := t.TempDir()
+	sess := connectRoot(t, root)
+
+	q := "how should retries work?"
+	mk := func(repo, decision string) []byte {
+		t.Helper()
+		a := knowledge.Artifact{Sources: []string{repo}, Entries: []knowledge.Entry{
+			{Kind: knowledge.KindADR, Question: q, Decision: decision, Count: 1,
+				Sources: []knowledge.Provenance{{Source: repo}}, Key: drift.NormHash([]byte(q))},
+		}}
+		raw, err := knowledge.Marshal(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	pathA := writeTempArtifact(t, root, "a.md", mk("acme/repoA", "retry 3 times"))
+	pathB := writeTempArtifact(t, root, "b.md", mk("acme/repoB", "retry once, then give up"))
+
+	out := callText(t, sess, "knowledge", map[string]any{"op": "merge", "paths": []string{pathA, pathB}})
+	if n := strings.Count(out, "x adr "); n != 2 {
+		t.Fatalf("fixture must produce 2 conflict records before the ok trailer, got %d: %q", n, out)
+	}
+	if !strings.Contains(out, "ok merge sources=") {
+		t.Fatalf("fixture is wrong, no merge trailer: %q", out)
+	}
+
+	res := callText(t, sess, "knowledge", map[string]any{"op": "merge", "body": out})
+	// Assert the ACTION, not the wording: before the fix this call
+	// SUCCEEDED and swallowed the records, which no message assertion
+	// would have caught.
+	if !strings.HasPrefix(res, "! ") {
+		t.Fatalf("merge accepted its own output with the record lines still attached instead of refusing: %q", res)
+	}
+	if n := strings.Count(res, "x adr "); n != 2 {
+		t.Fatalf("refusal must name BOTH x records of the trailing block, found %d: %q", n, res)
+	}
+	if !strings.Contains(res, "ok merge sources=") {
+		t.Fatalf("refusal must name the ok trailer of the trailing block: %q", res)
+	}
+	assertNamesOnlyRecordLines(t, res, out)
+
+	// the named range must START at the first record line of the run: a
+	// refusal naming only the final line is the failure this test exists
+	// to prevent.
+	inLines := strings.Split(out, "\n")
+	nums := reportedLines(t, res)
+	lo, hi := nums[0], nums[len(nums)-1]
+	if lo >= 2 && isRecordLine(inLines[lo-2]) {
+		t.Fatalf("refusal starts the block at line %d, but line %d (%q) is a record line too: %q",
+			lo, lo-1, inLines[lo-2], res)
+	}
+	if hi-lo+1 != 3 {
+		t.Fatalf("trailing block is 2 x records + 1 ok trailer = 3 lines, refusal spans %d (%d-%d): %q",
+			hi-lo+1, lo, hi, res)
 	}
 }

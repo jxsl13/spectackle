@@ -166,11 +166,23 @@ exit $rc
 // scorer can report the session-shaped cost next to the tool diet
 // (T-01KYE3X: whether connect-time guidance BUYS anything is measured, not
 // assumed). Without the flag the brief is byte-identical to before.
+//
+// withSchema does the same for the OTHER half of a real session's
+// connect-time cost: it prepends the verbatim tools/list payload — every
+// tool's description and input schema, ~20KB of it — and records its size in
+// a schema.size sidecar (T-01KYSPFXHNFZ7). Until this existed the judge was
+// handed tool NAMES ONLY, so the schema surface had a measured cost and no
+// measurable benefit: nothing could show whether a description earns its
+// bytes by preventing a wrong call. Both flags default OFF because the
+// reference curves in docs/bench-curves.md were all produced name-only, and
+// a batch that silently changed regime would destroy the only longitudinal
+// data this repository has about its own surface.
+//
 // The returned nonce is the orchestrator's out-of-band anchor (B-01KYEA):
 // every in-workspace artifact can be rewritten consistently by a re-prep,
 // so the only evidence a reset cannot forge is a value held OUTSIDE the
 // workspace since prep time — record it, and pass it back to the scorer.
-func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, shimPath, nonce string, err error) {
+func AgentPrep(bin, dir string, withManifest, withSchema bool, scenario string) (briefPath, shimPath, nonce string, err error) {
 	if err := Fixture(dir); err != nil {
 		return "", "", "", err
 	}
@@ -188,7 +200,7 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 	// clean. Written before the judge's first call, appended not clobbered.
 	harnessIgnore := "# spectackle bench harness artifacts — never fixture content\n" +
 		"meter.log\ntranscript.log\nmeter.sh\nbrief.md\njournal.baseline\n" +
-		"trap.hash\nscenario\nmanifest.size\nmeter.log.lock/\n"
+		"trap.hash\nscenario\nmanifest.size\nschema.size\nmeter.log.lock/\n"
 	gi := filepath.Join(dir, ".gitignore")
 	existing, _ := os.ReadFile(gi)
 	if err := os.WriteFile(gi, append(existing, []byte(harnessIgnore)...), 0o644); err != nil {
@@ -262,6 +274,31 @@ func AgentPrep(bin, dir string, withManifest bool, scenario string) (briefPath, 
 		}
 	default:
 		return "", "", "", fmt.Errorf("bench agent-prep: unknown scenario %q (basic|tricky|worktree|outcome|outcome-ask)", scenario)
+	}
+	// Schema BEFORE manifest here, deliberately: both branches PREPEND, so the
+	// last one to run ends up on top. A real session reads the manifest at
+	// initialize and only then asks for tools/list, so the file must read
+	// manifest-then-schema — which means the schema block has to prepend first.
+	// Pinned in TestAgentPrepWithSchema, because the natural reading order of
+	// this function is the opposite of the resulting file order.
+	if withSchema {
+		payload, n := toolsListPayload(bin)
+		// An unmeterable side must not be silently reported as zero bytes
+		// (the discipline toolsListPayload's doc states). Zero here means the
+		// probe failed, and a "with-schema" run whose brief carries no schema
+		// would be scored against name-only history as if it did.
+		if n == 0 {
+			return "", "", "", fmt.Errorf("bench agent-prep: tools/list payload not metered (0 bytes) — refusing to prep an unlabeled with-schema run")
+		}
+		// VERBATIM, not rendered: injected bytes == sidecar bytes == what a
+		// real session pays. Any prettifying here would silently decouple the
+		// three, and the mode exists precisely to make them one number.
+		brief = "Connect-time tool schemas (the tools/list payload an MCP session receives, verbatim):\n\n" +
+			payload + "\n\n---\n\n" + brief
+		if err := os.WriteFile(filepath.Join(dir, "schema.size"),
+			fmt.Appendf(nil, "%d\n", n), 0o644); err != nil {
+			return "", "", "", err
+		}
 	}
 	if withManifest {
 		out, err := exec.Command(bin, "manifest").Output()
@@ -373,6 +410,14 @@ type AgentScore struct {
 	// diets, and folding a per-session constant into them would blur
 	// exactly the wandering signal they exist to show.
 	ManifestBytes int
+	// SchemaBytes is the tools/list payload's size when the run was prepped
+	// -with-schema (read from the schema.size sidecar), zero otherwise — and
+	// zero is what the report renders as brief-mode name-only. Kept OUT of
+	// Bytes for the same reason ManifestBytes is: it is a per-SESSION
+	// constant, and folding it into the per-call diet would blur the
+	// wandering signal the aggregate spreads exist to show
+	// (T-01KYSPFXHNFZ7).
+	SchemaBytes int
 	// Scenario is "basic" or "tricky" (from the scenario sidecar); RuleOK
 	// is the tricky rule goal, DecideOK the tricky decide-answer proof.
 	Scenario string
@@ -519,6 +564,16 @@ func ScoreAgentRunAnchored(bin, dir, expectedNonce string) (AgentScore, error) {
 			sc.ManifestBytes = n
 		}
 	}
+	// schema.size, like manifest.size, is an in-workspace sidecar with no
+	// nonce or journal coverage: an agent that deletes it downgrades its own
+	// report to name-only rather than tripping a tamper check. Stated, not
+	// hidden — the anchor that cannot be forged is the nonce, and the mode
+	// label is evidence about the harness, not about the agent.
+	if raw, err := os.ReadFile(filepath.Join(dir, "schema.size")); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil {
+			sc.SchemaBytes = n
+		}
+	}
 
 	checkOut, _, err := callOnce(bin, dir, "check", "{}")
 	if err != nil {
@@ -605,8 +660,22 @@ func scoreTricky(bin, dir string, sc AgentScore, meterRaw string) (AgentScore, e
 func AgentReport(sc AgentScore) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "agent calls=%d bytes=%d ~%d tokens\n", sc.Calls, sc.Bytes, sc.Tokens)
-	if sc.ManifestBytes > 0 {
-		fmt.Fprintf(&b, "agent session=%dB (manifest %d + tools %d)\n", sc.ManifestBytes+sc.Bytes, sc.ManifestBytes, sc.Bytes)
+	// UNCONDITIONAL, and that is the whole point (T-01KYSPFXHNFZ7): a batch
+	// whose regime is unlabeled is worse than no batch, because it will be
+	// compared against name-only reference curves it is not comparable to. A
+	// conditional line would label only the new mode and leave every
+	// historical-regime run silent about being one.
+	if sc.SchemaBytes > 0 {
+		fmt.Fprintf(&b, "agent brief-mode with-schema schema=%dB\n", sc.SchemaBytes)
+	} else {
+		b.WriteString("agent brief-mode name-only\n")
+	}
+	// Gated on EITHER sidecar: gated on the manifest alone, a -with-schema run
+	// would never render the session line at all, which is the one line that
+	// says what the session actually paid.
+	if sc.ManifestBytes > 0 || sc.SchemaBytes > 0 {
+		fmt.Fprintf(&b, "agent session=%dB (schema %d + manifest %d + tools %d)\n",
+			sc.SchemaBytes+sc.ManifestBytes+sc.Bytes, sc.SchemaBytes, sc.ManifestBytes, sc.Bytes)
 	}
 	switch sc.Scenario {
 	case "tricky":

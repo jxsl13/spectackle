@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jxsl13/spectackle/internal/budget"
+	"github.com/jxsl13/spectackle/internal/cache"
 	"github.com/jxsl13/spectackle/internal/drift"
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/graph"
@@ -37,7 +38,9 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 // ---- input structs (JSON Schemas are inferred from these) ----
 
 type findIn struct {
-	Q      string `json:"q" jsonschema:"text or ID fragment"`
+	// omitempty so an absent q reaches the handler, which enumerates a named
+	// scope rather than answering `ok no matches` (B-01KYR01E2VFEF).
+	Q      string `json:"q,omitempty" jsonschema:"text or ID fragment; omit to enumerate an explicit scope"`
 	Scope  string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|adr|rejection|history|all, default all"`
 	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
 	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
@@ -336,6 +339,18 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if in.Budget <= 0 {
 		in.Budget = 2000
 	}
+	// An empty query used to reach cache.Search, which answers (nil, nil) for
+	// one — rendered as `ok no matches` on a workspace holding 96 rules. A
+	// successful call carrying a false answer is worse than a refusal, because
+	// the caller learns nothing and believes something untrue
+	// (B-01KYR01E2VFEF). With an explicit scope it now ENUMERATES, which is
+	// what `scope=rule` plainly reads as and what no other call could do.
+	if strings.TrimSpace(in.Q) == "" {
+		if in.Scope == "all" || in.Scope == "code" {
+			return refuse("! ARG E - find needs q, or a scope to enumerate: " +
+				strings.Join(enumerableScopes(), "|") + "\n")
+		}
+	}
 	if in.Scope == "code" {
 		k := in.K
 		if in.Focus != "" {
@@ -368,7 +383,15 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	if !ok {
 		return refuse("! ARG E - unknown scope " + in.Scope)
 	}
-	docs, err := s.cache.Search(in.Q, kinds, in.K)
+	// Enumerate when there is no query, match when there is — the same render
+	// serves both, so a caller sees one grammar either way.
+	var docs []cache.Doc
+	var err error
+	if strings.TrimSpace(in.Q) == "" {
+		docs, err = s.cache.List(kinds, in.K)
+	} else {
+		docs, err = s.cache.Search(in.Q, kinds, in.K)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -787,6 +810,15 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 	// The derivation runs ONCE, here, and its answer is passed as an
 	// explicit dir — including "." when it resolved to root, so Draft
 	// never re-derives it node-blind (cross-val-node finding 1).
+	//
+	// An EXPLICIT dir short-circuits that derivation entirely, so it never
+	// passes the sanity checks every derived dir gets: it goes straight to
+	// the writer, to the record line, and to disk. Hence its own check, here,
+	// before the mint, for the same reason the header check below is here
+	// (B-01KYRN4VBEEXQ).
+	if err := item.CheckDir(in.Dir); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	dir := in.Dir
 	if dir == "" {
 		if d, derr := lifecycle.ScopeFor(s.ws, "", targets, s.nodeFile); derr == nil {
@@ -795,6 +827,21 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 			}
 			dir = d
 		}
+	}
+	// Check before minting. Draft's write refuses these values on its own, so
+	// nothing is persisted either way, but the refusal it produces names the ID
+	// it had already minted — advertising a record the caller cannot get. Fail
+	// here and the message names the offending argument instead.
+	//
+	// Body is TrimSpace'd to match what lifecycle.Draft itself stores: check
+	// the untrimmed value and " ## T-9999 phantom"
+	// slips past, only to be trimmed INTO a heading-shaped line one call
+	// later — where the refusal names an ID that has already been minted.
+	if err := item.CheckHeader(item.Item{
+		Title: in.Title, Kind: in.Kind, Parent: in.Parent,
+		Targets: targets, Refs: in.Refs, Body: strings.TrimSpace(in.Body),
+	}); err != nil {
+		return refuse("! ARG E - " + err.Error())
 	}
 	it, err := lifecycle.Draft(s.ws, s.minter(), in.Kind, in.Title, in.Body, dir, in.Parent, targets, in.Refs...)
 	if err != nil {
@@ -942,12 +989,67 @@ func (sc idScope) substance(it item.Item) string {
 // and the resolution given as an object the caller can send rather than a
 // prose list of choices — the sibling rule refusal already hands back a
 // shape line, and that inconsistency is what cost the extra call.
-func roundsRefusal(item, requested, decision string) string {
+// blockedExitOutcomes renders the outcomes an escalation ADR ACTUALLY accepts,
+// pipe-joined, from its own parsed options. Every surface that tells a caller
+// how to leave blocked must render through here rather than spelling the set
+// out: override-once is one-shot, so a second escalation offers only
+// rescope|reject, and three separate hard-coded literals kept advertising it.
+// Two were found and fixed; a verifier then measured a THIRD on the
+// failing-verdict route, which is arguably the commoner way into blocked. A
+// refusal naming a value the parser rejects costs the caller a whole call to
+// discover (B-01KYS7111XFHZ).
+func blockedExitOutcomes(options []string) string {
+	if len(options) == 0 {
+		// Unreachable through the tool surface — Escalate always writes
+		// `option:` lines, pinned by TestEscalateBodyIsAnswerableByConstruction
+		// — but a caller-facing string must not render empty if it ever is.
+		options = []string{"rescope", "reject", "override-once"}
+	}
+	return strings.Join(options, "|")
+}
+
+func roundsRefusal(rec, requested, decision string, options []string) string {
+	// Render the enumeration from the ADR's OWN options, never a literal. The
+	// set is not constant: override-once can be spent, and a second escalation
+	// then offers only rescope|reject — while this refusal, hard-coded, kept
+	// advertising override-once and the parser refused it. A refusal exists to
+	// teach the value that will be accepted (HINT-001); teaching one that will
+	// not is worse than teaching nothing, because the caller spends a call
+	// finding out (B-01KYS7111XFHZ).
+	joined := blockedExitOutcomes(options)
+	effect := map[string]string{
+		"rescope": "rescope→draft", "reject": "reject→rejected", "override-once": "override-once→active",
+	}
+	var eff []string
+	for _, o := range strings.Split(joined, "|") {
+		if e, ok := effect[o]; ok {
+			eff = append(eff, e)
+		} else {
+			// Never silently drop an outcome: an unmapped value used to vanish
+			// from the effects list while still being offered in `choose`,
+			// rendering a bare "()" if none mapped.
+			eff = append(eff, o)
+		}
+	}
 	return fmt.Sprintf(
 		"! ROUNDS E %s move to %s REFUSED — rounds exhausted, item is now blocked\n"+
-			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"rescope|reject|override-once\"} "+
-			"(rescope→draft, reject→rejected, override-once→active)\n",
-		item, requested, decision)
+			"! ROUNDS E resolve: decide {\"op\":\"answer\",\"id\":\"%s\",\"choose\":\"%s\"} (%s)\n",
+		rec, requested, decision, joined, strings.Join(eff, ", "))
+}
+
+// enumerableScopes lists the scopes an empty query can enumerate — every FTS
+// scope except the graph-backed `code` and the catch-all `all`, for which
+// "everything" is not a meaningful request and would only burn budget.
+func enumerableScopes() []string {
+	out := make([]string, 0, len(scopeKinds))
+	for sc := range scopeKinds {
+		if sc == "all" || sc == "code" {
+			continue
+		}
+		out = append(out, sc)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // knownRefIDs builds the "known" set draft's refs validation checks
@@ -1327,6 +1429,12 @@ func (s *Server) rule(in ruleIn) (*mcp.CallToolResult, any, error) {
 	case "retire":
 		return s.ruleRetire(in, c)
 	}
+	// The per-op templates, not a union of all fourteen fields. The flat
+	// union that the schema layer emits reads as "everything except op is
+	// optional" — four judges took it that way, sent a plausible add, and
+	// were bounced with a DIFFERENT and correct shape one call later. The
+	// good text existed all along; it was just withheld until the caller had
+	// paid for it (R-01KYQ4XNAFFNY).
 	return refuse("! ARG E - op must be add|edit|retire")
 }
 
@@ -1360,6 +1468,13 @@ func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, 
 	p := ears.PatternFromString(in.Pattern)
 	sentence, err := ears.Compose(p, slotsOf(in))
 	if err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
+	// Same caller-supplied dir, same disk and same record line as draft's
+	// (B-01KYRN4VBEEXQ): spec.AddRule scaffolds the context dir it is handed.
+	// Checked before blockedByLease so the refusal names the argument rather
+	// than reporting a lease on a dir that cannot exist.
+	if err := item.CheckDir(in.Dir); err != nil {
 		return refuse("! ARG E - " + err.Error())
 	}
 	if s.wtItem == "" {
@@ -1575,10 +1690,30 @@ func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string 
 	var b strings.Builder
 	for _, node := range applies {
 		a := drift.Stamp(s.ws, s.g, ruleID, sentence, graph.NodeID(node))
+		// The Upsert happens for EVERY class including unresolvable: a rule
+		// whose applies names something with no anchor row reads as an
+		// orphan to MCP-004's detector, and a row plus a loud warning is a
+		// better state than a silent hole. The row is what `check` later
+		// re-reports as an E finding until the applies is corrected.
 		anchors = drift.Upsert(anchors, a)
-		if a.CHash == "-" {
+		switch {
+		case !graph.ValidNodeID(graph.NodeID(node)):
+			// B-01KYN5ZYM1FY2: this used to render byte-identically to the
+			// pending case below, so a mistyped applies (a file path, most
+			// often) looked like a transient state a reindex would clear.
+			// It never clears — say so at the one moment the caller still
+			// has the argument in hand.
+			fmt.Fprintf(&b, "! ANCHOR W %s %s unresolvable — anchors name graph nodes (go:pkg.Symbol), not paths\n", ruleID, node)
+			// Best-effort hint ONLY. Find RANKS substring matches, it does
+			// not resolve; the top hit for a path is usually a symbol
+			// declared in that file, but nothing guarantees it, so this is
+			// worded as a question and never auto-applied.
+			if hits := s.g.Find(node, 1, graph.KUnknown); len(hits) > 0 {
+				fmt.Fprintf(&b, "  did you mean %s?\n", hits[0].ID)
+			}
+		case a.CHash == "-":
 			fmt.Fprintf(&b, "a %s %s pending (node not indexed yet)\n", ruleID, node)
-		} else {
+		default:
 			fmt.Fprintf(&b, "a %s %s %s:%d-%d %s\n", ruleID, node, a.File, a.Start, a.End, a.CHash)
 		}
 	}
@@ -1728,7 +1863,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				// hears it (never silent, and never mislabeled as fine).
 				bShort2 := sc.short(blocked.ID)
 				return refuse(fmt.Sprintf("! COORD E %s escalate broadcast failed: %s\n", bShort2, err) +
-					roundsRefusal(bShort2, in.To, sc.short(dec.ID)))
+					roundsRefusal(bShort2, in.To, sc.short(dec.ID), item.ParseOptions(dec.Body)))
 			}
 			s.markDirty()
 			// fresh scope: dec was just minted, and the same staleness that
@@ -1737,7 +1872,7 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 				return nil, nil, err
 			}
 			bShort, dShort := sc.short(blocked.ID), sc.short(dec.ID)
-			return refuse(roundsRefusal(bShort, in.To, dShort))
+			return refuse(roundsRefusal(bShort, in.To, dShort, item.ParseOptions(dec.Body)))
 		}
 		if strings.HasPrefix(err.Error(), "! GATE E") {
 			// auditGate's refusal is already a dense record (one line per
@@ -2036,6 +2171,11 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}, s.staleFile)
 	changed := false
 	pending := 0
+	// unresolvable is counted separately from pending on purpose: pending is
+	// a benign wait folded into the trailing `ok ... anchors pending` line,
+	// while unresolvable is a defect that will never clear on its own
+	// (B-01KYN5ZYM1FY2) and gets its own E finding per anchor.
+	unresolvable := 0
 	healed, audited := 0, 0
 	// rebind write-backs collected during the loop, applied in two phases
 	// after it: delete every stale (Rule, oldNode) row FIRST, then upsert
@@ -2071,6 +2211,36 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		case drift.OK:
 		case drift.Pending:
 			pending++
+		case drift.Unresolvable:
+			// B-01KYN5ZYM1FY2: an anchor naming something that is not a node
+			// ID never resolves, so folding it into the benign `ok N anchors
+			// pending` line hid a permanent defect behind a transient-looking
+			// count. NAMING THE CLEARING PATH IS PART OF THE FINDING: an
+			// emptied applies is refused by ruleEdit, so re-editing applies to
+			// the CORRECT node is the only measured escape — an E finding with
+			// no stated remedy would redden this repository's own exact-shape
+			// CI gate permanently over a typo.
+			unresolvable++
+			lines = append(lines, fmt.Sprintf(
+				"! ANCHOR E %s %s unresolvable — not a node ID (go:pkg.Symbol); fix with rule op=edit id=%s applies=[\"<correct node>\"]",
+				r.Anchor.Rule, r.Anchor.Node, r.Anchor.Rule))
+		case drift.Bound:
+			// The pending wait ended: the node is in the graph now, so write
+			// a REAL hash back. This deliberately does NOT reuse the Moved
+			// arm below — Moved refreshes File/Start/End but never CHash, so
+			// the "-" would survive and the anchor would be re-classified
+			// Pending on the very next check, forever (B-01KYN5ZYM1FY2).
+			n, _ := s.g.Node(r.Anchor.Node)
+			end := n.EndLine
+			if end == 0 {
+				end = n.Line
+			}
+			a := r.Anchor
+			a.File, a.Start, a.End, a.CHash = n.File, n.Line, end, r.NewHash
+			anchors = drift.Upsert(anchors, a)
+			changed = true
+			lines = append(lines, fmt.Sprintf("d bound %s %s %s:%d-%d %s",
+				a.Rule, a.Node, a.File, a.Start, a.End, a.CHash))
 		case drift.Moved:
 			// hash-first re-resolution may have re-bound the anchor to a
 			// renumbered node ID (B-01KYJB3SGK) — the refresh follows the
@@ -2183,6 +2353,14 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 	}
 	if pending > 0 {
 		lines = append(lines, fmt.Sprintf("ok %d anchors pending (nodes not in the graph yet)", pending))
+	}
+	if unresolvable > 0 {
+		// One tally beside the per-anchor E findings above: the count is what
+		// a CI reader greps, the findings are what a human fixes. It is
+		// deliberately NOT folded into the `ok ... pending` line — that line
+		// promises a state the next index clears, and these never clear
+		// (B-01KYN5ZYM1FY2).
+		lines = append(lines, fmt.Sprintf("! ANCHOR E - %d unresolvable anchors — no reindex clears these; correct each rule's applies", unresolvable))
 	}
 
 	// compact-due signals
@@ -2864,6 +3042,14 @@ func (s *Server) reviseDraft(in draftIn) (*mcp.CallToolResult, any, error) {
 		changed = append(changed, "title")
 	}
 	if in.Body != "" && in.Body != it.Body {
+		// Revision is the SECOND live route into a record's body, and it
+		// writes through item.Upsert below — whose refusal would surface as a
+		// raw error rather than an argument refusal. Pre-check here so a
+		// heading-shaped body line is reported as the bad argument it is
+		// (B-01KYRN4VBEEXQ). TrimSpace matches what a fresh draft stores.
+		if err := item.CheckHeader(item.Item{Body: strings.TrimSpace(in.Body)}); err != nil {
+			return refuse("! ARG E - " + err.Error())
+		}
 		it.Body = in.Body
 		changed = append(changed, "body")
 	}

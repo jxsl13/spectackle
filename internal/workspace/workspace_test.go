@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jxsl13/spectackle/internal/migrate"
 )
@@ -858,4 +859,59 @@ func samePathTest(a, b string) bool {
 		return a == b
 	}
 	return ra == rb
+}
+
+// TestAwaitBudgetIsConfigurableAboveCI: the archive closure's CI wait was a
+// hardcoded 5 minutes, which sat INSIDE this repository's own CI duration
+// distribution (3m43s-5m38s over ten consecutive runs). So archives refused
+// on builds that were merely unfinished — and because a refusal compensates
+// by journaling an event, the retry pushed a new commit that started CI over,
+// leaving the wait unable to converge (B-01KYQJDJJVFC2).
+func TestAwaitBudgetIsConfigurableAboveCI(t *testing.T) {
+	// the default must clear the observed ceiling with real margin, not sit
+	// near a median — the failure is asymmetric, since expiring on a green
+	// build costs a retry and the retry restarts CI
+	if got := (GitCfg{}).AwaitBudget(); got <= 6*time.Minute {
+		t.Fatalf("default await budget %v does not clear the observed CI ceiling", got)
+	}
+	// and it is a knob, because the right value is a property of the
+	// repository's CI rather than of this program
+	if got := (GitCfg{AwaitChecks: 90}).AwaitBudget(); got != 90*time.Second {
+		t.Fatalf("configured await budget = %v, want 90s", got)
+	}
+	// 0 and negative both fall back rather than producing a zero wait, which
+	// would refuse every archive instantly
+	for _, n := range []int{0, -1} {
+		if got := (GitCfg{AwaitChecks: n}).AwaitBudget(); got <= 6*time.Minute {
+			t.Fatalf("await_checks=%d must fall back to the default, got %v", n, got)
+		}
+	}
+}
+
+// TestIsRecordsPath pins the segment semantics, including the two cases the
+// three hand-written spellings disagreed on: a nested context dir (which the
+// root-anchored spellings missed, deadlocking an item's own archive) and a
+// near-miss filename (which the HasPrefix spelling would have swallowed as if
+// it were server-owned).
+func TestIsRecordsPath(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want bool
+	}{
+		{".spectackle", true},
+		{".spectackle/work.md", true},
+		{".spectackle/spec.md", true},
+		{"internal/mcpserver/.spectackle/work.md", true}, // the deadlock case
+		{"a/b/c/.spectackle/journal.ndjson", true},       // arbitrary depth
+		{"internal/mcpserver/.spectackle", true},         // the dir itself
+		{".spectacklefoo", false},                        // near miss: ordinary work
+		{"internal/.spectacklefoo/x.go", false},          // near miss, nested
+		{"internal/spectackle/x.go", false},              // no leading dot
+		{"pkg/a.go", false},
+		{"", false},
+	} {
+		if got := IsRecordsPath(c.in); got != c.want {
+			t.Errorf("IsRecordsPath(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
 }

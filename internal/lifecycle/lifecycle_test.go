@@ -14,6 +14,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/ids"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/jxsl13/spectackle/internal/spec"
 	"github.com/jxsl13/spectackle/internal/workspace"
 )
 
@@ -616,6 +617,85 @@ func TestRejectSnapshotKeepsFeedbackFields(t *testing.T) {
 	if revoked.Rounds != 2 || revoked.Grilled != "improve coverage" ||
 		len(revoked.Needs) != 1 || revoked.Needs[0] != "D-0007" || !revoked.Override {
 		t.Fatalf("snapshot roundtrip lost feedback fields: %+v", revoked)
+	}
+}
+
+// TestRevokeSurvivesHeadingShapedJournalBody is the restore-path half of
+// B-01KYRN4VBEEXQ. The body guard added to item.CheckHeader protects the
+// CALLER path, but a reject event written by an older binary can already carry
+// a heading-shaped body line — and a rejected item that cannot be revoked is
+// unreachable, which is worse than a body line one space to the right. So
+// lastReject normalizes instead of refusing, and both facts are asserted: the
+// revocation SUCCEEDS, and the item it writes back is one item, not two.
+//
+// Same generalization TestRestoreRecordAlwaysWritable already models for the
+// prose fields, reached through the body.
+func TestRevokeSurvivesHeadingShapedJournalBody(t *testing.T) {
+	root := ws(t)
+	task := draftID(t, root, "task", "legacy reject", "the host body", "", "", nil)
+	if _, err := Move(root, task, item.StateRejected, "not needed"); err != nil {
+		t.Fatal(err)
+	}
+	// Overwrite the snapshot with what a pre-guard binary could have written:
+	// a body whose second line reads back as a new item heading.
+	forged := "still mine\n## T-9999 phantom\nkind: bug\nstate: archived"
+	if err := journal.Append(root, "", journal.Event{
+		Ev: journal.EvReject, ID: task, K: "task", Ti: "legacy reject",
+		Note: "not needed", Body: forged,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := Move(root, task, item.StateDraft, "")
+	if err != nil {
+		t.Fatalf("a legacy reject snapshot stranded the item: %v", err)
+	}
+	if revoked.State != item.StateDraft {
+		t.Fatalf("revoked to %q, want draft", revoked.State)
+	}
+	items, err := item.LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("revocation produced %d items, want 1: %+v", len(items), items)
+	}
+	if items[0].ID != task {
+		t.Fatalf("revocation wrote %s, want %s", items[0].ID, task)
+	}
+	if !strings.Contains(items[0].Body, "T-9999 phantom") {
+		t.Errorf("the defanged line was dropped rather than indented: %q", items[0].Body)
+	}
+}
+
+// TestTombstoneBodyStaysWritable is the archive-side sibling of the test
+// above: a tombstone reconstructed from a pre-guard archive event has to be
+// writable, because callers Upsert it back (the un-archive path, and the
+// cross-root tombstone materialization in the refs check). Refusing there
+// would strand the record for good — there is no caller to report to.
+func TestTombstoneBodyStaysWritable(t *testing.T) {
+	root := ws(t)
+	if err := journal.Append(root, "", journal.Event{
+		Ev: journal.EvArchive, ID: "T-0001", K: "task", Ti: "legacy archive",
+		Body: "still mine\n## T-9999 phantom\nkind: bug\nstate: archived",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out, ok, err := Tombstone(root, "T-0001")
+	if err != nil || !ok {
+		t.Fatalf("Tombstone(T-0001) = %v, %v", ok, err)
+	}
+	if err := item.CheckHeader(out); err != nil {
+		t.Fatalf("tombstone body is unwritable, stranding the record: %v", err)
+	}
+	if err := item.Upsert(root, out); err != nil {
+		t.Fatalf("tombstone could not be written back: %v", err)
+	}
+	items, err := item.LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("writing the tombstone back produced %d items, want 1: %+v", len(items), items)
 	}
 }
 
@@ -1224,5 +1304,175 @@ func TestIntentLineIsBounded(t *testing.T) {
 				t.Fatalf("%s: the FULL note must still be recorded on the event", tc.name)
 			}
 		}
+	}
+}
+
+// TestCapRetainedBodyNeverManufacturesBlankLine pins the regression two
+// independent verifiers found in B-01KYN3E973F20's own fix. The header refuses
+// a blank line inside a prose value, and truncationMarker led with a newline at
+// the time, so a cut landing right after a newline produced "\n\n" — a value the record
+// could no longer be written back with. The consequence was not cosmetic: a
+// rejected item whose context happened to be the wrong length could not be
+// revoked to ANY state, contradicting the documented promise that a rejection
+// is revocable, and leaving the record unreachable rather than merely damaged.
+func TestCapRetainedBodyNeverManufacturesBlankLine(t *testing.T) {
+	// Every offset where the cut can land on or beside a newline.
+	for _, tail := range []string{"\n", "\n\n", "x\n", "\n\t", "\n  ", "x"} {
+		body := strings.Repeat("a", 64-len(tail)) + tail + strings.Repeat("b", 64)
+		got := capRetainedBodyTo(body, 64)
+		if strings.Contains(got+"\n", "\n\n") {
+			t.Errorf("tail %q: capped value holds a blank line the header cannot write back: %q", tail, got)
+		}
+		if err := item.CheckHeader(item.Item{Context: got}); err != nil {
+			t.Errorf("tail %q: capped value is not writable: %v", tail, err)
+		}
+	}
+}
+
+// TestRestoreRecordAlwaysWritable is the belt to that suspenders: the restore
+// path has no caller to refuse to, so an event carrying an unrepresentable
+// value — written by an older binary, or by a future path that forgets — must
+// still produce a record that can be written back.
+func TestRestoreRecordAlwaysWritable(t *testing.T) {
+	for _, bad := range []string{"a\n\nb", "a\n", "a\n\n\nb\n\n", "\n\n"} {
+		var it item.Item
+		restoreRecord(&it, journal.Event{
+			ID: "ADR-0001", Ctx: bad, Dec: bad, Cons: bad,
+		})
+		if err := item.CheckHeader(it); err != nil {
+			t.Errorf("carried %q restored to an unwritable record: %v", bad, err)
+		}
+	}
+}
+
+// TestTruncationMarkerIsInline pins the contract the marker broke. capGist
+// flattens newlines to spaces because its consumer is a single spec.md bullet;
+// a marker that reintroduces one puts a bare, ID-less line into `## intent`
+// that AppendIntent's dedupe cannot key and therefore never removes.
+func TestTruncationMarkerIsInline(t *testing.T) {
+	if strings.ContainsAny(truncationMarker, "\r\n") {
+		t.Fatalf("truncationMarker must not carry a line break: %q", truncationMarker)
+	}
+	// The property that actually matters, asserted through the real caller at
+	// the lengths that trigger the cut, not just on the constant.
+	for _, n := range []int{intentGistMax - 1, intentGistMax, intentGistMax + 1, intentGistMax + 500} {
+		for _, body := range []string{
+			strings.Repeat("a", n),
+			strings.Repeat("a b\n", n/4+1),
+			strings.Repeat("line\n\n", n/6+1),
+			// A lone CR is a line ending to CommonMark even though Go reads
+			// the value as one line. The first version of this test asserted
+			// against "\r" without ever feeding one, so it could not have
+			// caught the bullet that rendered as several lines in a viewer.
+			strings.Repeat("a b\r", n/4+1),
+			strings.Repeat("a b\r\n", n/5+1),
+			strings.Repeat("\r\n", n/2+1),
+		} {
+			got := capGist(body)
+			if strings.ContainsAny(got, "\r\n") {
+				t.Errorf("capGist(len=%d) returned a multi-line value: %q", len(body), got)
+			}
+		}
+	}
+}
+
+// TestTruncationMarkerMatchesSpecDebris pins the one literal internal/spec has
+// to duplicate. spec cannot import lifecycle (lifecycle imports spec), so the
+// marker text lives in two places; this is the only spot that can see both and
+// therefore the only thing standing between them and silent drift.
+func TestTruncationMarkerMatchesSpecDebris(t *testing.T) {
+	if got, want := strings.TrimSpace(truncationMarker), spec.IntentDebrisMarker(); got != want {
+		t.Fatalf("marker text drifted: lifecycle %q vs spec %q", got, want)
+	}
+}
+
+// TestCapGistCollapsesLineEndings pins what gistLineEndings' order actually
+// buys. Reordering the replacer so LF is matched before CRLF leaves the rest of
+// the suite green while turning every CRLF into two spaces - a contract that
+// existed only in a comment until this test, which is the shape B-01KYRQXJ99F48
+// was written to remove and then reintroduced one function away.
+//
+// Exact equality, deliberately: a "contains no newline" assertion passes for
+// both orderings and would not have caught this.
+func TestCapGistCollapsesLineEndings(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"a\r\nb", "a b"},      // CRLF is ONE ending, so one space
+		{"a\rb", "a b"},        // lone CR: a line ending to CommonMark
+		{"a\nb", "a b"},        // lone LF
+		{"a\r\n\r\nb", "a  b"}, // two endings, two spaces - not four
+		{"a\n\rb", "a  b"},     // LF then CR really is two endings
+		{"a\r\r\nb", "a  b"},
+		{"\r\na\r\n", "a"}, // TrimSpace still runs first
+	} {
+		if got := capGist(c.in); got != c.want {
+			t.Errorf("capGist(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// The separators deliberately left alone. This is not an endorsement of
+	// breaking on them; it pins the documented boundary so widening the set is a
+	// deliberate edit that fails a test rather than a silent one.
+	for _, sep := range []string{"\u2028", "\u2029", "\u0085", "\v", "\f"} {
+		if got := capGist("a" + sep + "b"); !strings.Contains(got, sep) {
+			t.Errorf("capGist dropped %q; the doc comment says it is left intact", sep)
+		}
+	}
+}
+
+// TestEscalateBodyIsAnswerableByConstruction pins the property whose absence
+// stranded records permanently: the enumeration Escalate TELLS the caller to
+// pick from must be the same one their answer is CHECKED against. It was not —
+// the prose said `choose=a|b|c` while both copies of the parser looked for
+// `outcome=`, so every escalation ADR accepted free text, and a one-character
+// typo burned the decision and left its item unreachable by any public tool
+// while reporting success (B-01KYS7111XFHZ).
+//
+// Asserted against item.ParseOptions, the real parser, rather than against a
+// literal — a test that restated the format would have passed throughout the
+// original defect.
+func TestEscalateBodyIsAnswerableByConstruction(t *testing.T) {
+	ws := ws(t)
+	it, err := Draft(ws, nil, "task", "rounds probe", "body", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	it.State = item.StateDone
+	it.Rounds = 3
+	if err := item.Upsert(ws, it); err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := Escalate(ws, nil, it)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := item.ParseOptions(d.Body)
+	want := []string{"rescope", "reject", "override-once"}
+	if len(got) != len(want) {
+		t.Fatalf("Escalate body is not answerable: ParseOptions = %v, want %v\nbody:\n%s", got, want, d.Body)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("option %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	// And the prose the reader is shown must offer the same set, or the two
+	// halves of the body disagree even though the machine half is valid.
+	for _, o := range want {
+		if !strings.Contains(d.Body, o) {
+			t.Errorf("escalation body never mentions %q to the reader:\n%s", o, d.Body)
+		}
+	}
+	// THE PROPERTY THAT ACTUALLY MATTERS: the machine contract must not depend
+	// on the prose wording. The regex also matches the `choose=a|b|c` sentence,
+	// which is why records already written stay answerable — but relying on that
+	// alone would reinstate the original defect, since rewriting the sentence is
+	// precisely what broke this the first time. Strip the prose line and the
+	// options must still parse. Without this, deleting the `option:` lines from
+	// Escalate leaves the whole suite green — verified by mutation.
+	_, rest, ok := strings.Cut(d.Body, "\n")
+	if !ok {
+		t.Fatalf("escalation body has no machine lines beneath its prose:\n%s", d.Body)
+	}
+	if got := item.ParseOptions(rest); len(got) != len(want) {
+		t.Errorf("options are carried ONLY by the prose sentence: stripping it leaves %v, want %v\nbody:\n%s", got, want, d.Body)
 	}
 }

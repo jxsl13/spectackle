@@ -8,7 +8,10 @@ package item
 import (
 	"fmt"
 	"os"
+	"path"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +142,31 @@ var LegacyIDRe = regexp.MustCompile(`^` + legacyIDPat + `$`)
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
 
+// adrStatuses is the classic ADR lifecycle. It lived only in a doc comment
+// and a jsonschema DESCRIPTION — neither of which validates anything — so any
+// string reached the field, including from an IMPORTED artifact whose status
+// this repository never authored (B-01KYNA4PJNF5K).
+var adrStatuses = map[string]bool{
+	"proposed": true, "accepted": true, "superseded": true, "deprecated": true,
+}
+
+// ValidStatus accepts the four ADR statuses and empty, which is
+// conventionally read as "proposed" (see Item.Status).
+func ValidStatus(s string) bool {
+	return s == "" || adrStatuses[s]
+}
+
+// Statuses lists the accepted statuses in a stable order, so a refusal can
+// print the enum without restating it and drifting from what is enforced.
+func Statuses() []string {
+	out := make([]string, 0, len(adrStatuses))
+	for s := range adrStatuses {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // MintID mints a fresh ID for a kind, stamped with the current time.
 //
 // Per ADR-0013 the number no longer comes from a counter. coord.NextID is
@@ -221,12 +249,26 @@ func LoadWork(path, ctx string) ([]Item, error) {
 		}
 		it := Item{ID: m[1], Title: m[2], Dir: ctx}
 		j := i + 1
-		// machine header: contiguous key: value lines
+		// machine header: contiguous key: value lines, ending at the blank
+		// line writeWork puts before the body. A prose field may span lines:
+		// a non-key line continues the field above it. That can never be
+		// confused with body text because writeWork refuses to put a blank
+		// line inside a header value, so the blank line below still ends the
+		// header unambiguously.
+		var cont *string
 		for ; j < len(lines); j++ {
-			k, v, ok := strings.Cut(lines[j], ": ")
-			if !ok || strings.ContainsAny(k, " \t") || strings.HasPrefix(lines[j], "## ") {
+			if lines[j] == "" || strings.HasPrefix(lines[j], "## ") {
 				break
 			}
+			k, v, ok := strings.Cut(lines[j], ": ")
+			if !ok || strings.ContainsAny(k, " \t") {
+				if cont == nil {
+					break
+				}
+				*cont += "\n" + unindentCont(lines[j])
+				continue
+			}
+			cont = nil
 			switch k {
 			case "kind":
 				it.Kind = v
@@ -251,10 +293,13 @@ func LoadWork(path, ctx string) ([]Item, error) {
 				it.Override = v == "true"
 			case "context":
 				it.Context = v
+				cont = &it.Context
 			case "decision":
 				it.Decision = v
+				cont = &it.Decision
 			case "consequences":
 				it.Consequences = v
+				cont = &it.Consequences
 			case "status":
 				it.Status = v
 			}
@@ -381,6 +426,197 @@ func dirOrDot(ctx string) string {
 	return ctx
 }
 
+// contIndent prefixes the second and later lines of a multi-line header field.
+// It is what makes a continuation line unmistakable rather than merely
+// probable. Without it, a consequences list holding the perfectly ordinary line
+// "cost: higher memory" reads back as a header field named cost — an unknown
+// key the switch in Parse drops on the floor, silently truncating the value
+// instead of swallowing it. With it, the key half of every continuation line
+// holds whitespace, which no real header key ever does.
+const contIndent = "  "
+
+// indentCont prepares a prose value for the header, and unindentCont reverses
+// it. The pair must stay exact inverses: the round trip is asserted over
+// newlines, separator characters and whitespace by TestHeaderFieldRoundTrip.
+func indentCont(v string) string {
+	return strings.ReplaceAll(v, "\n", "\n"+contIndent)
+}
+
+func unindentCont(l string) string {
+	return strings.TrimPrefix(l, contIndent)
+}
+
+// NormalizeHeaderValue coerces a prose value into something the header can
+// represent: blank lines collapse to single newlines and trailing newlines are
+// dropped, which is exactly what CheckHeader refuses.
+//
+// Refusing is the right answer for a value a CALLER supplied — the caller can
+// be told, and the record is not yet at stake. It is the wrong answer on a
+// restore path, where the value was manufactured by this program (a truncation
+// marker appended after a cut that landed on a newline) and there is no caller
+// to report to. Refusing there does not protect the record, it strands it: a
+// rejected item that cannot be revoked is unreachable, which is worse than a
+// prose field whose blank line was closed up. So the two paths differ on
+// purpose — CheckHeader guards arguments, this coerces derived values.
+func NormalizeHeaderValue(v string) string {
+	for strings.Contains(v, "\n\n") {
+		v = strings.ReplaceAll(v, "\n\n", "\n")
+	}
+	return strings.TrimRight(v, "\n")
+}
+
+// headerSafe is CheckHeader with the record's identity attached, for the write
+// path. Callers that mint BEFORE they write must use CheckHeader directly:
+// lifecycle.Draft persists the record and journals a create event, so a check
+// that fires only here leaves a permanent content-less record behind on every
+// refusal — the same trap the status guard in knowledge.go documents, reached
+// by a second route.
+func headerSafe(it Item) error {
+	if err := CheckHeader(it); err != nil {
+		return fmt.Errorf("refused: %s not written — %w", it.ID, err)
+	}
+	return nil
+}
+
+// CheckHeader refuses an item whose header writeWork could not read back
+// identically — the corruption B-01KYN3E973F20 recorded, where a newline in an
+// ADR field swallowed every field after it into the body and lost the answer's
+// status write with them.
+//
+// Two different limits, for two different reasons:
+//
+// Prose fields may span lines, because Parse rejoins a non-key line onto the
+// field above it, but never a BLANK line: the blank line is exactly what ends
+// the machine header, so writing one puts the remaining fields on the far side
+// of the boundary. A trailing newline is the same defect one character shorter
+// — it emits that blank line too — which is why the test is on v+"\n". A
+// LEADING newline is fine and deliberately allowed: it writes an empty value
+// line the parser reads as "" and then continues onto, which round trips.
+//
+// Single-line fields may hold no newline at all. Title is not stored as a
+// field: it shares the "## " heading line with the ID, so a newline there
+// splits one item into two — the second with a heading Parse won't match, or
+// worse, one it will.
+func CheckHeader(it Item) error {
+	for _, f := range []struct{ name, v string }{
+		{"title", it.Title}, {"kind", it.Kind}, {"state", it.State},
+		{"created", it.Created}, {"parent", it.Parent},
+		{"grilled", it.Grilled}, {"status", it.Status},
+	} {
+		if strings.ContainsAny(f.v, "\r\n") {
+			return fmt.Errorf("%s must be a single line", f.name)
+		}
+	}
+	for _, f := range []struct{ name, v string }{
+		{"context", it.Context}, {"decision", it.Decision},
+		{"consequences", it.Consequences},
+	} {
+		if strings.Contains(f.v+"\n", "\n\n") {
+			return fmt.Errorf("%s may span lines but not paragraphs: a blank line ends the machine header, so every field after it would be read back as body text", f.name)
+		}
+	}
+	// List fields are comma-joined onto one header line, so an element
+	// carrying a newline or a comma does not merely render oddly — it changes
+	// the STRUCTURE of the header. targets:["go:x\nstate: archived"] wrote a
+	// second header line the parser then believed, and the item read back
+	// state=archived: a terminal state no transition can reach, injected
+	// through a public draft argument. Whitespace around an element is
+	// deliberately NOT refused: writers canonicalize through canonList before
+	// they compare or join, so the bytes written are already a fixed point of
+	// the reader and refusing the input would break working callers for no
+	// gain. Refusing it here would also be too late for the field that needs
+	// it — refs deduplicates, and it has to canonicalize before it compares.
+	for _, f := range []struct {
+		name string
+		vs   []string
+	}{
+		{"targets", it.Targets}, {"refs", it.Refs}, {"needs", it.Needs},
+	} {
+		for _, v := range f.vs {
+			if strings.ContainsAny(v, "\r\n") {
+				return fmt.Errorf("%s element %q holds a newline; list fields are one header line, so the remainder would be read back as a header field of its own", f.name, v)
+			}
+			if strings.Contains(v, ",") {
+				return fmt.Errorf("%s element %q holds a comma, which is the list separator: it would be read back as two elements", f.name, v)
+			}
+		}
+	}
+	// Body is free-form prose by design, so the guard above has no business
+	// touching it — but the record grammar is line-oriented end to end, and
+	// there is exactly ONE line shape a body can carry that the reader treats
+	// as STRUCTURE rather than text: the item heading. Parse's body loop
+	// stops at the first line matching reItemHeading, so a body
+	// carrying "## T-9999 phantom\nkind: bug\nstate: archived" reads back as
+	// a SECOND item with the caller's chosen kind and state — and the host
+	// record loses every byte of body from that line on to the phantom
+	// (B-01KYRN4VBEEXQ). A phantom in a terminal state is worse than a
+	// mangled body: state is what the state machine trusts.
+	//
+	// This is deliberately the ONLY body shape refused. A bare "key: value"
+	// body line is inert — Parse's header loop only runs before the blank
+	// line writeWork emits, so it never sees body text — and
+	// "## NOTANID something" is inert too, because reItemHeading requires a
+	// real ID. Both were measured. The regexp is SHARED with the reader
+	// rather than copied: a guard that drifts from the parser it guards is
+	// the defect, not the fix.
+	for _, l := range strings.Split(it.Body, "\n") {
+		if reItemHeading.MatchString(l) {
+			return fmt.Errorf("body line %q has the shape of an item heading; it would be read back as a NEW record and take the rest of this one's body with it — indent it, or drop the leading ##", l)
+		}
+	}
+	return nil
+}
+
+// CheckDir refuses a context dir a caller may not supply, for the same
+// line-grammar reason CheckHeader exists (B-01KYRN4VBEEXQ). dir is not stored
+// in the machine header, so CheckHeader never sees it — yet it lands in the
+// dense record line every caller parses, in journal events, and, being a path,
+// on disk: `dir: "a\nb"` created a directory literally named with an embedded
+// newline AND split that record's line in two, breaking the grammar for the
+// one record the caller had just asked about.
+//
+// The traversal clause rides along because it is the same argument and the
+// same branch: `dir: "../escape"` scaffolded a .spectackle tree OUTSIDE the
+// workspace root, which no context dir may ever name. Both forms were
+// measured through the public draft, rule, bench and knowledge arguments.
+//
+// It lives in package item, next to CheckHeader, so the call sites in
+// internal/mcpserver need no import they do not already have.
+func CheckDir(dir string) error {
+	if strings.ContainsAny(dir, "\r\n") {
+		return fmt.Errorf("dir %q holds a line break; a context dir is one path on one line, and the record line naming it would be split in two", dir)
+	}
+	if dir == "" {
+		return nil
+	}
+	if strings.HasPrefix(dir, "/") || filepath.IsAbs(dir) {
+		return fmt.Errorf("dir %q is absolute; a context dir is relative to the workspace root", dir)
+	}
+	if c := path.Clean(filepath.ToSlash(dir)); c == ".." || strings.HasPrefix(c, "../") {
+		return fmt.Errorf("dir %q escapes the workspace root", dir)
+	}
+	return nil
+}
+
+// NormalizeBody is to CheckHeader's body clause what NormalizeHeaderValue is
+// to its prose clauses: the coercion for the paths
+// that have no caller to refuse to. A body reconstructed from a JOURNAL event
+// was written by an earlier binary (or by a path that predates the guard), so
+// refusing it there does not protect the record — it STRANDS it, leaving a
+// rejected item that can never be revoked. Prefixing the offending line with
+// contIndent is enough: the reader's heading match is anchored at the start of
+// the line, so an indented "## T-9999 ..." is body text again, and the
+// character added is the same one every continuation line already carries.
+func NormalizeBody(body string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		if reItemHeading.MatchString(l) {
+			lines[i] = contIndent + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func writeWork(root workspace.Root, ctx string, items []Item) error {
 	if err := root.EnsureScaffold(ctx); err != nil {
 		return err
@@ -388,6 +624,9 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 	var b strings.Builder
 	b.WriteString("---\nschema: " + workspace.SchemaStamp + "\n---\n")
 	for _, it := range items {
+		if err := headerSafe(it); err != nil {
+			return err
+		}
 		b.WriteString("\n## " + it.ID + " " + it.Title + "\n")
 		b.WriteString("kind: " + it.Kind + "\n")
 		b.WriteString("state: " + it.State + "\n")
@@ -395,7 +634,7 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 		if it.Parent != "" {
 			b.WriteString("parent: " + it.Parent + "\n")
 		}
-		if refs := dedupeStrings(it.Refs); len(refs) > 0 {
+		if refs := dedupeStrings(canonList(it.Refs)); len(refs) > 0 {
 			b.WriteString("refs: " + strings.Join(refs, ", ") + "\n")
 		}
 		if it.Rounds != 0 {
@@ -411,13 +650,13 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 			b.WriteString("override: true\n")
 		}
 		if it.Context != "" {
-			b.WriteString("context: " + it.Context + "\n")
+			b.WriteString("context: " + indentCont(it.Context) + "\n")
 		}
 		if it.Decision != "" {
-			b.WriteString("decision: " + it.Decision + "\n")
+			b.WriteString("decision: " + indentCont(it.Decision) + "\n")
 		}
 		if it.Consequences != "" {
-			b.WriteString("consequences: " + it.Consequences + "\n")
+			b.WriteString("consequences: " + indentCont(it.Consequences) + "\n")
 		}
 		if it.Status != "" {
 			b.WriteString("status: " + it.Status + "\n")
@@ -433,8 +672,21 @@ func writeWork(root workspace.Root, ctx string, items []Item) error {
 }
 
 func splitList(v string) []string {
+	return canonList(strings.Split(v, ","))
+}
+
+// canonList applies the reader's per-element canonicalization: surrounding
+// whitespace is trimmed, and empty and "-" placeholder elements are dropped.
+// Returns nil rather than an empty slice when every element drops, so a list
+// that canonicalizes away is indistinguishable from one that was never set.
+//
+// Writers run it too. A list field is only a fixed point of the reader if the
+// bytes written already survive a read unchanged, so any write-side comparison
+// (deduplication, emptiness) has to canonicalize BEFORE it compares — see
+// writeWork's refs line.
+func canonList(ss []string) []string {
 	var out []string
-	for _, s := range strings.Split(v, ",") {
+	for _, s := range ss {
 		if s = strings.TrimSpace(s); s != "" && s != "-" {
 			out = append(out, s)
 		}
@@ -445,6 +697,11 @@ func splitList(v string) []string {
 // dedupeStrings returns ss with duplicates removed, keeping the order of
 // first appearance. Used when rendering Refs so accidental repeats in a
 // proposed reference set don't get written twice.
+//
+// Duplicate means byte-identical, so callers must canonicalize first: " R-1"
+// and "R-1 " are distinct keys here but the same ref once the reader trims
+// them, and passing raw input would write a line that reads back with the
+// duplicates restored.
 func dedupeStrings(ss []string) []string {
 	if len(ss) == 0 {
 		return nil

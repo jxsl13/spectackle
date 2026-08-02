@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -120,6 +119,13 @@ func (s *Server) decideAsk(ctx context.Context, req *mcp.CallToolRequest, in dec
 		bodyLines = append(bodyLines, "blocks: "+blocksID)
 	}
 
+	// Validate the ADR fields BEFORE minting. Draft persists the record and
+	// journals a create event, and Context is written by the Upsert below, so a
+	// value the header cannot represent used to strand a content-less ADR in
+	// draft — never reaching submitted, yet listed by decide op=ls forever.
+	if err := item.CheckHeader(item.Item{Title: in.Question, Context: in.Context}); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	d, err := lifecycle.Draft(s.ws, s.minter(), "adr", in.Question, strings.Join(bodyLines, "\n"), dir, "", nil)
 	if err != nil {
 		return refuse("! ARG E - " + err.Error())
@@ -194,11 +200,14 @@ func decideChoiceString(kind string, v any) string {
 // decideAnswer resolves an open decision from anywhere, any time — the
 // waiting orchestrator sees it on its next swarm/state/find call (no polling
 // required). Choose is validated against the decision's stored options
-// (parsed from its body — see decideOptions, which understands decideAsk's
-// current `option: <text>` lines, its legacy `options: a, b, c` form, and
-// the `outcome=a|b|c` form lifecycle.Escalate writes for its auto-minted
-// decisions); a decision with no stored options (kind=text) accepts free
-// text.
+// (parsed from its body by item.ParseOptions, the single parser — this file
+// used to carry a byte-for-byte copy called decideOptions, and that
+// duplication is exactly how a deliberate change to lifecycle.Escalate's body
+// text reached ZERO parsers: a value that had to be updated in two places was
+// updated in neither, so every escalation ADR accepted free text and a typo in
+// `choose` stranded its item in blocked permanently, reporting success while
+// doing it, B-01KYS7111XFHZ); a decision with no stored options (kind=text)
+// accepts free text.
 func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.ID) == "" {
 		return refuse("! ARG E - answer requires id")
@@ -222,7 +231,7 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 		return refuse("! ARG E - " + in.ID + " already decided")
 	}
 	choose := in.Choose
-	if opts := decideOptions(d.Body); len(opts) > 0 {
+	if opts := item.ParseOptions(d.Body); len(opts) > 0 {
 		matched := ""
 		for _, o := range opts {
 			if strings.EqualFold(o, choose) {
@@ -238,56 +247,18 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 	return s.resolveDecision(d.ID, choose, in.Consequences)
 }
 
-// decideOptions extracts the fixed option set (if any) a decision was asked
-// with. Three body shapes are understood, tried in order:
-//  1. decideAsk's current form: one `option: <text>` line per option,
-//     verbatim (no comma-splitting — an option's own text may contain
-//     commas). This is what NEW decisions write.
-//  2. the legacy `options: a, b, c` comma-joined line decideAsk used to
-//     write — kept forever so existing items/journals stay answerable
-//     without migration (when an option's own text contains commas, the
-//     comma-split fragments it into more pieces than were intended, but
-//     that shattered form is exactly what remains answerable — it is not
-//     rewritten to option: lines).
-//  3. lifecycle.Escalate's `... outcome=a|b|c.` sentence (T-0030
-//     foundation, not writable from this package).
-//
-// No match = free text.
-var reOutcome = regexp.MustCompile(`outcome=([a-zA-Z0-9_-]+(?:\|[a-zA-Z0-9_-]+)*)`)
-
-func decideOptions(body string) []string {
-	var out []string
-	for _, line := range strings.Split(body, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "option: "); ok {
-			out = append(out, v)
-		}
-	}
-	if len(out) > 0 {
-		return out
-	}
-	for _, line := range strings.Split(body, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "options: "); ok {
-			for _, o := range strings.Split(v, ",") {
-				if o = strings.TrimSpace(o); o != "" {
-					out = append(out, o)
-				}
-			}
-			return out
-		}
-	}
-	if m := reOutcome.FindStringSubmatch(body); m != nil {
-		return strings.Split(m[1], "|")
-	}
-	return nil
-}
-
 // resolveDecision persists a decision's outcome (state=done, choice recorded
 // in the body, journaled) and applies it to whatever the decision blocks, if
-// anything: a blocked item (item.StateBlocked, set by lifecycle.Escalate)
-// with choice in {rescope,reject,override-once} resolves via
-// lifecycle.ResolveBlocked; any other blocked-on item just has this
-// decision's ID cleared from its Needs (the ordinary decide-ask-on-any-item
-// case — nothing to unblock, it was never in item.StateBlocked).
+// anything. ONE rule governs the Needs link (B-01KYSX35RKFYB): it is cleared
+// exactly when the decision that occupied it has been answered, independent
+// of what the answer did to the item's state. Clearing is about the LINK
+// being spent, not about the outcome — a decision answered is a decision
+// answered, whether it also unblocked a transition or was an ordinary
+// decide-ask-on-any-item question that never blocked anything.
+//
+// On top of that, a blocked item (item.StateBlocked, set by
+// lifecycle.Escalate) whose choice is one of {rescope,reject,override-once}
+// additionally resolves the block via lifecycle.ResolveBlocked.
 //
 // It also lands the classic ADR fields: Decision gets the chosen option and
 // Status moves to "accepted" — both on every resolution path (op=answer, and
@@ -328,14 +299,30 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 		return nil, nil, err
 	}
 	if hasBlocked {
-		if it.State == item.StateBlocked && (choice == "rescope" || choice == "reject" || choice == "override-once") {
+		resolves := it.State == item.StateBlocked && (choice == "rescope" || choice == "reject" || choice == "override-once")
+		// Clear BEFORE ResolveBlocked, and this ordering is LOAD-BEARING
+		// (B-01KYSX35RKFYB): the reject outcome carryRecords the item into
+		// the rejection snapshot (lifecycle.go, ResolveBlocked) and then
+		// item.Removes it, so an after-the-fact Upsert either no-ops or
+		// RESURRECTS a rejected item — and the snapshot would go on carrying
+		// the spent ADR into every later revoke.
+		//
+		// There is deliberately NO restore-on-error arm here. Its premise —
+		// that clearing without restoring strands a blocked item with empty
+		// Needs and no exit — is false: removeID drops only the ANSWERED id,
+		// so a blocked item keeps its LIVE escalation ADR and stays
+		// followable. A restore would instead put a state=done ADR back into
+		// Needs, which is precisely the inverted bookkeeping this record
+		// exists to remove: one escalation later `prompt next` names the
+		// already-decided ADR as the item's only exit and following that hint
+		// refuses.
+		it.Needs = removeID(it.Needs, id)
+		if err := item.Upsert(s.ws, it); err != nil {
+			return nil, nil, err
+		}
+		if resolves {
 			if _, err := lifecycle.ResolveBlocked(s.ws, it.ID, choice, "decide "+id+": "+choice); err != nil {
 				return refuse("! ARG E - " + err.Error())
-			}
-		} else {
-			it.Needs = removeID(it.Needs, id)
-			if err := item.Upsert(s.ws, it); err != nil {
-				return nil, nil, err
 			}
 		}
 	}

@@ -384,8 +384,19 @@ func Escalate(ws workspace.Root, mint Minter, it item.Item) (item.Item, item.Ite
 	if err != nil {
 		return it, item.Item{}, err
 	}
-	d.Body = fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide op=answer id=%s choose=%s.",
-		shortID(it.ID), it.Rounds, shortID(d.ID), optStr)
+	// The prose sentence is guidance for the reader; the `option:` lines are the
+	// machine contract item.ParseOptions validates against. BOTH are rendered
+	// from `options`, so the enumeration a caller is told to pick from and the
+	// one their answer is checked against cannot diverge — which is exactly what
+	// happened when this sentence was changed from outcome= to choose= and the
+	// parsers, being two copies of one regex, followed in neither
+	// (B-01KYS7111XFHZ).
+	lines := []string{fmt.Sprintf("%s exhausted its feedback rounds (%d). Resolve via decide op=answer id=%s choose=%s.",
+		shortID(it.ID), it.Rounds, shortID(d.ID), optStr)}
+	for _, o := range options {
+		lines = append(lines, "option: "+o)
+	}
+	d.Body = strings.Join(lines, "\n")
 	if err := item.Upsert(ws, d); err != nil {
 		return it, d, err
 	}
@@ -605,7 +616,15 @@ func carryRecord(ev *journal.Event, it item.Item) {
 func restoreRecord(it *item.Item, e journal.Event) {
 	it.Parent, it.Targets, it.Refs = e.Par, e.Tg, e.Refs
 	it.Rounds, it.Grilled, it.Needs, it.Override = e.Rnd, e.Gr, e.Nd, e.Ov
-	it.Context, it.Decision, it.Consequences, it.Status = e.Ctx, e.Dec, e.Cons, e.St
+	// Normalize rather than trust. carryRecord no longer manufactures a blank
+	// line at the truncation cut, but this is the path with no caller to refuse
+	// to: an event written by an older binary, or any future value the header
+	// cannot represent, must not make a record unrestorable. A closed-up blank
+	// line is a lesser loss than a rejected item that can never be revoked.
+	it.Context = item.NormalizeHeaderValue(e.Ctx)
+	it.Decision = item.NormalizeHeaderValue(e.Dec)
+	it.Consequences = item.NormalizeHeaderValue(e.Cons)
+	it.Status = e.St
 	it.Created = restoredCreated(e.ID, e.Crt)
 }
 
@@ -663,6 +682,21 @@ const outcomeFieldMax = 2048
 // there is not a large record, it is a broken file.
 const intentGistMax = 400
 
+// gistLineEndings collapses the line endings CommonMark recognizes — LF, CR
+// and CRLF — into single spaces. CRLF is listed FIRST so it costs one space
+// rather than two; nothing else in the program would notice the difference,
+// which is exactly why TestCapGistCollapsesLineEndings pins it by exact string
+// equality. An ordering stated only in prose is the shape this package has
+// already been bitten by.
+//
+// It deliberately does not touch U+2028, U+2029, U+0085, VT or FF. Those are
+// mandatory breaks to UAX#14 but not line endings to CommonMark, which is the
+// contract the spec.md bullet is rendered under, and none of them can produce
+// debris: the marker leads with a space so no separator is ever adjacent to
+// it, the record ID still leads the line, and Go reads the value as one line
+// so the dedupe keys it. Widening the set needs a measurement, not a hunch.
+var gistLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
 // capGist bounds a one-line digest, visibly. The full text is never lost by
 // this: an archive event carries the whole note in Note, which the journal
 // index searches, so capping the digest costs nothing but noise. Every other
@@ -670,7 +704,13 @@ const intentGistMax = 400
 // was not, and an uncapped note reached both spec.md and the journal — twice
 // over, since Sum appended it again past summary()'s own cap.
 func capGist(s string) string {
-	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	// Flatten every CommonMark line ending, not just "\n". A lone CR survived here and
+	// reached the spec.md bullet intact: Go reads it as one line, so the dedupe
+	// still keyed correctly and no bare marker could result, but CommonMark
+	// treats a lone CR as a line ending, so the bullet rendered as several
+	// lines in a markdown viewer. Same contract as the marker's, missed on the
+	// other side of the same function: this consumer is ONE bullet.
+	s = gistLineEndings.Replace(strings.TrimSpace(s))
 	return capRetainedBodyTo(s, intentGistMax)
 }
 
@@ -753,13 +793,31 @@ func capRetainedBodyTo(b string, max int) string {
 	for cut > 0 && !utf8.RuneStart(b[cut]) {
 		cut--
 	}
-	return b[:cut] + truncationMarker
+	// Trim what the cut ends on before appending the marker. The marker leads
+	// with a newline, so a cut landing right after one produced a BLANK line —
+	// and a blank line is what ends a machine header, so the value came back
+	// unwritable and a rejected record could no longer be revoked at all
+	// (B-01KYN3E973F20, found by independent verification). The cap is already
+	// a deliberate, marked loss; trailing whitespace at the cut is not the part
+	// worth keeping.
+	return strings.TrimRight(b[:cut], "\n\r\t ") + truncationMarker
 }
 
 // truncationMarker is appended AFTER the cut, so a truncated body is
 // retainedBodyMax bytes of content plus this marker — the cap bounds what
 // is kept, not the exact field width.
-const truncationMarker = "\n[body truncated at tombstone retention cap]"
+//
+// It is INLINE, and must stay inline. It used to lead with a newline, which
+// made one composer emit a line break into consumers that have opposite line
+// contracts: the work.md prose fields tolerate an extra line, but capGist
+// flattens newlines to spaces precisely because its consumer is a single
+// spec.md bullet — and then got a newline back from here, one call later. That
+// put a bare marker on its own line in `## intent`, where it carried no record
+// ID, so AppendIntent's dedupe could not key it and it survived every heal
+// (B-01KYRQXJ99F48). A shared truncator cannot satisfy both contracts by
+// picking one; it satisfies both by adding no line break at all and letting
+// the caller supply a separator if it wants one.
+const truncationMarker = " [body truncated at tombstone retention cap]"
 
 func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	events, err := journal.ReadAll(ws)
@@ -777,7 +835,14 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 			}
 			out := item.Item{
 				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
-				State: item.StateArchived, Body: body,
+				// NormalizeBody, not CheckHeader's refusal: this body comes
+				// off a journal event, not off a caller. An event written
+				// before the body guard landed (B-01KYRN4VBEEXQ) can carry a
+				// heading-shaped line, and refusing here would leave the
+				// tombstone permanently unreadable instead of protecting
+				// anything — the same asymmetry NormalizeHeaderValue
+				// documents for the prose fields.
+				State: item.StateArchived, Body: item.NormalizeBody(body),
 			}
 			restoreRecord(&out, e)
 			return out, true, nil
@@ -798,7 +863,11 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 		if e.Ev == journal.EvReject && e.ID == id {
 			out := item.Item{
 				ID: e.ID, Kind: e.K, State: item.StateRejected, Title: e.Ti,
-				Dir: e.Dir, Body: e.Body,
+				// Same reason as Tombstone's: revocation of a rejected item
+				// has to keep working over journals written before the body
+				// guard existed, so the heading-shaped line is indented back
+				// into prose rather than refused (B-01KYRN4VBEEXQ).
+				Dir: e.Dir, Body: item.NormalizeBody(e.Body),
 			}
 			restoreRecord(&out, e)
 			return out, true, nil

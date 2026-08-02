@@ -18,6 +18,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/benchmark"
 	"github.com/jxsl13/spectackle/internal/budget"
 	"github.com/jxsl13/spectackle/internal/ids"
+	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/journal"
 )
 
@@ -109,6 +110,15 @@ func parseResults(s string) ([]benchmark.Impl, error) {
 
 func (s *Server) bench(in benchIn) (*mcp.CallToolResult, any, error) {
 	defer s.markDirty()
+	// bench's dir bypasses lifecycle.ScopeFor entirely: it goes straight to
+	// BenchPath (which scaffolds it) and into every journal event this op
+	// appends, and it is rendered into the `m ...` record line the caller
+	// parses. That makes it exactly the caller-supplied value reaching a
+	// rendered record line that B-01KYRN4VBEEXQ is about — measured creating
+	// a newline-named directory, and scaffolding outside the root via "..".
+	if err := item.CheckDir(in.Dir); err != nil {
+		return refuse("! ARG E - " + err.Error())
+	}
 	path := s.ws.BenchPath(dirOf(in.Dir))
 	st, err := benchmark.Load(path)
 	if err != nil {
