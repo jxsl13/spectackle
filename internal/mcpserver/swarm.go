@@ -934,8 +934,27 @@ func (s *Server) workSubmit(id string) (*mcp.CallToolResult, any, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s",
-			sc.short(it.ID), it.Rounds, s.maxRounds(), sc.short(lastNeed(it.Needs))))
+		// Second of the three routes the original census missed
+		// (T-01KYQ503AGE6T): a submit that will not run and will not integrate
+		// used to answer through text() — exit 0 — with the same
+		// success-shaped `i <id> blocked ...` record line. Its three immediate
+		// neighbours above already refuse(), so this was plain internal
+		// inconsistency on top of the misreadable shape.
+		//
+		// The decision's live options are read off the ADR itself rather than
+		// spelled out here: override-once is one-shot, so a second escalation
+		// offers only rescope|reject, and hard-coded literals kept advertising
+		// a value the parser then refused (B-01KYS7111XFHZ). A missing or
+		// unreadable ADR falls through as nil, which blockedExitOutcomes
+		// renders as the full default set rather than an empty enumeration.
+		dec := lastNeed(it.Needs)
+		var options []string
+		if d, ok, err := item.Get(s.ws, dec); err == nil && ok {
+			options = item.ParseOptions(d.Body)
+		}
+		return refuse(roundsRefusal(sc.short(it.ID), "main", sc.short(dec), options) +
+			fmt.Sprintf("! ROUNDS W rounds=%d/%d were already spent by an earlier escalation — the gate was not run, so this submit added none\n",
+				it.Rounds, s.maxRounds()))
 	}
 
 	// GATE 1: verify + goal on the worktree tree
@@ -1192,8 +1211,23 @@ func (s *Server) gateFail(it item.Item, gateMsg string) (*mcp.CallToolResult, an
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(fmt.Sprintf("i %s blocked rounds=%d/%d — decide %s",
-		sc.short(blocked.ID), blocked.Rounds, max, sc.short(d.ID)))
+	// Third of the three rounds-exhausted escalations that still reported
+	// success after the move route was fixed (T-01KYQ503AGE6T). It returned
+	// through text() — exit 0 for an item the server had just FORCE-blocked —
+	// and rendered an `i <id> blocked ...` record line, the same success-shaped
+	// record that made three of four judges read the move route as
+	// moved-plus-warning. refuse() plus the shared roundsRefusal renderer, so
+	// every way into blocked speaks with one voice: what did NOT happen first,
+	// then a decide object the caller can send back verbatim.
+	//
+	// The requested destination is `main` because that is what a submit is for
+	// — the integration is the thing that did not happen; the item's own state
+	// was never going to change on a gate fail (see the doc comment above). The
+	// round counts the old `i` line carried are not lost, just moved onto a W
+	// line that cannot be mistaken for a record.
+	return refuse(roundsRefusal(sc.short(blocked.ID), "main", sc.short(d.ID), item.ParseOptions(d.Body)) +
+		fmt.Sprintf("! ROUNDS W gate failed on round %d/%d — the worktree stays open; work op=abort still applies\n",
+			blocked.Rounds, max))
 }
 
 // lastNeed mirrors lifecycle's unexported lastNeed (package-private there
