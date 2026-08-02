@@ -41,8 +41,8 @@ MCP-011	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	227-314	aa
 ROLE-BOUNDARY-001	go:mcpserver.Server.gitFlowFor	internal/mcpserver/gitflow.go	1081-1118	41c71edae43d175e	d23a97e322d7aeea
 EARS-001	go:ears.Compose	internal/ears/compose.go	58-112	53c73ccecccf14d1	f7c6a352c74c6284
 CLI-001	go:main.main~2	main.go	67-71	ff8dc53a80235df9	70b6d48bf6223821
-KN-001	go:knowledge.Parse	internal/knowledge/artifact.go	273-353	32f19a72bab569fb	de213f994fe2146d
-KN-001	go:knowledge.contentKey	internal/knowledge/artifact.go	374-388	f70fe28f496c45c0	de213f994fe2146d
+KN-001	go:knowledge.Parse	internal/knowledge/artifact.go	273-377	c827d81c8f537489	de213f994fe2146d
+KN-001	go:knowledge.contentKey	internal/knowledge/artifact.go	398-412	f70fe28f496c45c0	de213f994fe2146d
 LC-001	go:lifecycle.retainedBody	internal/lifecycle/lifecycle.go	577-582	d01404566f310b7a	4e4e0d5210ccbc52
 LC-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	500-544	a511ac9623b10b36	4e4e0d5210ccbc52
 SRF-001	go:mcpserver.roundsRefusal	internal/mcpserver/tools.go	997-1024	71785ef17271da4a	d8da224647609b71
