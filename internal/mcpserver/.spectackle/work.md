@@ -26,7 +26,7 @@ FIX DIRECTION. Per-entry refusals need to reach the exit status. Decide whether 
 
 ## B-01KYRVXQ02FDH9YBAFG64SH13N knowledge export mixes the artifact and its ok line on one stream, so export piped into apply fails with an unmappable line number
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 grilled: 2026-08-02 open=0
 targets: internal/mcpserver, internal/knowledge, docs
