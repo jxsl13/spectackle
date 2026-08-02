@@ -792,3 +792,4 @@
 {"t":"2026-08-02T21:01:55Z","eid":"e577edf988554fe3","ag":"ag-223a","ev":"create","id":"T-01KZ24H1F9EYY99M87KK4HR5AX","k":"task","ti":"pin two properties that are correct but unpinned: the escalation ADR title length, and the move route's non-zero exit"}
 {"t":"2026-08-02T23:48:54Z","eid":"da36ccfa928804b6","ag":"ag-5b2c","ev":"revise","id":"B-01KYQA4WXEFATTX2FV30DATGDJ","note":"targets revised"}
 {"t":"2026-08-02T23:49:20Z","eid":"ec08ffa07ba9e577","ag":"ag-dec4","ev":"grill","id":"B-01KYQ87KTBFVVSRG337RFWCS44","gr":"2026-08-02 open=0","hash":"0f42faad3a9e36dedc329fd020ad09cfa133e1c1b8240862d71356592757eede"}
+{"t":"2026-08-02T23:49:21Z","eid":"96a0005371be7af2","ag":"ag-f529","ev":"move","id":"B-01KYQ87KTBFVVSRG337RFWCS44","fr":"draft","to":"active"}
