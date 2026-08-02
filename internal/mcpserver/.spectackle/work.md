@@ -28,7 +28,7 @@ FIX DIRECTION. Per-entry refusals need to reach the exit status. Decide whether 
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/mcpserver/knowledge.go
+targets: internal/mcpserver, internal/knowledge, docs
 
 Found by an independent verifier while checking something else, and it cost that verifier a wrong hypothesis before it identified the cause - which is the real damage here.
 
@@ -61,24 +61,6 @@ RESIDUAL 2, the exempt surface widened from the root to every depth. workspace.I
 WHY IT WAS JUDGED ACCEPTABLE, and the caveat. The ROOT case behaved identically before the change, since the old expression exempted dot-spectackle slash anything too, so this widens an existing hole rather than opening one; and the Go toolchain ignores dot-directories entirely, confirmed by a verifier placing syntactically invalid Go under one without breaking go build. The caveat is real though: in a non-Go language a script or asset under a records directory IS reachable, and the surface is now every directory depth instead of one. So the exemption rests on a language-specific accident that the predicate does not state.
 
 FIX DIRECTION. Exempt records by NAME rather than by directory: the server writes work.md, spec.md, journal.ndjson and its known siblings, so the gate could exempt those filenames inside a dot-spectackle segment and refuse anything else there. That keeps the deadlock fix - those are exactly the files that deadlocked - while removing the smuggling surface at every depth including the root, which is a strict improvement over the pre-existing behavior. VERIFY: a .go file and a shell script under a records dir at root and nested depth must both be REFUSED, while work.md and journal.ndjson at both depths are exempt.
-
-## B-01KYSX35RKFYBRX6YAB9E9DHBW the needs bookkeeping is inverted: resolving paths keep the spent ADR while the non-resolving path clears it
-kind: bug
-state: draft
-created: 2026-07-30
-targets: internal/mcpserver/decide.go
-
-Split out of B-01KYS7111XFHZ rather than folded into it, because it needs its own reproduction and that record was already carrying a severe unrecoverable-state fix.
-
-OBSERVED, from reading resolveDecision while fixing the escalation validation. A blocked item whose choice is one of rescope, reject or override-once resolves via lifecycle.ResolveBlocked - and those paths leave the now-spent ADR in the item Needs. Any other blocked-on item takes the else branch, which CLEARS this ADR from Needs without resolving anything. That is backwards on both sides: the path that consumed the decision keeps the link, and the path that consumed nothing drops it.
-
-WHY IT WAS NOT FIXED IN THE SAME RECORD. The severe consequence - a typo burning the decision, clearing the link and stranding the item forever - is closed, because an invalid choose can no longer reach resolveDecision at all: the enumeration is validated first now. So the inversion is no longer reachable via the typo path. It remains reachable by any OTHER caller that lands in the else branch with a legitimately non-blocking decision, and the record for that fix should show which callers those are rather than assuming.
-
-WHAT TO ESTABLISH FIRST, before changing anything. Enumerate every path into resolveDecision and say, for each, whether the ADR was consumed. The decide-ask-on-any-item case is the documented non-blocking one - a decision that names an item via decide op=ask item=X appends to that item Needs but never puts it in blocked - so clearing on answer may be correct THERE and the defect may be narrower than it looks from the branch shape alone. Do not refactor on the shape; measure which callers reach which branch.
-
-DIRECTION, if the reading holds. Needs should be cleared exactly when the decision that occupied it has been answered, regardless of whether the answer also unblocked a state transition - clearing is about the link being spent, not about what the outcome did. Then ResolveBlocked and the else branch converge on one rule instead of two opposite ones.
-
-VERIFY. A test per caller path asserting the post-answer Needs contents, including a blocked item resolved by each of the three outcomes and a non-blocking decide-ask-on-item decision. Per RECMERGE-003, mutate: swapping the two branches must fail the suite, which today it would not, since nothing asserts Needs after resolution.
 
 ## T-01KYT2EHRMEAHSAY9GECXG2035 sweep the remaining hard-coded enumerations onto their source of truth
 kind: task

@@ -6,7 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-28
-targets: internal/mcpserver, internal/drift
+targets: internal/mcpserver, internal/drift, internal/graph
 
 Hit while landing T-01KYMPN0PNEWV. rule op=add applies=[internal/knowledge/artifact.go] was accepted and rendered a internal/knowledge/artifact.go pending (node not indexed yet). That reads as a transient state that a reindex will clear. It is not: anchors bind GRAPH NODES, whose names are go:pkg.Symbol, and a file path is not a node name in any index state, so the anchor stays pending forever. spectackle reindex (259 files, 2861 nodes) did not change it.
 
@@ -405,3 +405,20 @@ FINDING 2, a live intermittent suite failure. TestBenchCmpDeltasAndUnitMismatch 
 FIX: use the adaptive shortener in the bench render paths. VERIFY: a test that mints two records in the same millisecond and asserts every rendered ID resolves to exactly one record.
 
 METHOD NOTE worth keeping: this flake was invisible to the harness used through the session that found it, because piping go test into a filter and echoing a marker afterwards discards the exit code. The filter still prints FAIL lines so a failure is visible when it happens, but the run is never actually asserted to have passed. Capture the output and read the exit code directly.
+
+## B-01KZ10JP6BFV9B5EGWVVP6R8H3 two merged records carry validation verdicts from orchestrator-spawned validators, which the tombstones do not disclose
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYRN44EVEK2B0Q772MFEPZWK, B-01KYZB4QA9FF4TCA3AQGWT7E5D
+targets: .
+
+The journal for two merged records implies an independent validation verdict that was not independent in the sense the gate means. Filed so later sessions do not read more assurance into those tombstones than the evidence supports. User-authorized on 2026-08-01 to leave both merged and record this note; the standing policy is now VALIDATOR-PROVENANCE-001.
+
+AFFECTED. B-01KYRN44EVEK2 (pr 252) and B-01KYZB4QA9FF4 (pr 253). Both archived on verdicts recorded by validator identities that an orchestrator spawned and named (verifier-w1, verifier-await-2). feedback.validate=require exists to demand a second PARTY before archive; it was handed a second PROCESS. A safety classifier caught this on the third record and refused to record that verdict, which is how it surfaced.
+
+WHAT THE EVIDENCE ACTUALLY IS, so the correction is not overstated in the other direction. The verification was technically real and adversarial, not a rubber stamp. On B-01KYZB4QA9FF4 the panel returned 0/3 and REFUTED the implementation, reproducing against the real forge.GitHub over httptest a regression that would have made the archive gate refuse any build whose CI had not yet been dispatched - B-01KYQJDJJVFC2 rebuilt inside its own fix, with a test that pinned the wrong behavior. That defect was found and corrected BEFORE merge because of this process. On B-01KYRN44EVEK2 two lenses independently flagged an overbroad comment. So the finding is narrow: the verdicts are not worthless, they are misattributed.
+
+NOT A CODE DEFECT. Nothing in the server behaved incorrectly - the gate refused an anonymous validator exactly as designed and had no way to distinguish a spawned agent from any other second identity, which is the open question rather than a bug. Whether an identity check SHOULD be able to tell them apart is a separate design question and is not proposed here.
+
+VERIFY: this record is discoverable from a search for validation provenance, and names both affected record IDs and both PR numbers, so a session auditing either tombstone finds it.

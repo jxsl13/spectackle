@@ -249,11 +249,16 @@ func (s *Server) decideAnswer(in decideIn) (*mcp.CallToolResult, any, error) {
 
 // resolveDecision persists a decision's outcome (state=done, choice recorded
 // in the body, journaled) and applies it to whatever the decision blocks, if
-// anything: a blocked item (item.StateBlocked, set by lifecycle.Escalate)
-// with choice in {rescope,reject,override-once} resolves via
-// lifecycle.ResolveBlocked; any other blocked-on item just has this
-// decision's ID cleared from its Needs (the ordinary decide-ask-on-any-item
-// case — nothing to unblock, it was never in item.StateBlocked).
+// anything. ONE rule governs the Needs link (B-01KYSX35RKFYB): it is cleared
+// exactly when the decision that occupied it has been answered, independent
+// of what the answer did to the item's state. Clearing is about the LINK
+// being spent, not about the outcome — a decision answered is a decision
+// answered, whether it also unblocked a transition or was an ordinary
+// decide-ask-on-any-item question that never blocked anything.
+//
+// On top of that, a blocked item (item.StateBlocked, set by
+// lifecycle.Escalate) whose choice is one of {rescope,reject,override-once}
+// additionally resolves the block via lifecycle.ResolveBlocked.
 //
 // It also lands the classic ADR fields: Decision gets the chosen option and
 // Status moves to "accepted" — both on every resolution path (op=answer, and
@@ -294,14 +299,30 @@ func (s *Server) resolveDecision(id, choice, consequences string) (*mcp.CallTool
 		return nil, nil, err
 	}
 	if hasBlocked {
-		if it.State == item.StateBlocked && (choice == "rescope" || choice == "reject" || choice == "override-once") {
+		resolves := it.State == item.StateBlocked && (choice == "rescope" || choice == "reject" || choice == "override-once")
+		// Clear BEFORE ResolveBlocked, and this ordering is LOAD-BEARING
+		// (B-01KYSX35RKFYB): the reject outcome carryRecords the item into
+		// the rejection snapshot (lifecycle.go, ResolveBlocked) and then
+		// item.Removes it, so an after-the-fact Upsert either no-ops or
+		// RESURRECTS a rejected item — and the snapshot would go on carrying
+		// the spent ADR into every later revoke.
+		//
+		// There is deliberately NO restore-on-error arm here. Its premise —
+		// that clearing without restoring strands a blocked item with empty
+		// Needs and no exit — is false: removeID drops only the ANSWERED id,
+		// so a blocked item keeps its LIVE escalation ADR and stays
+		// followable. A restore would instead put a state=done ADR back into
+		// Needs, which is precisely the inverted bookkeeping this record
+		// exists to remove: one escalation later `prompt next` names the
+		// already-decided ADR as the item's only exit and following that hint
+		// refuses.
+		it.Needs = removeID(it.Needs, id)
+		if err := item.Upsert(s.ws, it); err != nil {
+			return nil, nil, err
+		}
+		if resolves {
 			if _, err := lifecycle.ResolveBlocked(s.ws, it.ID, choice, "decide "+id+": "+choice); err != nil {
 				return refuse("! ARG E - " + err.Error())
-			}
-		} else {
-			it.Needs = removeID(it.Needs, id)
-			if err := item.Upsert(s.ws, it); err != nil {
-				return nil, nil, err
 			}
 		}
 	}
