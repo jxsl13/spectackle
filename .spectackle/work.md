@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYN5ZYM1FY2TBZHXC43V68TE rule applies renders a never-resolvable anchor identically to a not-yet-indexed one, and the difference only surfaces as a red CI gate after the PR leaves draft
 kind: bug
-state: active
+state: done
 created: 2026-07-28
 grilled: 2026-08-02 open=1
 targets: internal/mcpserver, internal/drift, internal/graph
