@@ -104,7 +104,7 @@ WHEN a node record is rendered and `EndLine` is known, the record renderer SHALL
 ## MCP-003 {applies: go:mcpserver.Server.registerTools}
 WHEN `commands op=gen` runs without a harness argument and detection finds no marker, the spectackle server SHALL mint an open `decision` item (need decision record) answered later via `decide op=answer`; never a `Session.Elicit` form (ELICIT-001).
 
-## MCP-004 {applies: go:mcpserver.Server.check}
+## MCP-004 {applies: go:mcpserver.Server.checkTMP}
 WHEN the check tool runs, the server SHALL report each applies target of a live rule that lacks an anchors.tsv row as a single dense `g orphan <rule> <node>` record.
 
 ## MCP-005 {applies: go:mcpserver.Server.compact}
