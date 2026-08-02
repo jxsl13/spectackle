@@ -12,6 +12,7 @@ import (
 
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/lifecycle"
+	"github.com/jxsl13/spectackle/internal/migrate"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/jxsl13/spectackle/internal/wt"
 )
@@ -1139,13 +1140,126 @@ func TestGitScopeRefusalUsesTheRecordsPredicate(t *testing.T) {
 		t.Errorf("gate refused a ROOT records write: %v", r)
 	}
 	// And genuine undeclared work must STILL be refused, including the near miss
-	// the old HasPrefix spelling would have excused.
-	for _, f := range []string{"SECRET_NOTE.md", ".spectacklefoo/x.go", "internal/.spectacklefoo/x.go"} {
+	// the old HasPrefix spelling would have excused — and, since
+	// B-01KYSK7HQFFPM, work SMUGGLED INSIDE a records folder. Those four were
+	// measured passing this exact gate at exit 0 while the exemption was
+	// per-directory: a .go file and a shell script, at the root and at depth.
+	// They are asserted HERE, through the gate, and not only against the
+	// predicate, because pinning the helper is not pinning the gate — the same
+	// green-test/dead-gate shape this test's own doc comment describes.
+	for _, f := range []string{
+		"SECRET_NOTE.md", ".spectacklefoo/x.go", "internal/.spectacklefoo/x.go",
+		".spectackle/evil.go",
+		"internal/mcpserver/.spectackle/evil.go",
+		"a/b/c/.spectackle/payload.sh",
+		"a/b/c/.spectackle/notes.txt",
+	} {
 		writeFile(t, root, f, "x\n")
 		if r := s.gitScopeRefusal(id, item.StateDone); r == nil {
 			t.Errorf("gate ALLOWED undeclared work %q — the gate is bypassable", f)
 		}
 		rmForScope(t, root, f)
+	}
+}
+
+// TestGitScopeRefusalAllowsRetainedMigrationBackup is the regression the
+// corrected allowlist exists for, and it is the one case a green suite could
+// not have told us about: `go test ./...` came back 32-ok with the NAIVE
+// allowlist, because no other test in this repository drives the gate against
+// a post-migration tree.
+//
+// A schema migration copies every bundle file into
+// .spectackle/migrate-backup-<from>/ and RETAINS it. The naive allowlist
+// refused all six of those files, and the refusal was UNCLEARABLE:
+// gitScopeRefusal is a pre-Move guard (tools.go:1847) while every
+// gitCommitRecords call site is downstream in gitflow.go, so the records
+// commit that would have absorbed the backup never runs. That is verbatim the
+// deadlock workspace.IsRecordsPath exists to prevent.
+//
+// The test strips the migrate-backup ignore line back out after the server has
+// scaffolded, which is not artificial: it reproduces a workspace scaffolded by
+// a build that predates the line — i.e. every workspace that has already
+// migrated. Without the strip, the ignore-line fix would hide the backup from
+// DirtyFiles and this test would pass even against the naive predicate.
+func TestGitScopeRefusalAllowsRetainedMigrationBackup(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	// A v0 workspace: enough of the bundle for migrate.Needed to fire and for
+	// the backup to hold both a root and a nested context.
+	writeFile(t, root, ".spectackle/config.yaml", "schema: v0\nlangs:\n  - go\n")
+	writeFile(t, root, ".spectackle/spec.md", "---\nschema: v0\n---\n\n## intent\n\n- P-0001 old work: shipped\n")
+	writeFile(t, root, ".spectackle/work.md", "---\nschema: v0\n---\n\n## P-0001 keep it\nkind: proposal\nstate: active\ncreated: 2026-01-05\n\nBody.\n")
+	writeFile(t, root, ".spectackle/journal.ndjson",
+		`{"t":"2026-01-05T10:00:00Z","eid":"a1","ag":"alice","ev":"create","id":"P-0001","k":"proposal","ti":"keep it"}`+"\n")
+	writeFile(t, root, "internal/x/.spectackle/work.md", "---\nschema: v0\n---\n\n## T-0002 nested\nkind: task\nstate: approved\ncreated: 2026-01-06\nparent: P-0001\n\nBody.\n")
+	writeFile(t, root, "internal/x/.spectackle/journal.ndjson",
+		`{"t":"2026-01-06T10:00:00Z","eid":"a2","ag":"bob","ev":"create","id":"T-0002","k":"task","ti":"nested"}`+"\n")
+
+	if need, err := migrate.Needed(root); err != nil || !need {
+		t.Fatalf("fixture is wrong: migrate.Needed = %v, %v — nothing would be backed up, so this test proves nothing", need, err)
+	}
+	rep, err := migrate.Run(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Migrated || rep.Backup == "" {
+		t.Fatalf("fixture is wrong: migrate produced no retained backup (%+v)", rep)
+	}
+
+	s := newTestServer(t, root)
+	id := draftForScope(t, s, root, []string{"pkg/a.go"})
+
+	// Reproduce a workspace scaffolded before the ignore line existed: drop it
+	// so the retained backup actually reaches DirtyFiles and the PREDICATE is
+	// what has to exempt it.
+	writeFile(t, root, ".spectackle/.gitignore", "cache/\nwt/\n")
+
+	dirty, derr := wt.DirtyFiles(root)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	n := 0
+	for _, f := range dirty {
+		if strings.Contains(f, "migrate-backup-") {
+			n++
+		}
+	}
+	if n == 0 {
+		t.Fatalf("fixture is wrong: no backup file reaches DirtyFiles, so the gate never sees one; dirty = %v", dirty)
+	}
+	if r := s.gitScopeRefusal(id, item.StateDone); r != nil {
+		t.Fatalf("gate refused the RETAINED migration backup (%d file(s)) — no transition can clear that, and nothing downstream commits it: %v", n, r)
+	}
+}
+
+// TestScaffoldedIgnoreKeepsTheBackupOutOfDirtyFiles pins the other half of the
+// same correction at the level the caller observes. It is a separate test
+// because the two fixes mask each other: with the predicate exemption in
+// place, a missing ignore line costs the scope gate nothing — it costs
+// wt.CommitRecords, which matches on a `.spectackle/` prefix and would sweep
+// the whole retained backup into a records commit. Asserting DirtyFiles is
+// asserting the ACTION (what git will hand to `add`), not the wording of
+// anything.
+func TestScaffoldedIgnoreKeepsTheBackupOutOfDirtyFiles(t *testing.T) {
+	root := t.TempDir()
+	gitInitForScope(t, root)
+	writeFile(t, root, ".spectackle/config.yaml", "schema: v0\nlangs:\n  - go\n")
+	writeFile(t, root, ".spectackle/work.md", "---\nschema: v0\n---\n\n## P-0001 keep it\nkind: proposal\nstate: active\ncreated: 2026-01-05\n\nBody.\n")
+	writeFile(t, root, ".spectackle/journal.ndjson",
+		`{"t":"2026-01-05T10:00:00Z","eid":"a1","ag":"alice","ev":"create","id":"P-0001","k":"proposal","ti":"keep it"}`+"\n")
+	if _, err := migrate.Run(root); err != nil {
+		t.Fatal(err)
+	}
+	newTestServer(t, root) // opens the workspace, which scaffolds the ignore
+
+	dirty, err := wt.DirtyFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range dirty {
+		if strings.Contains(f, "migrate-backup-") {
+			t.Fatalf("the retained backup is still dirty (%q) — wt.CommitRecords would sweep it into a records commit; dirty = %v", f, dirty)
+		}
 	}
 }
 
@@ -1202,5 +1316,172 @@ func rmForScope(t *testing.T, root, rel string) {
 	t.Helper()
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// reconcileFixture builds a local repo on main with a *Server rooted at it and
+// a clean tree, ready for reconcileClosureBranch to be driven directly. No
+// forge is involved: reconcileClosureBranch only ever touches s.ws.Dir and
+// s.gitBase(), so the whole conflict-classify / checkout-theirs / stage /
+// commit sequence is exercisable against a temp repo — which is what the
+// filing record (B-01KYSK7HQFFPM) guessed would be needed and what its
+// predecessor B-01KYSDBZTEF1A had to verify by hand instead.
+func reconcileFixture(t *testing.T) (*Server, string) {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, root, ".spectackle/config.yaml", "schema: v1\n")
+	if err := wt.InitTestRepo(root); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	s := newTestServer(t, root)
+	// Opening the workspace scaffolds .spectackle — commit that, so a later
+	// `git status --porcelain` assertion is about the reconcile and nothing
+	// else.
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "--allow-empty", "-m", "scaffold")
+	return s, root
+}
+
+// reconcileBranchAt commits content at rel on main, branches, and leaves the
+// checkout ON the branch with a conflicting edit committed there and a
+// different one committed on main. The returned name is the branch.
+func reconcileBranchAt(t *testing.T, root, rel, base, branchSide, mainSide string) string {
+	t.Helper()
+	const branch = "spectackle/reconcile-fixture"
+	writeFile(t, root, rel, base)
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "seed "+rel)
+
+	closureGit(t, root, "checkout", "-q", "-b", branch)
+	writeFile(t, root, rel, branchSide)
+	closureGit(t, root, "commit", "-q", "-a", "-m", "branch edit")
+
+	closureGit(t, root, "checkout", "-q", "main")
+	writeFile(t, root, rel, mainSide)
+	closureGit(t, root, "commit", "-q", "-a", "-m", "main edit")
+
+	closureGit(t, root, "checkout", "-q", branch)
+	return branch
+}
+
+// TestReconcileClosureBranchNestedOnlyRecordsConflict is the RECMERGE-003
+// mutation pin this tree lacked. B-01KYSDBZTEF1A replaced a root-anchored
+// `git add -A -- .spectackle` in reconcileClosureBranch with staging the exact
+// files the conflict classifier resolved, and NOTHING held that line: an
+// independent verifier re-inlined the old pathspec and the entire
+// internal/mcpserver package stayed green (measured, 506s, exit 0).
+//
+// The conflict must be NESTED-ONLY. A root-level records conflict is handled
+// identically by both forms, which is exactly why closurefix_test.go's
+// scenarios miss this: the old pathspec matches only the root context, so it
+// is a nested conflict — classified `inside`, resolved by `checkout --theirs`,
+// then handed to an `add` that cannot see it — that fails with "pathspec did
+// not match any files" and aborts the merge. Re-inline the old form and this
+// test goes red with "Committing is not possible because you have unmerged
+// files".
+//
+// The assertions are ACTIONS, not wording: the merge commit exists (two
+// parents), the resolved content is base's side, and the tree is clean. No
+// wall-clock assertion appears anywhere here (B-01KYQG88GZEM2).
+func TestReconcileClosureBranchNestedOnlyRecordsConflict(t *testing.T) {
+	s, root := reconcileFixture(t)
+	const rel = "internal/x/.spectackle/work.md"
+	reconcileBranchAt(t, root, rel, "base\n", "branch side\n", "main side\n")
+
+	res := &gitFlowResult{}
+	if err := s.reconcileClosureBranch(res, "T-01TEST"); err != nil {
+		t.Fatalf("nested-only records conflict must auto-resolve, got %v\n%s", err, res.String())
+	}
+	raw, rerr := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(raw) != "main side\n" {
+		t.Errorf("records conflict resolved to %q, want base's side %q — post-archive records on base are authoritative", raw, "main side\n")
+	}
+	if st := closureGit(t, root, "status", "--porcelain"); strings.TrimSpace(st) != "" {
+		t.Errorf("tree is not clean after the reconcile:\n%s", st)
+	}
+	parents := strings.Fields(closureGit(t, root, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 3 {
+		t.Errorf("HEAD has %d parent(s) (%v), want a two-parent merge commit — the reconcile did not commit the merge", len(parents)-1, parents)
+	}
+}
+
+// TestReconcileClosureBranchRefusesCodeConflict guards the auto-resolve
+// boundary from the other side. It passes before and after
+// B-01KYSK7HQFFPM — its job is to make sure that record's narrowing of
+// IsRecordsPath cannot silently widen what gets auto-resolved to base: a
+// conflict on a real source file is a human judgment and must abort.
+func TestReconcileClosureBranchRefusesCodeConflict(t *testing.T) {
+	s, root := reconcileFixture(t)
+	const rel = "internal/x/code.go"
+	reconcileBranchAt(t, root, rel, "package x\n", "package x // branch\n", "package x // main\n")
+
+	head := strings.TrimSpace(closureGit(t, root, "rev-parse", "HEAD"))
+	res := &gitFlowResult{}
+	if err := s.reconcileClosureBranch(res, "T-01TEST"); err == nil {
+		t.Fatalf("a code conflict was auto-resolved:\n%s", res.String())
+	}
+	if !strings.Contains(res.String(), rel) {
+		t.Errorf("refusal does not name the conflicting file %q:\n%s", rel, res.String())
+	}
+	// The ACTION, not the wording: no merge left in progress and no commit made.
+	if _, err := os.Stat(filepath.Join(root, ".git", "MERGE_HEAD")); err == nil {
+		t.Error("a merge is still in progress after the refusal — the next operation inherits a half-merged tree")
+	}
+	if now := strings.TrimSpace(closureGit(t, root, "rev-parse", "HEAD")); now != head {
+		t.Errorf("HEAD moved from %s to %s — the refusal committed something", head, now)
+	}
+}
+
+// TestReconcileClosureBranchSaysWhyTheMergeFailed covers the merge that never
+// STARTED: a locally modified records file in the way, so `git merge` fails
+// with no unmerged paths at all. Before B-01KYSK7HQFFPM both classifier lists
+// came back empty and the function fell through — `git add --` with no
+// pathspec exits 0 and stages nothing, so the operator was told "closure
+// reconcile commit: ... no changes added to commit", a message about a step
+// three removes from the actual problem and naming no file.
+//
+// The assertion is on the merge's OWN message, which names the blocking file,
+// plus the actions: nothing committed, the local modification untouched.
+func TestReconcileClosureBranchSaysWhyTheMergeFailed(t *testing.T) {
+	s, root := reconcileFixture(t)
+	const rel = "internal/x/.spectackle/work.md"
+	const branch = "spectackle/reconcile-dirty"
+	writeFile(t, root, rel, "base\n")
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "seed "+rel)
+	closureGit(t, root, "branch", branch)
+	writeFile(t, root, rel, "main side\n")
+	closureGit(t, root, "commit", "-q", "-a", "-m", "main edit")
+	closureGit(t, root, "checkout", "-q", branch)
+	// UNCOMMITTED, so the merge refuses to start rather than conflicting.
+	writeFile(t, root, rel, "local uncommitted\n")
+
+	head := strings.TrimSpace(closureGit(t, root, "rev-parse", "HEAD"))
+	res := &gitFlowResult{}
+	if err := s.reconcileClosureBranch(res, "T-01TEST"); err == nil {
+		t.Fatalf("a merge that never started must refuse:\n%s", res.String())
+	}
+	out := res.String()
+	if !strings.Contains(out, "would be overwritten by merge") {
+		t.Errorf("refusal does not quote the merge's own reason:\n%s", out)
+	}
+	if !strings.Contains(out, rel) {
+		t.Errorf("refusal does not name the blocking file %q:\n%s", rel, out)
+	}
+	if strings.Contains(out, "no changes added to commit") {
+		t.Errorf("refusal still reports the commit step, three removes from the cause:\n%s", out)
+	}
+	if now := strings.TrimSpace(closureGit(t, root, "rev-parse", "HEAD")); now != head {
+		t.Errorf("HEAD moved from %s to %s — the failed reconcile committed something", head, now)
+	}
+	raw, rerr := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(raw) != "local uncommitted\n" {
+		t.Errorf("the local modification was destroyed: %q", raw)
 	}
 }
