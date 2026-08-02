@@ -64,7 +64,7 @@ FIX DIRECTION. Exempt records by NAME rather than by directory: the server write
 
 ## B-01KYSX35RKFYBRX6YAB9E9DHBW the needs bookkeeping is inverted: resolving paths keep the spent ADR while the non-resolving path clears it
 kind: bug
-state: draft
+state: active
 created: 2026-07-30
 grilled: 2026-08-02 open=0
 targets: internal/mcpserver
