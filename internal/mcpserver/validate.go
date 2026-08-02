@@ -1021,7 +1021,27 @@ func (s *Server) validateVerdict(in validateIn) (*mcp.CallToolResult, any, error
 					return nil, nil, eErr
 				}
 				_ = s.cd.Emit("escalate", blocked.ID, "rounds limit — decide "+dec.ID)
-				return text(warn + fmt.Sprintf("ok validate %s fail by %s\ni %s blocked rounds exhausted — decide %s (%s)", short, validator, short, sc.short(dec.ID), blockedExitOutcomes(item.ParseOptions(dec.Body))))
+				// This route is arguably the COMMONER way into blocked, and it
+				// used to return through text() — exit 0 — leading with a
+				// literal `ok` and then an `i <id> blocked ...` record line for
+				// a state the caller never requested, exactly the shape three
+				// of four judges misread on the move route (T-01KYQ503AGE6T).
+				// Same treatment: refuse() so the exit code matches the
+				// outcome, no record line, and the resolution as a callable
+				// object rather than a prose list of choices.
+				//
+				// It is NOT a mechanical copy of the move site, though. There
+				// the requested transition simply did not happen; HERE the
+				// verdict itself DID land — it is journaled a few lines above
+				// and the escalation is downstream of it. A refusal that
+				// implied nothing happened would make the caller re-submit a
+				// verdict that is already recorded, which is the same lie in
+				// the other direction. So the refusal leads with what was
+				// refused (the done→active reopen) and then says plainly, in
+				// its own line, that the verdict stands.
+				return refuse(warn +
+					roundsRefusal(short, string(item.StateActive), sc.short(dec.ID), item.ParseOptions(dec.Body)) +
+					fmt.Sprintf("! ROUNDS W validate %s fail by %s was RECORDED and stands — only the done→active reopen it triggers was refused; do not re-submit the verdict\n", short, validator))
 			}
 			return nil, nil, err
 		}
