@@ -711,6 +711,44 @@ func TestWasActiveButBranchDeletedStillAwaitsCI(t *testing.T) {
 	}
 }
 
+// TestActiveThenDoneStillPushesWork is the OVER-SUPPRESSION guard, and it
+// asserts the remote rather than the render for a specific measured reason:
+// dietGreen (RENDER-PARITY-001) collapses a fully green active->done to the
+// single artifact line, so `strings.Contains(out, "push")` cannot discriminate
+// a guard that pushed from one that silently skipped. Only the remote can.
+//
+// It exists because an independent validator refuted the first landing of this
+// record: replacing the gitFlowSync guard with an unconditional `if true`
+// deleted the done-edge push for EVERY item, and the ENTIRE repository suite
+// stayed green. Over-suppression is the one failure mode these guards
+// introduce, and nothing was watching it.
+func TestActiveThenDoneStillPushesWork(t *testing.T) {
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+
+	id := draftFullID(t, s, sess, map[string]any{"kind": "task", "title": "ordinary work reaches the remote",
+		"targets": []string{"work.go"}})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	if err := os.WriteFile(filepath.Join(root, "work.go"), []byte("package main\n\nfunc Work() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// The work file must be reachable from the REMOTE branch ref. A guard
+	// that skipped the push leaves origin without it (or without the ref at
+	// all), whatever the render said.
+	remote := "refs/remotes/origin/" + taskBranch(id)
+	out, err := exec.Command("git", "-C", root, "ls-tree", "-r", "--name-only", remote).Output()
+	if err != nil {
+		t.Fatalf("done did not push %s to origin: %v", taskBranch(id), err)
+	}
+	if !strings.Contains(string(out), "work.go") {
+		t.Fatalf("the remote branch does not carry the work committed while active:\n%s", out)
+	}
+}
+
 // TestArchiveWithoutActiveMergesOnline is B-01KYDS's records-only closure in
 // ONLINE mode, kept green here so the never-active discriminator this record
 // adds to the done edge is never "simplified" into the archive edge, which
