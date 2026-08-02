@@ -76,6 +76,7 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 kind: bug
 state: draft
 created: 2026-07-29
+grilled: 2026-08-02 open=0
 targets: internal/mcpserver, internal/drift
 
 REPRODUCED while adding SRF-001. Sequence: rule op=add with applies (anchor stamped against the rule text), then rule op=edit changing pattern/system/response to fix the sentence. The edit succeeded silently. The very next check reported d audit SRF-001 go:mcpserver.roundsRefusal ... tightened, and the repositorys own TestCheckOnOwnRepo failed with unexpected drift audit on own repo. Re-issuing rule op=edit with the SAME applies list re-stamped the anchor and cleared it.
