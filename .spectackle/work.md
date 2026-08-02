@@ -448,3 +448,28 @@ RELATED, and probably the same root: the implementer of B-01KYSX35RKFYB had to n
 DIRECTION, not decided here. Either the query path must be made to observe a just-committed record deterministically (find the memo or index refresh that a second session misses, and make the mint publish through it), or - if cross-session immediacy is genuinely not promised - the test must stop asserting it and the promise must be written down. What must NOT happen is a retry loop in the test: that converts a real visibility question into a hidden sleep, and this class already has two members that were only found because they failed loudly.
 
 VERIFY: the mechanism is named correctly (visibility, not double-mint) in whatever fix lands; the test either observes a deterministic publish point or is rewritten to assert only what the system promises; and 200 consecutive runs under artificial CPU contention stay green.
+
+## B-01KZ16J3PKERRV6E7BB8F3BZJK a single-segment directory target such as docs is honored by the done gate and silently dropped by validate, so every documentation change manufactures an offscope finding
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYRVXQ02FDH9YBAFG64SH13N
+targets: internal/mcpserver
+
+Two gates compute declared-target scope differently, and the disagreement is total for any SINGLE-SEGMENT directory target: docs, cmd, poc, bin, examples. The done edge honors it; validate silently drops it and reports every file under it as offscope.
+
+ISOLATED CAUSE, one expression. internal/mcpserver/tools.go:2852, targetPath ends with
+    return t, strings.ContainsAny(t, "./")
+The heuristic is "a target is a path when it contains a dot or a slash". internal/mcpserver contains a slash and passes; docs contains neither and returns ok=false. validate.go:344-352 iterates targets and `continue`s on !ok, so the target is not merely unmatched - it is removed from consideration, and the file then falls through to `if !in && len(it.Targets) > 0` and is emitted as `v offscope`.
+
+The other gate never consults targetPath. inTargetScope (internal/mcpserver/gitflow.go:1193-1204) does a plain prefix match: f == t || strings.HasPrefix(f, t+"/"), plus a root-dir escape. docs/tools.md against target docs matches there.
+
+OBSERVED end to end on B-01KYRVXQ02FDH, whose declared targets were internal/mcpserver, internal/knowledge, docs. `move to=done` ACCEPTED the changed docs/tools.md - no refusal, the transition completed. The very next `validate` render on the same item and the same diff emitted `! VALIDATE E B-01KYRVXQ02FDH unaddressed findings: offscope:docs/tools.md`. Same item, same targets, same file, opposite verdicts.
+
+CONSEQUENCE, and why this is not cosmetic. The offscope finding must be addressed or waived before archive, so every record that legitimately edits documentation manufactures a finding whose only correct disposition is a waiver. That trains the waiver reflex on a false positive, and this workspace's own health line already warns waiver-rate 55% over the last 20 verdicts. A gate whose noise must be routinely waived stops being read.
+
+Second-order: because targetPath is also what normalizeTargets uses (tools.go:2855-2865), a single-segment target survives normalization unchanged (the else branch keeps t), so the value looks correct everywhere it is DISPLAYED. The failure is only in the consumer that filters on ok.
+
+NOT THE FIX, stated so it is not re-attempted: widening the heuristic to "anything without a colon is a path" collides with the node-ID form targetPath exists to split (go:pkg.Fn). The two consumers wanting different things is the actual design question - the done gate wants "is this file inside a declared area", validate wants the same, and only one of them is asking targetPath. The narrow repair is to make validate use inTargetScope, which already encodes the intended semantics including the root-dir case; the broader question is why two implementations exist at all.
+
+VERIFY: an item declaring a single-segment directory target and changing a file under it passes the done edge AND renders no offscope finding; a genuinely undeclared file still produces one; and the root-dir target keeps allowing everything at both gates.
