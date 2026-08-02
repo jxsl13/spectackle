@@ -622,3 +622,316 @@ func TestMoveEscalationAdvertisesLiveOutcomes(t *testing.T) {
 		t.Errorf("move-route refusal does not advertise the live set:\n%s", second)
 	}
 }
+
+// blockedFixture drives a fresh task into item.StateBlocked the way the
+// gate-fail route does — a done->active reopen that exhausts the feedback
+// budget, then lifecycle.Escalate — and returns the blocked item together
+// with the escalation ADR linked into its Needs. This is the setup
+// TestDecideBlockedOverrideOnce performs inline; the Needs-bookkeeping cases
+// below (B-01KYSX35RKFYB) need it once per caller path, so it lives here
+// rather than being copied four times. Escalation itself stays out of scope:
+// it is driven through lifecycle directly, and only the resolution goes
+// through decide.
+func blockedFixture(t *testing.T, s *Server, title string) (item.Item, item.Item) {
+	t.Helper()
+	s.ws.Cfg.Feedback.MaxRounds = 1
+	it, err := lifecycle.Draft(s.ws, s.minter(), "task", title, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return escalateOnce(t, s, it.ID)
+}
+
+// escalateOnce takes an ALREADY EXISTING item from wherever it is to blocked.
+// Separate from blockedFixture because the re-escalation cases need the
+// SECOND trip: an item that came back from blocked via override-once and then
+// exhausts its budget again, which is the state where a spent Needs link is
+// observable.
+func escalateOnce(t *testing.T, s *Server, id string) (item.Item, item.Item) {
+	t.Helper()
+	cur, ok, err := item.Get(s.ws, id)
+	if err != nil || !ok {
+		t.Fatalf("escalateOnce: %s not in work.md: %v %v", id, ok, err)
+	}
+	if cur.State != item.StateDone {
+		if _, err := lifecycle.Move(s.ws, id, item.StateDone, ""); err != nil {
+			t.Fatalf("escalateOnce: %s -> done: %v", id, err)
+		}
+	}
+	_, err = lifecycle.Move(s.ws, id, item.StateActive, "")
+	var exhausted lifecycle.ErrRoundsExhausted
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("escalateOnce: expected ErrRoundsExhausted, got %v", err)
+	}
+	blocked, decision, err := lifecycle.Escalate(s.ws, s.minter(), exhausted.Item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.State != item.StateBlocked {
+		t.Fatalf("escalateOnce: item not blocked: %+v", blocked)
+	}
+	return blocked, decision
+}
+
+// freshScope recomputes the ID display scope the way a real tool call does.
+// Server.scCache memoizes the known-ID set for the duration of ONE call, and
+// these tests mint records through lifecycle BETWEEN calls, so the cached
+// scope can predate the ADR under assertion — shortening against a stale peer
+// set can render a prefix that the next real call then finds ambiguous.
+// Dropping the cache reproduces exactly what `prompt next` would compute.
+func freshScope(t *testing.T, s *Server) idScope {
+	t.Helper()
+	s.scCache = nil
+	sc, err := s.idScope()
+	if err != nil {
+		t.Fatalf("idScope: %v", err)
+	}
+	return sc
+}
+
+// hintID picks the id= argument out of a rendered nextAction hint — what an
+// agent reading the hint would copy into its next call, character for
+// character.
+func hintID(t *testing.T, hint string) string {
+	t.Helper()
+	for _, f := range strings.Fields(hint) {
+		if rest, ok := strings.CutPrefix(f, "id="); ok {
+			return rest
+		}
+	}
+	t.Fatalf("no id= argument in hint: %q", hint)
+	return ""
+}
+
+// TestNeedsClearedOnEverySpentDecision pins the ONE rule resolveDecision now
+// follows (B-01KYSX35RKFYB): the Needs link is cleared exactly when the
+// decision that occupied it has been answered, whatever the answer did to the
+// item's state. The bookkeeping used to be inverted — the three
+// ResolveBlocked outcomes kept the spent ADR while the non-resolving path
+// dropped it — and NOTHING asserted the post-answer Needs on any resolving
+// path, which is how an inversion visible in the branch shape survived.
+//
+// One subtest per caller path into resolveDecision, because the paths differ
+// in what they do to the item afterwards (upsert, remove-and-snapshot,
+// nothing) and only reject exercises the clear-BEFORE ordering.
+func TestNeedsClearedOnEverySpentDecision(t *testing.T) {
+	t.Run("blocked+rescope", func(t *testing.T) {
+		s, sess := connectDecide(t, t.TempDir(), nil)
+		blocked, decision := blockedFixture(t, s, "rescope this work")
+
+		out := callText(t, sess, "decide", map[string]any{
+			"op": "answer", "id": decision.ID, "choose": "rescope",
+		})
+		if !strings.Contains(out, "ok "+shortID(t, s, decision.ID)+" rescope") {
+			t.Fatalf("rescope answer: %q", out)
+		}
+		got, ok, err := item.Get(s.ws, blocked.ID)
+		if err != nil || !ok {
+			t.Fatalf("item gone: %v %v", ok, err)
+		}
+		if got.State != item.StateDraft || got.Rounds != 0 {
+			t.Fatalf("rescope did not resolve the block: %+v", got)
+		}
+		if len(got.Needs) != 0 {
+			t.Fatalf("spent decision still linked after rescope: Needs = %v", got.Needs)
+		}
+	})
+
+	t.Run("blocked+override-once", func(t *testing.T) {
+		s, sess := connectDecide(t, t.TempDir(), nil)
+		blocked, decision := blockedFixture(t, s, "override this work")
+
+		out := callText(t, sess, "decide", map[string]any{
+			"op": "answer", "id": decision.ID, "choose": "override-once",
+		})
+		if !strings.Contains(out, "ok "+shortID(t, s, decision.ID)+" override-once") {
+			t.Fatalf("override-once answer: %q", out)
+		}
+		got, ok, err := item.Get(s.ws, blocked.ID)
+		if err != nil || !ok {
+			t.Fatalf("item gone: %v %v", ok, err)
+		}
+		if got.State != item.StateActive || got.Rounds != 0 || !got.Override {
+			t.Fatalf("override-once did not resolve the block: %+v", got)
+		}
+		if len(got.Needs) != 0 {
+			t.Fatalf("spent decision still linked after override-once: Needs = %v", got.Needs)
+		}
+	})
+
+	t.Run("blocked+reject survives the revoke", func(t *testing.T) {
+		s, sess := connectDecide(t, t.TempDir(), nil)
+		blocked, decision := blockedFixture(t, s, "reject this work")
+
+		out := callText(t, sess, "decide", map[string]any{
+			"op": "answer", "id": decision.ID, "choose": "reject",
+		})
+		if !strings.Contains(out, "ok "+shortID(t, s, decision.ID)+" reject") {
+			t.Fatalf("reject answer: %q", out)
+		}
+		// the ACTION, not the wording: reject removes the item from work.md
+		// and leaves a revocable snapshot behind.
+		if _, ok, _ := item.Get(s.ws, blocked.ID); ok {
+			t.Fatalf("rejected item still in work.md: %s", blocked.ID)
+		}
+		// This arm is what pins the clear-BEFORE ordering. ResolveBlocked's
+		// reject outcome carryRecords the item into the rejection event and
+		// then removes it, so a clear performed AFTER the call never reaches
+		// the snapshot — the spent ADR would ride it back on every later
+		// revoke, forever.
+		revoked, err := lifecycle.Move(s.ws, blocked.ID, item.StateDraft, "revoked")
+		if err != nil {
+			t.Fatalf("revoke: %v", err)
+		}
+		if len(revoked.Needs) != 0 {
+			t.Fatalf("rejection snapshot carried the spent decision back: Needs = %v", revoked.Needs)
+		}
+	})
+
+	t.Run("non-blocking ask on an ordinary item", func(t *testing.T) {
+		s, sess := connectDecide(t, t.TempDir(), nil)
+		task := draftID(t, sess, map[string]any{"kind": "task", "title": "ship the new backend"})
+		taskFull := fullID(t, s, task)
+		adr := askID(t, sess, map[string]any{
+			"op": "ask", "question": "which backend?", "kind": "radio",
+			"options": []string{"grpc", "rest"}, "item": task,
+		})
+
+		out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": adr, "choose": "grpc"})
+		if !strings.Contains(out, "ok "+adr+" grpc") {
+			t.Fatalf("ordinary answer: %q", out)
+		}
+		got, ok, err := item.Get(s.ws, taskFull)
+		if err != nil || !ok {
+			t.Fatalf("item gone: %v %v", ok, err)
+		}
+		// nothing to unblock — the item was never in item.StateBlocked — but
+		// the link is spent all the same, and the state must be untouched.
+		if got.State != item.StateDraft {
+			t.Fatalf("an ordinary decision moved the item it named: %+v", got)
+		}
+		if len(got.Needs) != 0 {
+			t.Fatalf("spent decision still linked after an ordinary answer: Needs = %v", got.Needs)
+		}
+	})
+}
+
+// TestBlockedReEscalationNamesTheLiveDecision is the reported symptom, end to
+// end (B-01KYSX35RKFYB). An item that was unblocked by override-once and then
+// escalates a second time used to carry TWO ADRs in Needs — the spent one
+// first — so nextAction, which names Needs[0] as "the only exit", pointed at
+// an already-decided ADR and following that hint returned
+// `! ARG E - ADR-... already decided`. The item was reachable but its rendered
+// exit was not.
+//
+// The load-bearing assertion is the last one: feeding the hint's own id=
+// straight back into decide op=answer must SUCCEED. Asserting only on which
+// ADR the string names would survive a Needs-ordering refactor that still
+// leaves a spent link behind; asserting the round trip cannot.
+func TestBlockedReEscalationNamesTheLiveDecision(t *testing.T) {
+	s, sess := connectDecide(t, t.TempDir(), nil)
+	blocked, first := blockedFixture(t, s, "twice-escalating work")
+
+	out := callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": first.ID, "choose": "override-once",
+	})
+	if !strings.Contains(out, "ok "+shortID(t, s, first.ID)+" override-once") {
+		t.Fatalf("setup: override-once answer: %q", out)
+	}
+	_, second := escalateOnce(t, s, blocked.ID)
+
+	it, ok, err := item.Get(s.ws, blocked.ID)
+	if err != nil || !ok {
+		t.Fatalf("item gone: %v %v", ok, err)
+	}
+	if len(it.Needs) != 1 || it.Needs[0] != second.ID {
+		t.Fatalf("re-escalated item should need exactly the LIVE decision %s: Needs = %v", second.ID, it.Needs)
+	}
+
+	sc := freshScope(t, s)
+	hint := nextAction(it, sc.short)
+	if !strings.Contains(hint, sc.short(second.ID)) {
+		t.Fatalf("hint does not name the live decision %s:\n%s", sc.short(second.ID), hint)
+	}
+	if strings.Contains(hint, sc.short(first.ID)) {
+		t.Fatalf("hint names the already-decided %s as the exit:\n%s", sc.short(first.ID), hint)
+	}
+
+	// Follow the hint verbatim. rescope, not override-once: that one is spent,
+	// so the second escalation's ADR does not offer it.
+	out = callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": hintID(t, hint), "choose": "rescope",
+	})
+	if strings.Contains(out, "already decided") || !strings.Contains(out, "ok ") {
+		t.Fatalf("following the rendered exit must resolve the block, got: %q", out)
+	}
+	resolved, ok, err := item.Get(s.ws, blocked.ID)
+	if err != nil || !ok {
+		t.Fatalf("item gone: %v %v", ok, err)
+	}
+	if resolved.State != item.StateDraft || resolved.Rounds != 0 || len(resolved.Needs) != 0 {
+		t.Fatalf("the hinted exit did not actually unblock the item: %+v", resolved)
+	}
+}
+
+// TestBlockedResolveErrorKeepsLiveDecisionFollowable guards the error path,
+// and exists to forbid a restore-on-error arm from ever being added back to
+// resolveDecision (B-01KYSX35RKFYB). Restoring looks obviously right — "do not
+// strand a blocked item with empty Needs" — and is measurably wrong: removeID
+// drops only the ANSWERED id, so the blocked item still holds its live
+// escalation ADR, while a restore would put a state=done ADR back into Needs
+// and reproduce the reported symptom one escalation later.
+//
+// Reaching a ResolveBlocked refusal takes an ordinary decide op=ask decision
+// whose options happen to spell a resolving outcome: the escalation ADR itself
+// cannot get there, since Escalate stops offering override-once once Override
+// is set and decideAnswer refuses unlisted choices before resolveDecision.
+func TestBlockedResolveErrorKeepsLiveDecisionFollowable(t *testing.T) {
+	s, sess := connectDecide(t, t.TempDir(), nil)
+	blocked, first := blockedFixture(t, s, "already overridden work")
+	callText(t, sess, "decide", map[string]any{"op": "answer", "id": first.ID, "choose": "override-once"})
+	_, live := escalateOnce(t, s, blocked.ID)
+
+	// A second decision on the same blocked item, minted the ordinary way, and
+	// answered with a value ResolveBlocked will refuse.
+	spent := askID(t, sess, map[string]any{
+		"op": "ask", "question": "force it through again?", "kind": "radio",
+		"options": []string{"override-once", "hold"}, "item": blocked.ID,
+	})
+	out := callText(t, sess, "decide", map[string]any{"op": "answer", "id": spent, "choose": "override-once"})
+	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "override-once already used") {
+		t.Fatalf("a second override-once must be refused by ResolveBlocked: %q", out)
+	}
+
+	it, ok, err := item.Get(s.ws, blocked.ID)
+	if err != nil || !ok {
+		t.Fatalf("item gone: %v %v", ok, err)
+	}
+	if it.State != item.StateBlocked {
+		t.Fatalf("a refused resolution moved the item anyway: %+v", it)
+	}
+	// EXACTLY the live escalation ADR: the answered one is gone (it was spent,
+	// refusal or not) and nothing was restored on top of it.
+	if len(it.Needs) != 1 || it.Needs[0] != live.ID {
+		t.Fatalf("blocked item should hold only its live decision %s: Needs = %v", live.ID, it.Needs)
+	}
+
+	sc := freshScope(t, s)
+	hint := nextAction(it, sc.short)
+	if !strings.Contains(hint, sc.short(live.ID)) {
+		t.Fatalf("hint does not name the live decision %s:\n%s", sc.short(live.ID), hint)
+	}
+	out = callText(t, sess, "decide", map[string]any{
+		"op": "answer", "id": hintID(t, hint), "choose": "rescope",
+	})
+	if strings.Contains(out, "already decided") || !strings.Contains(out, "ok ") {
+		t.Fatalf("the exit rendered after a refused resolution must still be followable: %q", out)
+	}
+	resolved, ok, err := item.Get(s.ws, blocked.ID)
+	if err != nil || !ok {
+		t.Fatalf("item gone: %v %v", ok, err)
+	}
+	if resolved.State != item.StateDraft || len(resolved.Needs) != 0 {
+		t.Fatalf("the hinted exit did not unblock the item: %+v", resolved)
+	}
+}
