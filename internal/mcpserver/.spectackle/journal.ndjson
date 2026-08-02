@@ -305,3 +305,4 @@
 {"t":"2026-08-02T19:03:10Z","eid":"4317f690583cf21d","ag":"ag-fb75","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"e3749e958daaab42","nh":"5bb4b1b249b0ca92"}
 {"t":"2026-08-02T19:04:21Z","eid":"2ebd9329f435ece5","ag":"ag-1fbc","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"5bb4b1b249b0ca92","nh":"d4295111258e49f8"}
 {"t":"2026-08-02T21:02:28Z","eid":"b263819af327a88e","ag":"ag-9cae","ev":"grill","id":"B-01KYSK7HQFFPM8538HAWGRS0P6","dir":"internal/mcpserver","gr":"2026-08-02 open=3","hash":"d2ab13bd6095138e3074ce0d552f560e6cc87ab34efbd1d38ef96cb18fe581be","open":3,"keys":["env:unconsumed","env:unconsumed","env:unconsumed"]}
+{"t":"2026-08-02T21:02:29Z","eid":"bc38186a2a5c7f48","ag":"ag-e401","ev":"move","id":"B-01KYSK7HQFFPM8538HAWGRS0P6","dir":"internal/mcpserver","fr":"draft","to":"active"}
