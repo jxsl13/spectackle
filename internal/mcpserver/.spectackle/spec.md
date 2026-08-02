@@ -84,6 +84,7 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - B-01KYSX35RKFYBRX6YAB9E9DHBW the needs bookkeeping is inverted: resolving paths keep the spent ADR while the non-resolving path clears it: validated pass by verifier-decide diff 0e0aa481c1c4
 - B-01KYRVXQ02FDH9YBAFG64SH13N knowledge export mixes the artifact and its ok line on one stream, so export piped into apply fails with an unmappable line number: validated pass by verifier-knowledge diff ad941e953810
 - B-01KYSK7HQFFPM8538HAWGRS0P6 reconcileClosureBranch has no test coverage at all, and the records exemption now excuses real files at any depth rather than only at the root: validated pass by verifier-records-3 diff d828ec1d5fc8
+- T-01KYT90WD4FKX8K1AAE71X1DPD no test ever forces cd.Emit to fail, so the escalation broadcast-failure branch is unreachable coverage: validated pass by verifier-coord diff d4f050ddf8e6
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.

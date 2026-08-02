@@ -42,25 +42,6 @@ DIRECTION for the mechanical two: render from the map, exactly as blockedExitOut
 
 VERIFY per RECMERGE-003: for each site, mutate the underlying map - add a value - and assert the suite fails because the rendered enumeration no longer matches. That is the property, not the literal.
 
-## T-01KYT90WD4FKX8K1AAE71X1DPD no test ever forces cd.Emit to fail, so the escalation broadcast-failure branch is unreachable coverage
-kind: task
-state: done
-created: 2026-07-30
-grilled: 2026-08-02 open=0
-targets: internal/mcpserver
-
-Found by the callsite verifier of B-01KYS7111XFHZ as its own chosen mutation, and it is orthogonal to that record - the branch is untouched by it and was already correct.
-
-MEASURED. There are two roundsRefusal call sites. Nil-ing the main one - the path every ordinary escalation takes - fails TestMoveEscalationAdvertisesLiveOutcomes. Nil-ing the OTHER one, which fires only when the coordination broadcast cd.Emit itself fails, fails nothing: grep finds zero hits for COORD E or escalate broadcast failed in any _test.go, so no test in the suite ever drives an Emit failure. A regression at that specific call site would ship silently.
-
-WHY IT MATTERS beyond the one line. That branch exists for a deliberate reason worth preserving: the escalation HAPPENED and what failed is telling the siblings about it, so the LLM must hear about it rather than be told everything is fine. That is a correctness contract about honest reporting under partial failure, and it is currently asserted by nothing. Any refactor could delete or invert it undetected.
-
-DIRECTION. Make the coordination emitter injectable in tests, or add a fault-injection seam on the Server, and drive one escalation with Emit forced to fail. Assert three things: the COORD E line is present and names the failure, the roundsRefusal block still follows it with the LIVE option set rather than a hard-coded list, and the item is genuinely blocked - the escalation must not be rolled back merely because the broadcast failed.
-
-BROADER: this is likely not the only error branch with no test. Once a seam exists, sweep for other paths that only run when an infrastructure call fails - those are exactly the branches that carry the honest-reporting contracts this project cares about, and exactly the ones nothing exercises.
-
-VERIFY per RECMERGE-003: with the test in place, nil-ing the option argument at that call site must fail the suite, and so must deleting the COORD E line.
-
 ## B-01KYTK0BGRF7X9PEY3QKWQ7TQA a rule added outside any record lifecycle has no edge to commit it, which invites bypassing the branch and PR flow
 kind: bug
 state: draft
