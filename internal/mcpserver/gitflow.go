@@ -412,6 +412,32 @@ func (s *Server) gitFlowSync(it item.Item) *gitFlowResult {
 		return res
 	}
 	s.gitCommitRecords(res, it, item.StateDone)
+	// B-01KYPC60DWEZ0: an item that never entered active has no branch BY
+	// CONSTRUCTION — the active edge (work op=start) is the only thing that
+	// creates one — so pushing here answers "src refspec … does not match
+	// any" against a transition that SUCCEEDED, and does it on the one
+	// record kind whose normal lifecycle skips active (research is drafted,
+	// read, closed). Nothing is suppressed by returning here: there is no
+	// branch to be up to date with, and the commits ABOVE this line are what
+	// keeps "nothing uncommitted after a full loop" true.
+	//
+	// BOTH conjuncts, and the order matters more than the brevity: branch
+	// absence ALONE is a strictly larger population, because `work op=abort`
+	// deletes the local item branch (wt.DiscardBranch) while the pushed
+	// remote branch and the open draft PR survive. Bailing on that item
+	// would silence its local gate, its PR-DRAFT-001 line and its whole CI
+	// await — the blocking-await contract gitFlowReady states below
+	// (T-01KYDJC) — for work that is genuinely in flight.
+	if !s.everActive(it.ID) && !wt.BranchExists(dir, branch) {
+		return res
+	}
+	// KNOWN SMELL, recorded rather than fixed (found while measuring
+	// B-01KYPC60DWEZ0, out of its scope): the err branch below renders "g
+	// <branch> up to date", so a FAILED unpushed probe reads as a green
+	// no-op — one function away from gitOpenPR's own "an error is not a
+	// deferral" rule, which refuses exactly that dress-up for the ahead
+	// probe. Changing it here would change what a broken probe reports, so
+	// it belongs to its own record, not to this one.
 	unpushed, err := wt.HasUnpushedCommits(dir, s.effectiveGit().Remote, branch)
 	if err != nil || !unpushed {
 		res.addf("g %s up to date", branch)
@@ -442,6 +468,26 @@ func (s *Server) gitFlowReady(it item.Item) *gitFlowResult {
 	branch := s.itemBranch(it.ID)
 	if r := s.gitFlowSync(it); r.String() != "" {
 		res.lines = append(res.lines, r.lines...)
+	}
+	// B-01KYPC60DWEZ0, the second half. gitFlowSync deliberately does not
+	// abort this edge when it fails, so silencing the push alone leaves the
+	// ahead probe inside gitOpenPR still asking git about a ref that was
+	// never created ("unknown revision or path not in the working tree") —
+	// the same false failure, one line further down. The same both-conjunct
+	// predicate for the same reason (see gitFlowSync): an aborted-but-live
+	// item has no local branch and must still reach the gate and the await.
+	//
+	// Skipping s.runGate() on this narrowed path loses nothing that used to
+	// happen: today the never-active item never reaches the gate either —
+	// gitOpenPR fails on the ahead probe and the Find bail below returns —
+	// and it mirrors gitFlowMerge's offline arm, which already discriminates
+	// on s.everActive for this same population. Creating the branch the way
+	// gitFlowMerge does is NOT the answer here: EnsureBranch CHECKS OUT the
+	// new branch, which archive can afford because it merges immediately and
+	// restores on strand, while a plain done would simply park the caller on
+	// spectackle/<id>.
+	if !s.everActive(it.ID) && !wt.BranchExists(s.ws.Dir, branch) {
+		return res
 	}
 	f, err := s.forgeFor()
 	if err != nil {
