@@ -422,3 +422,29 @@ WHAT THE EVIDENCE ACTUALLY IS, so the correction is not overstated in the other 
 NOT A CODE DEFECT. Nothing in the server behaved incorrectly - the gate refused an anonymous validator exactly as designed and had no way to distinguish a spawned agent from any other second identity, which is the open question rather than a bug. Whether an identity check SHOULD be able to tell them apart is a separate design question and is not proposed here.
 
 VERIFY: this record is discoverable from a search for validation provenance, and names both affected record IDs and both PR numbers, so a session auditing either tombstone finds it.
+
+## B-01KZ13VMF0EXP9691Y21868ZQS TestConcurrentApplyMintsOneDecision flakes in CI: the racing applies resolve correctly but the surviving decision is invisible to the querying session
+kind: bug
+state: draft
+created: 2026-08-02
+refs: B-01KYQG88GZEM2ARX29J4ADQCX5, B-01KYQA4WXEFATTX2FV30DATGDJ, B-01KYSX35RKFYBRX6YAB9E9DHBW
+targets: internal/mcpserver, internal/knowledge
+
+THIRD member of the CI-flake class already filed twice (B-01KYQG88GZEM2 wall-clock assertions, B-01KYQA4WXEFAT TempDir/git race), and the first whose mechanism is cross-session record visibility rather than timing of the assertion itself.
+
+OBSERVED, GitHub Actions run 30745293519 on branch spectackle/B-01KYSX35RKFYB, in the make cover step:
+  --- FAIL: TestConcurrentApplyMintsOneDecision (0.05s)
+      knowledge_test.go:874: two racing applies must leave exactly one decision, got []
+The captured tool output in the same failure shows the concurrency resolution WORKED. Racer B minted one ADR and reported added=1 conflicts=1 with need decision ADR-01KZ132ZN5F8R. Racer A saw it, correctly yielded, and reported added=0 settled=1. Exactly one decision existed. The assertion still failed because decisionIDs, queried through A's session, returned an EMPTY list - so the ADR that demonstrably existed was not visible to the querying session at that moment.
+
+So the defect is NOT double-minting, which is what the test was written to catch and what its name says. It is that a record minted through one session is not reliably visible to a query on another session immediately afterward. The test name and its failure message both point at the wrong mechanism, which will mislead the next person who sees it red.
+
+NOT CAUSED BY THE CHANGE IT BLOCKED. It surfaced while archiving B-01KYSX35RKFYB, whose only edit is Server.resolveDecision. knowledge apply never calls resolveDecision. Measured: the identical head was re-run and PASSED (same run id, same SHA, rerun --failed), which is the definition of intermittent.
+
+NOT REPRODUCIBLE LOCALLY on an M-series laptop: 15 runs plain, 10 runs with -race, and 15 runs of the same test against origin/main without the change, all green. A shared, contended runner is the only environment that has produced it, exactly like the two prior members of this class.
+
+RELATED, and probably the same root: the implementer of B-01KYSX35RKFYB had to nil Server.scCache in test helpers because that field memoizes the known-ID set for one tool call, and a cached scope can predate an ADR minted between calls. That is the same staleness in a form the tests could see and work around.
+
+DIRECTION, not decided here. Either the query path must be made to observe a just-committed record deterministically (find the memo or index refresh that a second session misses, and make the mint publish through it), or - if cross-session immediacy is genuinely not promised - the test must stop asserting it and the promise must be written down. What must NOT happen is a retry loop in the test: that converts a real visibility question into a hidden sleep, and this class already has two members that were only found because they failed loudly.
+
+VERIFY: the mechanism is named correctly (visibility, not double-mint) in whatever fix lands; the test either observes a deterministic publish point or is rewritten to assert only what the system promises; and 200 consecutive runs under artificial CPU contention stay green.
