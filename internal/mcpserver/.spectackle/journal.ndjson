@@ -300,3 +300,4 @@
 {"t":"2026-08-02T17:54:52Z","eid":"e708e3bc53c728ce","ag":"ag-0b8c","ev":"rule","dir":"internal/mcpserver","op":"edit","rule":"MCP-004","txt":"WHEN the check tool runs, the server SHALL report each applies target of a live rule that lacks an anchors.tsv row as a single dense `g orphan \u003crule\u003e \u003cnode\u003e` record.","ap":["go:mcpserver.Server.check"]}
 {"t":"2026-08-02T18:43:51Z","eid":"fcb42afcc1c3f213","ag":"ag-337f","ev":"revise","id":"B-01KYSK7HQFFPM8538HAWGRS0P6","dir":"internal/mcpserver","note":"targets revised"}
 {"t":"2026-08-02T18:43:52Z","eid":"a4456f8f4b14e258","ag":"ag-be6c","ev":"revise","id":"T-01KYT90WD4FKX8K1AAE71X1DPD","dir":"internal/mcpserver","note":"targets revised"}
+{"t":"2026-08-02T18:50:19Z","eid":"7122d79722b35d64","ag":"ag-a828","ev":"drift","dir":"internal/mcpserver","rule":"SPX-MCP-004","node":"go:mcpserver.Server.draft","cls":"healed","oh":"de0d4db89b3be02e","nh":"e3749e958daaab42"}
