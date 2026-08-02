@@ -102,7 +102,7 @@ func IsRecordsPath(rel string) bool {
 	// every records commit that could absorb the backup runs downstream of
 	// it). That is verbatim the deadlock this predicate exists to prevent,
 	// and it was measured against a real post-migration tree.
-	if child == "cache" || child == "wt" || strings.HasPrefix(child, migrateBackupPrefix) {
+	if child == "cache" || child == "wt" || migrateBackupRe.MatchString(child) {
 		return true
 	}
 	if i != len(segs)-2 {
@@ -118,24 +118,65 @@ func IsRecordsPath(rel string) bool {
 // change here is caught by TestIsRecordsPathCoversRetainedMigrationBackup.
 const migrateBackupPrefix = "migrate-backup-"
 
+// migrateBackupRe matches the retained backup DIRECTORY, and it is anchored
+// on the version suffix rather than the bare prefix on purpose. migrate names
+// it backupPrefix+From (migrate.go:199) where From is a "v<n>" stamp, so
+// `migrate-backup-v0` is the only shape any release produces and `v[0-9]+`
+// covers every future one.
+//
+// A bare HasPrefix test was measured to exempt `migrate-backup-` itself — an
+// attacker-chosen SUBTREE whose every file the gate would then wave through.
+// The scaffolded .gitignore hides such a directory today, but not in the
+// pre-line workspaces this exemption exists for, which is precisely where it
+// would have mattered.
+var migrateBackupRe = regexp.MustCompile(`^` + regexp.QuoteMeta(migrateBackupPrefix) + `v[0-9]+$`)
+
 // recordsTempRe matches the two temp-file spellings the server can leave
 // inside a records folder: journal.Rewrite's `os.CreateTemp(dot, "journal-*")`
 // (journal.go:219) and migrate's `os.CreateTemp(dir, "."+base+".tmp*")`
 // (migrate.go:744). Both are renamed away on success, but a crash between
 // create and rename strands one, and a stranded temp file must not deadlock
 // the scope gate the way the migration backup did.
-var recordsTempRe = regexp.MustCompile(`^(?:journal-[0-9]+|\.[^/]+\.tmp[0-9]*)$`)
+//
+// Both branches are as NARROW as their producers, because this is an exemption
+// from the scope gate and every character of slack in it is a file an author
+// names freely. os.CreateTemp always substitutes decimal digits for its `*`,
+// so both counts are `+` rather than `*`; and migrate's temp basename is
+// always a bundle file, so the middle is that same closed set rather than
+// `[^/]+`. The wider form was measured waving `.spectackle/.evil.tmp`,
+// `.spectackle/.payload.sh.tmp` and `internal/x/.spectackle/.attack.sh.tmp9`
+// straight through the gate and into the records commit.
+var recordsTempRe = regexp.MustCompile(
+	`^(?:journal-[0-9]+|\.(?:` + recordsBundleAlt + `)\.tmp[0-9]+)$`)
+
+// recordsBundleAlt is the bundle basenames as a regexp alternation, built from
+// the same list isRecordsFileName switches on so the two cannot drift.
+var recordsBundleAlt = func() string {
+	quoted := make([]string, 0, len(recordsBundleNames))
+	for _, n := range recordsBundleNames {
+		quoted = append(quoted, regexp.QuoteMeta(n))
+	}
+	return strings.Join(quoted, "|")
+}()
+
+// recordsBundleNames are the files the server writes directly inside a records
+// folder. Exhaustive by construction: the bundle files (item.go, spec/author.go,
+// journal.go, drift.go), the two dotfiles EnsureScaffold maintains, and
+// config.yaml. `git ls-files` over this repository's own tracked records
+// returns exactly this set.
+var recordsBundleNames = []string{
+	"spec.md", "work.md", "journal.ndjson", "bench.ndjson", "anchors.tsv",
+	"config.yaml", ".gitignore", ".gitattributes",
+}
 
 // isRecordsFileName reports whether a basename directly inside a records
-// folder is one the server writes. The list is exhaustive by construction:
-// the bundle files (item.go, spec/author.go, journal.go, drift.go), the two
-// dotfiles EnsureScaffold maintains, and config.yaml. `git ls-files` over
-// this repository's own tracked records returns exactly this set.
+// folder is one the server writes: a bundle file, or one of the two temp
+// spellings a crash can strand (see recordsTempRe).
 func isRecordsFileName(name string) bool {
-	switch name {
-	case "spec.md", "work.md", "journal.ndjson", "bench.ndjson", "anchors.tsv",
-		"config.yaml", ".gitignore", ".gitattributes":
-		return true
+	for _, n := range recordsBundleNames {
+		if name == n {
+			return true
+		}
 	}
 	return recordsTempRe.MatchString(name)
 }

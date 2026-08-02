@@ -943,6 +943,31 @@ func TestIsRecordsPath(t *testing.T) {
 		{".spectackle/.work.md.tmp998877", true},
 		{"internal/x/.spectackle/journal-notatemp.go", false},
 
+		// The temp exemption must be exactly as narrow as its producers.
+		// An independent validator drove every one of these past the REAL
+		// scope gate and into wt.CommitRecords, using the earlier
+		// `\.[^/]+\.tmp[0-9]*` spelling: `[^/]+` admits any basename and
+		// `[0-9]*` admits none, so any dotfile ending in .tmp was exempt at
+		// any depth — an arbitrary-content file with an author-chosen name.
+		// os.CreateTemp always substitutes decimal digits, and migrate's temp
+		// basename is always a bundle file, so neither slack was ever needed.
+		{".spectackle/.evil.tmp", false},
+		{".spectackle/.payload.sh.tmp", false},
+		{".spectackle/.evil.go.tmp", false},
+		{".spectackle/.x.tmp0", false},
+		{"internal/x/.spectackle/.attack.sh.tmp9", false},
+		{".spectackle/.work.md.tmp", false}, // real basename, but no digits
+		{"internal/x/.spectackle/.spec.md.tmp42", true},
+
+		// The backup subtree is anchored on the version stamp, not the bare
+		// prefix: `migrate-backup-` alone was an attacker-nameable subtree
+		// whose every file the gate waved through. Only migrate's own
+		// backupPrefix+From shape ("v" plus digits) is exempt.
+		{".spectackle/migrate-backup-/evil.sh", false},
+		{".spectackle/migrate-backup-vx/evil.sh", false},
+		{".spectackle/migrate-backup-v0/COMPLETE", true},
+		{".spectackle/migrate-backup-v12/core/.spectackle/work.md", true},
+
 		// The gitignored / server-owned subtrees, exempt wholesale because
 		// their contents are not enumerable from here.
 		{".spectackle/cache/parse.db", true},
