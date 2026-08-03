@@ -2025,7 +2025,16 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			// the same ID vocabulary as every other record on the surface.
 			return refuse(strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)) + "\n")
 		}
-		return refuse("! ARG E - " + err.Error())
+		// The SAME substitution the GATE E branch performs, for the same
+		// reason and one branch later (B-01KYS6ZJQSE1E): every lifecycle
+		// refusal that names the item names it with the stored ID, because
+		// lifecycle knows nothing about display prefixes — so a caller who
+		// read `i <short-id> ...` off the success line of the same session
+		// was handed a different, longer vocabulary the moment the move was
+		// refused. One width for the whole surface. A legacy ID (R-9999) has
+		// nothing to shorten and passes through sc.short unchanged, so this
+		// is a no-op for pre-ADR-0013 workspaces.
+		return refuse("! ARG E - " + strings.ReplaceAll(err.Error(), in.ID, sc.short(in.ID)))
 	}
 	if in.To == item.StateRejected {
 		// dual-write: the rejection reaches siblings before any merge
