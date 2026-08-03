@@ -472,3 +472,25 @@ DIRECTION, not decided. Either make the orphan reachable - let draft id=<orphan>
 Noted while measuring, and owned elsewhere: the refusal leaks the FULL record ID where the rest of the surface renders a short prefix - that is B-01KYS6ZJQSE1E's territory, not this record's.
 
 VERIFY: an orphaned record can be brought to a terminal state under ITS OWN ID by the action the health line names, and the warning disappears afterwards; a non-orphaned id still refuses on that path exactly as it does today.
+
+## B-01KZ39TDYZE32SQ0C758KDHYB3 ID width is still mixed: openChildren, swarm, decide and two gitflow gate refusals emit full IDs beside short ones
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZJQSE1E9MP7MQZB0YN1D
+targets: internal/mcpserver, internal/lifecycle
+
+B-01KYS6ZJQSE1E asked for one ID width across the whole surface and delivered it for exactly one refusal branch. The remaining producers still emit the 28-char stored ID where the success line beside them prints the 15-char display form, so a single session shows both widths and a reader cannot tell whether they name the same record.
+
+SITES, and the last two were found by a validator reading past the sibling record's own residual paragraph, which listed only the first three:
+- openChildren emits FULL child IDs. The substitution in the move handler rewrites only in.ID, so one refusal line can carry a short parent and a long child at once: `! ARG E - lifecycle: P-01KY...: has open children: T-01KYYYANSNEQNV62WFBSZ4KHXS(draft)`.
+- swarm.go and decide.go emit `unknown item ` plus the raw id.
+- gitflow.go:524 and :737 emit `! GATE E %s local gate failed - pr %d ...` with raw it.ID, while gitflow.go:264 in the same file uses shortDisplayID. So GATE E is not even internally consistent, which the sibling record's residual did not say.
+
+WHY THE SUBSTITUTION APPROACH CANNOT FINISH THE JOB. The merged fix works by rewriting the caller's own id in an error string after the fact. That reaches exactly one id - the one the caller passed - and is structurally blind to every id the message discovered on its own, which is precisely the interesting half: children, blockers, folded records. Widening the same trick would mean rewriting an unbounded set of ids the caller never named.
+
+DIRECTION. Render short IDs AT THE PRODUCERS rather than substituting at the boundary. openChildren, the swarm and decide unknown-item paths and gitflow's gate refusals each already have the record in hand; each needs the display form applied where the string is built. The boundary substitution can then go away rather than accumulating cases, which is the maintenance argument for doing it at the producers even though it touches more files.
+
+Noted rather than fixed here: lifecycle.lastReject now has no non-test caller - lastBoundary replaced it in Move - and survives only through assertState in matrix_test.go. Whether it should stay as a tested seam or go is a separate judgment.
+
+VERIFY: a refusal naming a parent AND its children prints both at the same width; the gate refusals in gitflow.go agree with shortDisplayID in the same file; and one session's success line and every refusal it can produce render the same record identically.

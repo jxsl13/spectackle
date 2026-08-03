@@ -132,7 +132,13 @@ type Minter func(kind string, floor int) (int, error)
 // worktrees, which the counter never was.
 func Draft(ws workspace.Root, _ Minter, kind, title, body, dir, parent string, targets []string, refs ...string) (item.Item, error) {
 	if !item.ValidKind(kind) {
-		return item.Item{}, fmt.Errorf("lifecycle: unknown kind %q", kind)
+		// Name the legal set in the refusal that rejects a wrong one: this
+		// error is rendered verbatim as the draft tool's `! ARG E`, and it
+		// used to say only which value was wrong, never which ones are right
+		// (HINT-001, T-01KZ39XYZNFGA). Joined from the same map ValidKind
+		// just consulted, so the two cannot disagree.
+		return item.Item{}, fmt.Errorf("lifecycle: unknown kind %q (want %s)",
+			kind, strings.Join(item.Kinds(), "|"))
 	}
 	if strings.TrimSpace(title) == "" {
 		return item.Item{}, fmt.Errorf("lifecycle: title required")

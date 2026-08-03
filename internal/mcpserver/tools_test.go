@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -2385,5 +2386,149 @@ func TestMoveRefusalRendersShortID(t *testing.T) {
 		t.Fatal(err)
 	} else if ok {
 		t.Fatalf("the refused move put %s back into work.md as %s", full, got.State)
+	}
+}
+
+// draftKindDescription reads the `kind` property's description off the draft
+// tool's advertised input schema — the ONE place a caller can learn the kind
+// vocabulary before its first refusal, since the shape line renders enums for
+// required properties only and kind is optional.
+//
+// It goes through ListTools rather than reflecting over draftIn's struct tag
+// so the assertion sits at the gate: what a connected agent actually sees. The
+// SDK types InputSchema as any, so a JSON round trip into the one field this
+// needs keeps the test independent of its concrete type — the same trick
+// mcpclient.Session.ShapeLine uses on the same value.
+func draftKindDescription(t *testing.T, sess *mcp.ClientSession) string {
+	t.Helper()
+	res, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name != "draft" {
+			continue
+		}
+		raw, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("marshal draft schema: %v", err)
+		}
+		var sch struct {
+			Properties map[string]struct {
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &sch); err != nil {
+			t.Fatalf("decode draft schema: %v", err)
+		}
+		p, ok := sch.Properties["kind"]
+		if !ok {
+			t.Fatalf("draft advertises no kind property at all: %s", raw)
+		}
+		return p.Description
+	}
+	t.Fatal("draft tool not registered")
+	return ""
+}
+
+// TestDraftRefusalTeachesKindEnum: both refusals that reject a kind now NAME
+// the kinds, iterating item.Kinds() rather than a literal so the assertion
+// cannot drift from the map ValidKind enforces.
+//
+// draft satisfied neither HINT-001 placement: `draft {}` answered "draft
+// requires kind (or id to revise)" and `draft {"kind":"bogus"}` answered
+// "unknown kind \"bogus\"", so the enum was reachable from no refusal at all —
+// a revert stripped it from the shape line and never relocated it to the
+// refusal that rejects a wrong value. The two calls take different code paths
+// (the tool's own argument check, and lifecycle.Draft's validation rendered
+// through it), so both are pinned; fixing one leaves the other silent
+// (T-01KZ39XYZNFGA).
+//
+// The ACTION is asserted beside the wording: a refusal that teaches the enum
+// while still minting the record would be a worse defect than the one being
+// fixed, and a message-only assertion cannot tell those apart.
+func TestDraftRefusalTeachesKindEnum(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"missing kind", map[string]any{"title": "no kind at all"}},
+		{"unknown kind", map[string]any{"kind": "bogus", "title": "a kind that is not one"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, sess := connectRootWithServer(t, t.TempDir())
+			out, isErr := callRaw(t, sess, "draft", tc.args)
+			if !isErr {
+				t.Fatalf("draft %v was accepted: %q", tc.args, out)
+			}
+			if !strings.Contains(out, "! ARG E") {
+				t.Fatalf("refusal is not an ARG E record: %q", out)
+			}
+			for _, k := range item.Kinds() {
+				if !strings.Contains(out, k) {
+					t.Fatalf("the refusal must name kind %q so the caller learns the set (HINT-001): %q", k, out)
+				}
+			}
+			// and nothing was minted: the caller is refused, not served.
+			items, err := item.LoadAll(s.ws)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 0 {
+				t.Fatalf("a refused draft minted %d item(s): %+v", len(items), items)
+			}
+		})
+	}
+}
+
+// TestDraftAdvertisedKindsAreComplete: every kind draft ENFORCES is a kind
+// draft ADVERTISES.
+//
+// The hand-spelled jsonschema tag said proposal|task|research|bug while
+// item.ValidKind reads kindLetter, which includes adr — so `draft
+// {"kind":"adr"}` minted an ADR at exit 0 through a vocabulary the surface
+// never offered, and a caller who trusted the advertisement and guessed
+// outside it got a record instead of a refusal. That is a correctness defect,
+// not a wording one, which is why the mint half is asserted as an ACTION (the
+// record is readable back out of the store afterwards) and not just as a
+// non-error return.
+//
+// Both halves iterate item.Kinds(), so adding a key to kindLetter without
+// advertising it turns this red — which is the regression signal the tag
+// cannot give on its own, a struct tag being a compile-time constant
+// (T-01KZ39XYZNFGA).
+func TestDraftAdvertisedKindsAreComplete(t *testing.T) {
+	s, sess := connectRootWithServer(t, t.TempDir())
+
+	kinds := item.Kinds()
+	if len(kinds) == 0 {
+		t.Fatal("fixture: item.Kinds() is empty, so every assertion below is vacuous")
+	}
+	for _, k := range kinds {
+		out, isErr := callRaw(t, sess, "draft", map[string]any{
+			"kind": k, "title": "an enforced kind: " + k})
+		if isErr {
+			t.Fatalf("kind %q is in item.Kinds() but draft refused it: %q", k, out)
+		}
+		full := fullID(t, s, idOfRecord(t, out, "i"))
+		got, ok, err := item.Get(s.ws, full)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok {
+			t.Fatalf("draft answered success for kind %q but stored nothing: %q", k, out)
+		}
+		if got.Kind != k {
+			t.Fatalf("drafted kind %q, stored kind %q", k, got.Kind)
+		}
+	}
+
+	// The advertisement is what a caller reads BEFORE the first refusal, so
+	// it has to carry the same set the mint loop above just proved works.
+	desc := draftKindDescription(t, sess)
+	for _, k := range kinds {
+		if !strings.Contains(desc, k) {
+			t.Fatalf("kind %q mints records but the draft tool never advertises it: kind is described as %q", k, desc)
+		}
 	}
 }
