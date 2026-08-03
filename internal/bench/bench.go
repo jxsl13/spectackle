@@ -32,6 +32,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // Step is one scripted tool call. Refusals are part of the surface under
@@ -139,11 +141,23 @@ func Fixture(dir string) error {
 		// CI runners while a configured laptop measures without them.
 		{"git", "-C", dir, "config", "user.name", "bench"},
 		{"git", "-C", dir, "config", "user.email", "bench@localhost"},
-		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
 	} {
 		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
 			return fmt.Errorf("bench fixture: %v: %s", err, out)
 		}
+	}
+	// Silence background maintenance BEFORE the first commit, which is what
+	// spawns the detached `git maintenance run --auto` child (B-01KYQA4WXEFAT).
+	// This call is the reason the record's first landing was refuted: the
+	// sweep covered the _test.go fixtures and missed this one, because Fixture
+	// is ORDINARY CODE that tests call — a source-text guard over *_test.go
+	// cannot see it. Measured with a PATH shim over the whole suite, every one
+	// of the 283 surviving dispatches came through here.
+	if err := wt.QuietMaintenance(dir); err != nil {
+		return fmt.Errorf("bench fixture: %w", err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init").CombinedOutput(); err != nil {
+		return fmt.Errorf("bench fixture: %v: %s", err, out)
 	}
 	// Fixture v2 (T-01KYDT): a realistic directory topology, not a single
 	// file. v1's one-dir workspace underestimated whole change classes — the

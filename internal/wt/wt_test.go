@@ -700,7 +700,13 @@ func TestEveryGitFixtureDisablesMaintenance(t *testing.T) {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), "_test.go") {
+		// EVERY .go file, not just _test.go. Scoping this to tests is what
+		// let B-01KYQA4WXEFAT's first landing be refuted: bench.Fixture is
+		// ORDINARY CODE that tests call, so a *_test.go walk could not see
+		// it, and a PATH shim over the whole suite measured 283 detached
+		// maintenance children still spawning through that one function while
+		// this guard reported green.
+		if !strings.HasSuffix(d.Name(), ".go") {
 			return nil
 		}
 		scanned++
@@ -713,7 +719,16 @@ func TestEveryGitFixtureDisablesMaintenance(t *testing.T) {
 		if readErr != nil {
 			return readErr
 		}
-		if !strings.Contains(string(src), `"init"`) {
+		// The `"init"` literal alone is not a git fixture: it also appears as
+		// an Objective-C selector (internal/langspec/objc.go) and as a corpus
+		// word (poc/wasmparse). Require a git invocation in the same file —
+		// either the literal command or this package's git() wrapper — so the
+		// guard means "git init" rather than "the string init".
+		text := string(src)
+		if !strings.Contains(text, `"init"`) {
+			return nil
+		}
+		if !strings.Contains(text, `"git"`) && !strings.Contains(text, "git(") {
 			return nil
 		}
 		fixtures++
