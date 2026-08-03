@@ -78,3 +78,4 @@
 {"t":"2026-08-03T05:36:53Z","eid":"fc4f3371b5870e32","ag":"ag-79b1","ev":"drift","dir":"internal/lifecycle","rule":"LC-001","node":"go:lifecycle.archive","cls":"healed","oh":"a511ac9623b10b36","nh":"339a94a5c41f68ac"}
 {"t":"2026-08-03T06:47:55Z","eid":"45be71b5b6249e20","ag":"ag-375b","ev":"revise","id":"B-01KYS6ZJQSE1E9MP7MQZB0YN1D","dir":"internal/lifecycle","note":"targets revised"}
 {"t":"2026-08-03T06:47:57Z","eid":"d1d2db026c3099fe","ag":"ag-bbd9","ev":"grill","id":"B-01KYS6ZJQSE1E9MP7MQZB0YN1D","dir":"internal/lifecycle","gr":"2026-08-03 open=0","hash":"b69e83c0f0480ebbded450de91d04353761578022ec62ab78b1affe15bc0aa70"}
+{"t":"2026-08-03T06:47:58Z","eid":"be60c696ca93f257","ag":"ag-ea04","ev":"move","id":"B-01KYS6ZJQSE1E9MP7MQZB0YN1D","dir":"internal/lifecycle","fr":"draft","to":"active"}
