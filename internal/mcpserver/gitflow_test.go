@@ -233,6 +233,12 @@ func writeOnlineGitConfig(t *testing.T, root string) (inject func(*Server)) {
 	if out, err := exec.Command("git", "init", "--bare", "-q", bare).CombinedOutput(); err != nil {
 		t.Fatalf("init bare: %v %s", err, out)
 	}
+	// The push below writes objects into this bare repo, and a RECEIVING repo
+	// runs its own auto-maintenance (B-01KYQA4WXEFAT) — it lives in a
+	// t.TempDir like everything else here.
+	if err := wt.QuietMaintenance(bare); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
 	closureGit(t, root, "remote", "add", "origin", bare)
 	closureGit(t, root, "push", "-q", "origin", "HEAD:main")
 	statePath := filepath.Join(t.TempDir(), "forge.json")
@@ -844,6 +850,14 @@ func TestIdentityFallbackIsSaidOnTransition(t *testing.T) {
 	if out, err := exec.Command("git", "-C", root, "init", "-b", "main").CombinedOutput(); err != nil {
 		t.Skipf("git unavailable: %v: %s", err, out)
 	}
+	// Hand-built because InitTestRepo would configure an identity, so the
+	// maintenance suppression it would otherwise have brought along has to be
+	// spelled out — this fixture commits below (B-01KYQA4WXEFAT). The keys are
+	// repo-local and carry no identity, so the IdentityConfigured probe just
+	// after is unaffected.
+	if err := wt.QuietMaintenance(root); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
 	if wt.IdentityConfigured(root) {
 		t.Skip("host leaks an identity despite GIT_CONFIG_GLOBAL/SYSTEM=/dev/null")
 	}
@@ -1292,14 +1306,27 @@ func gitInitForScope(t *testing.T, root string) {
 	t.Helper()
 	for _, args := range [][]string{
 		{"init", "-q"}, {"config", "user.email", "t@t.t"}, {"config", "user.name", "t"},
-		{"config", "gc.auto", "0"}, {"config", "maintenance.auto", "false"},
-		{"commit", "-q", "--allow-empty", "-m", "init"},
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
+	}
+	// This helper used to spell gc.auto/maintenance.auto by hand, and it was
+	// the ONLY place in the tree that did — a mitigation that was never
+	// generalized while every other fixture went without. It now calls the
+	// shared helper so there is exactly one spelling of "a fixture repo does
+	// no background work" (B-01KYQA4WXEFAT), and so the enumeration guard in
+	// internal/wt can be strict about it. Note this runs BEFORE the commit
+	// below: the commit is what spawns the detached maintenance child.
+	if err := wt.QuietMaintenance(root); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
+	cmd := exec.Command("git", "commit", "-q", "--allow-empty", "-m", "init")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v %s", err, out)
 	}
 }
 

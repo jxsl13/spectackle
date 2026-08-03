@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // initRepo creates a bare git repo (no commits needed: `ls-files --others
@@ -14,6 +16,14 @@ func initRepo(t *testing.T, dir string) {
 	t.Helper()
 	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
 		t.Skipf("git unavailable: %v: %s", err, out)
+	}
+	// No commit is made here, so no detached maintenance child is spawned
+	// TODAY — but "today" is exactly the reasoning that let B-01KYQA4WXEFAT
+	// reach CI from two directions. The moment a test in this file grows a
+	// commit, the fixture starts racing t.TempDir's removal, and nobody
+	// adding that commit will think about it. Disabled up front instead.
+	if err := wt.QuietMaintenance(dir); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
 	}
 }
 

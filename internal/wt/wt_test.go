@@ -1,7 +1,9 @@
 package wt
 
 import (
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -212,6 +214,11 @@ func TestPushSetsUpstreamAndUnpushedCommitsReport(t *testing.T) {
 	if _, err := git(bareDir, "init", "--bare", "-q", "-b", "main"); err != nil {
 		t.Skipf("git unavailable: %v", err)
 	}
+	// A bare remote is written into by the Push below, and a receiving repo
+	// runs its own auto-maintenance (B-01KYQA4WXEFAT).
+	if err := QuietMaintenance(bareDir); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := git(root, "remote", "add", "origin", bareDir); err != nil {
 		t.Fatal(err)
 	}
@@ -366,6 +373,12 @@ func TestCommitFallbackOnBareHost(t *testing.T) {
 	// init commit itself needs the fallback too.
 	if _, err := git(root, "init", "-b", "main"); err != nil {
 		t.Skipf("git unavailable: %v", err)
+	}
+	// InitTestRepo is deliberately not used here, so its maintenance
+	// suppression has to be spelled out — this fixture commits, and a
+	// committing fixture spawns the detached child (B-01KYQA4WXEFAT).
+	if err := QuietMaintenance(root); err != nil {
+		t.Fatal(err)
 	}
 	if IdentityConfigured(root) {
 		t.Skip("host leaks an identity despite GIT_CONFIG_GLOBAL/SYSTEM=/dev/null; cannot exercise the bare path")
@@ -591,5 +604,177 @@ func TestAddRefusesFullCheckoutAtTarget(t *testing.T) {
 	}
 	if _, serr := os.Stat(filepath.Join(second, ".git")); serr != nil {
 		t.Fatal("the second checkout was destroyed")
+	}
+}
+
+// --- B-01KYQA4WXEFAT: fixture repositories must schedule no background work --
+
+// The knob assertion. A fixture repo is created inside a t.TempDir that the
+// harness unlinks the instant the test returns, so anything the repo has
+// scheduled to run later races that removal — and the race surfaces as a
+// cleanup error (`TempDir RemoveAll cleanup: unlinkat .../.git/objects:
+// directory not empty`) that no amount of reading the test body explains.
+//
+// `git config --get` exits 1 for an unset key, so on a fixture built before
+// this fix both lookups fail outright rather than returning a wrong value.
+func TestInitTestRepoDisablesBackgroundMaintenance(t *testing.T) {
+	root := repo(t)
+	for _, tc := range []struct{ key, want string }{
+		{"maintenance.auto", "false"},
+		{"gc.auto", "0"},
+	} {
+		got, err := git(root, "config", "--get", tc.key)
+		if err != nil {
+			t.Errorf("git config --get %s: %v — an unset key exits 1, so this fixture never disabled it", tc.key, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("git config --get %s = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
+// The MECHANISM assertion, and the one that actually matters: no detached
+// child, however git spells the knob that suppresses it. Pinning the trace
+// rather than the config means a future git renaming or reorganizing
+// maintenance.auto turns this red — a knob assertion alone would keep passing
+// while the child came back.
+//
+// Measured on git 2.50.1: three `maintenance run --auto` dispatches per
+// fixture commit before the fix, zero after.
+func TestFixtureCommitSpawnsNoDetachedMaintenance(t *testing.T) {
+	root := repo(t)
+	cmd := exec.Command("git", "-C", root, "commit", "-q", "--allow-empty", "-m", "trace probe")
+	cmd.Env = append(os.Environ(), "GIT_TRACE=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture commit: %v\n%s", err, out)
+	}
+	trace := string(out)
+	if !strings.Contains(trace, "trace: ") {
+		// A git built without trace support, or one that routes GIT_TRACE
+		// somewhere else, cannot answer the question. Skipping is honest;
+		// reading "no matches" off empty output would be a test that passes
+		// because it saw nothing.
+		t.Skipf("this git emits no GIT_TRACE output, so the dispatch cannot be observed:\n%s", trace)
+	}
+	if n := strings.Count(trace, "maintenance run --auto"); n != 0 {
+		t.Fatalf("a fixture commit dispatched %d detached maintenance child(ren); each one outlives the commit and races t.TempDir's removal:\n%s", n, trace)
+	}
+}
+
+// The enumeration guard the record's VERIFY line asks for: "the helper must
+// be used by every test that runs git in a temp dir — enumerate them rather
+// than fixing the two known ones". Two packages were hit in CI; the argument
+// for a shared helper is exactly that there was never any reason to expect
+// only those two, and a sweep with no guard rots at the next new test file.
+//
+// Deliberately crude, because crude is what survives: any test file that
+// spells a git `"init"` argument must also reach one of the helpers that
+// disables maintenance. It is FILE-scoped, so a file that already uses a
+// helper can still smuggle in a second hand-built fixture — tightening that
+// would mean parsing, and a parser is a thing that breaks quietly. The
+// allowlist below is the escape hatch, and it is deliberately a source edit
+// so that an exception is a decision somebody made on purpose.
+func TestEveryGitFixtureDisablesMaintenance(t *testing.T) {
+	root := moduleRoot(t)
+	// EMPTY, ON PURPOSE — every git fixture in this module is swept. An entry
+	// here is a promise that the file's fixture cannot race a temp-dir
+	// removal (it owns its directory, or never commits into one), and the
+	// reason belongs in the value.
+	allow := map[string]string{}
+	guards := []string{"wttest.Repo(", "InitTestRepo(", "QuietMaintenance("}
+
+	var scanned, fixtures int
+	var unguarded []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			// Dot directories are skipped WHOLESALE: they carry no Go source
+			// this module builds, and .spectackle in particular is
+			// server-owned — nothing in this repository reads it off disk.
+			if path != root && strings.HasPrefix(d.Name(), ".") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		// EVERY .go file, not just _test.go. Scoping this to tests is what
+		// let B-01KYQA4WXEFAT's first landing be refuted: bench.Fixture is
+		// ORDINARY CODE that tests call, so a *_test.go walk could not see
+		// it, and a PATH shim over the whole suite measured 283 detached
+		// maintenance children still spawning through that one function while
+		// this guard reported green.
+		if !strings.HasSuffix(d.Name(), ".go") {
+			return nil
+		}
+		scanned++
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		src, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		// The `"init"` literal alone is not a git fixture: it also appears as
+		// an Objective-C selector (internal/langspec/objc.go) and as a corpus
+		// word (poc/wasmparse). Require a git invocation in the same file —
+		// either the literal command or this package's git() wrapper — so the
+		// guard means "git init" rather than "the string init".
+		text := string(src)
+		if !strings.Contains(text, `"init"`) {
+			return nil
+		}
+		if !strings.Contains(text, `"git"`) && !strings.Contains(text, "git(") {
+			return nil
+		}
+		fixtures++
+		if _, ok := allow[rel]; ok {
+			return nil
+		}
+		for _, g := range guards {
+			if strings.Contains(string(src), g) {
+				return nil
+			}
+		}
+		unguarded = append(unguarded, rel)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A walk that found nothing would pass silently and guard nothing, which
+	// is the failure mode of every enumeration test ever written.
+	if scanned < 20 || fixtures == 0 {
+		t.Fatalf("the walk is broken, not the tree: %d test files scanned, %d git fixtures found under %s", scanned, fixtures, root)
+	}
+	if len(unguarded) > 0 {
+		t.Fatalf("%d test file(s) build a git fixture without disabling background maintenance (B-01KYQA4WXEFAT): %s\n"+
+			"use wttest.Repo, or call wt.QuietMaintenance on the repo right after init and before any commit",
+			len(unguarded), strings.Join(unguarded, ", "))
+	}
+}
+
+// moduleRoot walks up from the test's working directory to the directory
+// holding go.mod. Computed rather than hardcoded as "../.." so the guard
+// keeps working if this package moves.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod above the test's working directory")
+		}
+		dir = parent
 	}
 }

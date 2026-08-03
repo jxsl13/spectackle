@@ -90,28 +90,6 @@ WHY IT MATTERS beyond tidiness. check is the loops verification step and the thi
 
 VERIFY once decided: for scoping, a workspace with a finding outside the queried path reports it with no path and does NOT report it with the path; for removal, the argument is gone from the schema and the docs.
 
-## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
-kind: bug
-state: draft
-created: 2026-07-29
-targets: internal/bench, internal/mcpserver, internal/wt, internal/workspace, internal/ignore, internal/index, main_test.go
-
-OBSERVED in CI twice, on branches whose diffs touch neither test nor anything they exercise. The failure is a t.TempDir CLEANUP error, not an assertion - the test logic passes and then the harness cannot remove its own temp dir:
-
-  TempDir RemoveAll cleanup: unlinkat /tmp/TestXxx/001/.git/objects: directory not empty
-
-AFFECTED TESTS, two now, in different packages:
-1. TestPrepIgnoresHarnessArtifacts in internal/bench, CI run 30468777911.
-2. TestResearchDemandFiresAndCloses in internal/mcpserver, CI run 30538761350, which blocked the archive of B-01KYS6Y5NKF42 - the archive edge correctly refused to merge a red head, so a flake in an unrelated package costs a full archive retry.
-
-CAUSE. A test that runs git in a t.TempDir leaves git background work in flight - object writes, and on some git versions a maintenance or gc hook - so RemoveAll races a directory that is still being written. It is timing-dependent: both tests pass locally and in isolation, and repeated full local runs stay green, which is why this only ever appears on a loaded CI runner.
-
-WHY IT MATTERS BEYOND THE NOISE. The archive closure waits on CI and refuses to merge a red head, by design. So any flake anywhere in the suite converts into a stranded archive plus a retry, and a retry restarts CI. The cost is not the failed assertion, it is the lifecycle stall - which is exactly the coupling await_checks was tuned for. A flaky suite raises the effective cost of every archive in the repository.
-
-FIX DIRECTION. Do not rely on t.TempDir cleanup for a directory that git has written into. Either create the repo under a directory the test removes itself, tolerantly and after waiting for git to settle, or configure the test git to do no background work - gc.auto=0, maintenance.auto=false, core.fsmonitor=false - or point GIT_OBJECT_DIRECTORY somewhere the harness owns. A shared test helper that creates a git repo with background work disabled would fix both call sites and every future one, and the two occurrences in different packages are the argument for the helper over two local patches.
-
-VERIFY. The helper must be used by every test that runs git in a temp dir - enumerate them rather than fixing the two known ones. A test asserting the helper repo config disables background maintenance. Then re-run the full suite repeatedly under load, since a single green run proves nothing about a timing race.
-
 ## B-01KYQG88GZEM2ARX29J4ADQCX5 wall-clock assertions in the required CI gate flake on a loaded runner
 kind: bug
 state: done
@@ -419,3 +397,24 @@ WHY THIS PAIR IS WORTH ONE RECORD. Both are the same failure: a property was fix
 DIRECTION. Pin the title length with a test that asserts the ADR title contains shortID(it.ID) and NOT the full ID, so both halves are stated. Convert the move-route guard to assert res.IsError through a raw CallTool, reusing the callRaw helper the newer file already provides rather than adding a second one. Neither needs a production change; if either requires one, that is itself the finding.
 
 VERIFY: reverting lifecycle.go's shortID call fails a test; converting the move-route guard makes a mutated refuse-to-text change fail on the exit code rather than only on the prose.
+
+## B-01KZ2ND558EAJR3NHNEE8FWBHJ item.Item.Kind is the eighth field of the restore-coercion class and is still uncoerced, so a heading-shaped kind restores to an unwritable record
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYRQY892FSDSN75P9FFXFDM5
+targets: internal/lifecycle, internal/item
+
+item.Item.Kind is the eighth field of the class B-01KYRQY892FSD closed for seven, and it is still live. Found by an independent validator that probed BEYOND the record's enumeration rather than stopping at it.
+
+MEASURED. An archive or reject event carrying K = "a\nb" restores through BOTH readers - Tombstone and lastReject - to a record item.CheckHeader refuses with "kind must be a single line". That is the same terminal shape the sibling fields had: a rejected record that cannot be written and therefore cannot be revoked.
+
+WHY IT SURVIVED THE SIBLING FIX. restoreRecord now coerces the ten fields it assigns, but Kind is not assigned there - it comes from Event.K through the readers' own struct literals, which is exactly the shape Title had before that record pulled Ti out of the literals to create a single coercion point. The same move applies: drop K from the Tombstone and lastReject literals so Kind flows through restoreRecord and is coerced once.
+
+NOT A HIDDEN GAP. The reflect ratchet added by B-01KYRQY892FSD lists Kind in its exempt map with the note that it is assigned from Event.K by the readers' struct literals, still uncoerced, a known residual of this class. So the ratchet is doing its job - it forced the exemption to be written down instead of silently passing. This record is the follow-up that exemption points at.
+
+SCOPE JUDGMENT, recorded so it is not re-litigated. The sibling record's VERIFY line says "ANY header field", which reads as covering Kind, but the same sentence operationalizes as "table-drive it over all seven" and its body enumerates Ti, Par, Gr, St, Tg, Refs, Nd. The validator judged that a pass with a follow-up rather than a failure, because every operative demand was met and mutation-proven and Kind is a defect the record never identified. That judgment is endorsed here; the fix belongs in its own record rather than as unscoped extra work.
+
+DIRECTION. Coerce Kind via item.NormalizeHeaderLine on the restore path, by the same single-coercion-point move Title got. Then REMOVE Kind from the ratchet's exempt map - the exemption list is the ratchet's own honesty, and leaving a fixed field on it would rot it. Consider also whether an unknown-kind value should be refused rather than merely flattened: unlike prose, Kind is a closed enum (item.ValidKind), so a flattened but invalid kind is still a record no tool can act on. That is a real question this record should answer rather than assume.
+
+VERIFY: an archive and a reject event whose K carries each of the hostile values already in TestRestoreRecordAlwaysWritable's table restore to a record CheckHeader accepts, through all three readers; Kind is no longer in the ratchet's exempt map; and the ratchet still fails if Kind's coercion is removed.

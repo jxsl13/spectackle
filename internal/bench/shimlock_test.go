@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jxsl13/spectackle/internal/wt/wttest"
 )
 
 // mkFakeShimWorkspace builds a minimal shim wrapping /bin/echo so the lock
@@ -128,17 +130,11 @@ func TestSequenceOrderTolerantButComplete(t *testing.T) {
 // interleaved drive — shim calls dirtying the logs between every
 // transition — completes the offline archive merge.
 func TestPrepIgnoresHarnessArtifacts(t *testing.T) {
-	dir := t.TempDir()
-	for _, cmd := range [][]string{
-		{"git", "-C", dir, "init", "-q", "-b", "main"},
-		{"git", "-C", dir, "config", "user.name", "b"},
-		{"git", "-C", dir, "config", "user.email", "b@l"},
-		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
-	} {
-		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v %s", cmd, err, out)
-		}
-	}
+	// This test is one of the two CI occurrences of B-01KYQA4WXEFAT — the
+	// hand-rolled fixture that used to stand here committed into a t.TempDir
+	// with git's auto-maintenance left on, and the run died in TempDir's
+	// cleanup rather than on any assertion here.
+	dir := wttest.Repo(t)
 	self := benchSelfBinary(t)
 	// Prepped WITH both sidecar modes on: the enumerated list below is the
 	// only thing standing between a new harness artifact and B-01KYH3SP
@@ -178,17 +174,7 @@ func benchSelfBinary(t *testing.T) string {
 // merge must complete anyway now that the artifacts are ignored.
 func TestInterleavedDriveArchivesThroughShim(t *testing.T) {
 	self := benchSelfBinary(t)
-	dir := t.TempDir()
-	for _, cmd := range [][]string{
-		{"git", "-C", dir, "init", "-q", "-b", "main"},
-		{"git", "-C", dir, "config", "user.name", "b"},
-		{"git", "-C", dir, "config", "user.email", "b@l"},
-		{"git", "-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
-	} {
-		if out, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("%v: %v %s", cmd, err, out)
-		}
-	}
+	dir := wttest.Repo(t)
 	_, shim, _, err := AgentPrep(self, dir, false, false, "outcome")
 	if err != nil {
 		t.Fatal(err)
