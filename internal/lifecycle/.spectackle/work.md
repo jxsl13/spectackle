@@ -6,6 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-30
+grilled: 2026-08-03 open=0
 targets: internal/lifecycle, internal/mcpserver
 
 Two findings, adversarially verified, both about the terminality of archived.
