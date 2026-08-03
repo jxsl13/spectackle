@@ -92,8 +92,9 @@ VERIFY once decided: for scoping, a workspace with a finding outside the queried
 
 ## B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects
 kind: bug
-state: done
+state: active
 created: 2026-07-29
+rounds: 1
 grilled: 2026-08-03 open=3
 targets: internal/bench, internal/mcpserver, internal/wt, internal/workspace, internal/ignore, internal/index, main_test.go
 
