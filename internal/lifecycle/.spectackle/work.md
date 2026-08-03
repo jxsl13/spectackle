@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYS6ZJQSE1E9MP7MQZB0YN1D archived is not terminal for any item that was ever rejected, and the refusal from archived misnames the reason
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/lifecycle, internal/mcpserver
