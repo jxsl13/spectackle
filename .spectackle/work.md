@@ -415,3 +415,20 @@ WHY IT IS WORTH FIXING ANYWAY. The headline exists to lead with what did not hap
 DIRECTION, not decided. Either count conflict-mint failures separately from entry refusals so each denominator is honest (two counters, two clauses), or widen the denominator to entries plus attempted conflict mints and say so in the wording. The first is more truthful and slightly longer; the second is one expression. Whichever lands, the wording must not imply an entry was refused when the failure was a conflict mint - that is a different thing having gone wrong and a different remedy.
 
 VERIFY: an artifact with zero entries whose conflict mint fails renders a headline whose denominator is reachable, and an artifact with N entries of which K are refused still reads K of N.
+
+## B-01KZ35SVM7EFBS6DE18SQS9213 ResolveBlocked reject removes a parent without the open-children gate, so it orphans live children one door past the sibling fix
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZKRQEHWAFHN0MD67NQY3
+targets: internal/lifecycle
+
+A SECOND reject boundary skips the open-children gate that B-01KYS6ZKRQEHW just added to lifecycle.Move. Found by an independent validator probing past that record's enumeration, and probe-confirmed rather than inferred: calling ResolveBlocked with outcome=reject on a parent that has an ACTIVE child returns err=nil, removes the parent, and leaves the child live with a dangling parent pointer.
+
+WHY THE SIBLING FIX DOES NOT COVER IT. B-01KYS6ZKRQEHW widened the guard inside Move to fire for rejected as well as archived. ResolveBlocked does not route through that guard - it removes the item on its own path - so the identical orphaning survives one door over. This is the same defect shape, not a new one.
+
+THE TRAP, and it is why this needs its own record rather than a one-line copy of the sibling gate. Escalate PARENTS its auto-minted ADR to the item it blocks. A blocked item therefore always has at least one child, the decision record that is the reason it is blocked. A naive openChildren check in ResolveBlocked would trip on that ADR every time and make reject-from-blocked permanently unreachable, converting an orphan bug into a deadlock - the same class as the pre-Move scope-gate deadlock workspace.go's predicate exists to prevent.
+
+DIRECTION, not decided. Either exclude the item's own escalation ADR from the check (it is identifiable: it is the ADR whose id is in the item's Needs), or run the check over children that are neither the escalation ADR nor already terminal. Whichever lands must be tested against a blocked item in its ordinary shape - escalated, ADR present, no other children - to prove reject-from-blocked still works, because that is the case a careless gate breaks.
+
+VERIFY: ResolveBlocked with outcome=reject refuses on a parent with a live non-ADR child and names it; the ordinary blocked-then-reject path with only the escalation ADR still succeeds; and the sibling gate in Move is unchanged.
