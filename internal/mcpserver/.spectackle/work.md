@@ -6,6 +6,7 @@ schema: v1
 kind: task
 state: draft
 created: 2026-07-30
+grilled: 2026-08-03 open=0
 targets: internal/mcpserver, internal/ears
 
 Found by the mutation verifier of B-01KYS7111XFHZ after that record fixed THREE hard-coded copies of the blocked-exit enumeration - two it set out to fix, and a third the verifier measured on the failing-verdict route, which is arguably the commoner way into blocked. The class has now recurred often enough in this codebase to be worth sweeping deliberately rather than one site at a time.
