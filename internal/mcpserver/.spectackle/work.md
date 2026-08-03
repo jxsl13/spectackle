@@ -6,6 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-30
+grilled: 2026-08-03 open=0
 targets: internal/mcpserver, docs
 
 Found by independent verification of B-01KYN3E973F20, confirmed pre-existing (identical on the pre-fix binary), so it is a separate defect rather than a regression.
