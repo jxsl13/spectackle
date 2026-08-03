@@ -74,7 +74,7 @@ VERIFY: go build ./... && go vet ./... && go test ./... -count=1 && gofmt -l . e
 
 ## B-01KYQ87KTBFVVSRG337RFWCS44 rule op=edit changes a rule's text without re-stamping its anchors, leaving drift the same tool's check then refuses
 kind: bug
-state: active
+state: done
 created: 2026-07-29
 grilled: 2026-08-02 open=0
 targets: internal/mcpserver, internal/drift
