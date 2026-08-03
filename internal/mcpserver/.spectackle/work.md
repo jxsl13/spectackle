@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYRN43FQFZ4RCB2F1K0QBB9R knowledge apply exits 0 and prints ok applied beside a per-entry refusal
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/mcpserver, docs
