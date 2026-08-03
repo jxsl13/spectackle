@@ -86,6 +86,7 @@ Rationale: the files are the source of truth; the cache only accelerates them.
 - B-01KYSK7HQFFPM8538HAWGRS0P6 reconcileClosureBranch has no test coverage at all, and the records exemption now excuses real files at any depth rather than only at the root: validated pass by verifier-records-3 diff d828ec1d5fc8
 - T-01KYT90WD4FKX8K1AAE71X1DPD no test ever forces cd.Emit to fail, so the escalation broadcast-failure branch is unreachable coverage: validated pass by verifier-coord diff d4f050ddf8e6
 - B-01KYRN43FQFZ4RCB2F1K0QBB9R knowledge apply exits 0 and prints ok applied beside a per-entry refusal: validated pass by verifier-apply diff 7e40d3dfecb9
+- T-01KYT2EHRMEAHSAY9GECXG2035 sweep the remaining hard-coded enumerations onto their source of truth: validated pass by verifier-enums diff b3e0e10c5a68
 
 ## SPX-MCP-004 {applies: go:mcpserver.Server.draft}
 WHEN a draft context pack is rendered, the server SHALL emit root-scoped rules as one r-root ID record and omit empty pack sections entirely.
