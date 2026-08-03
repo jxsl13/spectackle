@@ -515,7 +515,13 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 	diverged := knowledge.Diverging(current, incoming)
 
 	var b strings.Builder
-	added := 0
+	// `refused` is the exit-code input, counted alongside `added` rather
+	// than derived from it: an entry can be neither (an unknown kind is a
+	// skip, not a write), and the two counts answer different questions —
+	// `added` is what landed, `refused` is what the caller asked for and did
+	// not get. See the return at the bottom for why ANY refusal exits
+	// non-zero (B-01KYRN43FQFZ4).
+	added, refused := 0, 0
 	for _, e := range toAdd.Entries {
 		var line string
 		var ok bool
@@ -536,6 +542,17 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 		b.WriteString(line)
 		if ok {
 			added++
+		} else {
+			// Every non-ok arm above already wrote a `! ... E` (or, for the
+			// unknown kind, a `! ... W`) record into b — the five producers
+			// are applyRuleEntry's AddRule error and lint rejection, and
+			// applyADREntry's status guard, header check and Draft error.
+			// The unknown-kind arm is unreachable from Parse (the section
+			// regex in internal/knowledge/artifact.go constrains the kind),
+			// but counting it refused is the safe side if that regex ever
+			// widens: an entry that was asked for and not written is a
+			// refusal whatever the reason.
+			refused++
 		}
 	}
 
@@ -611,10 +628,18 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 			return nil
 		})
 		if lErr != nil {
+			// A conflict whose lock or mint failed is a decision this
+			// workspace was supposed to open and did not — the same class of
+			// loss as a refused entry, and it rode under `ok` too. The
+			// settled= comment below already argues a failed mint must not
+			// fold into that counter; the identical reasoning keeps it out of
+			// the success exit code (B-01KYRN43FQFZ4).
+			refused++
 			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, lErr.Error())
 			continue
 		}
 		if mErr != nil {
+			refused++
 			fmt.Fprintf(&b, "! ARG E - conflict %s: %s\n", cf.Key, mErr.Error())
 			continue
 		}
@@ -645,9 +670,15 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 			dv.Kind, shortKey(dv.Key), ours, theirs)
 	}
 
-	fmt.Fprintf(&b, "ok applied added=%d gaps=%d", added, gaps)
+	// The counters go into their OWN builder, unprefixed, so the `ok ` that
+	// has always led them is applied at the return below only when nothing
+	// was refused. Composing them into b — the same builder carrying every
+	// per-entry `! ... E` record — is what let a refusal ship under a
+	// success-shaped trailer (B-01KYRN43FQFZ4).
+	var t strings.Builder
+	fmt.Fprintf(&t, "applied added=%d gaps=%d", added, gaps)
 	if open > 0 {
-		fmt.Fprintf(&b, " conflicts=%d", open)
+		fmt.Fprintf(&t, " conflicts=%d", open)
 	}
 	if settled > 0 {
 		// Counted, never derived: the sources still disagree, this workspace
@@ -657,16 +688,35 @@ func (s *Server) knowledgeApply(in knowledgeIn) (*mcp.CallToolResult, any, error
 		// every conflict whose mint FAILED (a lock timeout, a write error)
 		// into the count, reporting a conflict that still needs a decision
 		// as one already settled.
-		fmt.Fprintf(&b, " settled=%d", settled)
+		fmt.Fprintf(&t, " settled=%d", settled)
 	}
 	if len(diverged) > 0 {
-		fmt.Fprintf(&b, " diverged=%d", len(diverged))
+		fmt.Fprintf(&t, " diverged=%d", len(diverged))
 	}
-	b.WriteString("\n")
+	t.WriteString("\n")
+	// A partial apply really did write, so the dirty flag keys on `added`,
+	// not on the exit code.
 	if added > 0 {
 		s.markDirty()
 	}
-	return text(b.String())
+	// ANY refusal exits non-zero. This is not a fresh judgement call:
+	// SRF-001 says the refused operation SHALL exit non-zero, and a refused
+	// entry IS a refused operation. The partial-success reading — exit
+	// non-zero only when nothing landed — would make the exit code depend on
+	// UNRELATED entries in the same artifact, so an import that dropped a
+	// decision would still exit 0 as long as some other entry happened to
+	// apply. That invisible refusal is precisely the defect (B-01KYRN43FQFZ4).
+	//
+	// The headline leads with what did NOT happen; the per-entry `! ... E`
+	// lines already in b say which entry and why, so nothing new is
+	// rendered. The `ok <ID> <path>` / `r <ID>` lines for entries that DID
+	// land stay — SRF-001 forbids a success line for a state the caller did
+	// not request, and those states were requested and reached.
+	if refused > 0 {
+		return refuse(fmt.Sprintf("! REJECTED E - apply refused %d of %d entries; they were NOT applied\n",
+			refused, len(toAdd.Entries)) + b.String() + t.String())
+	}
+	return text(b.String() + "ok " + t.String())
 }
 
 // applyRuleEntry adds one rule entry through spec.AddRule — the exact
