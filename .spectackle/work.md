@@ -228,7 +228,7 @@ VERIFY once decided: for (a), a test that sets a goal through the tool surface a
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/mcpserver/validate.go, .github/workflows/ci.yml
+targets: internal/mcpserver, .github
 
 OBSERVED. Once the journal passes the compaction threshold, check stops emitting its summary line entirely and emits only advisories, with the journal advisory DUPLICATED:
 
