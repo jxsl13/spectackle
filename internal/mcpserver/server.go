@@ -222,6 +222,22 @@ type Server struct {
 	compactCount     int
 	hintedAt         int
 
+	// advisoryInBody records that the handler for THIS call already rendered
+	// the root journal advisory in its own body (compactCandidates), so
+	// postCall must not prepend a second copy of the same record
+	// (B-01KYRJ3WSCE14: `check` printed it twice). Reset at gate entry, set by
+	// compactCandidates, consumed by postCall.
+	//
+	// STRUCTURAL on purpose. The obvious alternative — postCall substring-
+	// matching the rendered text for "c . journal " — swallows a LIVE advisory
+	// whenever the result merely QUOTES that string, which any `get` on a
+	// record whose body discusses this very bug does. Worse, the swallow is
+	// permanent rather than deferred: compactHint() advances s.hintedAt as a
+	// side effect of being called, so the crossing is marked surfaced by a
+	// call that never surfaced it. A flag the emitter sets cannot be spoofed
+	// by content.
+	advisoryInBody bool
+
 	// stale-binary hint cache (postCall's proactive nudge, MCP-010): a
 	// debounced verdict for whether the running executable is older than the
 	// newest .go file under s.ws.Dir, refreshed at most once every

@@ -86,12 +86,25 @@ jobs:
           r = recv()
           text = "".join(c["text"] for c in r.get("result", {}).get("content", [])
                           if c.get("type") == "text")
-          lines = [l for l in text.splitlines() if not l.startswith("sw ")]
+          lines = [l for l in text.splitlines()
+                   if not l.startswith("sw ") and not l.startswith("c ")]
           result = "\n".join(lines).strip()
           proc.terminate()
-          # exactly as strict as the old `result != "ok"`: one line, the
-          # clean-check shape, zero findings. Any extra record line — a
-          # finding, a coverage gap, a compact candidate — fails the gate.
+          # One line, the clean-check shape, zero findings. Still exactly as
+          # strict as before for everything this gate exists to catch: a
+          # finding (!), a graph gap (g) and drift (d) all survive the filter
+          # and fail the gate.
+          #
+          # `c ` records are dropped alongside their `sw ` siblings because
+          # they are soft nudges, not verdicts: a compact-due advisory fires
+          # on ELAPSED JOURNAL EVENTS, so it lands on whatever branch happens
+          # to cross the threshold and turns a required gate red on a
+          # workspace whose code and spec are both clean (B-01KYRJ3WSCE14).
+          # In check's output `c ` is compactCandidates only — mergeCandidates
+          # is reachable from `compact` alone — so the prefix is precise.
+          # This filter and internal/mcpserver/tools.go check() must change
+          # together; TestCIGateExpressionAcceptsCompactAdvisory re-implements
+          # the predicate below in Go so they cannot drift apart silently.
           clean = (len(lines) == 1 and lines[0].startswith("ok check ")
                    and "0 findings (E=0 W=0)" in lines[0])
           if not clean:
