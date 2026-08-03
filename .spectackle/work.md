@@ -501,6 +501,7 @@ state: draft
 created: 2026-08-03
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+grilled: 2026-08-03 open=0
 targets: internal/item, internal/mcpserver, internal/lifecycle
 
 Child task of P-01KYQ4YK7MEA3, carrying the ONLY leg of that proposal still live. Created as a child rather than by retargeting the parent, because an approved record's body is the frozen review subject and rejecting it to widen targets would put a bookkeeping entry in the rejection corpus that later sessions read as a substantive refusal.
