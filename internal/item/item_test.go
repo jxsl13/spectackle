@@ -2,6 +2,7 @@ package item
 
 import (
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -920,5 +921,44 @@ func TestParseOptionsAcceptsBothEscalationSpellings(t *testing.T) {
 	// Free text still yields nil, or every text decision would start refusing.
 	if got := ParseOptions("just prose, no enumeration here"); got != nil {
 		t.Errorf("free text parsed as options: %v", got)
+	}
+}
+
+// TestNormalizeListValuesAgreesWithTheReader pins the property that separates
+// NormalizeListValues from the obvious wrong implementation.
+//
+// A coercion that merely SUBSTITUTED the comma away — to a space, a semicolon,
+// anything — satisfies CheckHeader just as well, so the restore-path test in
+// internal/lifecycle cannot tell the two apart, and neither can a
+// self-consistency check: "a b" is every bit as stable as ["a","b"]. What
+// separates them is AGREEMENT WITH THE READER on the caller's own value.
+// splitList treats the comma as an element boundary, so a stored ["a,b"] has
+// always meant two elements to anyone who read it back off disk; substituting
+// silently rewrites it into the single element "a b" instead, and the value the
+// program holds stops matching the value the file says. Splitting is what a
+// write followed by a read would have produced, which is the only definition of
+// "unchanged" this header grammar has.
+func TestNormalizeListValuesAgreesWithTheReader(t *testing.T) {
+	// Values the header can hold: the result must be byte-for-byte what
+	// writing them out and reading them back yields.
+	for _, in := range [][]string{
+		{"a,b"}, {" a , b "}, {"a,,b"}, {","}, {""}, {"a", "b,c"}, {"-"}, nil,
+	} {
+		got, want := NormalizeListValues(in), splitList(strings.Join(in, ","))
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("NormalizeListValues(%q) = %q, but writing and reading it back yields %q", in, got, want)
+		}
+	}
+	// Values it cannot hold at all: a line ending has no on-disk meaning to
+	// agree with, since it would end the header rather than round trip. All
+	// that is owed here is a writable, settled result.
+	for _, in := range [][]string{{"a\nb"}, {"a\r\nb"}, {"a\rb"}, {"a\n\nb"}, {"a\n,b"}} {
+		got := NormalizeListValues(in)
+		if err := CheckHeader(Item{Refs: got}); err != nil {
+			t.Errorf("NormalizeListValues(%q) = %q, which the header refuses: %v", in, got, err)
+		}
+		if again := NormalizeListValues(got); !reflect.DeepEqual(got, again) {
+			t.Errorf("NormalizeListValues(%q) = %q, which normalizes again to %q — it never settles", in, got, again)
+		}
 	}
 }

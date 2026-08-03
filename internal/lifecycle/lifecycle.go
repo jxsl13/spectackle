@@ -603,7 +603,14 @@ func carryRecord(ev *journal.Event, it item.Item) {
 	ev.Ctx = capRetainedBodyTo(it.Context, outcomeFieldMax)
 	ev.Dec = capRetainedBodyTo(it.Decision, outcomeFieldMax)
 	ev.Cons = capRetainedBodyTo(it.Consequences, outcomeFieldMax)
-	ev.St = capRetainedBodyTo(it.Status, outcomeFieldMax)
+	// Status is the odd one out: it is a single-line enum, not prose, so it is
+	// flattened FIRST and then capped. Both halves are load-bearing. Dropping
+	// the cap would be a silent regression the per-field-cap suite is written
+	// to catch, and status has no length guard on the read path either —
+	// item.Parse assigns whatever it found and CheckHeader checks the line
+	// shape, not the size — so an unbounded status can genuinely ride in
+	// (B-01KYRQY892FSD).
+	ev.St = capRetainedBodyTo(item.NormalizeHeaderLine(it.Status), outcomeFieldMax)
 	ev.Crt = carriedCreated(it)
 }
 
@@ -613,18 +620,38 @@ func carryRecord(ev *journal.Event, it item.Item) {
 // archived record could not answer what it belonged to or touched even
 // though the event had carried Rls and Refs all along. The loss was in the
 // reader, not the writer, which is why probing the raw journal missed it.
+//
+// Every carried value CheckHeader constrains is coerced here, not three of
+// them. Normalize rather than trust: carryRecord no longer manufactures a blank
+// line at the truncation cut, but this is the path with no caller to refuse to
+// — an event written by an older binary, a v0-era journal migrate passed
+// through byte-faithfully, or a hand-edited one, must not make a record
+// unrestorable. A closed-up blank line is a lesser loss than a rejected item
+// that can never be revoked.
+//
+// That argument had been applied to the three PROSE fields and to none of the
+// seven others, so an event carrying an illegal Ti, Par, Gr, St, Tg, Refs or Nd
+// restored to a record item.CheckHeader then refused — the record was readable
+// and unwritable at once, which is the state revocation cannot survive
+// (B-01KYRQY892FSD, finding 2). Title is coerced HERE rather than at the two
+// readers' struct literals so there is exactly one coercion point for it.
 func restoreRecord(it *item.Item, e journal.Event) {
-	it.Parent, it.Targets, it.Refs = e.Par, e.Tg, e.Refs
-	it.Rounds, it.Grilled, it.Needs, it.Override = e.Rnd, e.Gr, e.Nd, e.Ov
-	// Normalize rather than trust. carryRecord no longer manufactures a blank
-	// line at the truncation cut, but this is the path with no caller to refuse
-	// to: an event written by an older binary, or any future value the header
-	// cannot represent, must not make a record unrestorable. A closed-up blank
-	// line is a lesser loss than a rejected item that can never be revoked.
+	// Single-line fields: any line ending at all breaks them.
+	it.Title = item.NormalizeHeaderLine(e.Ti)
+	it.Parent = item.NormalizeHeaderLine(e.Par)
+	it.Grilled = item.NormalizeHeaderLine(e.Gr)
+	it.Status = item.NormalizeHeaderLine(e.St)
+	// List fields: one comma-joined header line, so a newline breaks the
+	// structure and a comma silently becomes an element boundary.
+	it.Targets = item.NormalizeListValues(e.Tg)
+	it.Refs = item.NormalizeListValues(e.Refs)
+	it.Needs = item.NormalizeListValues(e.Nd)
+	// Prose fields: these may span lines, just never paragraphs.
 	it.Context = item.NormalizeHeaderValue(e.Ctx)
 	it.Decision = item.NormalizeHeaderValue(e.Dec)
 	it.Consequences = item.NormalizeHeaderValue(e.Cons)
-	it.Status = e.St
+	// Not header-checked: an int and a bool have no line shape to break.
+	it.Rounds, it.Override = e.Rnd, e.Ov
 	it.Created = restoredCreated(e.ID, e.Crt)
 }
 
@@ -675,8 +702,9 @@ func RetainsBody(kind string) bool {
 // far smaller than dropping the field entirely.
 const outcomeFieldMax = 2048
 
-// intentGistMax bounds the one-line trace, matching summary()'s own 400-byte
-// cap: both are single-line digests, not the record. It is deliberately far
+// intentGistMax bounds the one-line trace, and summary()'s Sum with it: both
+// are single-line digests, not the record, and summary now reaches this cap by
+// calling capGist instead of restating it. It is deliberately far
 // smaller than retainedBodyMax because this one is written into spec.md,
 // which is permanent, human-read, and reviewed in diffs — a 60KB "line"
 // there is not a large record, it is a broken file.
@@ -781,8 +809,11 @@ func capRetainedBody(b string) string {
 }
 
 // capRetainedBodyTo is capRetainedBody against a caller-chosen budget, so a
-// caller that must fit something else into the same cap (adrOutcome's
-// structured fields) can reserve it rather than lose it off the end.
+// caller that must bound something on its own terms can name its own cap
+// rather than lose the value off the end of a shared one — carryRecord's
+// per-field caps at outcomeFieldMax, and capGist at intentGistMax. It used to
+// cite adrOutcome, a function deleted when those fields got their own channels
+// on the event; the reference stayed behind for a release.
 func capRetainedBodyTo(b string, max int) string {
 	if len(b) <= max {
 		return b
@@ -834,7 +865,10 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 				body = e.Body
 			}
 			out := item.Item{
-				ID: e.ID, Kind: e.K, Title: e.Ti, Dir: e.Dir,
+				// Title is deliberately absent: restoreRecord below coerces
+				// it off e.Ti, so this literal setting it too would be a
+				// second, uncoerced assignment of the same value.
+				ID: e.ID, Kind: e.K, Dir: e.Dir,
 				// NormalizeBody, not CheckHeader's refusal: this body comes
 				// off a journal event, not off a caller. An event written
 				// before the body guard landed (B-01KYRN4VBEEXQ) can carry a
@@ -862,7 +896,9 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 		e := events[i]
 		if e.Ev == journal.EvReject && e.ID == id {
 			out := item.Item{
-				ID: e.ID, Kind: e.K, State: item.StateRejected, Title: e.Ti,
+				// Title omitted for the same reason as Tombstone's: it is
+				// restoreRecord's, so there is one coercion point for it.
+				ID: e.ID, Kind: e.K, State: item.StateRejected,
 				// Same reason as Tombstone's: revocation of a rejected item
 				// has to keep working over journals written before the body
 				// guard existed, so the heading-shaped line is indented back
@@ -1063,15 +1099,26 @@ func commonDir(a, b string) string {
 	return strings.Join(out, "/")
 }
 
+// summary composes the journal Sum: what the record was, in one line.
+//
+// It delegates its cap to capGist rather than owning one. It used to cut with a
+// raw s[:400] BYTE slice, which is the very defect capRetainedBodyTo carries a
+// utf8.RuneStart loop to prevent — and summary supplies its own multi-byte rune
+// to break, the em dash below, so a 393-character ASCII title was enough to put
+// a dangling lead byte on the event, which json.Marshal then rewrote to U+FFFD
+// on the way to disk, permanently. It also passed gistLine through unflattened,
+// and an adr's gist is its Decision verbatim, which the header lets span lines.
+//
+// Both are gone by DELETION here, not by a second rune walk and a second
+// flatten: two truncators in one package with different correctness properties
+// was the underlying defect, and a third would not have been a fix
+// (B-01KYRQY892FSD).
 func summary(it item.Item) string {
 	s := it.Kind + " " + it.Title
 	if b := gistLine(it); b != "" {
 		s += " — " + b
 	}
-	if len(s) > 400 {
-		s = s[:400]
-	}
-	return s
+	return capGist(s)
 }
 
 func firstLine(s string) string {
