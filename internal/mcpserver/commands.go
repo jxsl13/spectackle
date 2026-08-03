@@ -27,7 +27,10 @@ import (
 // like decideAsk with no UI (decide.go), never blocking the caller — no
 // native form; elicitation is reserved for decide op=ask (ELICIT-001).
 type commandsIn struct {
-	Op      string   `json:"op" jsonschema:"detect|gen"`
+	Op string `json:"op" jsonschema:"detect|gen"`
+	// Pinned to harnessEnum() by TestSchemaTagsMatchSourceOfTruth: a struct
+	// tag is a compile-time constant and cannot render the slice, so
+	// reflection is the only thing that can stop the two from drifting.
 	Harness []string `json:"harness,omitempty" jsonschema:"claude|copilot|codex|kimi — omit to auto-detect"`
 }
 
@@ -65,7 +68,34 @@ const (
 	sectionEnd   = "<!-- spectackle:commands:end -->"
 )
 
-var validHarnesses = map[string]bool{"claude": true, "copilot": true, "codex": true, "kimi": true}
+// harnessNames is the supported-harness vocabulary in ADVERTISED order — the
+// single source of truth every surface that names the set renders from: the
+// harness= schema tag, the `commands` tool description, and the refusal
+// normalizeHarnesses returns for an unknown one. The order is the published
+// one and is NOT sorted: sorting would silently rewrite a string callers
+// already read, for no gain.
+//
+// Two derived views follow (validHarnesses, harnessEnum) rather than two more
+// literals, because a hand-spelled copy is what the class costs — the measured
+// baseline for T-01KYT2EHRMEAH was that adding a fifth harness to the
+// membership map left every advertisement stale and the whole suite green.
+var harnessNames = []string{"claude", "copilot", "codex", "kimi"}
+
+// validHarnesses is the membership set normalizeHarnesses checks, derived from
+// harnessNames so acceptance and advertisement can never disagree.
+var validHarnesses = func() map[string]bool {
+	m := make(map[string]bool, len(harnessNames))
+	for _, h := range harnessNames {
+		m[h] = true
+	}
+	return m
+}()
+
+// harnessEnum renders harnessNames as the pipe-separated enumeration the
+// refusal and the schema advertise, e.g. "claude|copilot|codex|kimi".
+func harnessEnum() string {
+	return strings.Join(harnessNames, "|")
+}
 
 // commandSpec describes one generated command. Name is the slash-command
 // stem after the binary — empty for the main lifecycle entry point, which
@@ -170,7 +200,14 @@ func (s *Server) commandsDetect() (*mcp.CallToolResult, any, error) {
 
 // ---- gen ----
 
-const commandsQuestion = "which harnesses should `commands` generate for? (claude, copilot, codex, kimi)"
+// commandsQuestion is the ADR question minted when neither arg nor detection
+// names a harness. It offers the choices from harnessNames — a var rather than
+// a const for exactly that reason: a question that lists an option the parser
+// then refuses costs the answering human a whole round trip (T-01KYT2EHRMEAH).
+// Comma-joined, not pipe-joined: this line is read by a person in a decision
+// prompt, not parsed as an argument enum.
+var commandsQuestion = "which harnesses should `commands` generate for? (" +
+	strings.Join(harnessNames, ", ") + ")"
 
 func (s *Server) commandsGen(in commandsIn) (*mcp.CallToolResult, any, error) {
 	harnesses, err := normalizeHarnesses(in.Harness)
@@ -224,7 +261,9 @@ func normalizeHarnesses(in []string) ([]string, error) {
 			continue
 		}
 		if !validHarnesses[h] {
-			return nil, fmt.Errorf("unknown harness %q (want claude|copilot|codex|kimi)", h)
+			// HINT-001: the refusal is where the accepted set is taught, and
+			// it renders from harnessNames so it cannot name a stale one.
+			return nil, fmt.Errorf("unknown harness %q (want %s)", h, harnessEnum())
 		}
 		if !seen[h] {
 			seen[h] = true

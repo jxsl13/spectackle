@@ -470,3 +470,22 @@ DIRECTION. Render short IDs AT THE PRODUCERS rather than substituting at the bou
 Noted rather than fixed here: lifecycle.lastReject now has no non-test caller - lastBoundary replaced it in Move - and survives only through assertState in matrix_test.go. Whether it should stay as a tested seam or go is a separate judgment.
 
 VERIFY: a refusal naming a parent AND its children prints both at the same width; the gate refusals in gitflow.go agree with shortDisplayID in the same file; and one session's success line and every refusal it can produce render the same record identically.
+
+## B-01KZ3FAGD2EQA9KCGTRX5J1RFR the CI-gate test re-implements the workflow predicate instead of parsing it, and a truncated advisory still marks the crossing surfaced
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYRJ3WSCE148S8S2GRWXFDJ4
+targets: internal/mcpserver, .github
+
+B-01KYRJ3WSCE14's archive note claims its Go test means the CI gate expression and check's render "cannot drift apart silently". That claim is OVERSTATED and is corrected here rather than left standing, because a later reader would trust it.
+
+MEASURED by an independent validator: TestCIGateExpressionAcceptsCompactAdvisory RE-IMPLEMENTS the ci.yml predicate in Go rather than PARSING the workflow. So editing .github/workflows/ci.yml's filter alone leaves the Go test green - exactly the drift the test was added to prevent, in the direction nobody checks. The test does catch a change to check's RENDER, which is the direction the record was filed from, so it is not worthless; it is one-directional and was described as two-directional.
+
+SECOND RESIDUAL, same record, narrow but real: advisories are now appended LAST so they compose beneath the summary. Under a small in.Budget, TruncateRecords can therefore drop the advisory AFTER compactCandidates has already set advisoryInBody and postCall has already called compactHint, which advanced hintedAt. The crossing is then marked surfaced by a line the caller never saw, and the nudge is deferred until the journal grows another JournalMax events. Strictly better than the red gate it replaced, and only reachable under a tight budget, but it is the same swallowed-not-deferred shape the structural dedupe exists to avoid - one layer down.
+
+DIRECTION for the first: have the test READ .github/workflows/ci.yml and extract the predicate, or move the predicate into a small script both the workflow and the test invoke, so there is one definition rather than two spellings. The second spelling is what the record's own defect class is about - a gate and a render maintained separately.
+
+DIRECTION for the second: set advisoryInBody from what SURVIVES truncation rather than from what was generated, or order advisories before the summary in the truncation input so the nudge is never the line that gets dropped. Either way the flag must describe what the caller actually received.
+
+VERIFY: changing the ci.yml filter without touching Go turns a test red; and a check whose budget truncates the advisory away leaves hintedAt unadvanced, so the next call still nudges.

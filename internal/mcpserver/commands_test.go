@@ -294,6 +294,13 @@ var newCommandTemplateNames = []string{
 // TestCommandsNewTemplatesRenderNonEmpty covers TEST 1: every new template
 // renders without error and produces non-empty output.
 func TestCommandsNewTemplatesRenderNonEmpty(t *testing.T) {
+	// Emptiness guard: every assertion below lives inside the range, so an
+	// empty table would make this test pass while checking nothing (VAC W,
+	// raised by check once T-01KYT2EHRMEAH brought this file back into the
+	// diff).
+	if len(newCommandTemplateNames) == 0 {
+		t.Fatal("newCommandTemplateNames is empty — this test would assert nothing")
+	}
 	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
 	for _, name := range newCommandTemplateNames {
 		body, err := renderCommandTemplate(name, data)
@@ -313,6 +320,10 @@ func TestCommandsNewTemplatesRenderNonEmpty(t *testing.T) {
 // render time; this guards the render-time-visible subset (literal
 // double-brace leftovers, e.g. from a copy-pasted but unexecuted action).
 func TestCommandsNewTemplatesNoUnresolvedActions(t *testing.T) {
+	// Emptiness guard, same reason as TestCommandsNewTemplatesRenderNonEmpty.
+	if len(newCommandTemplateNames) == 0 {
+		t.Fatal("newCommandTemplateNames is empty — this test would assert nothing")
+	}
 	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.com/spectackle"}
 	for _, name := range newCommandTemplateNames {
 		body, err := renderCommandTemplate(name, data)
@@ -408,5 +419,94 @@ func TestCommandsGenEveryFileCarriesGeneratedHeader(t *testing.T) {
 	}
 	if strings.Count(string(agents), generatedHeader) != 1 {
 		t.Fatalf("AGENTS.md expected exactly one generated header (single managed section):\n%s", agents)
+	}
+}
+
+// TestHarnessSetsAgree pins T-01KYT2EHRMEAH: harnessNames is the harness
+// vocabulary's single source of truth, and every place that consumes or
+// advertises it must agree with it.
+//
+// Before the sweep the set existed as four independent hand-spelled copies —
+// the validHarnesses map, the harness= schema tag, the `commands` tool
+// description and normalizeHarnesses' refusal — and NO test mentioned the
+// refusal at all, so adding a fifth harness to the membership map left the
+// whole suite green while gen crashed on it and every advertisement stayed
+// stale. That was the measured mutation baseline.
+//
+// Three assertions, deliberately on independent axes, all iterating the slice
+// rather than a literal:
+//
+//  1. acceptance — normalizeHarnesses admits every advertised name;
+//  2. execution — writeDialect actually has a dialect for it, so an accepted
+//     name cannot reach an `unknown harness` error one layer deeper;
+//  3. detection — detectHarnesses can emit exactly the advertised set, in
+//     both directions: a name it never emits is undetectable (auto-detect
+//     silently ignores it), and a name it emits that is not advertised would
+//     be accepted by nothing.
+//
+// Plus the gate-level refusal text, which is where HINT-001 says the accepted
+// values belong.
+func TestHarnessSetsAgree(t *testing.T) {
+	if len(harnessNames) == 0 {
+		t.Fatal("harnessNames is empty — nothing advertises a harness at all")
+	}
+
+	data := commandsData{Binary: "spectackle", Tool: "spectackle", RepoURL: "https://example.test/repo"}
+	bodies := make(map[string]string, len(commandSpecs))
+	for _, spec := range commandSpecs {
+		body, err := renderCommandTemplate(spec.Template, data)
+		if err != nil {
+			t.Fatalf("render %s: %v", spec.Template, err)
+		}
+		bodies[spec.Template] = body
+	}
+
+	for _, h := range harnessNames {
+		got, err := normalizeHarnesses([]string{h})
+		if err != nil {
+			t.Errorf("advertised harness %q is refused by normalizeHarnesses: %v", h, err)
+		} else if len(got) != 1 || got[0] != h {
+			t.Errorf("normalizeHarnesses(%q) = %v, want [%q]", h, got, h)
+		}
+		if _, err := writeDialect(t.TempDir(), h, data, bodies); err != nil {
+			t.Errorf("advertised harness %q has no writeDialect branch: %v", h, err)
+		}
+	}
+
+	// detection, both directions.
+	root := t.TempDir()
+	for _, d := range []string{".claude", filepath.Join(".github", "prompts"), ".codex", ".kimi"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	detected := map[string]bool{}
+	for _, hit := range detectHarnesses(root) {
+		if !validHarnesses[hit.harness] {
+			t.Errorf("detectHarnesses emits %q (marker %s), which harnessNames does not advertise",
+				hit.harness, hit.marker)
+		}
+		detected[hit.harness] = true
+	}
+	for _, h := range harnessNames {
+		if !detected[h] {
+			t.Errorf("harness %q is advertised but no root marker detects it — auto-detect can never pick it", h)
+		}
+	}
+
+	// HINT-001: the refusal that rejects a wrong harness is where the set is
+	// taught, so it must name every accepted value.
+	_, sess := connectCommands(t, t.TempDir(), nil)
+	out := callText(t, sess, "commands", map[string]any{"op": "gen", "harness": []string{"nonesuch"}})
+	if !strings.Contains(out, "! ARG E") {
+		t.Fatalf("a bogus harness must refuse per SRF-001: %q", out)
+	}
+	for _, h := range harnessNames {
+		if !strings.Contains(out, h) {
+			t.Errorf("harness refusal does not teach %q: %q", h, out)
+		}
 	}
 }

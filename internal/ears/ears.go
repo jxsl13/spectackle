@@ -36,6 +36,30 @@ func (p Pattern) String() string {
 	return "?"
 }
 
+// PatternLetters returns the one-letter encodings of the real EARS patterns,
+// in Pattern order. Index 0 of patternNames is the "?" sentinel PInvalid
+// renders as and MUST stay excluded: it is not a value any caller may pass,
+// and a refusal that named it would teach an argument the parser rejects.
+//
+// This is the pattern set's ONLY source of truth. Every surface that
+// enumerates it — the pattern= schema tag, the rule shape line, the invalid-
+// pattern refusal, PatternFromString itself — renders from here, because
+// hand-spelling "U|E|S|N|O|C" in five places is a stale advertisement waiting
+// to happen: the measured baseline for T-01KYT2EHRMEAH was that adding a
+// seventh letter here left the whole suite green.
+//
+// The result is a copy, not a slice of the array, so no caller can rewrite
+// the vocabulary through it.
+func PatternLetters() []string {
+	return append([]string(nil), patternNames[1:]...)
+}
+
+// PatternEnum renders PatternLetters as the pipe-separated enumeration the
+// tool schemas and refusals advertise, e.g. "U|E|S|N|O|C".
+func PatternEnum() string {
+	return strings.Join(PatternLetters(), "|")
+}
+
 var (
 	reUbiquitous = regexp.MustCompile(`^The .+ SHALL .+`)
 	reEvent      = regexp.MustCompile(`^WHEN .+, (?:the|an?) .+ SHALL .+`)

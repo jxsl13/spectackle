@@ -2,24 +2,6 @@
 schema: v1
 ---
 
-## T-01KYT2EHRMEAHSAY9GECXG2035 sweep the remaining hard-coded enumerations onto their source of truth
-kind: task
-state: draft
-created: 2026-07-30
-targets: internal/mcpserver, internal/ears
-
-Found by the mutation verifier of B-01KYS7111XFHZ after that record fixed THREE hard-coded copies of the blocked-exit enumeration - two it set out to fix, and a third the verifier measured on the failing-verdict route, which is arguably the commoner way into blocked. The class has now recurred often enough in this codebase to be worth sweeping deliberately rather than one site at a time.
-
-WHY IT MATTERS, measured rather than argued: a hard-coded enumeration is not merely duplication, it goes WRONG. override-once is one-shot, so a second escalation offers only rescope and reject, and every hard-coded copy kept advertising override-once - which the parser then refused at exit 1. A refusal exists to teach the value that will be accepted; naming one that will not costs the caller a whole call to discover.
-
-REMAINING INSTANCES, all in non-test code, all reported with locations by the verifier. commands.go around line 227 spells claude-pipe-copilot-pipe-codex-pipe-kimi while validHarnesses at commands.go:68 is the actual set. tools.go around 1495 spells U-pipe-E-pipe-S-pipe-N-pipe-O-pipe-C while ears.patternNames at internal/ears/ears.go:30 is the actual set. Those two are the same shape as the fixed bug and should render from their maps.
-
-SEPARATE JUDGEMENT NEEDED, not a mechanical fix: the static doc surfaces at prompts.go:86, tools.go:285 and server.go:81 also name all three blocked outcomes. Those are TRUE in general - the full set does exist - so they are not wrong the way a refusal is. But they sit awkwardly against the HINT-001 reasoning used to strip the same enumeration from nextAction: values belong on the refusal that rejects a wrong one, not on a line every session pays for. Decide it once for all three rather than per-site, and record the decision; they are manifest and tool-description text, so any change there is measurable on the schema and manifest lines the benchmark now meters.
-
-DIRECTION for the mechanical two: render from the map, exactly as blockedExitOutcomes now does for the escalation surfaces. Add a test per enumeration asserting the rendered string equals the map contents, so adding a harness or an EARS pattern cannot leave a stale advertisement behind.
-
-VERIFY per RECMERGE-003: for each site, mutate the underlying map - add a value - and assert the suite fails because the rendered enumeration no longer matches. That is the property, not the literal.
-
 ## B-01KYTK0BGRF7X9PEY3QKWQ7TQA a rule added outside any record lifecycle has no edge to commit it, which invites bypassing the branch and PR flow
 kind: bug
 state: draft

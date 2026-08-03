@@ -7,11 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/drift"
+	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/item"
 	"github.com/jxsl13/spectackle/internal/workspace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1722,7 +1725,10 @@ func TestNeedRefusalCarriesCallShape(t *testing.T) {
 	if got := strings.Count(txt, "shape: rule "); got != 1 {
 		t.Fatalf("shape line count = %d, want exactly 1:\n%s", got, txt)
 	}
-	for _, field := range []string{`"op":"add"`, `"dir"`, `"stem"`, `"pattern":"U|E|S|N|O|C"`, `"system"`, `"response"`} {
+	// The pattern fragment is built from ears.PatternEnum(), not spelled: this
+	// assertion is one of the surfaces T-01KYT2EHRMEAH bound to the pattern
+	// set, so it must move with it rather than pin a literal that outlives it.
+	for _, field := range []string{`"op":"add"`, `"dir"`, `"stem"`, `"pattern":"` + ears.PatternEnum() + `"`, `"system"`, `"response"`} {
 		if !strings.Contains(txt, field) {
 			t.Fatalf("shape line missing %s:\n%s", field, txt)
 		}
@@ -2529,6 +2535,118 @@ func TestDraftAdvertisedKindsAreComplete(t *testing.T) {
 	for _, k := range kinds {
 		if !strings.Contains(desc, k) {
 			t.Fatalf("kind %q mints records but the draft tool never advertises it: kind is described as %q", k, desc)
+		}
+	}
+}
+
+// TestSchemaTagsMatchSourceOfTruth pins T-01KYT2EHRMEAH's structural half: a
+// jsonschema struct tag must be a compile-time constant, so it CANNOT call the
+// function that renders its enumeration — reflection over the tag is the only
+// binding available between an advertisement and the set it claims to name.
+//
+// Without it the three tags are unbound literals, which is how `bench` came to
+// be a scope find happily answers while the schema line never mentions it, and
+// how a seventh EARS pattern or a fifth harness would land fully accepted and
+// entirely unadvertised with the suite green. This is also the SINGLE
+// load-bearing guard on the ears half: PatternFromString and Pattern.String()
+// index the same array, so a pattern round-trip test cannot notice a new
+// letter — only a surface that spells the set separately can.
+//
+// Contains, not equality: every tag carries prose after the enum ("default
+// all", "omit to auto-detect", the need-record note), which is the tag's job.
+func TestSchemaTagsMatchSourceOfTruth(t *testing.T) {
+	for _, c := range []struct {
+		in          any
+		field, want string
+	}{
+		{ruleIn{}, "Pattern", ears.PatternEnum()},
+		{commandsIn{}, "Harness", harnessEnum()},
+		{findIn{}, "Scope", scopeEnum()},
+	} {
+		typ := reflect.TypeOf(c.in)
+		f, ok := typ.FieldByName(c.field)
+		if !ok {
+			t.Errorf("%s has no field %s", typ.Name(), c.field)
+			continue
+		}
+		tag := f.Tag.Get("jsonschema")
+		if tag == "" {
+			t.Errorf("%s.%s advertises no jsonschema description at all", typ.Name(), c.field)
+			continue
+		}
+		if !strings.Contains(tag, c.want) {
+			t.Errorf("%s.%s schema tag %q does not spell the source of truth %q — "+
+				"the advertised set has drifted from the one the handler accepts",
+				typ.Name(), c.field, tag, c.want)
+		}
+	}
+}
+
+// TestFindScopeRefusalTeachesTheSet pins HINT-001 on find's scope argument.
+//
+// The refusal was a bare `! ARG E - unknown scope <x>`, which teaches nothing:
+// the vocabulary cost a whole extra call to discover, and the only other place
+// it was written — the schema tag — was wrong, omitting `bench` even though
+// find {"scope":"bench"} returns real records (T-01KYT2EHRMEAH). Iterating
+// scopeKinds rather than a literal list is the point: a scope added to the map
+// is a scope this assertion immediately demands the refusal name.
+func TestFindScopeRefusalTeachesTheSet(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "find", Arguments: map[string]any{"scope": "nonsense", "q": "anything"},
+	})
+	if err != nil {
+		t.Fatalf("transport: %v", err)
+	}
+	txt := res.Content[0].(*mcp.TextContent).Text
+	if !res.IsError || !strings.Contains(txt, "! ARG E") {
+		t.Fatalf("an unknown scope must refuse per SRF-001: IsError=%v %q", res.IsError, txt)
+	}
+	var missing []string
+	for sc := range scopeKinds {
+		if !strings.Contains(txt, sc) {
+			missing = append(missing, sc)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("the unknown-scope refusal does not teach %v — a working scope the caller "+
+			"cannot discover: %q", missing, txt)
+	}
+	// `code` never reaches scopeKinds (it is graph-backed and special-cased),
+	// so it has to be named explicitly or it is undiscoverable too.
+	if !strings.Contains(txt, "code") {
+		t.Errorf("the unknown-scope refusal omits the code scope: %q", txt)
+	}
+}
+
+// TestPatternLettersAreDocumented: every letter ears advertises must arrive at
+// the caller WITH ITS MEANING, on the need-pattern refusal that is the first
+// thing an agent authoring a rule sees.
+//
+// This is the assertion that makes the ears half of T-01KYT2EHRMEAH real at
+// the gate. The round-trip test in internal/ears cannot fail for a new letter
+// (both directions index the same array) and the enum render cannot fail
+// either (it IS the array); the one thing that genuinely breaks is the
+// hand-written gloss "U ubiquitous, E event (WHEN), ..." in slotQuestions,
+// which a new pattern leaves incomplete — a letter offered with no explanation
+// of when to pick it.
+func TestPatternLettersAreDocumented(t *testing.T) {
+	sess := connectRoot(t, t.TempDir())
+	txt := callText(t, sess, "rule", map[string]any{
+		"op": "add", "system": "the server", "response": "emit a thing",
+	})
+	if !strings.Contains(txt, "need pattern") {
+		t.Fatalf("rule with no pattern must come back as a need-pattern record: %q", txt)
+	}
+	for _, letter := range ears.PatternLetters() {
+		// "<letter> <word>" at the start of a comma- or colon-separated
+		// entry, i.e. the letter followed by what it means — not merely the
+		// letter appearing somewhere in the prose.
+		re := regexp.MustCompile(`(?:^|[:,] )` + regexp.QuoteMeta(letter) + ` [a-z(]`)
+		if !re.MatchString(txt) {
+			t.Errorf("pattern %q is advertised but never explained in the need-pattern refusal: %q",
+				letter, txt)
 		}
 	}
 }
