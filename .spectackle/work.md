@@ -432,3 +432,20 @@ THE TRAP, and it is why this needs its own record rather than a one-line copy of
 DIRECTION, not decided. Either exclude the item's own escalation ADR from the check (it is identifiable: it is the ADR whose id is in the item's Needs), or run the check over children that are neither the escalation ADR nor already terminal. Whichever lands must be tested against a blocked item in its ordinary shape - escalated, ADR present, no other children - to prove reject-from-blocked still works, because that is the case a careless gate breaks.
 
 VERIFY: ResolveBlocked with outcome=reject refuses on a parent with a live non-ADR child and names it; the ordinary blocked-then-reject path with only the escalation ADR still succeeds; and the sibling gate in Move is unchanged.
+
+## B-01KZ35V1PPEPFV3V6KKZRE9S94 the archive fold skips the audit gate, so a done child with unreviewed anchor drift is removed by folding when its own archive would refuse
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZKRQEHWAFHN0MD67NQY3, B-01KYQ87KTBFVVSRG337RFWCS44
+targets: internal/lifecycle, internal/mcpserver
+
+The fold path skips the audit gate, so a done child with audit-class drift folds through a gate its own archive would refuse. A FOURTH gate, not among the three B-01KYS6ZKRQEHW enumerated and closed. Found by an independent validator reading past the record's list.
+
+MECHANISM. auditGate runs only on the NAMED item. B-01KYS6ZKRQEHW routed fold children through archiveGateGap, which carries the research and validate gates, and added a subtree walk for the open-children and orphaned-descendant gates. The audit gate was not part of either, so a child that accumulated drift since it went done is removed by the fold without ever being asked.
+
+WHY IT MATTERS RATHER THAN BEING TIDY. Audit drift is exactly the state a human is supposed to look at: the anchor and the code disagree. Archiving that child directly is REFUSED by design (B-01KYQ87KTBFVV's whole argument is that the tightened state must not auto-heal). Folding it through the parent removes the record and its unreviewed divergence in one step, which is the same silent-destruction shape the sibling record closed for three other gates.
+
+DIRECTION. Fold the audit gate into archiveGateGap so all four run on children by construction, rather than adding a fourth call site that the next gate can also miss. That is the structural fix: the sibling record's pattern of enumerate-the-gates is what allowed a fourth to be forgotten, and a single chokepoint every archive path shares removes the enumeration.
+
+VERIFY: a parent whose done child carries a tightened anchor refuses to archive and names the child; the same child archived directly still refuses with the same reason; a parent whose done child is clean still folds.
