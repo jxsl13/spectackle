@@ -22,9 +22,14 @@ import (
 )
 
 // Kinds and their ID letters. adr items (architecture decision records,
-// formerly "decision") are minted by lifecycle.Escalate (see
+// formerly "decision") are normally minted by lifecycle.Escalate (see
 // internal/lifecycle) to record the way out of a rounds-exhausted feedback
-// loop — never drafted directly by an agent.
+// loop rather than drafted by hand — but nothing REFUSES a hand-drafted one,
+// and this map is what ValidKind enforces, so every key in it is a working
+// draft kind and the surface advertises the set through Kinds()
+// (T-01KZ39XYZNFGA). This map is therefore the single source of truth: adding
+// a key here adds a mintable kind, and the refusals and the draft tool's
+// advertised enum follow without a second edit.
 var kindLetter = map[string]string{
 	"proposal": "P", "task": "T", "bug": "B", "research": "R", "adr": "ADR",
 }
@@ -141,6 +146,24 @@ var LegacyIDRe = regexp.MustCompile(`^` + legacyIDPat + `$`)
 
 // ValidKind reports whether k is a known item kind.
 func ValidKind(k string) bool { _, ok := kindLetter[k]; return ok }
+
+// Kinds lists the accepted item kinds in a stable order, for the same reason
+// Statuses does below: a refusal (and the draft tool's advertised enum) can
+// print the set without restating it and drifting from what ValidKind
+// enforces. That drift is what this closes — the draft tool's jsonschema tag
+// hand-spelled four of the five kinds and omitted adr, so `draft kind=adr`
+// minted a record at exit 0 that the surface never advertised, while a caller
+// guessing outside the advertised four got a mint instead of a refusal
+// (T-01KZ39XYZNFGA). Both draft refusals and the tag are now checked against
+// this list by test, so a new key in kindLetter cannot land unadvertised.
+func Kinds() []string {
+	out := make([]string, 0, len(kindLetter))
+	for k := range kindLetter {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
 
 // adrStatuses is the classic ADR lifecycle. It lived only in a doc comment
 // and a jsonschema DESCRIPTION — neither of which validates anything — so any

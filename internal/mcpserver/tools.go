@@ -56,8 +56,17 @@ type getIn struct {
 }
 
 type draftIn struct {
-	ID      string   `json:"id,omitempty" jsonschema:"REVISE an existing draft-state item in place: body/title/targets/refs replace when given; stamps and verdicts expire via the substance hash (B-01KYER)"`
-	Kind    string   `json:"kind,omitempty" jsonschema:"proposal|task|research|bug (mint only)"`
+	ID string `json:"id,omitempty" jsonschema:"REVISE an existing draft-state item in place: body/title/targets/refs replace when given; stamps and verdicts expire via the substance hash (B-01KYER)"`
+	// The enum is spelled in the order item.Kinds() returns and is pinned to
+	// it by TestDraftAdvertisedKindsAreComplete: a struct tag must be a
+	// compile-time constant, so it cannot read the map directly, and
+	// hand-spelling it is exactly what produced the defect — the tag said
+	// proposal|task|research|bug while ValidKind accepted adr too, so a kind
+	// the surface never advertised minted records at exit 0
+	// (T-01KZ39XYZNFGA). kind is optional (a revise passes id instead), so
+	// this description never reaches the shape line, which renders enums for
+	// REQUIRED properties only — BENCH-001 pays nothing for it.
+	Kind    string   `json:"kind,omitempty" jsonschema:"adr|bug|proposal|research|task (mint only)"`
 	Title   string   `json:"title,omitempty" jsonschema:"one-line title (required to mint)"`
 	Body    string   `json:"body,omitempty" jsonschema:"intent/delta-spec prose"`
 	Targets []string `json:"targets,omitempty" jsonschema:"node IDs or paths the change touches"`
@@ -727,7 +736,14 @@ func (s *Server) draft(in draftIn) (*mcp.CallToolResult, any, error) {
 		return s.reviseDraft(in)
 	}
 	if in.Kind == "" {
-		return refuse("! ARG E - draft requires kind (or id to revise)")
+		// The refusal that rejects a missing value teaches the enum, because
+		// that is the moment the caller is reading (HINT-001) — and it is the
+		// ONLY placement, since putting it back on the shape line is the
+		// token cost BENCH-001 refuses. Joined from item.Kinds() rather than
+		// spelled here, so it cannot drift from what ValidKind enforces
+		// (T-01KZ39XYZNFGA).
+		return refuse("! ARG E - draft requires kind (one of " +
+			strings.Join(item.Kinds(), "|") + ") or id to revise")
 	}
 	if in.Title == "" {
 		return refuse("! ARG E - draft requires title")
