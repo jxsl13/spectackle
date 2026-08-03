@@ -226,7 +226,7 @@ VERIFY once decided: for (a), a test that sets a goal through the tool surface a
 
 ## B-01KYRJ3WSCE148S8S2GRWXFDJ4 the journal-compaction advisory suppresses check ok summary and prints twice, turning the required CI gate red
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/mcpserver, .github
