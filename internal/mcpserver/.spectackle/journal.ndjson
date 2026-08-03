@@ -344,3 +344,6 @@
 {"t":"2026-08-03T08:52:46Z","eid":"19d78f4b32696a0a","ag":"ag-1433","ev":"drift","dir":"internal/mcpserver","rule":"MCP-004","node":"go:mcpserver.Server.check","cls":"healed","oh":"be6897d79ed41e3a","nh":"9b646783985fb8f4"}
 {"t":"2026-08-03T09:29:52Z","eid":"0e3e0312b281ac55","ag":"ag-f148","ev":"grill","id":"T-01KYT2EHRMEAHSAY9GECXG2035","dir":"internal/mcpserver","gr":"2026-08-03 open=0","hash":"4a3773d5432f3d6a1832daad54fbb543015bb8c2a658426e305bf09f46aa38cf"}
 {"t":"2026-08-03T09:29:53Z","eid":"8adc49470002afa1","ag":"ag-103b","ev":"move","id":"T-01KYT2EHRMEAHSAY9GECXG2035","dir":"internal/mcpserver","fr":"draft","to":"active"}
+{"t":"2026-08-03T09:38:43Z","eid":"54e742ecf29d7ed6","ag":"ag-ef00","ev":"drift","dir":"internal/mcpserver","rule":"MCP-003","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"aa936927aec5784d","nh":"f69f7e8150b37e2d"}
+{"t":"2026-08-03T09:38:43Z","eid":"6634827e2c1798c3","ag":"ag-ef00","ev":"drift","dir":"internal/mcpserver","rule":"MCP-006","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"aa936927aec5784d","nh":"f69f7e8150b37e2d"}
+{"t":"2026-08-03T09:38:43Z","eid":"2464ec08caddfbcb","ag":"ag-ef00","ev":"drift","dir":"internal/mcpserver","rule":"MCP-011","node":"go:mcpserver.Server.registerTools","cls":"healed","oh":"aa936927aec5784d","nh":"f69f7e8150b37e2d"}
