@@ -271,6 +271,7 @@ THE GAP IN THIS ANALYSIS, stated because it is load-bearing: the two lenses that
 - B-01KYQA4WXEFATTX2FV30DATGDJ TestPrepIgnoresHarnessArtifacts flakes in CI: t.TempDir cleanup races git's background writes into .git/objects: validated pass by verifier-fixture-2 diff 344c87553637
 - B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused: validated pass by verifier-fold diff 3fb467b726e2
 - T-01KZ39XYZNFGAVKHC44BYWA6VX teach the kind enum on the draft refusals and bind the advertised set to item.Kinds(), so adr stops being a working unadvertised kind: validated pass by verifier-kinds diff b12e936a65b3
+- B-01KYRJ3WSCE148S8S2GRWXFDJ4 the journal-compaction advisory suppresses check ok summary and prints twice, turning the required CI gate red: validated pass by verifier-advisory diff 39c5cabae6a0
 
 ## SPX-ARC-001
 The spectackle server SHALL write only JSON-RPC 2.0 frames to stdout and route all log output to stderr.

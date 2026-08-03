@@ -224,31 +224,6 @@ Do not implement either until that is decided; the wrong choice adds surface to 
 
 VERIFY once decided: for (a), a test that sets a goal through the tool surface and proves each of the three gates observes it; for (b), that the field and every branch reading it are gone and the suite is green.
 
-## B-01KYRJ3WSCE148S8S2GRWXFDJ4 the journal-compaction advisory suppresses check ok summary and prints twice, turning the required CI gate red
-kind: bug
-state: done
-created: 2026-07-30
-grilled: 2026-08-03 open=0
-targets: internal/mcpserver, .github
-
-OBSERVED. Once the journal passes the compaction threshold, check stops emitting its summary line entirely and emits only advisories, with the journal advisory DUPLICATED:
-
-  c . journal 504 events since last compact
-  c . journal 504 events since last compact
-  (no ok line, exit 0)
-
-EXPECTED: the ok check 0 findings (E=0 W=0) - N rules N dirs summary, with advisories in addition to it, not instead of it.
-
-WHY IT MATTERS. The CI self-hosting gate asserts the exact shape len(lines)==1 and lines[0].startswith(ok check ) and 0 findings (E=0 W=0) in lines[0]. Three lines and no ok line fails that test, so the required gate goes red on a workspace whose code and spec are both clean. The trigger is elapsed journal events, not a code change, so it fires on whatever branch happens to cross the threshold - and it blocks the archive edge, which waits on CI. It did exactly that here: the rule op=add that recorded RECMERGE-002 pushed the count past the threshold and the next archive attempt could not have merged.
-
-ISOLATED. Not a regression from the current branch: the pre-fix baseline binary, built -buildvcs=false from the parent commit, produces the same output on the same workspace (plus a staleness hint of its own). compact {apply:true} clears it and check immediately returns the single clean ok line - 99 rules 24 dirs - so the summary is being displaced by the advisory, not lost to a scan failure.
-
-TWO DEFECTS, likely one cause. (1) The advisory path returns early or overwrites the summary instead of appending to it. (2) The same journal advisory is emitted twice for the same dir - a duplicate the caller pays for on every check while the condition is live.
-
-FIX DIRECTION. Advisories and the summary are different record types (c versus ok) and must compose: emit every c record AND the ok line. Then decide what the gate asserts - either it accepts advisory lines alongside the ok summary, or check gains a mode that suppresses advisories for gate use. The gate asserting a single line is what turned a soft nudge into a hard failure, so whichever is chosen, the CI expression and the render have to be changed together. Dedupe the advisory per dir.
-
-VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
-
 ## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
 kind: bug
 state: draft
