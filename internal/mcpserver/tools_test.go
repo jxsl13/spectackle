@@ -2324,3 +2324,66 @@ func TestDocsDocumentEveryRegisteredTool(t *testing.T) {
 		}
 	}
 }
+
+// TestMoveRefusalRendersShortID: the ARG E refusal names the record in the
+// SAME display form the success line of the same session printed.
+//
+// Every lifecycle error carries the STORED id, because lifecycle composes the
+// message and knows nothing about display prefixes — so `move` used to answer
+// a refusal with a 28-character id one call after answering a success with the
+// 15-character one, and an agent copying the id out of the refusal got a
+// different vocabulary than the rest of the surface (B-01KYS6ZJQSE1E). The
+// GATE E branch beside it already substituted; this is the same substitution
+// on the branch every other lifecycle refusal takes.
+//
+// The archived record is the sharpest case to assert it on: it is the refusal
+// a caller is most likely to be reading an id out of, since the id is no
+// longer in work.md for them to look up.
+func TestMoveRefusalRendersShortID(t *testing.T) {
+	root := t.TempDir()
+	s, sess := connectRootWithServer(t, root)
+
+	full := draftFullID(t, s, sess, map[string]any{
+		"kind": "proposal", "title": "closed for good", "body": ambFixturePad})
+	// a sibling, so the display form is genuinely computed against a
+	// contested floor rather than falling out of an uncontested default
+	draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "a contender", "body": ambFixturePad})
+
+	out := callText(t, sess, "move", map[string]any{
+		"id": full, "to": "archived", "note": "shipped"})
+	emitted := idOfRecord(t, out, "i")
+	if emitted == full {
+		t.Fatalf("fixture: the success line already printed the full id, so there is no width to compare: %q", out)
+	}
+
+	ref, isErr := callRaw(t, sess, "move", map[string]any{"id": full, "to": "active"})
+	if !isErr {
+		t.Fatalf("moving out of archived was accepted: %q", ref)
+	}
+	if !strings.Contains(ref, "! ARG E") {
+		t.Fatalf("refusal is not an ARG E record: %q", ref)
+	}
+	// The width, stated as the defect: the full id must not appear at all.
+	// Checked before the presence assertion below, since the display form is
+	// a PREFIX of the stored one and "contains the short id" is satisfied by
+	// a line carrying the long one.
+	if strings.Contains(ref, full) {
+		t.Fatalf("refusal printed the %d-char stored id; the success line of the same session printed the %d-char display form %s: %q",
+			len(full), len(emitted), emitted, ref)
+	}
+	if !strings.Contains(ref, emitted) {
+		t.Fatalf("refusal does not name the record as %s at all: %q", emitted, ref)
+	}
+	// The refusal is about the record's terminality, not about the id being
+	// unresolvable — `get` answers the same id in the same session.
+	if strings.Contains(ref, "unknown item") {
+		t.Fatalf("archived record refused as unknown: %q", ref)
+	}
+	// And the ACTION: a refused move must not have put the record back.
+	if got, ok, err := item.Get(s.ws, full); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("the refused move put %s back into work.md as %s", full, got.State)
+	}
+}

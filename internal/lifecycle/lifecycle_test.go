@@ -724,6 +724,130 @@ func TestTombstone(t *testing.T) {
 	}
 }
 
+// TestArchivedRefusalNamesTerminality: moving out of an archived record is
+// refused for the right REASON, in the caller's words.
+//
+// Before B-01KYS6ZJQSE1E the refusal for a never-rejected archived record was
+// "unknown item <id>", because the fallback looked for a reject snapshot,
+// found none, and reported the id as unresolvable. The id is not unknown —
+// Tombstone answers it in the same session, and `get` renders it — so the
+// message named the wrong cause and sent the caller off to hunt for a typo
+// instead of accepting that archived is terminal (SRF-001: a refusal leads
+// with what did not happen). The absence of "unknown item" is asserted as
+// hard as the presence of the terminality, since a message that says both
+// would be no improvement.
+func TestArchivedRefusalNamesTerminality(t *testing.T) {
+	root := ws(t)
+	p := draftID(t, root, "proposal", "shipped and closed", "Nothing left to do.", "gpu", "", nil)
+	if _, err := Move(root, p, item.StateArchived, "shipped"); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{item.StateActive, item.StateDone, item.StateRejected, item.StateDraft} {
+		note := ""
+		if to == item.StateRejected {
+			note = "a note, so the refusal cannot be the missing-note one"
+		}
+		_, err := Move(root, p, to, note)
+		if err == nil {
+			t.Fatalf("archived -> %s was accepted", to)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "unknown item") {
+			t.Fatalf("archived -> %s refused as unknown, but the id resolves as a tombstone: %q", to, msg)
+		}
+		if !strings.Contains(msg, "archived") || !strings.Contains(msg, "terminal") {
+			t.Fatalf("archived -> %s refusal does not name terminality: %q", to, msg)
+		}
+		if !strings.Contains(msg, p) {
+			t.Fatalf("archived -> %s refusal does not name the record: %q", to, msg)
+		}
+		if got, ok, err := item.Get(root, p); err != nil {
+			t.Fatalf("item.Get: %v", err)
+		} else if ok {
+			t.Fatalf("archived -> %s put the record back into work.md as %s", to, got.State)
+		}
+	}
+}
+
+// TestCompensatedArchiveThenRejectStaysRevocable is the test that FORBIDS the
+// obvious fix.
+//
+// The obvious fix for B-01KYS6ZJQSE1E is to consult Tombstone BEFORE the
+// reject snapshot: an archive event exists, so refuse as terminal. It closes
+// the resurrection and opens the mirror image of it. The move handler
+// compensates a stranded archive edge back to done (see CompensateArchive and
+// its call site in internal/mcpserver/tools.go: item.Upsert to done plus an
+// EvMove Fr=archived), so a record can carry an EvArchive that was UNDONE —
+// and rejecting it afterwards would then be unrevocable forever, because
+// tombstone-first would keep answering "archived is terminal" off an archive
+// that no longer describes the record. Recency is what answers both: the last
+// boundary event wins, exactly as compaction already reads the word terminal.
+//
+// This passes both before the fix and after it. It is here for the mutant: it
+// is the only assertion in the suite that goes red under tombstone-first.
+func TestCompensatedArchiveThenRejectStaysRevocable(t *testing.T) {
+	root := ws(t)
+	p := draftID(t, root, "proposal", "closure merge stranded", "Body worth keeping.", "gpu", "", nil)
+	if _, err := Move(root, p, item.StateDone, "implemented"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Move(root, p, item.StateArchived, "closing"); err != nil {
+		t.Fatal(err)
+	}
+	tomb, ok, err := Tombstone(root, p)
+	if err != nil || !ok {
+		t.Fatalf("fixture: Tombstone(%s) = ok=%v, err=%v", p, ok, err)
+	}
+
+	// The compensation, reproduced verbatim from the move handler's stranded
+	// archive edge — item back on done in work.md, plus the compensating move
+	// event that records why. Reproduced rather than called because
+	// CompensateArchive restores the FOLDED CHILDREN and the intent line; the
+	// parent's own two writes live in the handler.
+	back := tomb
+	back.State = item.StateDone
+	if err := item.Upsert(root, back); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Append(root, back.Dir, journal.Event{
+		Ev: journal.EvMove, ID: back.ID, Dir: back.Dir,
+		Fr: item.StateArchived, To: item.StateDone,
+		Note: "closure merge did not complete - archive compensated; retry move to=archived once the head is green",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now reject it. The record leaves work.md again, and this rejection —
+	// not the older archive — is what the id means from here on.
+	if _, err := Move(root, p, item.StateRejected, "rejected after the archive was compensated away"); err != nil {
+		t.Fatalf("reject after compensated archive: %v", err)
+	}
+	if _, ok, err := item.Get(root, p); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatal("fixture: the rejected record is still in work.md")
+	}
+
+	// The revoke must go through. Under tombstone-first it is refused with
+	// "archived is terminal" and the record is unrevocable forever.
+	if _, err := Move(root, p, item.StateActive, "revoked: the rejection was uninformed"); err != nil {
+		t.Fatalf("revoking a rejection that followed a compensated archive: %v", err)
+	}
+	got, ok, err := item.Get(root, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("revoke reported success but the record is not in work.md")
+	}
+	if got.State != item.StateActive {
+		t.Fatalf("revoked record is %s, want active", got.State)
+	}
+	if got.Title != "closure merge stranded" {
+		t.Fatalf("revoked record restored the wrong snapshot: %+v", got)
+	}
+}
+
 // ids returns the IDs of every item still in work.md, sorted — the "who
 // survived" assertion the fold and orphan tests below share.
 func liveIDs(t *testing.T, root workspace.Root) []string {

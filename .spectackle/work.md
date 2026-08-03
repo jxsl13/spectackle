@@ -415,3 +415,60 @@ WHY IT IS WORTH FIXING ANYWAY. The headline exists to lead with what did not hap
 DIRECTION, not decided. Either count conflict-mint failures separately from entry refusals so each denominator is honest (two counters, two clauses), or widen the denominator to entries plus attempted conflict mints and say so in the wording. The first is more truthful and slightly longer; the second is one expression. Whichever lands, the wording must not imply an entry was refused when the failure was a conflict mint - that is a different thing having gone wrong and a different remedy.
 
 VERIFY: an artifact with zero entries whose conflict mint fails renders a headline whose denominator is reachable, and an artifact with N entries of which K are refused still reads K of N.
+
+## B-01KZ35SVM7EFBS6DE18SQS9213 ResolveBlocked reject removes a parent without the open-children gate, so it orphans live children one door past the sibling fix
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZKRQEHWAFHN0MD67NQY3
+targets: internal/lifecycle
+
+A SECOND reject boundary skips the open-children gate that B-01KYS6ZKRQEHW just added to lifecycle.Move. Found by an independent validator probing past that record's enumeration, and probe-confirmed rather than inferred: calling ResolveBlocked with outcome=reject on a parent that has an ACTIVE child returns err=nil, removes the parent, and leaves the child live with a dangling parent pointer.
+
+WHY THE SIBLING FIX DOES NOT COVER IT. B-01KYS6ZKRQEHW widened the guard inside Move to fire for rejected as well as archived. ResolveBlocked does not route through that guard - it removes the item on its own path - so the identical orphaning survives one door over. This is the same defect shape, not a new one.
+
+THE TRAP, and it is why this needs its own record rather than a one-line copy of the sibling gate. Escalate PARENTS its auto-minted ADR to the item it blocks. A blocked item therefore always has at least one child, the decision record that is the reason it is blocked. A naive openChildren check in ResolveBlocked would trip on that ADR every time and make reject-from-blocked permanently unreachable, converting an orphan bug into a deadlock - the same class as the pre-Move scope-gate deadlock workspace.go's predicate exists to prevent.
+
+DIRECTION, not decided. Either exclude the item's own escalation ADR from the check (it is identifiable: it is the ADR whose id is in the item's Needs), or run the check over children that are neither the escalation ADR nor already terminal. Whichever lands must be tested against a blocked item in its ordinary shape - escalated, ADR present, no other children - to prove reject-from-blocked still works, because that is the case a careless gate breaks.
+
+VERIFY: ResolveBlocked with outcome=reject refuses on a parent with a live non-ADR child and names it; the ordinary blocked-then-reject path with only the escalation ADR still succeeds; and the sibling gate in Move is unchanged.
+
+## B-01KZ35V1PPEPFV3V6KKZRE9S94 the archive fold skips the audit gate, so a done child with unreviewed anchor drift is removed by folding when its own archive would refuse
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZKRQEHWAFHN0MD67NQY3, B-01KYQ87KTBFVVSRG337RFWCS44
+targets: internal/lifecycle, internal/mcpserver
+
+The fold path skips the audit gate, so a done child with audit-class drift folds through a gate its own archive would refuse. A FOURTH gate, not among the three B-01KYS6ZKRQEHW enumerated and closed. Found by an independent validator reading past the record's list.
+
+MECHANISM. auditGate runs only on the NAMED item. B-01KYS6ZKRQEHW routed fold children through archiveGateGap, which carries the research and validate gates, and added a subtree walk for the open-children and orphaned-descendant gates. The audit gate was not part of either, so a child that accumulated drift since it went done is removed by the fold without ever being asked.
+
+WHY IT MATTERS RATHER THAN BEING TIDY. Audit drift is exactly the state a human is supposed to look at: the anchor and the code disagree. Archiving that child directly is REFUSED by design (B-01KYQ87KTBFVV's whole argument is that the tightened state must not auto-heal). Folding it through the parent removes the record and its unreviewed divergence in one step, which is the same silent-destruction shape the sibling record closed for three other gates.
+
+DIRECTION. Fold the audit gate into archiveGateGap so all four run on children by construction, rather than adding a fourth call site that the next gate can also miss. That is the structural fix: the sibling record's pattern of enumerate-the-gates is what allowed a fourth to be forgotten, and a single chokepoint every archive path shares removes the enumeration.
+
+VERIFY: a parent whose done child carries a tightened anchor refuses to archive and names the child; the same child archived directly still refuses with the same reason; a parent whose done child is clean still folds.
+
+## B-01KZ35ZSD4EGJ9A7J2XBC01HXP the orphaned-record health warning names two remediations and both refuse, so the warning can never be cleared
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYSX35RKFYBRX6YAB9E9DHBW, B-01KZ16J3PKERRV6E7BB8F3BZJK
+targets: internal/mcpserver, internal/lifecycle
+
+The orphaned-record health warning names two remediations and BOTH refuse, so the warning is permanently unclearable and every later session reads a standing complaint it cannot act on.
+
+MEASURED end to end against B-01KYQBCAD8FF7T0NF9MM84YQ41, an orphan the health line flagged as "created in the journal, no terminal event, missing from work.md (re-draft citing the create event, or reject it for the record)":
+- reject it for the record: move to=rejected returns `! ARG E - lifecycle: unknown item B-01KYQBCAD8FF7T0NF9MM84YQ41`. The item is not in work.md, which is precisely what being orphaned means, so the reject path cannot reach it.
+- re-draft citing the create event: draft with that id returns `nf j:.#550`. Drafting WITHOUT an id mints a NEW record, so the orphan is untouched - I did exactly that (B-01KZ35WRCKFZT), closed the new record with a citation, and the original warning is still present afterwards.
+
+So the only two documented exits are closed and the warning survives any correct-looking action. This is the same class as a hint that refuses when followed - B-01KYSX35RKFYB fixed one of those for spent ADRs, and B-01KZ16J3PKERR is another - but here it is worse, because the advice is attached to a warning that never goes away rather than to a one-off call.
+
+WHY IT MATTERS beyond tidiness: an unclearable warning trains the reader to ignore the health section, which is where the pre-push hook, waiver rate and drift counters also live. This workspace already carries a 55 percent waiver rate; a permanent false alarm in the same block is how the rest stops being read.
+
+DIRECTION, not decided. Either make the orphan reachable - let draft id=<orphan> revive the record from its create event, which is what the advice already promises - or let move to=rejected accept a journal-only id and write the terminal event directly. The first matches the stated remedy and preserves the original ID, which matters because the ID is what every journal search joins on. Whichever lands, the health line must name the exit that actually works.
+
+Noted while measuring, and owned elsewhere: the refusal leaks the FULL record ID where the rest of the surface renders a short prefix - that is B-01KYS6ZJQSE1E's territory, not this record's.
+
+VERIFY: an orphaned record can be brought to a terminal state under ITS OWN ID by the action the health line names, and the warning disappears afterwards; a non-orphaned id still refuses on that path exactly as it does today.

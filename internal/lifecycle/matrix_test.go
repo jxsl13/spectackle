@@ -39,6 +39,19 @@ var allStates = []string{
 	item.StateBlocked,
 }
 
+// requireStates fails a test before its loop runs if allStates has emptied
+// out. Every assertion in this file lives inside a `range allStates`, so an
+// empty table would make the whole matrix report success while asserting
+// nothing at all — the vacuous-test shape the workspace's own check flags
+// (! VAC W). Called per test rather than once for the file because `go test
+// -run` runs them one at a time.
+func requireStates(t *testing.T) {
+	t.Helper()
+	if len(allStates) == 0 {
+		t.Fatal("allStates is empty — every assertion in this file lives inside a range over it")
+	}
+}
+
 // wantAllowed is the advertised transition set for each source state, written
 // out as a literal rather than computed. Deriving it from the same rules the
 // implementation uses would make this test agree with any bug that lives in
@@ -177,6 +190,7 @@ func assertState(t *testing.T, root workspace.Root, id, want, ctx string) {
 // wrote anyway is the worst failure this machine can have, and an
 // error-only assertion would never notice.
 func TestTransitionMatrix(t *testing.T) {
+	requireStates(t)
 	for _, from := range allStates {
 		for _, to := range allStates {
 			t.Run(from+"_to_"+to, func(t *testing.T) {
@@ -222,6 +236,7 @@ func allowedByTable(from, to string) bool {
 // of every refusal and is what the tool surface reads, so its exact content and
 // ORDER are contract.
 func TestAllowedMatchesTable(t *testing.T) {
+	requireStates(t)
 	for _, from := range allStates {
 		got := Allowed(from)
 		want := wantAllowed[from]
@@ -247,6 +262,7 @@ func TestAllowedMatchesTable(t *testing.T) {
 // omitting one Move accepts hides a legal move from every caller that reads the
 // advertised set.
 func TestAllowedAgreesWithMove(t *testing.T) {
+	requireStates(t)
 	for _, from := range allStates {
 		for _, to := range allStates {
 			t.Run(from+"_to_"+to, func(t *testing.T) {
@@ -272,6 +288,7 @@ func TestAllowedAgreesWithMove(t *testing.T) {
 // every source that may reject must refuse a noteless one, and refuse it
 // without moving the item.
 func TestRejectionRequiresNoteFromEveryLegalSource(t *testing.T) {
+	requireStates(t)
 	for _, from := range allStates {
 		if !allowedByTable(from, item.StateRejected) {
 			continue
@@ -302,6 +319,7 @@ func TestRejectionRequiresNoteFromEveryLegalSource(t *testing.T) {
 // twice, reject would append a second snapshot — so the diagonal is worth a
 // named test rather than only an implied one.
 func TestSelfTransitionsAlwaysRefused(t *testing.T) {
+	requireStates(t)
 	for _, s := range allStates {
 		t.Run(s, func(t *testing.T) {
 			root, id := seedState(t, s)
@@ -317,11 +335,69 @@ func TestSelfTransitionsAlwaysRefused(t *testing.T) {
 	}
 }
 
+// TestArchivedAfterRevokedRejectionIsTerminal is the archived row of the
+// matrix again, seeded the one way seedState cannot seed it: draft ->
+// rejected -> draft (revoke) -> archived, rather than the direct forward hop.
+//
+// The distinction is the whole defect (B-01KYS6ZJQSE1E). An archived item is
+// absent from work.md, so Move falls back to the journal — and the fallback
+// used to ask for the last REJECTION, which for this history is the stale
+// snapshot from before the revoke. It answered state=rejected, and rejected is
+// revocable into draft/submitted/approved/active, so four of these eight cells
+// returned err == nil and pulled the record back into work.md while its
+// tombstone and its spec.md `## intent` line stayed exactly where they were:
+// one record, live and archived at once. Every cell here must refuse, and the
+// record must still be resolvable only as a tombstone afterwards.
+//
+// item.Get is asserted DIRECTLY, on top of assertState, because the resurrection
+// is a WRITE: a test that only checked the error would have gone green the day
+// the refusal was worded correctly and the record was still put back.
+func TestArchivedAfterRevokedRejectionIsTerminal(t *testing.T) {
+	requireStates(t)
+	for _, to := range allStates {
+		t.Run("to_"+to, func(t *testing.T) {
+			root := matrixWorkspace(t)
+			it, err := Draft(root, nil, "task", "revoked, then archived", "", "", "", nil)
+			if err != nil {
+				t.Fatalf("seed draft: %v", err)
+			}
+			id := it.ID
+			if _, err := Move(root, id, item.StateRejected, "rejected with too little information"); err != nil {
+				t.Fatalf("seed reject: %v", err)
+			}
+			if _, err := Move(root, id, item.StateDraft, "revoked: the rejection was uninformed"); err != nil {
+				t.Fatalf("seed revoke: %v", err)
+			}
+			if _, err := Move(root, id, item.StateArchived, "shipped after all"); err != nil {
+				t.Fatalf("seed archive: %v", err)
+			}
+			assertState(t, root, id, item.StateArchived, "seed")
+
+			note := ""
+			if to == item.StateRejected {
+				note = "post-archive rejection note"
+			}
+			if _, err := Move(root, id, to, note); err == nil {
+				t.Fatalf("archived -> %s was accepted; archived is terminal", to)
+			}
+			// The write, not the wording: work.md must not have gained the
+			// record back, whatever the refusal said.
+			if got, ok, err := item.Get(root, id); err != nil {
+				t.Fatalf("item.Get: %v", err)
+			} else if ok {
+				t.Fatalf("archived -> %s put the record back into work.md as %s", to, got.State)
+			}
+			assertState(t, root, id, item.StateArchived, "after refused move")
+		})
+	}
+}
+
 // TestBlockedIsNeverAMoveDestination: blocked never appears in any source's
 // allowed set, so no sequence of Move calls can reach it. Escalate is the only
 // way in, which is what makes the escalation exits (rescope, reject,
 // override-once) the only way out.
 func TestBlockedIsNeverAMoveDestination(t *testing.T) {
+	requireStates(t)
 	for _, from := range allStates {
 		if allowedByTable(from, item.StateBlocked) {
 			t.Fatalf("blocked is reachable by Move from %s — only Escalate may set it", from)

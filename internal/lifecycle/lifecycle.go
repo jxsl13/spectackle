@@ -247,14 +247,35 @@ func Move(ws workspace.Root, id, to, note string, opts ...MoveOption) (item.Item
 		return item.Item{}, err
 	}
 	if !ok {
-		rej, found, err := lastReject(ws, id)
+		// The record left work.md — which of the two exits it took decides
+		// everything, so ask for the LAST one rather than for a rejection
+		// (B-01KYS6ZJQSE1E: asking lastReject alone made every archived item
+		// that carried an older reject event resurrectable, since the stale
+		// snapshot answered state=rejected and rejected is revocable). See
+		// lastBoundary for why recency, and not the tombstone, is the tie-break.
+		b, kind, found, err := lastBoundary(ws, id)
 		if err != nil {
 			return item.Item{}, err
 		}
 		if !found {
 			return item.Item{}, fmt.Errorf("lifecycle: unknown item %s", id)
 		}
-		it = rej // state == rejected; falls through to the transition check
+		if kind == journal.EvArchive {
+			// Named as terminality, not as "unknown item": the id resolves —
+			// get answers it as a tombstone in the same session — so calling
+			// it unknown sent the caller off to check for a typo instead of
+			// accepting the state machine's answer (SRF-001: a refusal leads
+			// with what did not happen, and naming the wrong cause is worse
+			// than terse). Same grammar as the sibling refusal below, and it
+			// agrees with Allowed(archived) being empty.
+			//
+			// The tombstone rides along the way every other refusal below
+			// returns the item it refused for; it stays READ-ONLY (see
+			// Tombstone) — no caller may Upsert it back into work.md, which
+			// is the very resurrection this branch exists to stop.
+			return b, fmt.Errorf("lifecycle: %s: archived is terminal (allowed: none)", id)
+		}
+		it = b // state == rejected; falls through to the transition check
 	}
 	if it.State == item.StateBlocked {
 		return it, fmt.Errorf("lifecycle: %s: blocked — resolve via decide %s", id, lastNeed(it.Needs))
@@ -980,31 +1001,41 @@ func Tombstone(ws workspace.Root, id string) (item.Item, bool, error) {
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
 		if e.Ev == journal.EvArchive && e.ID == id {
-			body := e.Sum
-			if e.Body != "" {
-				// research tombstones carry the retained finding; the
-				// summary stays available in the journal event itself
-				body = e.Body
-			}
-			out := item.Item{
-				// Title is deliberately absent: restoreRecord below coerces
-				// it off e.Ti, so this literal setting it too would be a
-				// second, uncoerced assignment of the same value.
-				ID: e.ID, Kind: e.K, Dir: e.Dir,
-				// NormalizeBody, not CheckHeader's refusal: this body comes
-				// off a journal event, not off a caller. An event written
-				// before the body guard landed (B-01KYRN4VBEEXQ) can carry a
-				// heading-shaped line, and refusing here would leave the
-				// tombstone permanently unreadable instead of protecting
-				// anything — the same asymmetry NormalizeHeaderValue
-				// documents for the prose fields.
-				State: item.StateArchived, Body: item.NormalizeBody(body),
-			}
-			restoreRecord(&out, e)
-			return out, true, nil
+			return tombstoneFrom(e), true, nil
 		}
 	}
 	return item.Item{}, false, nil
+}
+
+// tombstoneFrom rebuilds the archived record an EvArchive event snapshotted.
+// It was Tombstone's loop body until lastBoundary needed the same
+// reconstruction from an event it had already found on its own walk
+// (B-01KYS6ZJQSE1E); two copies of a reader whose job is to keep an archived
+// record readable forever is the shape carryRecord's comment argues against
+// one paragraph up.
+func tombstoneFrom(e journal.Event) item.Item {
+	body := e.Sum
+	if e.Body != "" {
+		// research tombstones carry the retained finding; the
+		// summary stays available in the journal event itself
+		body = e.Body
+	}
+	out := item.Item{
+		// Title is deliberately absent: restoreRecord below coerces
+		// it off e.Ti, so this literal setting it too would be a
+		// second, uncoerced assignment of the same value.
+		ID: e.ID, Kind: e.K, Dir: e.Dir,
+		// NormalizeBody, not CheckHeader's refusal: this body comes
+		// off a journal event, not off a caller. An event written
+		// before the body guard landed (B-01KYRN4VBEEXQ) can carry a
+		// heading-shaped line, and refusing here would leave the
+		// tombstone permanently unreadable instead of protecting
+		// anything — the same asymmetry NormalizeHeaderValue
+		// documents for the prose fields.
+		State: item.StateArchived, Body: item.NormalizeBody(body),
+	}
+	restoreRecord(&out, e)
+	return out
 }
 
 // lastReject reconstructs a rejected item from its most recent reject
@@ -1017,21 +1048,80 @@ func lastReject(ws workspace.Root, id string) (item.Item, bool, error) {
 	for i := len(events) - 1; i >= 0; i-- {
 		e := events[i]
 		if e.Ev == journal.EvReject && e.ID == id {
-			out := item.Item{
-				// Title omitted for the same reason as Tombstone's: it is
-				// restoreRecord's, so there is one coercion point for it.
-				ID: e.ID, Kind: e.K, State: item.StateRejected,
-				// Same reason as Tombstone's: revocation of a rejected item
-				// has to keep working over journals written before the body
-				// guard existed, so the heading-shaped line is indented back
-				// into prose rather than refused (B-01KYRN4VBEEXQ).
-				Dir: e.Dir, Body: item.NormalizeBody(e.Body),
-			}
-			restoreRecord(&out, e)
-			return out, true, nil
+			return rejectFrom(e), true, nil
 		}
 	}
 	return item.Item{}, false, nil
+}
+
+// rejectFrom rebuilds the rejected record an EvReject event snapshotted —
+// lastReject's loop body, split out for the same reason as tombstoneFrom
+// (B-01KYS6ZJQSE1E): lastBoundary finds the event on its own walk and must
+// reconstruct it identically, and the two boundary readers drifting apart is
+// precisely how the SUCCESS path came to preserve less than the FAILURE path
+// once already (see carryRecord).
+func rejectFrom(e journal.Event) item.Item {
+	out := item.Item{
+		// Title omitted for the same reason as Tombstone's: it is
+		// restoreRecord's, so there is one coercion point for it.
+		ID: e.ID, Kind: e.K, State: item.StateRejected,
+		// Same reason as Tombstone's: revocation of a rejected item
+		// has to keep working over journals written before the body
+		// guard existed, so the heading-shaped line is indented back
+		// into prose rather than refused (B-01KYRN4VBEEXQ).
+		Dir: e.Dir, Body: item.NormalizeBody(e.Body),
+	}
+	restoreRecord(&out, e)
+	return out
+}
+
+// lastBoundary resolves an id work.md no longer holds, by walking the journal
+// BACKWARDS to the most recent boundary event for it — an EvReject or an
+// EvArchive, the two edges that remove a record from work.md — and returning
+// the record that event snapshotted plus the event kind, so the caller can
+// tell a revocable rejection from a terminal archive.
+//
+// RECENCY, not tombstone-first, and the distinction is measured rather than
+// stylistic (B-01KYS6ZJQSE1E). Move used to fall back to lastReject alone, so
+// an item that was rejected, revoked and later ARCHIVED resolved as
+// state=rejected off the stale reject event — and Allowed(rejected) permits
+// draft/submitted/approved/active, so the archive was pulled back into work.md
+// with exit 0 while its tombstone and its spec.md `## intent` line stayed put:
+// one record, simultaneously live and archived. Consulting Tombstone FIRST
+// fixes that case and breaks the mirror image of it: an archive the move
+// handler compensated back to done (see CompensateArchive) and that was then
+// rejected would be refused as "archived is terminal" even though the archive
+// was undone. Last boundary wins answers both, and it is the reading this
+// codebase already applies to the word terminal — compaction's keep-list calls
+// it "FINAL-state-wins, not any-terminal-event-ever"
+// (internal/mcpserver/tools.go).
+//
+// INDEX order decides recency, not Ts: journal.Append truncates event times to
+// the second, so boundaries inside one second are indistinguishable by
+// timestamp. Index order is chronological only WITHIN a context dir, since
+// journal.ReadAll concatenates the per-dir files — but every event for an id is
+// appended to it.Dir and nothing outside Draft assigns Dir, so all of one id's
+// events live in one file and the backwards walk is sound. Both boundary kinds
+// survive compaction verbatim (the fold keeps EvArchive and EvReject), so the
+// answer does not decay.
+func lastBoundary(ws workspace.Root, id string) (item.Item, string, bool, error) {
+	events, err := journal.ReadAll(ws)
+	if err != nil {
+		return item.Item{}, "", false, err
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		if e.ID != id {
+			continue
+		}
+		switch e.Ev {
+		case journal.EvReject:
+			return rejectFrom(e), journal.EvReject, true, nil
+		case journal.EvArchive:
+			return tombstoneFrom(e), journal.EvArchive, true, nil
+		}
+	}
+	return item.Item{}, "", false, nil
 }
 
 // auditGate is the "an item cannot reach done while its bound contracts
