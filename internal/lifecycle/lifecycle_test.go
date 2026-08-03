@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1194,6 +1195,15 @@ func TestOutcomeFieldsCannotBeStarvedByTheBody(t *testing.T) {
 			Context: strings.Repeat("C", 60000), Decision: "DEC", Status: "accepted"}},
 		{"empty context", item.Item{Kind: "adr", Title: "q", Body: "kind: radio",
 			Decision: "DEC", Consequences: "CONS", Status: "accepted"}},
+		// Status is the field whose per-field cap is easiest to lose: every
+		// other case here pins it to "accepted", so the cap assertion below
+		// could not fire on it and a mutation deleting capRetainedBodyTo from
+		// carryRecord's Status line left the suite green (B-01KYRQY892FSD,
+		// correction 4). Status is not length-guarded on the read path either
+		// — item.Parse assigns whatever it found and CheckHeader checks the
+		// line shape, not the length — so an unbounded status can ride in.
+		{"huge status", item.Item{Kind: "adr", Title: "q", Body: "kind: radio",
+			Context: "CTX", Decision: "DEC", Consequences: "CONS", Status: strings.Repeat("S", 60000)}},
 		{"everything huge", item.Item{Kind: "adr", Title: "q", Body: strings.Repeat("B", 60000),
 			Context: strings.Repeat("C", 60000), Decision: strings.Repeat("D", 60000),
 			Consequences: strings.Repeat("K", 60000), Status: "accepted"}},
@@ -1256,6 +1266,13 @@ func TestIntentLineIsBounded(t *testing.T) {
 		{"huge note", strings.Repeat("N", 60000), "body"},
 		{"huge first body line, no note", "", strings.Repeat("B", 60000)},
 		{"multiline note", "first line\nsecond line", "body"},
+		// The case the three above never built: Sum is summary + " note: " +
+		// the capped note, so BOTH halves have to be over the cap at once to
+		// exercise the bound this test claims to hold. Without it the limit
+		// below was never approached, let alone tested — which is how a
+		// naive delegation of summary() to capGist could push the on-disk Sum
+		// from 851 to 895 bytes with the suite still green (B-01KYRQY892FSD).
+		{"huge first body line AND huge note", strings.Repeat("N", 60000), strings.Repeat("B", 60000)},
 	} {
 		w := ws(t)
 		it := item.Item{
@@ -1297,7 +1314,16 @@ func TestIntentLineIsBounded(t *testing.T) {
 			if len(e.Gist) > intentGistMax+len(truncationMarker) {
 				t.Fatalf("%s: event gist unbounded at %d bytes", tc.name, len(e.Gist))
 			}
-			if len(e.Sum) > 400+intentGistMax+len(truncationMarker)+16 {
+			// TWO capped gists, each of which may carry its own marker, plus
+			// the " note: " joiner. It was written as 400 + one gist + one
+			// marker back when summary() had its own uncapped-then-hard-sliced
+			// 400 that could never append a marker; summary now delegates to
+			// capGist, so the marker is admitted on BOTH halves and the honest
+			// bound is symmetric. That is a DELIBERATE raise of exactly
+			// len(truncationMarker) — the alternative, giving summary a
+			// marker-reserving budget of its own, means a third truncation
+			// expression in a package whose whole defect was owning two.
+			if len(e.Sum) > 2*(intentGistMax+len(truncationMarker))+16 {
 				t.Fatalf("%s: event sum unbounded at %d bytes", tc.name, len(e.Sum))
 			}
 			if tc.note != "" && e.Note != tc.note {
@@ -1333,15 +1359,212 @@ func TestCapRetainedBodyNeverManufacturesBlankLine(t *testing.T) {
 // path has no caller to refuse to, so an event carrying an unrepresentable
 // value — written by an older binary, or by a future path that forgets — must
 // still produce a record that can be written back.
+//
+// It used to cover the three PROSE fields only, which is exactly the defect
+// B-01KYRQY892FSD's finding 2 names: the argument for coercing rather than
+// refusing on this path (see item.NormalizeHeaderValue's doc) applies word for
+// word to all ten header-constrained fields, and had been applied to three.
+// Ti, Par, Gr, St, Tg, Refs and Nd all restored to a record CheckHeader then
+// refused — ten refusals across this table before the fix.
 func TestRestoreRecordAlwaysWritable(t *testing.T) {
-	for _, bad := range []string{"a\n\nb", "a\n", "a\n\n\nb\n\n", "\n\n"} {
-		var it item.Item
-		restoreRecord(&it, journal.Event{
-			ID: "ADR-0001", Ctx: bad, Dec: bad, Cons: bad,
-		})
-		if err := item.CheckHeader(it); err != nil {
-			t.Errorf("carried %q restored to an unwritable record: %v", bad, err)
+	// Every shape CheckHeader refuses, in one table. The paragraph break and
+	// the trailing newline are what the prose fields already covered; the three
+	// CommonMark line endings are what the single-line fields refuse; and the
+	// comma is the list separator, so a coercion that merely SUBSTITUTES
+	// newlines would leave a value splitList reads back as two elements —
+	// present but no longer a fixed point of the reader.
+	bad := []string{"a\n\nb", "a\n", "a\n\n\nb\n\n", "\n\n", "a\nb", "a\r\nb", "a\rb", "a,b"}
+
+	// Keyed by item.Item FIELD name, not by event field, so the ratchet at the
+	// bottom can walk the struct and see which fields this table reaches.
+	planted := map[string]func(*journal.Event, string){
+		"Title":        func(e *journal.Event, v string) { e.Ti = v },
+		"Parent":       func(e *journal.Event, v string) { e.Par = v },
+		"Grilled":      func(e *journal.Event, v string) { e.Gr = v },
+		"Status":       func(e *journal.Event, v string) { e.St = v },
+		"Targets":      func(e *journal.Event, v string) { e.Tg = []string{v} },
+		"Refs":         func(e *journal.Event, v string) { e.Refs = []string{v} },
+		"Needs":        func(e *journal.Event, v string) { e.Nd = []string{v} },
+		"Context":      func(e *journal.Event, v string) { e.Ctx = v },
+		"Decision":     func(e *journal.Event, v string) { e.Dec = v },
+		"Consequences": func(e *journal.Event, v string) { e.Cons = v },
+	}
+
+	// Sorted so a failure reports the same field order on every run; map
+	// iteration order would otherwise reshuffle the output of a real break.
+	fields := make([]string, 0, len(planted))
+	for name := range planted {
+		fields = append(fields, name)
+	}
+	sort.Strings(fields)
+
+	for _, name := range fields {
+		plant := planted[name]
+		for _, v := range bad {
+			var it item.Item
+			ev := journal.Event{ID: "ADR-0001", K: "adr"}
+			plant(&ev, v)
+			restoreRecord(&it, ev)
+			if err := item.CheckHeader(it); err != nil {
+				t.Errorf("restoreRecord: %s carrying %q restored to an unwritable record: %v", name, v, err)
+			}
+
+			// And through the two real readers. Title in particular was set by
+			// the struct literals in Tombstone and lastReject rather than by
+			// restoreRecord, so a direct restoreRecord call could not have seen
+			// it at all — the coercion has to be where BOTH readers pass.
+			w := ws(t)
+			for _, r := range []struct {
+				name string
+				kind string
+				read func(workspace.Root, string) (item.Item, bool, error)
+			}{
+				{"Tombstone", journal.EvArchive, Tombstone},
+				{"lastReject", journal.EvReject, lastReject},
+			} {
+				e := ev
+				e.Ev, e.ID = r.kind, "ADR-0001"
+				if err := journal.Append(w, "", e); err != nil {
+					t.Fatal(err)
+				}
+				got, ok, err := r.read(w, e.ID)
+				if err != nil || !ok {
+					t.Fatalf("%s: ok=%v err=%v", r.name, ok, err)
+				}
+				if err := item.CheckHeader(got); err != nil {
+					t.Errorf("%s: %s carrying %q restored to an unwritable record: %v", r.name, name, v, err)
+				}
+			}
 		}
+	}
+
+	// RATCHET. Finding 2 was not "four fields were missed" so much as "nothing
+	// made missing them visible": the three prose fields were coerced, the
+	// other seven were assigned straight off the event, and the suite stayed
+	// green for a release. A field added to item.Item now has to be either
+	// exercised above or named here with a reason, the same shape
+	// TestItemEventRoundTrip uses for the carry side of the same boundary.
+	exempt := map[string]string{
+		"ID":       "identity; the reader supplies it from Event.ID and CheckHeader never reads it",
+		"State":    "the reader pins it to a constant (archived/rejected), never to a carried value",
+		"Dir":      "not in the machine header at all — item.CheckDir guards it, on the write path",
+		"Created":  "derived from the ID's mint time or formatted from the carried date, never free text",
+		"Body":     "coerced by item.NormalizeBody at both readers, for the heading-shape hazard CheckHeader refuses",
+		"Rounds":   "an int; it has no line shape to break",
+		"Override": "a bool; it has no line shape to break",
+		// Honest residual, not a clean exemption: CheckHeader DOES constrain
+		// kind, and Tombstone/lastReject assign it straight from Event.K. It is
+		// out of B-01KYRQY892FSD's declared seven, so it is named rather than
+		// silently skipped — which is the entire point of this list.
+		"Kind": "assigned from Event.K by the readers' struct literals, still uncoerced; a known residual of this class",
+	}
+	rt := reflect.TypeOf(item.Item{})
+	for i := 0; i < rt.NumField(); i++ {
+		name := rt.Field(i).Name
+		if _, ok := planted[name]; ok {
+			continue
+		}
+		if _, ok := exempt[name]; ok {
+			continue
+		}
+		t.Errorf("item.Item field %s is neither coerced on the restore path nor exempted here — "+
+			"the restore path has no caller to refuse to, so decide which it is", name)
+	}
+}
+
+// TestCarryRecordStatusIsOneCappedLine pins BOTH halves of carryRecord's
+// Status line, at the event level, because each half is deletable without the
+// other noticing. The cap is what the per-field-cap suite polices through
+// item.Upsert; the flatten is NOT reachable that way at all, since
+// item.CheckHeader refuses a multi-line status on the write path — which is
+// exactly why it needs pinning here rather than through a public tool. A status
+// is a single-line enum, and the whole point of finding 2 is that the restore
+// side must not be the only thing standing between a stored value and a record
+// that cannot be written back.
+func TestCarryRecordStatusIsOneCappedLine(t *testing.T) {
+	var flat journal.Event
+	carryRecord(&flat, item.Item{Status: "accepted\nstate: archived"})
+	if strings.ContainsAny(flat.St, "\r\n") {
+		t.Errorf("carried status must be one line, got %q", flat.St)
+	}
+	var capped journal.Event
+	carryRecord(&capped, item.Item{Status: strings.Repeat("S", 60000)})
+	if len(capped.St) > outcomeFieldMax+len(truncationMarker) {
+		t.Errorf("carried status is unbounded at %d bytes (cap %d)", len(capped.St), outcomeFieldMax)
+	}
+}
+
+// TestSummaryIsOneValidLine pins the two properties summary lost by owning a
+// second truncator: it cut with a raw s[:400] BYTE slice, and it passed
+// gistLine through unflattened. The first left a dangling lead byte whenever a
+// multi-byte rune straddled the boundary — and summary supplies its own
+// multi-byte rune, the em dash it inserts before the gist — while the second
+// let an ADR's two-line Decision reach the journal Sum as two lines.
+func TestSummaryIsOneValidLine(t *testing.T) {
+	// A SWEEP, not a point case. The byte the cut lands on is a function of
+	// kind+title length, so an assertion pinned to the one pad that reproduces
+	// today (393, and 394 for the second byte) would go green on the next
+	// unrelated edit to the separator or to a kind name and stop testing
+	// anything at all.
+	for pad := 370; pad <= 410; pad++ {
+		it := item.Item{Kind: "bug", Title: strings.Repeat("a", pad), Body: strings.Repeat("b", 64)}
+		got := summary(it)
+		if !utf8.ValidString(got) {
+			t.Errorf("pad=%d: summary is not valid UTF-8; tail % x", pad, got[max(0, len(got)-8):])
+		}
+		if strings.ContainsAny(got, "\r\n") {
+			t.Errorf("pad=%d: summary must be one line, got %q", pad, got)
+		}
+	}
+	// gistLine returns an ADR's Decision verbatim, and a decision may span
+	// lines — the header allows it. Sum may not.
+	adr := item.Item{Kind: "adr", Title: "t", Body: "kind: radio", Decision: "line one\nline two"}
+	if got := summary(adr); strings.ContainsAny(got, "\r\n") {
+		t.Errorf("an adr's multi-line decision reached the summary intact: %q", got)
+	}
+}
+
+// TestArchivedSumIsValidOnDisk is the end-to-end half, through public tools
+// only: draft, then archive. The record this fixes called both findings
+// "latent, not reachable through a public tool" — that is false for finding 1,
+// because the em dash that breaks is summary's OWN separator, not a caller's
+// value. Measured before the fix, the on-disk Sum read
+// `bug aaa… <U+FFFD><U+FFFD> note: …`: json.Marshal rewrites the orphan bytes
+// to U+FFFD on the way out, so the corruption is permanent by the time anyone
+// can read it back.
+func TestArchivedSumIsValidOnDisk(t *testing.T) {
+	w := ws(t)
+	// 393 is measured, not arbitrary: "bug " + 393 makes 397 bytes, so the old
+	// raw slice cut two bytes into the three-byte em dash at 398..400.
+	id := draftID(t, w, "bug", strings.Repeat("a", 393), "the first body line", "", "", nil)
+	if _, err := Move(w, id, item.StateArchived, "a note"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := journal.ReadAll(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, e := range events {
+		if e.Ev != journal.EvArchive || e.ID != id {
+			continue
+		}
+		seen = true
+		if !utf8.ValidString(e.Sum) {
+			t.Errorf("archived Sum is not valid UTF-8: % x", e.Sum)
+		}
+		// Valid UTF-8 is not enough on the far side of a round trip through
+		// JSON: the encoder REPLACES an orphan byte rather than refusing it, so
+		// a corrupt Sum reads back as perfectly valid U+FFFD.
+		if strings.ContainsRune(e.Sum, utf8.RuneError) {
+			t.Errorf("archived Sum holds U+FFFD, so bytes were destroyed on the way to disk: %q", e.Sum)
+		}
+		if strings.ContainsAny(e.Sum, "\r\n") {
+			t.Errorf("archived Sum must be one line, got %q", e.Sum)
+		}
+	}
+	if !seen {
+		t.Fatal("no archive event was written")
 	}
 }
 

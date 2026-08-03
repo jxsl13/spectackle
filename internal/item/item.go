@@ -465,6 +465,50 @@ func NormalizeHeaderValue(v string) string {
 	return strings.TrimRight(v, "\n")
 }
 
+// headerLineEndings flattens every line ending into a single space, CRLF first
+// so it costs one space rather than two — the same replacer shape, and the same
+// ordering reason, as lifecycle's gistLineEndings. It is used by the two
+// coercions below rather than by CheckHeader: the guard REFUSES a caller's
+// newline, these two rewrite one that is already stored.
+var headerLineEndings = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ")
+
+// NormalizeHeaderLine is NormalizeHeaderValue for the SINGLE-line fields —
+// title, parent, grilled, status. They may hold no newline at all, because
+// title shares the "## " heading line with the ID and the rest are one header
+// line each, so collapsing a paragraph the way NormalizeHeaderValue does is not
+// enough here: any line ending has to go.
+//
+// Same asymmetry as NormalizeHeaderValue's, and for the same reason. Refusing
+// belongs on the write path, where there is a caller to tell; on the restore
+// path there is none, and a value that cannot be written back is a record that
+// cannot be revoked at all. B-01KYRQY892FSD is that argument having been
+// applied to the three prose fields and to none of the seven others.
+func NormalizeHeaderLine(v string) string {
+	return strings.TrimSpace(headerLineEndings.Replace(v))
+}
+
+// NormalizeListValues is the same coercion for the LIST fields — targets, refs,
+// needs. They are comma-joined onto one header line, so an element holding a
+// newline breaks the header's structure and one holding a comma reads back as
+// two elements.
+//
+// It SPLITS on the comma rather than substituting it away, deliberately, and
+// the difference is not cosmetic: splitList treats the comma as an element
+// boundary, so a stored ["a,b"] has always meant TWO elements to anything that
+// read it back off disk. Substituting would satisfy the header just as well
+// while quietly turning it into the single element "a b" — a value the file no
+// longer says. Splitting is what a write followed by a read produces, which is
+// the only definition of "unchanged" this grammar has. Trimming and dropping
+// empties is canonList's job, and it is reused rather than restated so the two
+// sides cannot drift.
+func NormalizeListValues(vs []string) []string {
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, strings.Split(headerLineEndings.Replace(v), ",")...)
+	}
+	return canonList(out)
+}
+
 // headerSafe is CheckHeader with the record's identity attached, for the write
 // path. Callers that mint BEFORE they write must use CheckHeader directly:
 // lifecycle.Draft persists the record and journals a create event, so a check
