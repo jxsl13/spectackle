@@ -44,6 +44,10 @@ type swarmIn struct{}
 // preCall runs under the mutex before every handler: heartbeat, lease
 // refresh, throttled stale-agent sweep, cache sync.
 func (s *Server) preCall() error {
+	// Per-call flag: whichever handler runs next has not rendered the root
+	// compact advisory yet (B-01KYRJ3WSCE14). Cleared here rather than in
+	// postCall so a handler that returns an error still leaves it armed.
+	s.advisoryInBody = false
 	if err := s.cd.Heartbeat(); err != nil {
 		return err
 	}
@@ -117,7 +121,13 @@ func (s *Server) postCall(res *mcp.CallToolResult) *mcp.CallToolResult {
 			_ = s.cd.SetCursor(last)
 		}
 	}
-	if hint := s.compactHint(); hint != "" {
+	// compactHint() is called UNCONDITIONALLY even when the body already
+	// carried the advisory: its hintedAt bookkeeping is what records that this
+	// crossing has been surfaced, and it WAS surfaced — by the body. Ordering
+	// the operands the other way round would short-circuit the call and leave
+	// the hint armed, so the very next tool result would repeat what the user
+	// just read (B-01KYRJ3WSCE14).
+	if hint := s.compactHint(); hint != "" && !s.advisoryInBody {
 		b.WriteString(hint + "\n")
 	}
 	if hint := s.staleHint(); hint != "" {

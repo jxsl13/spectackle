@@ -2574,7 +2574,15 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		}
 	}
 
-	lines = append(lines, s.compactCandidates(in.Path)...)
+	// Advisories are held OUT of `lines` until after the summary is decided
+	// (B-01KYRJ3WSCE14). `lines` is what the zero-findings test below reads,
+	// so appending a `c` record here made a crossed journal threshold DISPLACE
+	// the `ok check 0 findings` summary rather than add to it — and the
+	// trigger is elapsed journal events, not a code change, so it turned the
+	// required self-hosting gate red on a workspace whose code and spec were
+	// both clean. A compact-due nudge is a soft signal; it must never be able
+	// to answer a verification question on the summary's behalf.
+	advisories := s.compactCandidates(in.Path)
 
 	if healed > 0 || audited > 0 {
 		lines = append(lines, fmt.Sprintf("ok healed=%d audit=%d", healed, audited))
@@ -2594,9 +2602,15 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		// No path in the line: `in.Path` only labels output, spec.Load always
 		// scans the whole workspace, so naming the queried path beside global
 		// counts invites reading them as scoped (B-01KYQ8T).
-		return text(fmt.Sprintf("ok check 0 findings (E=0 W=0) — %d rules %d dirs\n",
+		lines = append(lines, fmt.Sprintf("ok check 0 findings (E=0 W=0) — %d rules %d dirs",
 			rules, len(c.All())))
 	}
+	// Advisories last, so the summary — the record a reader and the CI gate
+	// both look for — is always the FIRST line, whether or not a threshold
+	// happens to be crossed (B-01KYRJ3WSCE14). With no advisories this renders
+	// byte-identically to the pre-fix early return: Render writes exactly one
+	// "\n" per line and only adds a `cur` trailer when truncation happened.
+	lines = append(lines, advisories...)
 	kept, cur := budget.TruncateRecords(lines, budget.Resume(in.Cur), in.Budget)
 	return text(budget.Render(kept, cur))
 }
@@ -2793,6 +2807,14 @@ func (s *Server) compactCandidates(sub string) []string {
 		}
 		if since >= s.ws.Cfg.Compact.JournalMax {
 			out = append(out, fmt.Sprintf("c %s journal %d events since last compact", orDot(ctx), since))
+			// Only the ROOT context's record is the one postCall's proactive
+			// hint would also emit (compactHint reads the root journal and
+			// nothing else), so only that one suppresses the prepend — a
+			// sub-context advisory says nothing about the root and must not
+			// silence a live root nudge (B-01KYRJ3WSCE14).
+			if ctx == "" {
+				s.advisoryInBody = true
+			}
 		}
 	}
 	return out
