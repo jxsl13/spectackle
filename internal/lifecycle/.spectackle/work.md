@@ -4,7 +4,7 @@ schema: v1
 
 ## B-01KYRQY892FSDSN75P9FFXFDM5 summary truncates on a raw byte slice and can emit invalid UTF-8, and status rides the prose composer untrusted on restore
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/lifecycle, internal/item
