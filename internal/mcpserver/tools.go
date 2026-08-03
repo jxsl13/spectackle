@@ -1634,10 +1634,63 @@ func (s *Server) ruleEdit(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any,
 	}
 	fmt.Fprintf(&b, "ok %s %s%s\n", in.ID, res.Path, s.rootSuffix())
 	s.journalRule("edit", in.ID, sentence, in.Applies, in.Item, ruleCtx(res.Path))
-	if in.Applies != nil {
+	// B-01KYQ87KTBFVV: an edit that carries applies re-stamps them; an edit
+	// that does NOT has just moved every existing anchor for this rule into
+	// drift.Tightened, and used to answer a bare `ok`. The test is
+	// `len > 0`, not `!= nil`, because stampAnchors is already a no-op on an
+	// empty list (see its own guard) — so widening the condition is
+	// behavior-identical on the stamp leg and additionally catches an
+	// explicit `"applies":[]`, which took the silent path before.
+	if len(in.Applies) > 0 {
 		b.WriteString(s.stampAnchors(in.ID, sentence, in.Applies))
+	} else {
+		b.WriteString(s.staleAnchorNotice(in.ID, sentence))
 	}
 	return text(b.String())
+}
+
+// staleAnchorNotice names the anchors of ruleID that are still stamped
+// against a sentence other than the one now stored, and prints the exact
+// call that re-stamps them. Empty when there is nothing stale.
+//
+// It deliberately does NOT re-stamp on its own, and that is the whole
+// design (B-01KYQ87KTBFVV). An anchor exists so that a human notices when a
+// rule and the code it governs drift apart; a sentence edit is precisely
+// the moment that judgment is wanted, which is what drift.Tightened, the
+// `d audit` render and the move-to-done audit gate are built to force.
+// Auto-healing here would defeat all three — measured, not assumed:
+// TestCheckAuditsTightenedNeverHeals and TestMoveGateBlocksDoneOnTightenedAnchor
+// both go red under an auto-re-stamp. The defect this closes was never the
+// missing re-stamp, it was the SURPRISE: the state was armed at edit time
+// and only discovered a tool call later, or in CI.
+//
+// The caller is given the re-stamp call verbatim rather than a description
+// of it, so accepting the sentence as authoritative costs one paste, and
+// the notice stays a warning on a success path — the write really happened,
+// so this is text(), not refuse() (main.go derives the exit code from
+// IsError, and a refusal here would report a failed edit that in fact
+// landed).
+func (s *Server) staleAnchorNotice(ruleID, sentence string) string {
+	anchors, _ := drift.Load(s.ws)
+	want := drift.NormHash([]byte(sentence))
+	var stale []string
+	for _, a := range anchors {
+		if a.Rule == ruleID && a.RHash != want {
+			stale = append(stale, string(a.Node))
+		}
+	}
+	if len(stale) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(stale))
+	for i, n := range stale {
+		quoted[i] = `"` + n + `"`
+	}
+	return fmt.Sprintf(
+		"! DRIFT W %s %d anchor(s) still stamped against the old sentence — check will audit them as tightened and move to=done will refuse: %s\n"+
+			"  re-stamp: rule {\"op\":\"edit\",\"id\":%q,\"applies\":[%s]}\n",
+		ruleID, len(stale), strings.Join(stale, " "), ruleID, strings.Join(quoted, ","),
+	)
 }
 
 func (s *Server) ruleRetire(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, error) {
