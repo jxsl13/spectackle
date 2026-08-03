@@ -1778,6 +1778,77 @@ func (s *Server) stampAnchors(ruleID, sentence string, applies []string) string 
 
 // ---- move ----
 
+// archiveGateGap is the archive gate set for ONE record: the research return
+// path and the validation gate, in the order move has always run them. It was
+// extracted out of move so the same gates can run on a record nobody named —
+// every done child lifecycle.archive folds away with its parent
+// (B-01KYS6ZKRQEHW finding 1). The gate used to key on the item the CALL
+// named, while the effect happened to a set the call never mentioned.
+//
+// gap is the complete refusal/warning line, already carrying its own record
+// marker and the record's short ID, so the caller renders it byte-identically
+// whether it came from the named item or from a folded child, and a child's
+// line names the CHILD. hard says whether the gap refuses (research is hard
+// unconditionally; validation is hard only under feedback.validate=require or
+// a tripped risk gate) or is advisory and belongs in warns. derivedNote is
+// the verdict-derived archive note for a clean validated pass — empty when
+// there is nothing to derive, which is also the only case where the explicit
+// note was empty, so a caller assigning it only when non-empty preserves the
+// note of a kind this gate does not cover.
+func (s *Server) archiveGateGap(pre item.Item, note string) (gap string, hard bool, derivedNote string, err error) {
+	sc, err := s.idScope()
+	if err != nil {
+		return "", false, "", err
+	}
+	short := sc.short(pre.ID)
+	// The research return path (T-01KYD88M): an R-item archives
+	// only consumed — a live or archived item citing it, or a rule
+	// rationale naming it — or explicitly closed with a note of at
+	// least 80 characters. HARD regardless of feedback config: an
+	// unconsumed-and-unexplained archive has no legitimate loose
+	// mode, unlike the grill/validate knobs whose warn modes serve
+	// migration — research that changes nothing and says nothing
+	// is pure token cost by construction. The 80-char floor is a
+	// TRIPWIRE against accidental emptiness, padding-gameable and
+	// stated as such; substance lives in the consumer path and
+	// human review, never in the floor.
+	if pre.Kind == "research" {
+		if !s.researchConsumed(pre.ID) && len(strings.TrimSpace(note)) < 80 {
+			return "! BACKPROP E " + short + " unconsumed research - cite it from a rule/item or close with a no-action note", true, "", nil
+		}
+	}
+	// The validation gate guards archive for implemented kinds
+	// (T-01KYD94M3): a passing, current-diff, independent verdict —
+	// or the gap named, hard under feedback.validate=require. The
+	// archive note derives from the verdict either way it passes.
+	if pre.Kind == "task" || pre.Kind == "bug" {
+		vGap, vErr := s.validateGateGap(pre)
+		if vErr != nil {
+			return "", false, "", vErr
+		}
+		if vGap != "" {
+			if s.ws.Cfg.Feedback.Validate == "require" {
+				return "! VALIDATE E " + short + " " + vGap + " (feedback.validate=require)", true, "", nil
+			}
+			// Risk-gated require (T-01KYFXDCH): warn mode still
+			// demands the verdict when the LANDED diff trips a
+			// risk input; the refusal names it so the operator
+			// learns which knob fired. Explicit require above is
+			// never downgraded by this branch.
+			if trip := s.validateRisk(pre.ID); trip != "" {
+				return "! VALIDATE E " + short + " " + vGap + " (validation required: " + trip + ")", true, "", nil
+			}
+			// The W names its own softness (B-01KYKMPAFNEW3: two
+			// benchmark judges could not tell advisory from
+			// actionable and the archive going through anyway was
+			// their only clue).
+			return "! VALIDATE W " + short + " " + vGap + " (advisory: archive proceeds; a second-identity verdict closes the audit trail — hard only under feedback.validate=require or a tripped risk gate)\n", false, "", nil
+		}
+		return "", false, s.derivedArchiveNote(pre, note), nil
+	}
+	return "", false, "", nil
+}
+
 func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	// Expand before the lease check: leases are held on the full item ID
 	// (work op=start claims it), so a prefix has to become the real ID or
@@ -1804,6 +1875,11 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 	// body edited after review needs re-review by construction. Legacy
 	// bare-date stamps carry no verdict and refuse under require.
 	warns := ""
+	// The pre-move fold set, captured while the children are still live so
+	// the stranded-closure compensation below can put back exactly what
+	// lifecycle.archive removed (B-01KYS6ZKRQEHW finding 2). Empty for every
+	// transition that is not an archive.
+	var foldedChildren []item.Item
 	if forwardState(in.To) {
 		pre, ok, _ := item.Get(s.ws, in.ID)
 		if !ok {
@@ -1830,49 +1906,61 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 			if open := s.openNeeds(pre); len(open) > 0 {
 				warns += "! NEEDS W " + short + " open needs: " + strings.Join(sc.shorts(open), " ") + "\n"
 			}
-			// The research return path (T-01KYD88M): an R-item archives
-			// only consumed — a live or archived item citing it, or a rule
-			// rationale naming it — or explicitly closed with a note of at
-			// least 80 characters. HARD regardless of feedback config: an
-			// unconsumed-and-unexplained archive has no legitimate loose
-			// mode, unlike the grill/validate knobs whose warn modes serve
-			// migration — research that changes nothing and says nothing
-			// is pure token cost by construction. The 80-char floor is a
-			// TRIPWIRE against accidental emptiness, padding-gameable and
-			// stated as such; substance lives in the consumer path and
-			// human review, never in the floor.
-			if pre.Kind == "research" && in.To == item.StateArchived {
-				if !s.researchConsumed(pre.ID) && len(strings.TrimSpace(in.Note)) < 80 {
-					return refuse("! BACKPROP E " + short + " unconsumed research - cite it from a rule/item or close with a no-action note")
+			// The archive gate set (research return path + validation) lives
+			// in archiveGateGap now, because it has to run on TWO inputs:
+			// the item this call names, and every done child
+			// lifecycle.archive would fold away with it. The fold is a second
+			// archive path with no gates of its own, so parenting a record to
+			// any item and archiving THAT item used to remove the child
+			// through gates that would have refused it directly — two calls,
+			// no refusal, exit 0 (B-01KYS6ZKRQEHW finding 1). A parent cannot
+			// legitimately archive a child that is not itself archivable, so
+			// a child's hard gap refuses the PARENT's transition and names
+			// the child.
+			if in.To == item.StateArchived {
+				gap, hard, derived, gerr := s.archiveGateGap(pre, in.Note)
+				if gerr != nil {
+					return nil, nil, gerr
 				}
-			}
-			// The validation gate guards archive for implemented kinds
-			// (T-01KYD94M3): a passing, current-diff, independent verdict —
-			// or the gap named, hard under feedback.validate=require. The
-			// archive note derives from the verdict either way it passes.
-			if in.To == item.StateArchived && (pre.Kind == "task" || pre.Kind == "bug") {
-				if gap, err := s.validateGateGap(pre); err != nil {
-					return nil, nil, err
-				} else if gap != "" {
-					if s.ws.Cfg.Feedback.Validate == "require" {
-						return refuse("! VALIDATE E " + short + " " + gap + " (feedback.validate=require)")
+				switch {
+				case gap == "":
+					// derived is "" only when the explicit note was "" too
+					// (derivedArchiveNote returns the explicit note when
+					// there is no passing verdict), so the guard keeps a
+					// non-validated kind's own note instead of blanking it.
+					if derived != "" {
+						in.Note = derived
 					}
-					// Risk-gated require (T-01KYFXDCH): warn mode still
-					// demands the verdict when the LANDED diff trips a
-					// risk input; the refusal names it so the operator
-					// learns which knob fired. Explicit require above is
-					// never downgraded by this branch.
-					if trip := s.validateRisk(pre.ID); trip != "" {
-						return refuse("! VALIDATE E " + short + " " + gap + " (validation required: " + trip + ")")
-					}
-					// The W names its own softness (B-01KYKMPAFNEW3: two
-					// benchmark judges could not tell advisory from
-					// actionable and the archive going through anyway was
-					// their only clue).
-					warns += "! VALIDATE W " + short + " " + gap + " (advisory: archive proceeds; a second-identity verdict closes the audit trail — hard only under feedback.validate=require or a tripped risk gate)\n"
-				} else {
-					in.Note = s.derivedArchiveNote(pre, in.Note)
+				case hard:
+					return refuse(gap)
+				default:
+					warns += gap
 				}
+				// Same gates, at the place the effect happens. Enumerated
+				// BEFORE lifecycle.Move, both because the gate has to refuse
+				// before anything is removed and because `folded` is what the
+				// compensation below restores if the archive edge strands.
+				folded, ferr := lifecycle.FoldChildren(s.ws, pre.ID)
+				if ferr != nil {
+					return nil, nil, ferr
+				}
+				for _, ch := range folded {
+					// the child's own note is empty: the fold carries no
+					// note, so a research child cannot be closed by the
+					// PARENT's note text either.
+					cGap, cHard, _, cErr := s.archiveGateGap(ch, "")
+					if cErr != nil {
+						return nil, nil, cErr
+					}
+					if cGap == "" {
+						continue
+					}
+					if cHard {
+						return refuse(strings.TrimRight(cGap, "\n") + " (folding into " + short + ")")
+					}
+					warns += cGap
+				}
+				foldedChildren = folded
 			}
 		}
 	}
@@ -1989,7 +2077,24 @@ func (s *Server) move(in moveIn) (*mcp.CallToolResult, any, error) {
 		}); jerr != nil {
 			return nil, nil, jerr
 		}
+		// The parent's state was only ONE of the three effects the archive
+		// already committed (B-01KYS6ZKRQEHW finding 2). The done children
+		// lifecycle.archive folded away stayed archived — a REFUSED
+		// transition permanently destroyed sibling records, and `move` on one
+		// afterwards answered "unknown item" — and the `## intent` line
+		// stayed in the living spec, where AppendIntent's first-wins keying
+		// then discarded the successful retry's note and kept the FAILED
+		// attempt's forever. Undoing both is what makes "refused whole" true.
+		residue, cerr := lifecycle.CompensateArchive(s.ws, it, foldedChildren)
 		s.markDirty()
+		if cerr != nil {
+			// SRF-001: never name an outcome the code did not deliver. When
+			// the compensation itself fails, the refusal ENUMERATES what it
+			// could not put back instead of claiming wholeness — residue is
+			// non-empty exactly when cerr is.
+			return refuse("! GIT E " + sc.short(it.ID) + " archive refused, NOT whole: could not restore " +
+				strings.Join(sc.shorts(residue), ", ") + " (" + cerr.Error() + ")\n" + flow.String())
+		}
 		return refuse("! GIT E " + sc.short(it.ID) + " archive refused whole: closure merge did not complete - item stays done, retry once green\n" + flow.String())
 	}
 	return text(warns + sc.record(it) + "\n" + next + flow.String())

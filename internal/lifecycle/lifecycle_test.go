@@ -724,6 +724,151 @@ func TestTombstone(t *testing.T) {
 	}
 }
 
+// ids returns the IDs of every item still in work.md, sorted — the "who
+// survived" assertion the fold and orphan tests below share.
+func liveIDs(t *testing.T, root workspace.Root) []string {
+	t.Helper()
+	all, err := item.LoadAll(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]string, 0, len(all))
+	for _, it := range all {
+		out = append(out, it.ID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestArchiveRefusesWhenFoldChildHasOpenChildren pins the SUBTREE reading of
+// the archive gate (B-01KYS6ZKRQEHW finding 1). archive() folds done children
+// away with the parent and the fold is ONE level deep, so the pre-existing
+// openChildren(parent) check saw nothing wrong with P -> C(done) -> G: C is
+// done, so P has no open children, and C's removal left G in work.md naming a
+// parent that is now only a tombstone — Draft refuses to add a child under
+// such an id, so the subtree became unextendable and unclosable in one call,
+// with err == nil and exit 0.
+func TestArchiveRefusesWhenFoldChildHasOpenChildren(t *testing.T) {
+	// (a) the grandchild is OPEN: the child's own open-children check is
+	// what has to run, on a child nobody named in the call.
+	t.Run("open grandchild", func(t *testing.T) {
+		root := ws(t)
+		p := draftID(t, root, "proposal", "fold parent", "", "gpu", "", nil)
+		c := draftID(t, root, "task", "fold child", "", "gpu", p, nil)
+		g := draftID(t, root, "task", "grandchild left behind", "", "gpu", c, nil)
+		if _, err := Move(root, c, item.StateDone, "child done"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(root, g, item.StateActive, "grandchild working"); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Move(root, p, item.StateArchived, "close the parent")
+		if err == nil {
+			t.Fatalf("archiving %s folded %s away while %s was still active", p, c, g)
+		}
+		if !strings.Contains(err.Error(), c) || !strings.Contains(err.Error(), g) {
+			t.Fatalf("refusal must name the child AND its open child, got %q", err)
+		}
+		// the ACTION, not the wording: nothing was removed
+		if got := liveIDs(t, root); len(got) != 3 {
+			t.Fatalf("refused archive still removed records: %v", got)
+		}
+	})
+
+	// (b) the grandchild is DONE — the case a one-level gate misses. Both
+	// openChildren(P) and openChildren(C) are empty here, and the fold still
+	// orphans G, because the fold does not recurse.
+	t.Run("done grandchild", func(t *testing.T) {
+		root := ws(t)
+		p := draftID(t, root, "proposal", "fold parent", "", "gpu", "", nil)
+		c := draftID(t, root, "task", "fold child", "", "gpu", p, nil)
+		g := draftID(t, root, "task", "done grandchild", "", "gpu", c, nil)
+		if _, err := Move(root, g, item.StateDone, "grandchild done"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(root, c, item.StateDone, "child done"); err != nil {
+			t.Fatal(err)
+		}
+		// the premise of the correction: a one-level gate sees nothing here
+		cIt, ok, err := item.Get(root, c)
+		if err != nil || !ok {
+			t.Fatalf("child %s not loadable: %v", c, err)
+		}
+		if open := openChildren(root, cIt); len(open) > 0 {
+			t.Fatalf("premise gone: the child now HAS open children %v — this case exists precisely because it does not", open)
+		}
+		_, err = Move(root, p, item.StateArchived, "close the parent")
+		if err == nil {
+			t.Fatalf("archiving %s folded %s away and orphaned done grandchild %s", p, c, g)
+		}
+		if !strings.Contains(err.Error(), c) || !strings.Contains(err.Error(), g) {
+			t.Fatalf("refusal must name the child AND the descendant it would orphan, got %q", err)
+		}
+		if got := liveIDs(t, root); len(got) != 3 {
+			t.Fatalf("refused archive still removed records: %v", got)
+		}
+	})
+
+	// (c) the shape the fold IS for stays legal: one done child, nothing
+	// under it. The gate must not have become a blanket refusal.
+	t.Run("plain done child still folds", func(t *testing.T) {
+		root := ws(t)
+		p := draftID(t, root, "proposal", "fold parent", "", "gpu", "", nil)
+		c := draftID(t, root, "task", "fold child", "", "gpu", p, nil)
+		if _, err := Move(root, c, item.StateDone, "child done"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Move(root, p, item.StateArchived, "close the parent"); err != nil {
+			t.Fatalf("a plain done child must still fold: %v", err)
+		}
+		if got := liveIDs(t, root); len(got) != 0 {
+			t.Fatalf("parent and folded child must both leave work.md, still live: %v", got)
+		}
+	})
+}
+
+// TestRejectRefusesWithOpenChildren closes the RELATED arm of
+// B-01KYS6ZKRQEHW: reject and archive both REMOVE a record from work.md, and
+// only archive checked children. Rejecting a parent orphaned its live
+// children, whose parent then resolved to neither work.md nor a tombstone.
+func TestRejectRefusesWithOpenChildren(t *testing.T) {
+	root := ws(t)
+	p := draftID(t, root, "proposal", "reject parent", "", "gpu", "", nil)
+	c := draftID(t, root, "task", "live child", "", "gpu", p, nil)
+	if _, err := Move(root, c, item.StateActive, "child working"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Move(root, p, item.StateRejected, "not doing this after all")
+	if err == nil {
+		t.Fatalf("rejecting %s orphaned live child %s", p, c)
+	}
+	if !strings.Contains(err.Error(), c) {
+		t.Fatalf("refusal must name the open child, got %q", err)
+	}
+	if got := liveIDs(t, root); len(got) != 2 {
+		t.Fatalf("refused reject still removed records: %v", got)
+	}
+}
+
+// TestRejectStillAllowedWithDoneChildren stops the reject gate becoming
+// STRICTER than archive's. reject does not fold, so a done child is not
+// touched by it and must not block it — only OPEN children orphan.
+func TestRejectStillAllowedWithDoneChildren(t *testing.T) {
+	root := ws(t)
+	p := draftID(t, root, "proposal", "reject parent", "", "gpu", "", nil)
+	c := draftID(t, root, "task", "finished child", "", "gpu", p, nil)
+	if _, err := Move(root, c, item.StateDone, "child done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Move(root, p, item.StateRejected, "superseded, the child's work stands"); err != nil {
+		t.Fatalf("a done child must not block reject: %v", err)
+	}
+	// reject removes the parent only; the done child stays exactly where it was
+	if got := liveIDs(t, root); len(got) != 1 || got[0] != c {
+		t.Fatalf("reject must remove the parent and leave the done child, live: %v", got)
+	}
+}
+
 // TestTombstoneResolvesLegacyIDForever is the load-bearing legacy guarantee.
 // An archived record leaves work.md and survives ONLY as a journal tombstone
 // that Tombstone finds by exact ID. Every archived record this repository

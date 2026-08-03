@@ -248,26 +248,6 @@ FIX DIRECTION. Advisories and the summary are different record types (c versus o
 
 VERIFY. A test that seeds a journal past the threshold and asserts check output contains BOTH the c advisory and the ok summary, exactly one advisory per dir, plus a test that runs the CI gate expression against that output. The current suite passes with the ok line absent, which is why this reached a red gate.
 
-## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
-kind: bug
-state: draft
-created: 2026-07-30
-targets: internal/lifecycle, internal/mcpserver, internal/spec
-
-Two adversarially verified findings that share one cause: the archive effects are not transactional and the gates sit on only one of the two paths that run them.
-
-FINDING 1, HIGH, gate bypass in two calls. Every archive gate lives in the mcpserver move handler and keys on the item NAMED in the call. lifecycle.archive() then folds every done child away with a journal EvArchive plus item.Remove, with no gate at all. So parenting a record to any item and moving THAT item to done archives the child through the parent, skipping three gates: the research-consumption gate that is documented as hard regardless of feedback config, the feedback.validate=require verdict gate, and the child own open-children gate - the fold archives a child whose direct archive the server would refuse. Two calls, no refusal, exit 0.
-
-FIX DIRECTION: the gates must move to where the effect happens rather than to where the call names an item, or the fold must run each child through the same gate set and refuse the parent transition if any child fails. The second is likely correct - a parent cannot legitimately archive a child that is not itself archivable - and it makes the refusal name the child.
-
-FINDING 2, HIGH, compensation is partial while claiming to be whole. When the archive edge strands, tools.go compensates the item archived back to done and refuses with archive refused whole. Two effects the same call already committed are NOT undone. First, done children folded away by lifecycle.archive() stay archived and become unreachable - move on them returns unknown item - so a REFUSED transition permanently destroys sibling records. Second, spec.AppendIntent line is not rolled back, and because AppendIntent dedupes by record ID, the successful RETRY note is silently discarded and the living spec permanently records the FAILED attempt note as the item outcome. This is the untriaged suspicion already noted in work.md, now reproduced, and the intent-note freeze is the part nobody had suspected.
-
-The phrase refused whole is therefore untruthful in the SRF-001 sense: it names an outcome the code did not deliver. Either the effects become transactional - stage the fold and the intent append, commit them only when the edge succeeds - or the refusal must enumerate what it could not undo. Given the retry after a stranded closure is documented as normal operator behavior, the first is the real fix; the dedupe-by-ID behavior means the note damage is silent and permanent, which is the worst combination.
-
-RELATED: move to=rejected has no open-children gate at all - lifecycle.Move guards openChildren only for archived - so rejecting a parent orphans live children whose parent then resolves to neither work.md nor a tombstone, and Draft refuses to add any new child under it. Two boundaries both remove a record from work.md and only one checks children.
-
-VERIFY. A parent with a done child that would fail its own archive gate: archiving the parent must refuse and name the child. A stranded archive: assert the folded children are still live, that a retry appends the retry note rather than keeping the failed one, and that the refusal enumerates anything it could not undo. Rejecting a parent with live children must be gated the same way archiving is.
-
 ## B-01KYSB0BAAEB2BYNX4YYRQZEE4 the short-prefix collision probability in ids is wrong by 16x, and bench renders a fixed prefix instead of the adaptive one so a same-millisecond pair flakes the suite
 kind: bug
 state: draft
@@ -418,3 +398,20 @@ SCOPE JUDGMENT, recorded so it is not re-litigated. The sibling record's VERIFY 
 DIRECTION. Coerce Kind via item.NormalizeHeaderLine on the restore path, by the same single-coercion-point move Title got. Then REMOVE Kind from the ratchet's exempt map - the exemption list is the ratchet's own honesty, and leaving a fixed field on it would rot it. Consider also whether an unknown-kind value should be refused rather than merely flattened: unlike prose, Kind is a closed enum (item.ValidKind), so a flattened but invalid kind is still a record no tool can act on. That is a real question this record should answer rather than assume.
 
 VERIFY: an archive and a reject event whose K carries each of the hostile values already in TestRestoreRecordAlwaysWritable's table restore to a record CheckHeader accepts, through all three readers; Kind is no longer in the ratchet's exempt map; and the ratchet still fails if Kind's coercion is removed.
+
+## B-01KZ30YP3EF5Y81J0F8CMAK190 the apply refusal headline can read refused 1 of 0 entries, because conflict-mint failures increment a counter the entry denominator does not cover
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYRN43FQFZ4RCB2F1K0QBB9R
+targets: internal/mcpserver
+
+knowledgeApply's refusal headline reads "apply refused N of M entries" where M is len(toAdd.Entries), but the refused counter is ALSO incremented by the two conflict-mint failure paths, which are not entries. An artifact with zero adoptable entries and a failed conflict mint therefore renders "apply refused 1 of 0 entries" - a count that cannot be true.
+
+Found by an independent validator while verifying B-01KYRN43FQFZ4, and disclosed as non-blocking rather than folded in silently: the exit code and the leading refusal are both correct, only the denominator is nonsense, and nothing in that record's VERIFY line covers it.
+
+WHY IT IS WORTH FIXING ANYWAY. The headline exists to lead with what did not happen, and a reader who sees 1 of 0 learns that the number is unreliable rather than what was refused. That is the failure mode SRF-001's leading line is meant to prevent.
+
+DIRECTION, not decided. Either count conflict-mint failures separately from entry refusals so each denominator is honest (two counters, two clauses), or widen the denominator to entries plus attempted conflict mints and say so in the wording. The first is more truthful and slightly longer; the second is one expression. Whichever lands, the wording must not imply an entry was refused when the failure was a conflict mint - that is a different thing having gone wrong and a different remedy.
+
+VERIFY: an artifact with zero entries whose conflict mint fails renders a headline whose denominator is reachable, and an artifact with N entries of which K are refused still reads K of N.

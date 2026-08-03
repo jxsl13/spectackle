@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/journal"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func closureGit(t *testing.T, dir string, args ...string) string {
@@ -192,4 +193,170 @@ func TestArchiveRefusesWholeOnStrandedClosure(t *testing.T) {
 		t.Fatalf("retry after resolve must complete the closure: %q", out)
 	}
 	_ = s
+}
+
+// strandedRig is the fixture above, reusable: an item whose archive edge is
+// guaranteed to strand on a rigged merge conflict, plus the plumbing-only
+// unrig that lets the retry succeed. The two tests below are about what the
+// STRANDED transition left behind, so they need the same rig and differ only
+// in what they inspect afterwards.
+type strandedRig struct {
+	root string
+	s    *Server
+	sess *mcp.ClientSession
+	id   string // display ID, as a caller would copy it
+	full string
+	// unrig builds the resolved merge commit with PLUMBING ONLY — no working
+	// tree is ever danced, exactly like production where nobody checks
+	// branches out under the resident, so the uncommitted compensation on the
+	// serving checkout survives untouched.
+	unrig func()
+}
+
+func rigStrandedClosure(t *testing.T, title string) *strandedRig {
+	t.Helper()
+	root := gitRoot(t)
+	inject := writeOnlineGitConfig(t, root)
+	s, sess := connectRootWithServer(t, root)
+	inject(s)
+	id := draftID(t, sess, map[string]any{"kind": "task", "title": title, "body": ambFixturePad})
+	callText(t, sess, "move", map[string]any{"id": id, "to": "active"})
+	full := fullIDOf(t, root, id)
+	if err := os.WriteFile(filepath.Join(root, "conflict.go"),
+		[]byte("package main\n\n// branch side of the rigged conflict.\nfunc branchSide() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAs(t, root, full, "branch side")
+	callText(t, sess, "move", map[string]any{"id": id, "to": "done"})
+
+	// rig: a CONFLICTING commit on main touching the same file
+	closureGit(t, root, "checkout", "-q", "main")
+	if err := os.WriteFile(filepath.Join(root, "conflict.go"),
+		[]byte("package main\n\n// main side of the rigged conflict.\nfunc mainSide() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	closureGit(t, root, "add", "-A")
+	closureGit(t, root, "commit", "-q", "-m", "main side")
+
+	unrig := func() {
+		t.Helper()
+		branch := "spectackle/" + shortDisplayID(full)
+		branchTip := strings.TrimSpace(closureGit(t, root, "rev-parse", branch))
+		mainTip := strings.TrimSpace(closureGit(t, root, "rev-parse", "main"))
+		resolved := filepath.Join(t.TempDir(), "conflict.go")
+		if err := os.WriteFile(resolved,
+			[]byte("package main\n\n// resolved.\nfunc mainSide() {}\nfunc branchSide() {}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		blob := strings.TrimSpace(closureGit(t, root, "hash-object", "-w", resolved))
+		idx := filepath.Join(t.TempDir(), "idx")
+		plumb := func(args ...string) string {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-C", root,
+				"-c", "user.name=closure", "-c", "user.email=closure@localhost"}, args...)...)
+			cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+idx)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git %v: %v %s", args, err, out)
+			}
+			return string(out)
+		}
+		plumb("read-tree", branch)
+		plumb("update-index", "--cacheinfo", "100644,"+blob+",conflict.go")
+		tree := strings.TrimSpace(plumb("write-tree"))
+		commit := strings.TrimSpace(plumb("commit-tree", tree, "-p", branchTip, "-p", mainTip, "-m", "resolve rigged conflict"))
+		closureGit(t, root, "update-ref", "refs/heads/"+branch, commit)
+	}
+	return &strandedRig{root: root, s: s, sess: sess, id: id, full: full, unrig: unrig}
+}
+
+// TestStrandedClosureRestoresFoldedChildren: "archive refused whole" undid
+// the PARENT's state and nothing else. lifecycle.archive had already folded
+// every done child away, and those stayed archived — so a REFUSED transition
+// permanently destroyed sibling records, and `move` on one afterwards
+// answered "unknown item" (B-01KYS6ZKRQEHW finding 2, measured end to end).
+func TestStrandedClosureRestoresFoldedChildren(t *testing.T) {
+	rig := rigStrandedClosure(t, "atomic archive fixture with a child")
+	child := draftID(t, rig.sess, map[string]any{
+		"kind": "task", "title": "the folded sibling", "body": ambFixturePad, "parent": rig.full})
+	callText(t, rig.sess, "move", map[string]any{"id": child, "to": "done"})
+
+	out := callText(t, rig.sess, "move", map[string]any{"id": rig.id, "to": "archived", "note": "rigged"})
+	if !strings.Contains(out, "archive refused whole") {
+		t.Fatalf("stranded closure must refuse the whole transition: %q", out)
+	}
+	// THE ACTION: the child is back in work.md at done, not a tombstone.
+	stateOut := callText(t, rig.sess, "state", map[string]any{})
+	if !strings.Contains(stateOut, "the folded sibling") {
+		t.Fatalf("a REFUSED archive destroyed the folded child: %q", stateOut)
+	}
+	// and it is reachable — the symptom was `move` answering "unknown item"
+	moveOut, isErr := callRaw(t, rig.sess, "move", map[string]any{
+		"id": child, "to": "active", "note": "the sibling must still be movable"})
+	if isErr || strings.Contains(moveOut, "unknown item") {
+		t.Fatalf("the folded child is unreachable after the refusal: %q", moveOut)
+	}
+}
+
+// TestStrandedClosureRollsBackIntentLine: spec.AppendIntent runs BEFORE the
+// archive edge's merge can succeed and is first-wins per record ID. Nothing
+// removed the line on a refusal, so the FAILED attempt's note froze into the
+// living spec as that record's outcome and the successful retry's note was
+// silently discarded — measured: the retry merged, `g pr 1 merged`, and the
+// spec still read the failed attempt's note (B-01KYS6ZKRQEHW finding 2).
+func TestStrandedClosureRollsBackIntentLine(t *testing.T) {
+	rig := rigStrandedClosure(t, "atomic archive intent fixture")
+	const failedNote = "note of the attempt that was refused"
+	const retryNote = "note of the attempt that actually landed"
+
+	out := callText(t, rig.sess, "move", map[string]any{"id": rig.id, "to": "archived", "note": failedNote})
+	if !strings.Contains(out, "archive refused whole") {
+		t.Fatalf("stranded closure must refuse the whole transition: %q", out)
+	}
+	// nothing about this record may be claimed in the living spec: the
+	// transition was refused, so there is no outcome to record.
+	if got := intentSection(t, rig.s); strings.Contains(got, rig.full) {
+		t.Fatalf("the refused attempt left an intent line behind:\n%s", got)
+	}
+
+	rig.unrig()
+	out = callText(t, rig.sess, "move", map[string]any{"id": rig.id, "to": "archived", "note": retryNote})
+	if !strings.Contains(out, "merged") {
+		t.Fatalf("retry after resolve must complete the closure: %q", out)
+	}
+	got := intentSection(t, rig.s)
+	if !strings.Contains(got, retryNote) {
+		t.Fatalf("the living spec must record the RETRY's note:\n%s", got)
+	}
+	if strings.Contains(got, failedNote) {
+		t.Fatalf("the failed attempt's note is frozen into the living spec:\n%s", got)
+	}
+	if n := strings.Count(got, rig.full); n != 1 {
+		t.Fatalf("one intent line per record, got %d:\n%s", n, got)
+	}
+}
+
+// intentSection reads the `## intent` span of the serving root's spec bundle
+// — the living-spec half of an archive, which no tool surface renders back.
+func intentSection(t *testing.T, s *Server) string {
+	t.Helper()
+	raw, err := os.ReadFile(s.ws.SpecPath(""))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ""
+		}
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	out, in := []string{}, false
+	for _, l := range lines {
+		if strings.HasPrefix(l, "## ") {
+			in = strings.TrimSpace(l) == "## intent"
+			continue
+		}
+		if in {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
 }

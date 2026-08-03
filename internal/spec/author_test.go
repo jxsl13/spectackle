@@ -690,6 +690,105 @@ func TestAppendIntentIsIdempotentPerRecord(t *testing.T) {
 	}
 }
 
+// TestRemoveIntentDropsOnlyTheNamedRecord is the other half of the first-wins
+// contract above (B-01KYS6ZKRQEHW finding 2). AppendIntent runs before the
+// archive edge's git merge can succeed; when that merge strands, the refused
+// attempt used to leave its line behind, and first-wins then froze the FAILED
+// attempt's note in as the record's outcome forever. RemoveIntent is what
+// lets the compensation leave no "first" behind — so it has to drop exactly
+// one line and nothing that merely looks like it.
+func TestRemoveIntentDropsOnlyTheNamedRecord(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	doomed := "- T-01KYS6ZKRQEHWT0NF9MM84YQ41 the refused archive: note of an attempt that did not land"
+	keeper := "- P-0007 another record: this one really landed"
+	prose := "- a prose bullet with no record id at all"
+	for _, l := range []string{doomed, keeper, prose} {
+		if err := AppendIntent(ws, "", l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RemoveIntent(ws, "", "T-01KYS6ZKRQEHWT0NF9MM84YQ41"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if strings.Contains(got, "T-01KYS6ZKRQEHWT0NF9MM84YQ41") {
+		t.Fatalf("the refused record's line survived:\n%s", got)
+	}
+	if !strings.Contains(got, keeper) {
+		t.Fatalf("a different record's line was collateral:\n%s", got)
+	}
+	if !strings.Contains(got, prose) {
+		t.Fatalf("an ID-less prose bullet was collateral:\n%s", got)
+	}
+	// removing what is not there is a no-op, not an error: the compensation
+	// path runs for every refused archive, including those whose AppendIntent
+	// was itself a no-op.
+	before := got
+	if err := RemoveIntent(ws, "", "T-01KYS6ZKRQEHWT0NF9MM84YQ41"); err != nil {
+		t.Fatalf("removing an absent record errored: %v", err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if string(raw) != before {
+		t.Fatalf("a no-op removal rewrote the bundle:\nbefore:\n%s\nafter:\n%s", before, raw)
+	}
+	// and the record is appendable again afterwards, carrying the RETRY's
+	// note — which is the whole point: nothing "first" is left to win.
+	retry := "- T-01KYS6ZKRQEHWT0NF9MM84YQ41 the retry: the note of the attempt that landed"
+	if err := AppendIntent(ws, "", retry); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if !strings.Contains(string(raw), "the note of the attempt that landed") {
+		t.Fatalf("after removal the retry's note must be the one recorded:\n%s", raw)
+	}
+	if n := strings.Count(string(raw), "T-01KYS6ZKRQEHWT0NF9MM84YQ41"); n != 1 {
+		t.Fatalf("one intent line per record still, got %d:\n%s", n, raw)
+	}
+}
+
+// A lookalike bullet OUTSIDE `## intent` must survive: an ID-shaped line in a
+// rule's free-form Rationale or in a whitelisted prose section keys exactly
+// like a real intent line, and reaching outside the invariant deletes genuine
+// content — the same trap AppendIntent's heal already documents.
+func TestRemoveIntentStaysInsideTheIntentSection(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold(""); err != nil {
+		t.Fatal(err)
+	}
+	line := "- T-01KYS6ZKRQEHWT0NF9MM84YQ41 archived: landed"
+	if err := AppendIntent(ws, "", line); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(ws.SpecPath(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a lookalike in a later section, exactly as a hand-written rationale
+	// bullet would read
+	withNotes := string(raw) + "\n## notes\n" + line + "\n"
+	if err := os.WriteFile(ws.SpecPath(""), []byte(withNotes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveIntent(ws, "", "T-01KYS6ZKRQEHWT0NF9MM84YQ41"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(ws.SpecPath(""))
+	if n := strings.Count(string(raw), "T-01KYS6ZKRQEHWT0NF9MM84YQ41"); n != 1 {
+		t.Fatalf("exactly the `## notes` copy must survive, got %d occurrences:\n%s", n, raw)
+	}
+	notes := string(raw)[strings.Index(string(raw), "## notes"):]
+	if !strings.Contains(notes, line) {
+		t.Fatalf("the surviving copy is not the one in `## notes`:\n%s", raw)
+	}
+}
+
 // TestAppendIntentDedupesPerLineNotPerCall: `line` is not always one line.
 // knowledge apply's applyIntentEntry passes a whole prose section — many
 // bullets in one call — so keying the whole call on its FIRST bullet's ID

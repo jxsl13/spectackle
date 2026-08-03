@@ -486,6 +486,60 @@ func AppendIntent(ws workspace.Root, ctx, line string) error {
 	})
 }
 
+// RemoveIntent drops recordID's line from `## intent`, the inverse
+// AppendIntent's first-wins contract needs to stay honest across a refused
+// archive (B-01KYS6ZKRQEHW finding 2).
+//
+// AppendIntent runs BEFORE the archive edge's git merge can succeed, and a
+// stranded closure compensates the item archived->done. Nothing removed the
+// line, and because AppendIntent keys on the record ID and keeps the FIRST
+// copy, the successful RETRY's note was then silently discarded: the living
+// spec permanently recorded the note of the attempt that was REFUSED, as
+// that record's outcome. Measured end to end — the retry merged and the spec
+// still read the failed attempt's note.
+//
+// The fix is not to make AppendIntent last-wins. First-wins is the right
+// contract for a retry of a transition that DID land, and it is pinned by
+// TestAppendIntentIsIdempotentPerRecord; AppendIntent is untouched here.
+// What was wrong is that a refused attempt left a "first" behind at all.
+//
+// Scoped to the `## intent` span for the same reason AppendIntent's heal is:
+// an ID-shaped bullet in a rule's Rationale or in a whitelisted prose section
+// keys identically, and reaching outside the invariant deletes genuine
+// records. Removing an ID that is not listed is a no-op, not an error — the
+// compensation path calls this for every refused archive, including the many
+// whose AppendIntent was a no-op because the line was already there.
+func RemoveIntent(ws workspace.Root, ctx, recordID string) error {
+	if strings.TrimSpace(recordID) == "" {
+		return nil
+	}
+	return withSpecLock(ws, ctx, func() error {
+		abs := ws.SpecPath(ctx)
+		raw, err := os.ReadFile(abs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil // no bundle, nothing to roll back
+			}
+			return err
+		}
+		lines := strings.Split(string(raw), "\n")
+		lo, hi := intentSpan(lines)
+		var kept []string
+		dropped := false
+		for i, l := range lines {
+			if i >= lo && i < hi && intentRecordID(l) == recordID {
+				dropped = true
+				continue
+			}
+			kept = append(kept, l)
+		}
+		if !dropped {
+			return nil
+		}
+		return os.WriteFile(abs, []byte(strings.Join(kept, "\n")), 0o644)
+	})
+}
+
 // withSpecLock serializes one context dir's spec bundle read-modify-write
 // across processes via ws.Lock (coord.db's named lock table — see
 // coord.DB.WithLock and workspace.Locker). ws.Lock is nil outside a
