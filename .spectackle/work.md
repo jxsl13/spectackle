@@ -252,6 +252,7 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 kind: bug
 state: draft
 created: 2026-07-30
+grilled: 2026-08-03 open=0
 targets: internal/lifecycle, internal/mcpserver, internal/spec
 
 Two adversarially verified findings that share one cause: the archive effects are not transactional and the gates sit on only one of the two paths that run them.
