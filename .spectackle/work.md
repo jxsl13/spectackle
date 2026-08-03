@@ -449,3 +449,26 @@ WHY IT MATTERS RATHER THAN BEING TIDY. Audit drift is exactly the state a human 
 DIRECTION. Fold the audit gate into archiveGateGap so all four run on children by construction, rather than adding a fourth call site that the next gate can also miss. That is the structural fix: the sibling record's pattern of enumerate-the-gates is what allowed a fourth to be forgotten, and a single chokepoint every archive path shares removes the enumeration.
 
 VERIFY: a parent whose done child carries a tightened anchor refuses to archive and names the child; the same child archived directly still refuses with the same reason; a parent whose done child is clean still folds.
+
+## B-01KZ35ZSD4EGJ9A7J2XBC01HXP the orphaned-record health warning names two remediations and both refuse, so the warning can never be cleared
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYSX35RKFYBRX6YAB9E9DHBW, B-01KZ16J3PKERRV6E7BB8F3BZJK
+targets: internal/mcpserver, internal/lifecycle
+
+The orphaned-record health warning names two remediations and BOTH refuse, so the warning is permanently unclearable and every later session reads a standing complaint it cannot act on.
+
+MEASURED end to end against B-01KYQBCAD8FF7T0NF9MM84YQ41, an orphan the health line flagged as "created in the journal, no terminal event, missing from work.md (re-draft citing the create event, or reject it for the record)":
+- reject it for the record: move to=rejected returns `! ARG E - lifecycle: unknown item B-01KYQBCAD8FF7T0NF9MM84YQ41`. The item is not in work.md, which is precisely what being orphaned means, so the reject path cannot reach it.
+- re-draft citing the create event: draft with that id returns `nf j:.#550`. Drafting WITHOUT an id mints a NEW record, so the orphan is untouched - I did exactly that (B-01KZ35WRCKFZT), closed the new record with a citation, and the original warning is still present afterwards.
+
+So the only two documented exits are closed and the warning survives any correct-looking action. This is the same class as a hint that refuses when followed - B-01KYSX35RKFYB fixed one of those for spent ADRs, and B-01KZ16J3PKERR is another - but here it is worse, because the advice is attached to a warning that never goes away rather than to a one-off call.
+
+WHY IT MATTERS beyond tidiness: an unclearable warning trains the reader to ignore the health section, which is where the pre-push hook, waiver rate and drift counters also live. This workspace already carries a 55 percent waiver rate; a permanent false alarm in the same block is how the rest stops being read.
+
+DIRECTION, not decided. Either make the orphan reachable - let draft id=<orphan> revive the record from its create event, which is what the advice already promises - or let move to=rejected accept a journal-only id and write the terminal event directly. The first matches the stated remedy and preserves the original ID, which matters because the ID is what every journal search joins on. Whichever lands, the health line must name the exit that actually works.
+
+Noted while measuring, and owned elsewhere: the refusal leaks the FULL record ID where the rest of the surface renders a short prefix - that is B-01KYS6ZJQSE1E's territory, not this record's.
+
+VERIFY: an orphaned record can be brought to a terminal state under ITS OWN ID by the action the health line names, and the warning disappears afterwards; a non-orphaned id still refuses on that path exactly as it does today.
