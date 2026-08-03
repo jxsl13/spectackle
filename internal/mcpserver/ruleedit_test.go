@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/jxsl13/spectackle/internal/ears"
 )
 
 // The tool-layer half of T-01KYD2 / GitHub issue 25: `rule op=edit` used to
@@ -186,7 +188,10 @@ func TestRuleEditExplicitPatternStillWins(t *testing.T) {
 	out = callText(t, sess, "rule", map[string]any{
 		"op": "edit", "id": id, "pattern": "Z", "system": "x", "response": "y",
 	})
-	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, "U|E|S|N|O|C") {
+	// Retargeted onto ears.PatternEnum() by T-01KYT2EHRMEAH: the refusal now
+	// renders the pattern set from patternNames, so pinning the old literal
+	// here would pin a copy of exactly the thing that was removed.
+	if !strings.Contains(out, "! ARG E") || !strings.Contains(out, ears.PatternEnum()) {
 		t.Fatalf("invalid pattern not refused clearly: %q", out)
 	}
 }

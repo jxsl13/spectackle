@@ -112,20 +112,22 @@ func Compose(p Pattern, s Slots) (string, error) {
 }
 
 // PatternFromString maps the one-letter tool encoding to a Pattern.
+//
+// It SCANS patternNames rather than re-listing the letters in a switch: the
+// switch was a second copy of the pattern set, so a seventh pattern added to
+// patternNames parsed as PInvalid while String() happily rendered it
+// (T-01KYT2EHRMEAH). Index 0 is skipped because it is the "?" sentinel for
+// PInvalid — accepting it would let a caller name the not-a-pattern value.
+//
+// EqualFold preserves the documented lowercase acceptance the switch had via
+// ToUpper (compose_test.go pins "e" and "c"), and TrimSpace keeps " x " and
+// other padded junk failing.
 func PatternFromString(s string) Pattern {
-	switch strings.ToUpper(strings.TrimSpace(s)) {
-	case "U":
-		return PUbiquitous
-	case "E":
-		return PEvent
-	case "S":
-		return PState
-	case "N":
-		return PUnwanted
-	case "O":
-		return POptional
-	case "C":
-		return PComplex
+	s = strings.TrimSpace(s)
+	for i := 1; i < len(patternNames); i++ {
+		if strings.EqualFold(s, patternNames[i]) {
+			return Pattern(i)
+		}
 	}
 	return PInvalid
 }

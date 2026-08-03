@@ -159,10 +159,27 @@ func TestPatternFromString(t *testing.T) {
 			t.Errorf("PatternFromString(%q) = %s, want %s", in, got, want)
 		}
 	}
-	// round-trip: PatternFromString(p.String()) == p for the six real patterns
-	for _, p := range []Pattern{PUbiquitous, PEvent, PState, PUnwanted, POptional, PComplex} {
-		if got := PatternFromString(p.String()); got != p {
-			t.Errorf("round-trip %s: PatternFromString(%q) = %s", p, p.String(), got)
+	// round-trip over PatternLetters(), NOT over a hand-listed slice of the
+	// six constants: the literal could not notice a seventh pattern, which is
+	// the drift T-01KYT2EHRMEAH swept. Note this loop is deliberately weak on
+	// its own — String() and PatternFromString index the SAME array, so an
+	// added letter round-trips cleanly. What it does pin is that no letter the
+	// package advertises is unparseable, and that index 0 stays out.
+	letters := PatternLetters()
+	if len(letters) == 0 {
+		t.Fatal("PatternLetters() is empty — the pattern set cannot be advertised at all")
+	}
+	for _, n := range letters {
+		if n == "?" {
+			t.Errorf("PatternLetters() leaks the PInvalid sentinel %q", n)
+		}
+		p := PatternFromString(n)
+		if p == PInvalid {
+			t.Errorf("advertised letter %q parses as PInvalid", n)
+			continue
+		}
+		if got := p.String(); got != n {
+			t.Errorf("round-trip %q: PatternFromString -> %s -> String() = %q", n, p, got)
 		}
 	}
 }

@@ -40,8 +40,14 @@ var reRuleID = regexp.MustCompile(`^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*-\d{3}$`)
 type findIn struct {
 	// omitempty so an absent q reaches the handler, which enumerates a named
 	// scope rather than answering `ok no matches` (B-01KYR01E2VFEF).
-	Q      string `json:"q,omitempty" jsonschema:"text or ID fragment; omit to enumerate an explicit scope"`
-	Scope  string `json:"scope,omitempty" jsonschema:"code|rule|spec|proposal|task|bug|research|adr|rejection|history|all, default all"`
+	Q string `json:"q,omitempty" jsonschema:"text or ID fragment; omit to enumerate an explicit scope"`
+	// Spelled in scopeEnum()'s sorted order and pinned to it by
+	// TestSchemaTagsMatchSourceOfTruth: a struct tag must be a compile-time
+	// constant so it cannot call scopeEnum() directly, and hand-spelling it
+	// is exactly what dropped `bench` from the advertisement while find kept
+	// answering it (T-01KYT2EHRMEAH). `code` leads because it is the one
+	// scope handled before the scopeKinds lookup.
+	Scope  string `json:"scope,omitempty" jsonschema:"code|adr|all|bench|bug|history|proposal|rejection|research|rule|spec|task, default all"`
 	K      int    `json:"k,omitempty" jsonschema:"max results, default 8"`
 	Focus  string `json:"focus,omitempty" jsonschema:"node ID; scope=code only: rank matches by personalized PageRank around this node, default empty = global rank"`
 	Budget int    `json:"budget,omitempty" jsonschema:"token budget, default 2000"`
@@ -76,9 +82,13 @@ type draftIn struct {
 }
 
 type ruleIn struct {
-	Op        string   `json:"op" jsonschema:"add|edit|retire"`
-	ID        string   `json:"id,omitempty" jsonschema:"rule ID (edit/retire)"`
-	Dir       string   `json:"dir,omitempty" jsonschema:"context dir (add), default root"`
+	Op  string `json:"op" jsonschema:"add|edit|retire"`
+	ID  string `json:"id,omitempty" jsonschema:"rule ID (edit/retire)"`
+	Dir string `json:"dir,omitempty" jsonschema:"context dir (add), default root"`
+	// Pinned to ears.PatternEnum() by TestSchemaTagsMatchSourceOfTruth —
+	// struct tags are compile-time constants, so reflection is the only
+	// binding available between a tag and the set it claims to name
+	// (T-01KYT2EHRMEAH).
 	Pattern   string   `json:"pattern,omitempty" jsonschema:"U|E|S|N|O|C; returned as a need record if missing"`
 	System    string   `json:"system,omitempty" jsonschema:"the acting system"`
 	Response  string   `json:"response,omitempty" jsonschema:"what it SHALL do; name something verifiable"`
@@ -318,7 +328,10 @@ func (s *Server) registerTools() {
 		gate(s, s.knowledge))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "commands",
-		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (claude|copilot|codex|kimi) are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection; neither naming one leaves an adr item open (need decision …) instead of blocking."},
+		// The harness set is rendered from harnessNames, never spelled: this
+		// description rides every tools/list, so a stale copy here is one
+		// every session pays for and every session believes.
+		Description: "Generate harness-native slash-command/prompt files from the spectackle templates. detect: sniff which harnesses (" + harnessEnum() + ") are wired into the repo from root markers (h lines). gen: (re)write their command files — harness list is arg > detection; neither naming one leaves an adr item open (need decision …) instead of blocking."},
 		gate(s, s.commands))
 }
 
@@ -336,6 +349,25 @@ var scopeKinds = map[string][]string{
 	"rejection": {"rejection"},
 	"history":   {"journal", "rejection"},
 	"bench":     {"bench"},
+}
+
+// scopeEnum renders the accepted FTS scopes, sorted so the string is stable
+// across map iterations (the same convention enumerableScopes already uses).
+//
+// `code` is deliberately NOT in scopeKinds — it is graph-backed and
+// special-cased before the map lookup — so the two surfaces that advertise
+// the full vocabulary prepend it; everything else comes from the map that
+// actually decides acceptance. Hand-spelling the list is what made `bench`
+// a working but undiscoverable value: find {"scope":"bench"} returned real
+// records while the schema line and the refusal both omitted it, the same
+// shape as the adr kind fixed in T-01KZ39XYZNFGA (T-01KYT2EHRMEAH).
+func scopeEnum() string {
+	out := make([]string, 0, len(scopeKinds))
+	for sc := range scopeKinds {
+		out = append(out, sc)
+	}
+	sort.Strings(out)
+	return strings.Join(out, "|")
 }
 
 func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
@@ -390,7 +422,10 @@ func (s *Server) find(in findIn) (*mcp.CallToolResult, any, error) {
 	}
 	kinds, ok := scopeKinds[in.Scope]
 	if !ok {
-		return refuse("! ARG E - unknown scope " + in.Scope)
+		// HINT-001's natural site: a bare `unknown scope <x>` taught the
+		// caller nothing and cost a whole call to discover the vocabulary.
+		// Rendered from scopeKinds so it stays true (T-01KYT2EHRMEAH).
+		return refuse("! ARG E - unknown scope " + in.Scope + " - want code|" + scopeEnum() + "\n")
 	}
 	// Enumerate when there is no query, match when there is — the same render
 	// serves both, so a caller sees one grammar either way.
@@ -1471,7 +1506,12 @@ func (s *Server) ruleAdd(in ruleIn, c *spec.Cascade) (*mcp.CallToolResult, any, 
 		// variants and invented fields — because the slot questions name
 		// pieces, never the assembled call. ~100 bytes on a surface read
 		// only after a failure, against 2-4 saved round trips.
-		b.WriteString(`shape: rule {"op":"add","dir":"<dir>","stem":"<TOPIC-NAME>","pattern":"U|E|S|N|O|C","system":"<who acts>","response":"<verifiable outcome, name a number>"}` + "\n")
+		// The pattern enum renders from ears.PatternEnum() rather than being
+		// spelled again: this line lives on a refusal, so HINT-001 is happy
+		// for the values to be here, but a LITERAL copy would still go stale
+		// the day a seventh pattern lands (T-01KYT2EHRMEAH).
+		b.WriteString(`shape: rule {"op":"add","dir":"<dir>","stem":"<TOPIC-NAME>","pattern":"` +
+			ears.PatternEnum() + `","system":"<who acts>","response":"<verifiable outcome, name a number>"}` + "\n")
 		// IsError, not plain text (B-01KYE0RCT): no rule was created, and a
 		// shell-driven agent keys on the exit code — a live judge issued
 		// nine junk-pattern retries because this read as success. The need
@@ -1551,7 +1591,7 @@ func (s *Server) editPattern(in ruleIn, c *spec.Cascade) (ears.Pattern, bool, *m
 	if in.Pattern != "" {
 		p := ears.PatternFromString(in.Pattern)
 		if p == ears.PInvalid {
-			return p, false, refuseResult("! ARG E - " + in.ID + " pattern must be one of U|E|S|N|O|C")
+			return p, false, refuseResult("! ARG E - " + in.ID + " pattern must be one of " + ears.PatternEnum())
 		}
 		return p, true, nil
 	}
