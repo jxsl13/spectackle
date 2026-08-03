@@ -4,7 +4,7 @@ schema: v1
 
 ## T-01KYT2EHRMEAHSAY9GECXG2035 sweep the remaining hard-coded enumerations onto their source of truth
 kind: task
-state: draft
+state: active
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/mcpserver, internal/ears
