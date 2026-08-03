@@ -6,7 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/lifecycle/lifecycle.go
+targets: internal/lifecycle, internal/mcpserver
 
 Two findings, adversarially verified, both about the terminality of archived.
 
