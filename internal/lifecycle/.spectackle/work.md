@@ -6,7 +6,7 @@ schema: v1
 kind: bug
 state: draft
 created: 2026-07-30
-targets: internal/lifecycle/lifecycle.go
+targets: internal/lifecycle, internal/item
 
 Two findings from the independent verification of B-01KYN3E973F20, both in internal/lifecycle, neither reachable through a public tool today, so both are latent rather than live. Recorded so they are not re-found.
 
