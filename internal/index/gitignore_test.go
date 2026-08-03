@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jxsl13/spectackle/internal/graph"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 // The indexer's half of GitHub issue 26.
@@ -28,6 +29,12 @@ func gitInit(t *testing.T, dir string) {
 	}
 	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
+	}
+	// Init-only fixtures make no commit and so spawn no detached maintenance
+	// child today; disabled anyway, so that adding a commit here later cannot
+	// quietly reintroduce B-01KYQA4WXEFAT's temp-dir removal race.
+	if err := wt.QuietMaintenance(dir); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
 	}
 }
 

@@ -19,6 +19,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 func init() {
@@ -745,6 +747,14 @@ func TestServeSelfRestartExecSwap(t *testing.T) {
 		}
 	}
 	fixtureGit("init", "-q", "-b", "main")
+	// Between init and the commit: the commit is what spawns git's detached
+	// `maintenance run --auto` child, and this fixture is a full copy of the
+	// source tree living under a t.TempDir the harness unlinks the moment the
+	// test returns (B-01KYQA4WXEFAT). It is also the largest fixture in the
+	// suite, so it is the one most likely to give auto-gc real work to do.
+	if err := wt.QuietMaintenance(repoRoot); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
 	fixtureGit("add", "-A")
 	fixtureGit("commit", "-q", "-m", "fixture: working tree as HEAD")
 
@@ -863,6 +873,10 @@ func TestSnapshotHeadExcludesDirtyTree(t *testing.T) {
 		}
 	}
 	run("init", "-q")
+	// Committed into below, in a t.TempDir (B-01KYQA4WXEFAT).
+	if err := wt.QuietMaintenance(dir); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "committed.txt"), []byte("in\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

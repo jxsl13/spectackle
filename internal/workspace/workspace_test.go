@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jxsl13/spectackle/internal/migrate"
+	"github.com/jxsl13/spectackle/internal/wt"
 )
 
 func TestDetect(t *testing.T) {
@@ -82,6 +83,27 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// initRepo git-inits dir and immediately silences its background
+// maintenance (B-01KYQA4WXEFAT). Every fixture here commits into a
+// t.TempDir, and a default repository answers each commit with a DETACHED
+// `git maintenance run --auto` child that outlives the command — a process
+// still holding .git/objects open while the harness unlinks it, which
+// surfaces as a `TempDir RemoveAll cleanup: ... directory not empty` failure
+// attached to whichever test happened to be running.
+//
+// The suppression belongs HERE and not in runGit, which runs per command:
+// the keys are repo-local and only need setting once, right after init.
+// extra carries whatever init flags the fixture needs (`-b main`, `-b
+// trunk`), because the branch name is the one thing these fixtures disagree
+// about.
+func initRepo(t *testing.T, dir string, extra ...string) {
+	t.Helper()
+	runGit(t, dir, append([]string{"init", "-q"}, extra...)...)
+	if err := wt.QuietMaintenance(dir); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
+	}
+}
+
 // TestDetectNestedGitWorktreeIsOwnRoot is GitHub issue 27: a linked git
 // worktree's .git is a FILE (a "gitdir: ..." pointer), not a directory.
 // Detect's git-boundary walk used to test only dirExists(.git), so from
@@ -91,7 +113,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // enclosing checkout instead, and every bundle write landed there.
 func TestDetectNestedGitWorktreeIsOwnRoot(t *testing.T) {
 	main := t.TempDir()
-	runGit(t, main, "init", "-q", "-b", "main")
+	initRepo(t, main, "-b", "main")
 	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
 	wtDir := filepath.Join(main, "wt", "feature")
 	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
@@ -124,7 +146,7 @@ func TestDetectNestedGitWorktreeIsOwnRoot(t *testing.T) {
 // accidentally widens the walk and starts skipping non-nested worktrees too.
 func TestDetectWorktreeOutsideMainCheckoutStillWorks(t *testing.T) {
 	main := t.TempDir()
-	runGit(t, main, "init", "-q", "-b", "main")
+	initRepo(t, main, "-b", "main")
 	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
 	wtDir := filepath.Join(t.TempDir(), "feature")
 	runGit(t, main, "worktree", "add", "-q", wtDir, "--detach", "HEAD")
@@ -145,8 +167,8 @@ func TestDetectWorktreeOutsideMainCheckoutStillWorks(t *testing.T) {
 func TestDetectRootFlagTargetsNamedRepo(t *testing.T) {
 	repoA := t.TempDir()
 	repoB := t.TempDir()
-	runGit(t, repoA, "init", "-q", "-b", "main")
-	runGit(t, repoB, "init", "-q", "-b", "main")
+	initRepo(t, repoA, "-b", "main")
+	initRepo(t, repoB, "-b", "main")
 
 	ws, err := Detect(repoA, repoA)
 	if err != nil {
@@ -300,6 +322,10 @@ func initGitRepo(t *testing.T, root string) {
 	t.Helper()
 	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
 		t.Skipf("git unavailable: %v: %s", err, out)
+	}
+	// Init-only today, but disabled anyway — see initRepo (B-01KYQA4WXEFAT).
+	if err := wt.QuietMaintenance(root); err != nil {
+		t.Fatalf("QuietMaintenance: %v", err)
 	}
 }
 
@@ -539,7 +565,7 @@ func TestCompactConfigDefaults(t *testing.T) {
 // at all.
 func TestGitConfigDefaults(t *testing.T) {
 	root := t.TempDir()
-	runGit(t, root, "init", "-q", "-b", "main")
+	initRepo(t, root, "-b", "main")
 	runGit(t, root, "commit", "-q", "--allow-empty", "-m", "init")
 	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
 		t.Fatal(err)
@@ -629,7 +655,7 @@ func TestGitConfigUnknownModeRejectedAtLoad(t *testing.T) {
 // not named "main" must still resolve Base to its actual branch.
 func TestGitConfigBaseReadFromRepoDefaultBranch(t *testing.T) {
 	root := t.TempDir()
-	runGit(t, root, "init", "-q", "-b", "trunk")
+	initRepo(t, root, "-b", "trunk")
 	runGit(t, root, "commit", "-q", "--allow-empty", "-m", "init")
 	if err := os.MkdirAll(filepath.Join(root, Dot), 0o755); err != nil {
 		t.Fatal(err)
@@ -816,7 +842,7 @@ func TestSchemaStampMatchesMigrationTarget(t *testing.T) {
 // parent passed while the reported scenario stayed broken.
 func TestDetectNestedWorktreeWinsOverAncestorBundle(t *testing.T) {
 	main := t.TempDir()
-	runGit(t, main, "init", "-q", "-b", "main")
+	initRepo(t, main, "-b", "main")
 	runGit(t, main, "commit", "-q", "--allow-empty", "-m", "init")
 	// the enclosing checkout owns a bundle, as any real repository would —
 	// this is the ingredient the sibling reproduction lacked.

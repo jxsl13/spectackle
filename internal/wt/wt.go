@@ -761,8 +761,50 @@ func DirtyOverlap(mainRoot string, files []string) []string {
 	return overlap
 }
 
+// QuietMaintenance turns off git's automatic background maintenance in dir.
+// Test fixtures only — see the warning at the bottom of this comment.
+//
+// B-01KYQA4WXEFAT: a default git repository answers every `git commit` by
+// spawning a DETACHED `git maintenance run --auto --quiet --detach` child
+// that outlives the command which started it. A fixture built under
+// t.TempDir therefore leaves a process holding the repository open while the
+// harness is already unlinking it, which is the shape the reported flake
+// takes — a cleanup error, not an assertion:
+//
+//	TempDir RemoveAll cleanup: unlinkat /tmp/TestXxx/001/.git/objects: directory not empty
+//
+// maintenance.auto=false is THE load-bearing key, and on modern git it is the
+// only one that does anything. MEASURED on git 2.50.1, counting
+// `maintenance run --auto` dispatches in the GIT_TRACE of one
+// `git commit --allow-empty`: baseline 3, gc.auto=0 -> 3,
+// gc.autoDetach=false -> 3, maintenance.auto=false -> 0. The record's own fix
+// direction listed gc.auto first and is wrong about which knob matters; the
+// other two keys are set here purely for git versions old enough to predate
+// the maintenance dispatcher, where gc is still the thing that detaches.
+//
+// NEVER call this on a real checkout. The production git() path deliberately
+// inherits the repository's and the host's configuration whole (B-01KYDK),
+// and a user's maintenance schedule is the user's business — this exists so
+// that a THROWAWAY repo does no work after the command that created it
+// returns.
+func QuietMaintenance(dir string) error {
+	for _, args := range [][]string{
+		{"config", "maintenance.auto", "false"},
+		{"config", "gc.auto", "0"},
+		{"config", "gc.autoDetach", "false"},
+	} {
+		if _, err := git(dir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // InitTestRepo creates a git repo with an initial commit on branch main —
-// used by tests and nowhere else.
+// used by tests and nowhere else. Prefer wttest.Repo, which wraps this with
+// the temp-directory removal guard that is the actual defence against
+// B-01KYQA4WXEFAT; call InitTestRepo directly only on a directory whose
+// lifetime the caller already owns.
 func InitTestRepo(dir string) error {
 	// Repo-local identity: the production git helper inherits host config
 	// (B-01KYDK), so fixtures declare their own — tests must neither depend
@@ -772,6 +814,20 @@ func InitTestRepo(dir string) error {
 		{"init", "-b", "main"},
 		{"config", "user.name", "spectackle-test"},
 		{"config", "user.email", "test@spectackle.local"},
+	} {
+		if _, err := git(dir, args...); err != nil {
+			return err
+		}
+	}
+	// AFTER init (there is no repository to configure before it) and BEFORE
+	// the commit (the commit is what spawns the detached maintenance child),
+	// so the very first commit this fixture ever makes is already quiet —
+	// B-01KYQA4WXEFAT. Moving this below the commit would leave exactly one
+	// unguarded window, which is the only window most fixtures have.
+	if err := QuietMaintenance(dir); err != nil {
+		return err
+	}
+	for _, args := range [][]string{
 		{"add", "-A"},
 		{"commit", "--allow-empty", "-m", "init"},
 	} {
