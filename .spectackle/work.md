@@ -250,7 +250,7 @@ VERIFY. A test that seeds a journal past the threshold and asserts check output 
 
 ## B-01KYS6ZKRQEHWAFHN0MD67NQY3 the parent archive child fold is a second ungated archive path, and a compensated archive keeps two of the three effects it says it refused
 kind: bug
-state: active
+state: done
 created: 2026-07-30
 grilled: 2026-08-03 open=0
 targets: internal/lifecycle, internal/mcpserver, internal/spec
