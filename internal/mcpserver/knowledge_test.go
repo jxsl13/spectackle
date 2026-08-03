@@ -1235,6 +1235,90 @@ func TestStatusFromOutsideIsValidated(t *testing.T) {
 	})
 }
 
+// TestApplyRefusalRefuses pins B-01KYRN43FQFZ4: knowledgeApply composed every
+// per-entry refusal into the SAME builder it then closed with
+// `ok applied added=N gaps=N`, so an artifact whose entries were REFUSED
+// exited 0 behind a success-shaped trailer. An agent that keys on the exit
+// code saw success; an agent that reads the last line saw `ok applied`. Either
+// way the dropped entry was invisible, which is the whole exposure.
+//
+// It MUST call sess.CallTool directly: callText discards res.IsError, which is
+// exactly why every existing apply test passes on the defective binary.
+func TestApplyRefusalRefuses(t *testing.T) {
+	const ruleEntry = "## rule 1111111111111111\ntext: The shared module SHALL return exactly 1.\n" +
+		"count: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n\n"
+	// `superseded` is a legal item status refused by applyADREntry's guard:
+	// adopting it would assert a replacement this workspace does not have.
+	const badADR = "## adr 2222222222222222\nquestion: which serialization?\ndecision: protobuf\n" +
+		"status: superseded\ncount: 1\nsources:\n    - source: repo-a\n      dir: \"\"\n\n"
+	artifact := func(body string) string {
+		return "---\nschema: v1\nkind: knowledge\nsources:\n    - repo-a\n---\n\n" + body
+	}
+	apply := func(t *testing.T, body string) (*mcp.CallToolResult, string) {
+		t.Helper()
+		sess := connectRoot(t, t.TempDir())
+		res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "knowledge", Arguments: map[string]any{"op": "apply", "body": body},
+		})
+		if err != nil {
+			t.Fatalf("transport: %v", err)
+		}
+		if len(res.Content) == 0 {
+			t.Fatal("empty content")
+		}
+		tc, ok := res.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content is %T, want TextContent", res.Content[0])
+		}
+		return res, tc.Text
+	}
+
+	t.Run("a refused entry beside an applied one refuses the call", func(t *testing.T) {
+		res, out := apply(t, artifact(badADR+ruleEntry))
+		if !res.IsError {
+			t.Fatalf("an apply carrying a refused entry must exit non-zero:\n%s", out)
+		}
+		// THE load-bearing assertion: a test that only checks IsError passes
+		// with the success trailer still printed, and an agent reading the
+		// last line is half the exposure.
+		if strings.Contains(out, "ok applied") {
+			t.Fatalf("a refused apply must not print an ok-shaped trailer:\n%s", out)
+		}
+		first := strings.SplitN(out, "\n", 2)[0]
+		if !strings.HasPrefix(first, "! REJECTED E") || !strings.Contains(first, "1 of 2") {
+			t.Fatalf("the refusal must lead with what did NOT happen and count it, got %q:\n%s", first, out)
+		}
+		// a partial apply must not become opaque: the reason and the
+		// counters both survive the new headline.
+		if !strings.Contains(out, "not adoptable") || !strings.Contains(out, "added=1") {
+			t.Fatalf("the per-entry reason and the counters must survive:\n%s", out)
+		}
+	})
+
+	t.Run("clean artifact is still a success", func(t *testing.T) {
+		res, out := apply(t, artifact(ruleEntry))
+		if res.IsError {
+			t.Fatalf("a clean artifact must still succeed:\n%s", out)
+		}
+		if !strings.Contains(out, "ok applied added=1") {
+			t.Fatalf("a clean apply keeps its ok trailer:\n%s", out)
+		}
+	})
+
+	t.Run("every entry refused still reports the counters", func(t *testing.T) {
+		res, out := apply(t, artifact(badADR))
+		if !res.IsError {
+			t.Fatalf("an apply that landed nothing must exit non-zero:\n%s", out)
+		}
+		if strings.Contains(out, "ok applied") {
+			t.Fatalf("nothing applied must not print an ok-shaped trailer:\n%s", out)
+		}
+		if !strings.Contains(out, "added=0") {
+			t.Fatalf("the counters must still be readable:\n%s", out)
+		}
+	})
+}
+
 // TestEmptyQueryEnumeratesInsteadOfLying: find with an empty q reached
 // cache.Search, which answers (nil, nil) for one, and the result rendered as
 // `ok no matches` — a SUCCESSFUL call carrying a false answer on a workspace

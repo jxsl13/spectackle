@@ -672,6 +672,18 @@ computations `check` itself runs (`g uncovered` + `g orphan`, without
 `check`'s side effects), so it is provably the same number a standalone
 `check` call reports afterward, never a guess.
 
+**A refused entry refuses the call** (B-01KYRN43FQFZ4). Entries that fail
+their own guards — an ADR whose `status` is not adoptable, a rule that
+fails lint, a conflict whose decision could not be minted — each print
+their `! ... E` record, and the call as a whole then leads with
+`! REJECTED E - apply refused <n> of <m> entries; they were NOT applied`
+and **exits non-zero**, replacing the `ok ` trailer prefix with that
+headline while keeping the counters (`applied added=<n> gaps=<n> …`) and
+the `ok <ID> <path>` lines for the entries that DID land. Any refusal is
+enough, per SRF-001: gating the exit code on "did anything at all apply"
+would make it depend on unrelated entries in the same artifact, which is
+exactly how a dropped decision used to exit 0.
+
 **Conflicts become decisions, not casualties** (ADR-01KYMKEG7YE2P).
 `merge` reports every conflict as an `x` line and leaves it OUT of the
 condensate, so applying that condensate used to land NEITHER side. `apply`
