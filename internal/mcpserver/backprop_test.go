@@ -31,6 +31,77 @@ func TestUnconsumedResearchRefusedAtArchive(t *testing.T) {
 	}
 }
 
+// TestArchiveFoldRunsChildGates: the gate above keyed on the item the CALL
+// named, while lifecycle.archive folds every DONE child away with the parent
+// through a second archive path that had no gates at all. So parenting the
+// study to any item and archiving THAT item removed it anyway — two calls, no
+// refusal, exit 0, and `move` on the study afterwards answered "unknown item"
+// because its only remaining home was a tombstone (B-01KYS6ZKRQEHW finding 1).
+func TestArchiveFoldRunsChildGates(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "researcher")
+	sess := connectRoot(t, root)
+	p := draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "a parent nobody gated", "body": ambFixturePad})
+	r := draftID(t, sess, map[string]any{
+		"kind": "research", "title": "a study folded away through its parent", "parent": p})
+	callText(t, sess, "move", map[string]any{"id": r, "to": "done"})
+
+	out, isErr := callRaw(t, sess, "move", map[string]any{"id": p, "to": "archived", "note": "closing the parent"})
+	if !isErr {
+		t.Fatalf("archiving the parent folded the ungated study away, exit 0: %q", out)
+	}
+	// the gate that would have refused the study directly, naming the CHILD —
+	// the parent's short ID alone would leave the operator hunting.
+	if !strings.Contains(out, "! BACKPROP E") || !strings.Contains(out, "unconsumed research") {
+		t.Fatalf("refusal must be the research gate's own record: %q", out)
+	}
+	if !strings.Contains(out, r) {
+		t.Fatalf("refusal must name the child %s, got %q", r, out)
+	}
+	// THE ACTION, not the wording: nothing was removed. Both records are
+	// still live and the child is still movable — before the fix `move` on
+	// the child answered "unknown item".
+	stateOut := callText(t, sess, "state", map[string]any{})
+	if !strings.Contains(stateOut, "a parent nobody gated") {
+		t.Fatalf("the parent left work.md despite the refusal: %q", stateOut)
+	}
+	if !strings.Contains(stateOut, "a study folded away through its parent") {
+		t.Fatalf("the refused archive destroyed the child anyway: %q", stateOut)
+	}
+	if out, isErr := callRaw(t, sess, "move", map[string]any{"id": r, "to": "active", "note": "reopen the study"}); isErr ||
+		strings.Contains(out, "unknown item") {
+		t.Fatalf("the child is unreachable after a refused parent archive: %q", out)
+	}
+}
+
+// TestArchiveFoldLetsGatedChildrenThrough is the other half: the fold is the
+// normal way a closed subtree archives, so a child that passes its own gates
+// must still fold. A gate that refuses everything is not a gate.
+func TestArchiveFoldLetsGatedChildrenThrough(t *testing.T) {
+	root := gitRoot(t)
+	t.Setenv("SPECTACKLE_AGENT", "researcher")
+	sess := connectRoot(t, root)
+	p := draftID(t, sess, map[string]any{
+		"kind": "proposal", "title": "a parent with a consumed child", "body": ambFixturePad})
+	r := draftID(t, sess, map[string]any{
+		"kind": "research", "title": "a study something cites", "parent": p})
+	full := fullIDOf(t, root, r)
+	// a live consumer: the primary return path, so the child's own gate passes
+	draftID(t, sess, map[string]any{
+		"kind": "task", "title": "acts on the folded study", "refs": []string{full}})
+	callText(t, sess, "move", map[string]any{"id": r, "to": "done"})
+
+	out, isErr := callRaw(t, sess, "move", map[string]any{"id": p, "to": "archived", "note": "closing the parent"})
+	if isErr {
+		t.Fatalf("a child that passes its own gates must still fold: %q", out)
+	}
+	stateOut := callText(t, sess, "state", map[string]any{})
+	if strings.Contains(stateOut, "a study something cites") {
+		t.Fatalf("the consumed child did not fold: %q", stateOut)
+	}
+}
+
 // A consumer's Refs citation is the primary return path — live or archived.
 func TestConsumedResearchArchives(t *testing.T) {
 	root := gitRoot(t)

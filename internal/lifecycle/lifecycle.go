@@ -271,9 +271,49 @@ func Move(ws workspace.Root, id, to, note string, opts ...MoveOption) (item.Item
 			return it, err
 		}
 	}
-	if to == item.StateArchived {
+	// Both boundaries that REMOVE a record from work.md check children now.
+	// reject used to be ungated (B-01KYS6ZKRQEHW, the RELATED arm): rejecting
+	// a parent orphaned its live children, whose parent then resolved to
+	// neither work.md nor a tombstone, and Draft refuses to add any new child
+	// under such an id — so the subtree became unextendable and unclosable in
+	// one call. reject does not fold, so the direct check is the whole gate
+	// for it; archive folds, which is what the subtree walk below covers.
+	if to == item.StateArchived || to == item.StateRejected {
 		if open := openChildren(ws, it); len(open) > 0 {
 			return it, fmt.Errorf("lifecycle: %s has open children: %s", id, strings.Join(open, ", "))
+		}
+	}
+	if to == item.StateArchived {
+		// The fold is ONE level and is not recursive, so the direct
+		// open-children check above closes nothing for the commonest orphan
+		// shape: P -> C(done) -> G leaves G in work.md naming a parent that
+		// is now a tombstone. openChildren(P) is empty (C is done) and, when
+		// G is done too, openChildren(C) is empty as well — the one-level
+		// reading of this gate would pass and orphan G anyway. Refuse on the
+		// whole SUBTREE the fold would touch, naming the child and what
+		// hangs off it, since the child is the record the operator has to
+		// close or reparent first.
+		folded, ferr := FoldChildren(ws, it.ID)
+		if ferr != nil {
+			return it, ferr
+		}
+		for _, ch := range folded {
+			if open := openChildren(ws, ch); len(open) > 0 {
+				return it, fmt.Errorf("lifecycle: %s: child %s has open children: %s",
+					id, ch.ID, strings.Join(open, ", "))
+			}
+			deeper, derr := FoldChildren(ws, ch.ID)
+			if derr != nil {
+				return it, derr
+			}
+			if len(deeper) > 0 {
+				names := make([]string, len(deeper))
+				for i, d := range deeper {
+					names[i] = d.ID
+				}
+				return it, fmt.Errorf("lifecycle: %s: child %s: descendant %s would be orphaned",
+					id, ch.ID, strings.Join(names, ", "))
+			}
 		}
 	}
 
@@ -516,31 +556,113 @@ func archive(ws workspace.Root, it item.Item, note string) error {
 		return err
 	}
 	// fold done children into the parent's archive
-	all, err := item.LoadAll(ws)
+	folded, err := FoldChildren(ws, it.ID)
 	if err != nil {
 		return err
 	}
-	for _, ch := range all {
-		if ch.Parent == it.ID && ch.State == item.StateDone {
-			chEv := journal.Event{
-				Ev: journal.EvArchive, ID: ch.ID, K: ch.Kind, Ti: ch.Title,
-				Sum: "archived with parent " + it.ID, Dir: ch.Dir,
-			}
-			carryRecord(&chEv, ch)
-			// the same invariant through the SECOND archive path: a child
-			// folded into its parent's closure keeps its outcome
-			// (cross-val-research finding 5 reproduced the citation loss
-			// here for research; the adr arm closes it for decisions)
-			chEv.Body = retainedBody(ch)
-			if err := journal.Append(ws, ch.Dir, chEv); err != nil {
-				return err
-			}
-			if err := item.Remove(ws, ch); err != nil {
-				return err
-			}
+	for _, ch := range folded {
+		chEv := journal.Event{
+			Ev: journal.EvArchive, ID: ch.ID, K: ch.Kind, Ti: ch.Title,
+			Sum: "archived with parent " + it.ID, Dir: ch.Dir,
+		}
+		carryRecord(&chEv, ch)
+		// the same invariant through the SECOND archive path: a child
+		// folded into its parent's closure keeps its outcome
+		// (cross-val-research finding 5 reproduced the citation loss
+		// here for research; the adr arm closes it for decisions)
+		chEv.Body = retainedBody(ch)
+		if err := journal.Append(ws, ch.Dir, chEv); err != nil {
+			return err
+		}
+		if err := item.Remove(ws, ch); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// FoldChildren is the set archive() removes along with the parent: every
+// live item whose Parent is id and whose state is done. Exported because the
+// fold is a SECOND archive path — it removes records without any of the
+// gates the mcpserver move handler runs on the item the CALL names
+// (B-01KYS6ZKRQEHW finding 1: parenting a record to any item and archiving
+// the parent archived the child through three gates that would have refused
+// it directly). The caller that owns those gates has to be able to enumerate
+// the set BEFORE the move, run each member through them, and — when the
+// archive edge strands — restore exactly what the fold removed. Sorted by ID
+// so the refusal and the compensation report a stable order.
+func FoldChildren(ws workspace.Root, id string) ([]item.Item, error) {
+	all, err := item.LoadAll(ws)
+	if err != nil {
+		return nil, err
+	}
+	var folded []item.Item
+	for _, ch := range all {
+		if ch.Parent == id && ch.State == item.StateDone {
+			folded = append(folded, ch)
+		}
+	}
+	sort.Slice(folded, func(i, j int) bool { return folded[i].ID < folded[j].ID })
+	return folded, nil
+}
+
+// CompensateArchive undoes the effects archive() committed for an edge that
+// then stranded, so a refusal that says the transition was refused WHOLE is
+// telling the truth (B-01KYS6ZKRQEHW finding 2). The move handler already
+// compensates the item it named archived->done; two effects of the same call
+// used to survive that:
+//
+//   - the folded children stayed archived. A REFUSED transition permanently
+//     destroyed sibling records: `move` on one afterwards answered "unknown
+//     item", because their only home was a tombstone.
+//   - the `## intent` line stayed in the living spec. AppendIntent is
+//     first-wins per record ID (see its comment and the pinned test), which
+//     is right for a retry that legitimately carries a different note — but
+//     it means the FAILED attempt's note froze in and the successful retry's
+//     note was silently discarded. Removing the line is what makes first-wins
+//     correct here: a refused attempt leaves no "first" behind.
+//
+// folded is the pre-move fold set (FoldChildren, captured before the move) —
+// the records are already in hand, so restoring them needs no Tombstone round
+// trip. Returns the IDs it could NOT restore alongside the first error, because
+// the caller's refusal has to enumerate residue rather than claim wholeness it
+// did not deliver. The two results move together by construction: every failure
+// records what it left behind, so a non-nil error always comes with a non-empty
+// list and a caller can branch on either one.
+func CompensateArchive(ws workspace.Root, it item.Item, folded []item.Item) ([]string, error) {
+	var (
+		unrestored []string
+		firstErr   error
+	)
+	fail := func(id string, err error) {
+		unrestored = append(unrestored, id)
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	for _, ch := range folded {
+		ch.State = item.StateDone
+		if err := item.Upsert(ws, ch); err != nil {
+			fail(ch.ID, err)
+			continue
+		}
+		// mirrors the parent's compensating move event: final-state-wins
+		// replay lands the child back on done, and the journal says why.
+		if err := journal.Append(ws, ch.Dir, journal.Event{
+			Ev: journal.EvMove, ID: ch.ID, Dir: ch.Dir,
+			Fr: item.StateArchived, To: item.StateDone,
+			Note: "folded archive compensated with parent " + it.ID,
+		}); err != nil {
+			fail(ch.ID, err)
+		}
+	}
+	if err := spec.RemoveIntent(ws, it.Dir, it.ID); err != nil {
+		// residue too, and named as such: a line left in `## intent` claims
+		// the record LANDED, which is exactly the untruth the enumeration
+		// exists to surface.
+		fail(it.ID+"(intent line)", err)
+	}
+	return unrestored, firstErr
 }
 
 // Tombstone reconstructs an archived item from its most recent archive
