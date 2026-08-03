@@ -497,7 +497,7 @@ VERIFY: a refusal naming a parent AND its children prints both at the same width
 
 ## T-01KZ39XYZNFGAVKHC44BYWA6VX teach the kind enum on the draft refusals and bind the advertised set to item.Kinds(), so adr stops being a working unadvertised kind
 kind: task
-state: draft
+state: active
 created: 2026-08-03
 parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
 refs: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
