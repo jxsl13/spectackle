@@ -449,3 +449,16 @@ WHY IT MATTERS RATHER THAN BEING TIDY. Audit drift is exactly the state a human 
 DIRECTION. Fold the audit gate into archiveGateGap so all four run on children by construction, rather than adding a fourth call site that the next gate can also miss. That is the structural fix: the sibling record's pattern of enumerate-the-gates is what allowed a fourth to be forgotten, and a single chokepoint every archive path shares removes the enumeration.
 
 VERIFY: a parent whose done child carries a tightened anchor refuses to archive and names the child; the same child archived directly still refuses with the same reason; a parent whose done child is clean still folds.
+
+## B-01KZ35WRCKFZTTVWCMS638NTKC a refused archive leaves its spec.md intent line behind, so retrying appends a duplicate every time
+kind: bug
+state: draft
+created: 2026-08-03
+refs: B-01KYS6ZKRQEHWAFHN0MD67NQY3
+targets: internal/spec
+
+RE-DRAFTED from journal create event j:.#550, which the server's health check flagged as orphaned: created in the journal, no terminal event, missing from work.md. Re-drafting rather than leaving it dangling is the remediation the health line itself names.
+
+THE DEFECT IT DESCRIBES IS FIXED. B-01KYS6ZKRQEHW added spec.RemoveIntent and called it from CompensateArchive, so a refused archive now removes its own intent line instead of leaving it behind. The duplicate-on-retry symptom this record reports is closed by that change, and its TestStrandedClosureRollsBackIntentLine pins exactly the reported sequence: refuse, retry with a different note, and the living spec carries the RETRY note rather than the failed attempt's.
+
+The original record predates that fix and was never promoted, so it carries no evidence the fix does not already have. It is re-drafted here only so the orphan has a terminal event rather than dangling in the journal forever, and should be closed with that citation.
