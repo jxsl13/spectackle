@@ -494,3 +494,29 @@ DIRECTION. Render short IDs AT THE PRODUCERS rather than substituting at the bou
 Noted rather than fixed here: lifecycle.lastReject now has no non-test caller - lastBoundary replaced it in Move - and survives only through assertState in matrix_test.go. Whether it should stay as a tested seam or go is a separate judgment.
 
 VERIFY: a refusal naming a parent AND its children prints both at the same width; the gate refusals in gitflow.go agree with shortDisplayID in the same file; and one session's success line and every refusal it can produce render the same record identically.
+
+## T-01KZ39XYZNFGAVKHC44BYWA6VX teach the kind enum on the draft refusals and bind the advertised set to item.Kinds(), so adr stops being a working unadvertised kind
+kind: task
+state: draft
+created: 2026-08-03
+parent: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+refs: P-01KYQ4YK7MEA3BP26HSQ7CWZ4R
+targets: internal/item, internal/mcpserver, internal/lifecycle
+
+Child task of P-01KYQ4YK7MEA3, carrying the ONLY leg of that proposal still live. Created as a child rather than by retargeting the parent, because an approved record's body is the frozen review subject and rejecting it to widen targets would put a bookkeeping entry in the rejection corpus that later sessions read as a substantive refusal.
+
+SCOPE, narrowed and measured. The correctness half of the parent (a rounds-exhausted move returning success) is landed and pinned by SRF-001. The ECONOMY half was implemented, measured at 59 to 63 calls and +142B, and reverted under its own rollback clause; re-landing any of it would violate BENCH-001 and is FORBIDDEN. What survives is one reproducible defect an already-fixed reading would have archived.
+
+DEFECT, measured against a freshly built binary. draft {} answers `! ARG E - draft requires kind (or id to revise)` with no enum. draft {"kind":"bogus"} answers `! ARG E - lifecycle: unknown kind "bogus"` with no enum. HINT-001 says an enumerated value SHALL be taught by the ! ARG E refusal that rejects a wrong one, so draft satisfies NEITHER placement: the revert stripped the enum from the shape line and never relocated it to the refusal. Siblings measured compliant in the same session - move names its six destinations, rule op=bogus names add|edit|retire, a bad pattern names all six EARS letters - so HINT-001's own premise is simply false for draft.
+
+WORSE, and this is the part that makes it a correctness defect rather than a wording one: the sole advertisement, the jsonschema tag, hand-spells proposal|task|research|bug and OMITS adr, while item.ValidKind reads kindLetter which INCLUDES it. So draft {"kind":"adr"} silently mints an ADR at exit 0. A caller who trusts the advertisement and guesses outside it gets a minted record instead of a refusal.
+
+FIX. Export the kind set from internal/item as Kinds(), derived from kindLetter and sorted, mirroring the existing Statuses() precedent in the same file - one source of truth, which ValidKind already reads. Then render it in both refusals (the missing-kind one in tools.go and the unknown-kind one in lifecycle.go), and bind the jsonschema tag to the same set rather than hand-spelling it - by reflection test if the tag must stay a compile-time constant.
+
+NO SHAPE-LINE ADDITION anywhere, so BENCH-001 and HINT-001 are satisfied together rather than traded off.
+
+TESTS. Assert both refusals name EVERY kind in item.Kinds() by ITERATING the exported set rather than a literal, so the assertion cannot drift from the map. Assert draft succeeds for every k in Kinds() and that the jsonschema tag contains every one - this is what fails today on adr. RECMERGE-003 mutation: add a bogus kind to kindLetter and the suite must go red; today it stays green.
+
+DO NOT add any test for the economy half - encoding that behavior is exactly what HINT-001 and BENCH-001 forbid, and the durable evidence there is bench record M-01KYQZ10VBEGE v4, not a Go test.
+
+VERIFY: draft {} and draft with an unknown kind each name every kind item.Kinds() returns; draft succeeds for each of them; the jsonschema tag agrees with Kinds(); and adding a kind to kindLetter without touching anything else turns the suite red.
