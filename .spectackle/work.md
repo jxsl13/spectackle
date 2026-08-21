@@ -492,7 +492,7 @@ VERIFY: changing the ci.yml filter without touching Go turns a test red; and a c
 
 ## P-01M0K371V9EDV9Z3RTJEM4JBG7 classify records-only contexts before relocating live contracts
 kind: proposal
-state: active
+state: done
 created: 2026-08-21
 refs: R-01M0K2H1PGF6DRVVEE5JFY36DZ
 grilled: 2026-08-21 open=0
