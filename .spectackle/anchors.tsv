@@ -45,3 +45,8 @@ LC-001	go:lifecycle.retainedBody	internal/lifecycle/lifecycle.go	726-731	d014045
 LC-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	567-609	339a94a5c41f68ac	4e4e0d5210ccbc52
 SRF-001	go:mcpserver.roundsRefusal	internal/mcpserver/tools.go	1062-1089	71785ef17271da4a	d8da224647609b71
 MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	2285-2656	9b646783985fb8f4	8800c929f7ba22f7
+CONTEXT-CLASSIFICATION-001	go:workspace.Root.ContextDirs	internal/workspace/workspace.go	799-846	eaf032382aeb5c7c	29f083aa959aa770
+RECORDS-ONLY-CONTEXT-VALIDATION-001	go:mcpserver.Server.check	internal/mcpserver/tools.go	2285-2656	9b646783985fb8f4	2124cd22cdd248ca
+RECORDS-ONLY-CONTEXT-VALIDATION-001	go:mcpserver.Server.stateText	internal/mcpserver/state.go	111-175	dab4a870441099e8	2124cd22cdd248ca
+LOGICAL-CONTEXT-MUTATION-001	go:mcpserver.Server.stateText	internal/mcpserver/state.go	111-175	dab4a870441099e8	d3d16a14546d85ba
+CONTEXT-MODE-FRONTMATTER-001	go:spec.frontMatter	internal/spec/cascade.go	43-49	dd818d9867ef9ad6	7cbcdcf700f27193

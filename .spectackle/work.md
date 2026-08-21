@@ -489,3 +489,126 @@ DIRECTION for the first: have the test READ .github/workflows/ci.yml and extract
 DIRECTION for the second: set advisoryInBody from what SURVIVES truncation rather than from what was generated, or order advisories before the summary in the truncation input so the nudge is never the line that gets dropped. Either way the flag must describe what the caller actually received.
 
 VERIFY: changing the ci.yml filter without touching Go turns a test red; and a check whose budget truncates the advisory away leaves hintedAt unadvanced, so the next call still nudges.
+
+## P-01M0K371V9EDV9Z3RTJEM4JBG7 classify records-only contexts before relocating live contracts
+kind: proposal
+state: active
+created: 2026-08-21
+refs: R-01M0K2H1PGF6DRVVEE5JFY36DZ
+grilled: 2026-08-21 open=0
+targets: go:workspace.Root.ContextDirs, go:spec.frontMatter, go:mcpserver.Server.stateText, go:mcpserver.Server.check
+
+Problem
+A directory may contain only a .spectackle bundle. The current detector accepts it as a nested context whenever durable record files exist, even when no material file remains below that directory. Root detection still resolves to the repository workspace unless the directory has its own config.yaml or Git boundary, so this is a context inside the main workspace, not an independent workspace. Coverage is one-way: source without a contract is reported, while a live contract context without material is not. The current cmd/spectackle context therefore passes check even though its code moved to root.
+
+Evidence
+The main.go relocation intentionally preserved cmd/spectackle as a records-only context because no relocation operation existed. Its journal and intent retain useful provenance. CLI-001 resolves to go:main.main at repository root; CLI-002 is live but has no applies binding. A synthetic matrix showed that empty contexts, documentation-only contexts, source contexts, and nested-Git contexts all pass current validation. Moving the two rules into the root spec would broaden their directory cascade to the entire repository. applies is additive and cannot narrow that path scope. Knowledge export/apply strips IDs, applies, context placement, work state, and journal provenance, so it is not a safe migration path.
+
+Decision
+Classify an otherwise empty context instead of treating it as automatic corruption. Material means any repository content below the context outside .spectackle and ignored runtime or build artifacts.
+- physical: material exists;
+- historical-only: no material, no live rules, and no open work, while journal, archived work, benchmark history, or intent may remain;
+- records-only-live: no material while live rules or open work remains.
+Historical-only is valid and stays addressable. records-only-live is invalid by default because it is indistinguishable from an abandoned scope. Permit an explicit context-mode: logical declaration only when there is no open work and every live rule has a nonempty applies binding that resolves to a current symbol. State reports the classification, declaration, and decisive evidence. Check reports a typed error for undeclared records-only-live contexts, logical contexts with open work, and missing or stale bindings. A stale logical declaration on a physical or historical-only context is a warning.
+
+Mutation boundary
+Add a server-owned context operation to set or clear the logical declaration; callers must never edit spec frontmatter directly. The operation validates the prospective state before writing. It cannot declare a context logical while open work exists or a live rule is unbound.
+
+Repository disposition
+Do not move the complete cmd/spectackle bundle: preserve its historical journal and intent in place. After validation exists, bind CLI-002 to go:main.call and explicitly declare cmd/spectackle logical. CLI-001 already resolves to go:main.main. This is the narrow repair because root placement currently changes rule scope. If logical contexts are later disallowed by policy, build a lossless scoped relocation operation first. It must move only live contracts, preserve IDs and applies, leave historical provenance addressable, and prove equivalent cascade behavior.
+
+Rejected alternatives
+- Reject every context without source: destroys valid historical provenance and documentation-only contexts.
+- Move or merge record files manually: risks duplicate IDs, journal corruption, and scope broadening.
+- Round-trip through knowledge export/apply: materially lossy.
+- Put a root-level frontmatter scope on main.go: it would narrow every rule in the single root spec.
+- Infer deliberate logical status from anchors alone: a stale orphan with surviving anchors would remain invisible.
+
+Implementation partition
+1. Context model and read path: extend workspace context discovery and spec frontmatter parsing with classification and logical metadata; keep root and nested-Git detection unchanged.
+2. Validation and visibility: add state rendering, typed check findings, and matrix tests without changing coverage-gate defaults or rule cascade behavior.
+3. Controlled adoption: add the server-owned context mutation, bind CLI-002 through the rule tool, declare cmd/spectackle logical, and verify its journal and rule IDs are unchanged.
+
+Verification
+Add matrix tests for physical, documentation-only, historical-only, records-only-live, explicitly logical, missing applies, stale applies, open work, nested Git, and root detection. Assert state classification, check severity, read-only state, unchanged coverage behavior, unchanged rule cascade, and current cmd/spectackle classification. Run go test ./internal/workspace ./internal/spec ./internal/mcpserver, then go test ./... and go vet ./....
+
+## ADR-01M0K3M2Z8EYX92V5TT7NKMFCQ Approve the records-only context classification and controlled logical-context repair described in P-01M0K371V9EDV?
+kind: adr
+state: done
+created: 2026-08-21
+context: A whole-folder move is lossy and broadens CLI rule scope. The proposal preserves history, makes ambiguous live records fail validation, and repairs cmd/spectackle only after explicit bindings exist.
+decision: Approve classification and logical repair
+status: accepted
+
+kind: radio
+option: Approve classification and logical repair
+option: Require a scoped relocation design instead
+option: Leave current behavior unchanged
+blocks: P-01M0K371V9EDV9Z3RTJEM4JBG7
+choice: Approve classification and logical repair
+
+## R-01M0K2H1PGF6DRVVEE5JFY36DZ empty context bundle semantics and lossless context migration
+kind: research
+state: done
+created: 2026-08-21
+refs: T-01KYCT7KG8EJMSRT999DVS4GWJ, B-01KYC8G96REC2ACGXJ1RSMN5HM, B-01KYSDBZTEF1AS4KG1ZR0P14G7, B-01KYSK7HQFFPM8538HAWGRS0P6, B-01KYMCJG8HFYWBSFVG10KJP3NR
+targets: internal/workspace, internal/spec, internal/mcpserver, internal/journal, internal/item, internal/knowledge, cmd/spectackle, main.go
+
+Verdict: cmd/spectackle/.spectackle is a valid context bundle inside the repository-root workspace, not an independent workspace. The containing directory may have no non-record files. This was an explicit compromise when main.go moved to the module root: the implementation moved for the root go-install path, while the records context stayed because no relocation operation existed.
+
+Evidence:
+- workspace.Detect selects an ancestor .spectackle/config.yaml before Git fallback. Calls from cmd/spectackle and its .spectackle child resolve the repository root. A nested .git file or directory changes the boundary and makes the nested checkout its own workspace.
+- Root.ContextDirs and spec.Load admit a context when a durable bundle file exists; neither requires sibling source. Disposable bundle-only, bundle-plus-prose, bundle-plus-source, and nested-git fixtures are accepted.
+- The live repository reports two cmd/spectackle rules and zero findings. check reports zero findings because validation only walks source toward applicable rules; it has no reverse check for live rules in a records-only context.
+- CLI-001 is stored under cmd/spectackle but explicitly anchored to go:main.main in root main.go. CLI-002 is stored there without an applies binding.
+- Moving either rule into the existing root spec changes it to root cascade scope. applies adds a node binding but does not narrow ForPath. Root front-matter scope is file-wide, so narrowing it for the CLI rules would also narrow every existing root rule. A raw top-level move is therefore not semantics-preserving.
+- The nested journal and intent preserve substantial context-local history. journal.ReadAll already unions contexts. Rewriting event location would erase provenance and risks duplicate/replayed boundaries.
+- Knowledge export/apply is not a migration primitive: it carries reusable rule/ADR/intent substance, strips rule IDs and applies bindings, excludes work, journal, benchmarks, anchors, cache, coordination, and worktrees, and imports rules at root.
+
+Conclusion:
+- Do not move the entire nested .spectackle directory and do not use knowledge export/apply for this cleanup.
+- Preserve journal and intent in their original context.
+- Treat records-only contexts as a supported durable state, but distinguish historical-only contexts from logical contexts carrying live rules.
+- A live logical context should be explicit and every live rule should bind to at least one resolvable current node; otherwise check should report the ambiguity. For this repository, CLI-001 already meets that condition and CLI-002 should bind to go:main.call.
+- state should surface the classification; check should not reject historical-only bundles or require sibling source.
+
+Required tests:
+1. ancestor root config versus nested .git file/directory boundaries;
+2. bundle-only, prose-only sibling, source sibling, source-only, and historical-only matrices;
+3. ContextDirs/spec.Load/state/check agreement;
+4. logical context with all bindings passes; missing/unresolvable binding reports;
+5. root relocation proves applies alone does not narrow cascade;
+6. knowledge export exclusion of journal/work/bench/anchors/runtime data;
+7. current cmd/spectackle classification and CLI bindings.
+
+Rejected alternatives:
+- Whole-directory filesystem move: conflates durable histories and changes live rule scope.
+- Knowledge round-trip: lossy identity/state transfer and root-scope import.
+- Blanket must-contain-source validation: rejects intentional historical/logical namespaces.
+- Root front-matter narrowing: one root spec owns all root rules, so the scope change is global.
+
+## T-01M0K3TSF1FCXRDVMFAKJYV722 model material presence and logical context metadata
+kind: task
+state: draft
+created: 2026-08-21
+parent: P-01M0K371V9EDV9Z3RTJEM4JBG7
+refs: P-01M0K371V9EDV9Z3RTJEM4JBG7
+targets: go:workspace.Root.ContextDirs, go:spec.frontMatter
+
+Scope
+Implement the classification inputs without changing cascade behavior.
+
+Files
+- internal/workspace/workspace.go
+- internal/workspace/workspace_test.go
+- internal/spec/cascade.go
+- internal/spec/cascade_test.go
+
+Required changes
+1. Add a workspace API that determines whether a discovered context has material content below its directory. Exclude every .spectackle subtree and apply existing Root.SkipDir decisions. A regular file anywhere else below the context counts as material; documentation is material too. Do not require an indexable source language.
+2. Add ContextMode to spec frontmatter and SpecFile. The only nonempty accepted value is logical. Missing metadata remains the zero value. Invalid values must produce a deterministic parse error naming the spec path and value.
+3. Keep ContextDirs discovery, nearest-context behavior, nested Git boundaries, scope, inheritance, overrides, and ForPath/ForNode semantics unchanged.
+4. Add table tests for empty bundle, prose sibling, nested material, ignored material, nested .spectackle contents, and nested Git boundary. Add frontmatter tests for absent, logical, and invalid context-mode.
+
+Verification
+go test ./internal/workspace ./internal/spec
