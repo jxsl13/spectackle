@@ -37,6 +37,10 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
   the nearest matches.
 - **The LLM never writes .spectackle files** — `draft`, `rule`, `context`,
   `move`, and `compact` are server-owned write paths.
+- **Context material is language-agnostic** —
+  `workspace.Root.ContextHasMaterial` walks below a context while excluding
+  nested `.spectackle` bundles, ignored subtrees and nested Git boundaries;
+  any remaining file, including prose or a symlink, makes it physical.
 
 ## Output line grammar
 
