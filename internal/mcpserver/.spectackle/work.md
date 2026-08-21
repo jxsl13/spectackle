@@ -24,7 +24,7 @@ state: draft
 created: 2026-08-21
 parent: P-01M0K371V9EDV9Z3RTJEM4JBG7
 refs: P-01M0K371V9EDV9Z3RTJEM4JBG7
-targets: go:mcpserver.Server.stateText, go:mcpserver.Server.check
+targets: docs/tools.md, internal/spec/author.go, internal/spec/author_test.go, internal/journal/journal.go, internal/replay/replay.go, internal/mcpserver/context.go, internal/mcpserver/context_test.go, internal/mcpserver/state.go, internal/mcpserver/tools.go, internal/mcpserver/tools_test.go
 
 Scope
 Compute context classification at the MCP boundary, expose it in state/check, and add a supported metadata mutation. Do not alter coverage-gate defaults or rule cascade semantics.
