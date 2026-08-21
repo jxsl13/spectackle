@@ -1,5 +1,6 @@
 ---
 schema: v1
+context-mode: logical
 ---
 
 ## intent
