@@ -199,7 +199,7 @@ func (s *Server) stateContextsSection(c *spec.Cascade, path string) (string, err
 			continue
 		}
 		fmt.Fprintf(&b, "cx %s class=%s mode=%s rules=%d open=%d unbound=%d\n",
-			st.Dir, st.Class, contextModeLabel(st.Mode), st.Rules, st.Open, len(st.Unbound))
+			st.Dir, st.Class, orDash(st.Mode), st.Rules, st.Open, len(st.Unbound))
 	}
 	return b.String(), nil
 }

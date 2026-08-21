@@ -86,13 +86,6 @@ func contextItemOpen(state string) bool {
 	}
 }
 
-func contextModeLabel(mode string) string {
-	if mode == "" {
-		return "-"
-	}
-	return mode
-}
-
 func contextStatusByDir(statuses []contextStatus, dir string) (contextStatus, bool) {
 	for _, st := range statuses {
 		if st.Dir == dir {
@@ -116,7 +109,7 @@ func contextCheckFindings(statuses []contextStatus) []string {
 			continue
 		}
 		if st.Mode != spec.ContextModeLogical {
-			lines = append(lines, fmt.Sprintf("! CTX E %s context-records-only-live mode=%s rules=%d open=%d", ref, contextModeLabel(st.Mode), st.Rules, st.Open))
+			lines = append(lines, fmt.Sprintf("! CTX E %s context-records-only-live mode=%s rules=%d open=%d", ref, orDash(st.Mode), st.Rules, st.Open))
 			continue
 		}
 		if st.Open > 0 {
@@ -193,5 +186,5 @@ func (s *Server) context(in contextIn) (*mcp.CallToolResult, any, error) {
 	}); err != nil {
 		return nil, nil, err
 	}
-	return text(fmt.Sprintf("ok context %s mode=%s class=%s\n", dir, contextModeLabel(mode), st.Class))
+	return text(fmt.Sprintf("ok context %s mode=%s class=%s\n", dir, orDash(mode), st.Class))
 }
