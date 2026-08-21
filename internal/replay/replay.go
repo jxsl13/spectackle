@@ -120,6 +120,13 @@ func Run(main, wtWS workspace.Root, itemID, base string, cd *coord.DB, g graph.G
 				if mainCascade, err = spec.Load(main.Dir); err != nil {
 					return rep, err
 				}
+			case journal.EvContext:
+				if err := spec.SetContextMode(main, d.ctx, e.Mode); err != nil {
+					return rep, err
+				}
+				if mainCascade, err = spec.Load(main.Dir); err != nil {
+					return rep, err
+				}
 			case journal.EvCreate, journal.EvMove, journal.EvReject,
 				journal.EvGrill, journal.EvDecide, journal.EvEscalate:
 				// SDD orchestration v2 events (T-0030): grill/decide/escalate

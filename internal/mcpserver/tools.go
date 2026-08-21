@@ -28,7 +28,7 @@ import (
 	"github.com/jxsl13/spectackle/internal/wt"
 )
 
-// The 7-tool surface is documented in docs/tools.md; the structs below are
+// The tool surface is documented in docs/tools.md; the structs below are
 // the normative schemas (SPX-REPO-001). Results use the dense line grammar,
 // not JSON — that is where the token savings come from. (state's stateIn
 // lives in state.go — the read-only overview tool, 11th on the full surface.)
@@ -260,6 +260,10 @@ func (s *Server) registerTools() {
 		Description: "Author EARS contracts — the ONLY write path for rules. add: fill slots; missing ones come back as need records naming each slot (YOU author them — no user form); server composes+lints (errors reject, nothing written), auto-IDs, anchors applies. edit: recompose/relink by id. retire: remove; text survives in journal."},
 		gate(s, s.rule))
 
+	mcp.AddTool(s.mcp, &mcp.Tool{Name: "context",
+		Description: "Declare or clear logical mode for a non-root records-only context. set validates zero open work and resolvable applies on every live rule, then updates spec frontmatter through the server-owned atomic write path. physical clears the declaration."},
+		gate(s, s.context))
+
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "move",
 		Description: "Transition a lifecycle item. States are totally ordered (draft<submitted<approved<active<done<archived): ANY forward skip is one call (draft→active, active→archived implies done). rejected REQUIRES note (item leaves work.md; summary stays searchable via find scope=rejection) and is revocable back to draft/submitted/approved/active. archived needs no open children; merges the delta into spec.md. approve/reject only on explicit user instruction."},
 		gate(s, s.move))
@@ -320,7 +324,7 @@ func (s *Server) registerTools() {
 		})
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "state",
-		Description: "One read-only structured snapshot: #version #items #rules #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
+		Description: "One read-only structured snapshot: #version #items #rules #contexts #graph #swarm #drift #health — the full spec-driven-development picture in one call; writes nothing."},
 		gate(s, s.state))
 
 	mcp.AddTool(s.mcp, &mcp.Tool{Name: "knowledge",
@@ -2336,6 +2340,11 @@ func (s *Server) check(in checkIn) (*mcp.CallToolResult, any, error) {
 		}
 		seen[it.ID] = it.Dir
 	}
+	statuses, err := s.contextStatuses(c, items)
+	if err != nil {
+		return nil, nil, err
+	}
+	lines = append(lines, contextCheckFindings(statuses)...)
 	// drift
 	anchors, err := drift.Load(s.ws)
 	if err != nil {
