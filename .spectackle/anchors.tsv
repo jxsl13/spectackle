@@ -25,7 +25,7 @@ MCP-002	go:graph.Node	internal/graph/graph.go	169-178	092160135b9850c0	1a52ce91c
 MCP-003	go:mcpserver.Server.registerTools	internal/mcpserver/tools.go	246-336	f69f7e8150b37e2d	f0082ff8993a8ca9
 MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2952-3141	b3258c671cab0032	eb2b0afd3aaf585d
 MCP-005	go:mcpserver.Server.compact	internal/mcpserver/tools.go	2532-2721	b3258c671cab0032	eb2b0afd3aaf585d
-SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	259-283	4094fb4ccef16cfb	a2ff27484a248484
+SPX-SPC-007	go:spec.Cascade.ForNode	internal/spec/cascade.go	268-292	4094fb4ccef16cfb	a2ff27484a248484
 SPX-GRA-004	go:graph.PersonalizedRank	internal/graph/pagerank.go	12-78	f8b2114ceda74c78	9eeebb6596d0cf13
 SPX-EARS-004	go:ears.LintSentence	internal/ears/ears.go	141-180	d36df6df89ccad2f	12a13a8c05a928ed
 SPX-EARS-004	go:ears.ParseRules	internal/ears/ears.go	235-285	0fa34a1f18005e98	12a13a8c05a928ed
@@ -45,8 +45,8 @@ LC-001	go:lifecycle.retainedBody	internal/lifecycle/lifecycle.go	726-731	d014045
 LC-001	go:lifecycle.archive	internal/lifecycle/lifecycle.go	567-609	339a94a5c41f68ac	4e4e0d5210ccbc52
 SRF-001	go:mcpserver.roundsRefusal	internal/mcpserver/tools.go	1062-1089	71785ef17271da4a	d8da224647609b71
 MCP-004	go:mcpserver.Server.check	internal/mcpserver/tools.go	2285-2656	9b646783985fb8f4	8800c929f7ba22f7
-CONTEXT-CLASSIFICATION-001	go:workspace.Root.ContextDirs	internal/workspace/workspace.go	799-846	eaf032382aeb5c7c	29f083aa959aa770
+CONTEXT-CLASSIFICATION-001	go:workspace.Root.ContextDirs	internal/workspace/workspace.go	863-910	eaf032382aeb5c7c	29f083aa959aa770
 RECORDS-ONLY-CONTEXT-VALIDATION-001	go:mcpserver.Server.check	internal/mcpserver/tools.go	2285-2656	9b646783985fb8f4	2124cd22cdd248ca
 RECORDS-ONLY-CONTEXT-VALIDATION-001	go:mcpserver.Server.stateText	internal/mcpserver/state.go	111-175	dab4a870441099e8	2124cd22cdd248ca
 LOGICAL-CONTEXT-MUTATION-001	go:mcpserver.Server.stateText	internal/mcpserver/state.go	111-175	dab4a870441099e8	d3d16a14546d85ba
-CONTEXT-MODE-FRONTMATTER-001	go:spec.frontMatter	internal/spec/cascade.go	43-49	dd818d9867ef9ad6	7cbcdcf700f27193
+CONTEXT-MODE-FRONTMATTER-001	go:spec.frontMatter	internal/spec/cascade.go	43-49	f7c4dd8aae88c8b6	7cbcdcf700f27193
