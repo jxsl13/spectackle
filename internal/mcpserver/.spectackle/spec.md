@@ -162,3 +162,13 @@ Rationale: A draft head under the draft-skip CI pattern concludes every run as s
 WHILE the archive edge has just readied a pull request, the merge gate SHALL poll a forge.ChecksUnavailable head for the full GitCfg.AwaitBudget, refusing the merge only once that budget is spent.
 
 Rationale: The forge dispatches the ready_for_review run asynchronously, so the first polls legitimately see only the synchronize-skipped run the archive push registered while the PR was still draft. Short-circuiting there refuses a build that had merely not started: B-01KYQJDJJVFC2. A budget spent entirely on skipped runs does mean the head is untested and must not merge (B-01KYDN).
+
+## RECORDS-ONLY-CONTEXT-VALIDATION-001 {applies: go:mcpserver.Server.check,go:mcpserver.Server.stateText}
+WHEN check or state evaluates a records-only context, the spectackle SHALL emit 1 cx record per context and typed context-records-only-live check error unless mode is logical, open items equal 0, and every live rule has a resolvable applies binding.
+
+Rationale: Current coverage detects source without rules but not live rules stranded after their source moves.
+
+## LOGICAL-CONTEXT-MUTATION-001 {applies: go:mcpserver.Server.stateText}
+WHEN a caller sets or clears logical context mode, the server-owned context operation SHALL provide 1 context op=set API with dir and mode inputs, validate the prospective classification, and write the declaration through server-owned spec frontmatter.
+
+Rationale: Context metadata belongs to server-owned records and needs a supported mutation path.

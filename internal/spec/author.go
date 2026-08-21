@@ -1,12 +1,15 @@
 package spec
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/jxsl13/spectackle/internal/ears"
 	"github.com/jxsl13/spectackle/internal/workspace"
@@ -538,6 +541,146 @@ func RemoveIntent(ws workspace.Root, ctx, recordID string) error {
 		}
 		return os.WriteFile(abs, []byte(strings.Join(kept, "\n")), 0o644)
 	})
+}
+
+// SetContextMode updates only the context-mode key in a spec bundle's YAML
+// frontmatter. The Markdown body is spliced back byte-for-byte and the final
+// rename is atomic, so the supported metadata write path cannot rewrite rule
+// text, prose, or a partially-written spec after a crash.
+func SetContextMode(ws workspace.Root, ctx, mode string) error {
+	ctx = strings.Trim(filepath.ToSlash(ctx), "/")
+	if mode != "" && mode != ContextModeLogical {
+		return fmt.Errorf("spec: context-mode %q: must be %q or empty", mode, ContextModeLogical)
+	}
+	abs := ws.SpecPath(ctx)
+	return withSpecLock(ws, ctx, func() error {
+		raw, err := os.ReadFile(abs)
+		if err != nil {
+			return err
+		}
+		out, err := setContextModeBytes(raw, mode)
+		if err != nil {
+			return fmt.Errorf("spec: %s: context-mode: %w", SpecRel(ctx), err)
+		}
+		if bytes.Equal(raw, out) {
+			return nil
+		}
+		return writeSpecAtomic(abs, out)
+	})
+}
+
+func setContextModeBytes(raw []byte, mode string) ([]byte, error) {
+	fm, body, ok := splitFrontMatterBytes(raw)
+	if !ok && mode == "" {
+		return raw, nil
+	}
+
+	var doc yaml.Node
+	if ok {
+		if err := yaml.Unmarshal(fm, &doc); err != nil {
+			return nil, err
+		}
+	} else {
+		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{
+			Kind: yaml.MappingNode,
+			Content: []*yaml.Node{
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: "schema"},
+				{Kind: yaml.ScalarNode, Tag: "!!str", Value: workspace.SchemaStamp},
+			},
+		}}}
+	}
+	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("frontmatter must be a YAML mapping")
+	}
+	m := doc.Content[0]
+	idx := -1
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == "context-mode" {
+			idx = i
+			break
+		}
+	}
+	if mode == "" {
+		if idx >= 0 {
+			m.Content = append(m.Content[:idx:idx], m.Content[idx+2:]...)
+		}
+	} else if idx >= 0 {
+		m.Content[idx+1].Kind = yaml.ScalarNode
+		m.Content[idx+1].Tag = "!!str"
+		m.Content[idx+1].Value = mode
+	} else {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "context-mode"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: mode})
+	}
+	y, err := yaml.Marshal(&doc)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, len(y)+len(body)+8)
+	out = append(out, []byte("---\n")...)
+	out = append(out, y...)
+	out = append(out, []byte("---\n")...)
+	out = append(out, body...)
+	return out, nil
+}
+
+// splitFrontMatterBytes returns the YAML payload and the exact bytes after
+// the closing delimiter. It accepts LF and CRLF without normalizing the body.
+func splitFrontMatterBytes(raw []byte) (fm, body []byte, ok bool) {
+	line := func(start int) (content []byte, next int) {
+		if start >= len(raw) {
+			return nil, len(raw)
+		}
+		if i := bytes.IndexByte(raw[start:], '\n'); i >= 0 {
+			end := start + i
+			return bytes.TrimSuffix(raw[start:end], []byte{'\r'}), end + 1
+		}
+		return bytes.TrimSuffix(raw[start:], []byte{'\r'}), len(raw)
+	}
+	first, next := line(0)
+	if string(first) != "---" {
+		return nil, raw, false
+	}
+	contentStart := next
+	for next <= len(raw) {
+		lineStart := next
+		cur, after := line(lineStart)
+		if string(cur) == "---" {
+			return raw[contentStart:lineStart], raw[after:], true
+		}
+		if after == next || after == len(raw) {
+			break
+		}
+		next = after
+	}
+	return nil, nil, false
+}
+
+func writeSpecAtomic(path string, data []byte) error {
+	dir, base := filepath.Dir(path), filepath.Base(path)
+	f, err := os.CreateTemp(dir, "."+base+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if err := f.Chmod(0o644); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // withSpecLock serializes one context dir's spec bundle read-modify-write

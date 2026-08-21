@@ -135,6 +135,13 @@ func (s *Server) stateText(path string) (string, error) {
 		b.WriteString(sec)
 	}
 
+	if sec, err := s.stateContextsSection(c, path); err != nil {
+		return "", err
+	} else if sec != "" {
+		b.WriteString("#contexts\n")
+		b.WriteString(sec)
+	}
+
 	if sec := s.stateGraphSection(); sec != "" {
 		b.WriteString("#graph\n")
 		b.WriteString(sec)
@@ -171,6 +178,29 @@ func (s *Server) stateText(path string) (string, error) {
 		b.WriteString(health)
 	}
 
+	return b.String(), nil
+}
+
+func (s *Server) stateContextsSection(c *spec.Cascade, path string) (string, error) {
+	items, err := item.LoadAll(s.ws)
+	if err != nil {
+		return "", err
+	}
+	statuses, err := s.contextStatuses(c, items)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, st := range statuses {
+		if st.Dir == "" || !within(path, st.Dir) {
+			continue
+		}
+		if st.Class == contextPhysical && st.Mode == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "cx %s class=%s mode=%s rules=%d open=%d unbound=%d\n",
+			st.Dir, st.Class, orDash(st.Mode), st.Rules, st.Open, len(st.Unbound))
+	}
 	return b.String(), nil
 }
 

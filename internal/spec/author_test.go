@@ -1005,3 +1005,65 @@ func TestAppendIntentDropsIDLessDebris(t *testing.T) {
 		}
 	}
 }
+
+func TestSetContextModePreservesBodyBytes(t *testing.T) {
+	ws := workspace.Root{Dir: t.TempDir()}
+	if err := ws.EnsureScaffold("ctx"); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("## notes\r\nbody with  spaces  \r\n\r\n## CTX-001\r\nThe system SHALL return code 0.\r\n")
+	raw := append([]byte("---\nschema: v1\nprefix: CTX\nscope: [\"*.go\"]\n---\n"), body...)
+	if err := os.WriteFile(ws.SpecPath("ctx"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetContextMode(ws, "ctx", ContextModeLogical); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(ws.SpecPath("ctx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, gotBody, ok := splitFrontMatterBytes(after)
+	if !ok {
+		t.Fatalf("updated file lost frontmatter:\n%s", after)
+	}
+	if string(gotBody) != string(body) {
+		t.Fatalf("body changed:\nwant=%q\ngot =%q", body, gotBody)
+	}
+	if !strings.Contains(string(after), "context-mode: logical") {
+		t.Fatalf("logical declaration missing:\n%s", after)
+	}
+	c, err := Load(ws.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sf, ok := c.File("ctx")
+	if !ok || sf.ContextMode != ContextModeLogical {
+		t.Fatalf("loaded context mode = %+v, found=%v", sf, ok)
+	}
+
+	if err := SetContextMode(ws, "ctx", ""); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := os.ReadFile(ws.SpecPath("ctx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, gotBody, ok = splitFrontMatterBytes(cleared)
+	if !ok || string(gotBody) != string(body) {
+		t.Fatalf("clear changed body or frontmatter framing: %q", cleared)
+	}
+	if strings.Contains(string(cleared), "context-mode:") {
+		t.Fatalf("clear left context-mode behind:\n%s", cleared)
+	}
+
+	beforeInvalid := append([]byte(nil), cleared...)
+	if err := SetContextMode(ws, "ctx", "detached"); err == nil {
+		t.Fatal("invalid mode was accepted")
+	}
+	unchanged, _ := os.ReadFile(ws.SpecPath("ctx"))
+	if string(unchanged) != string(beforeInvalid) {
+		t.Fatal("invalid mode changed the spec")
+	}
+}

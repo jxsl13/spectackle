@@ -31,6 +31,7 @@ const (
 	EvCreate  = "create"
 	EvMove    = "move"
 	EvRule    = "rule"
+	EvContext = "context" // logical context-mode declaration changed
 	EvArchive = "archive"
 	EvReject  = "reject"
 	EvDrift   = "drift"
@@ -70,6 +71,7 @@ type Event struct {
 	Rule string    `json:"rule,omitempty"` // rule/drift: rule ID
 	Txt  string    `json:"txt,omitempty"`  // rule: full sentence (survives spec.md edits)
 	Ap   []string  `json:"ap,omitempty"`   // rule: applies node IDs
+	Mode string    `json:"mode,omitempty"` // context: logical mode, empty clears
 	Sum  string    `json:"sum,omitempty"`  // archive/reject summary
 	Body string    `json:"body,omitempty"` // reject: full item body (enables revocation)
 	Tg   []string  `json:"tg,omitempty"`   // reject: item targets

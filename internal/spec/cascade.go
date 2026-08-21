@@ -41,23 +41,29 @@ func SpecRel(ctx string) string {
 
 // frontMatter is the YAML header of a spec file.
 type frontMatter struct {
-	Schema    string   `yaml:"schema"`    // format stamp, injected by the server
-	Prefix    string   `yaml:"prefix"`    // rule ID prefix, informational
-	Scope     []string `yaml:"scope"`     // globs relative to the context dir; empty = everything below
-	Inherits  *bool    `yaml:"inherits"`  // default true
-	Overrides []string `yaml:"overrides"` // inherited rule IDs suppressed for this subtree
+	Schema      string   `yaml:"schema"`       // format stamp, injected by the server
+	Prefix      string   `yaml:"prefix"`       // rule ID prefix, informational
+	ContextMode string   `yaml:"context-mode"` // "logical" opts a records-only context into external bindings
+	Scope       []string `yaml:"scope"`        // globs relative to the context dir; empty = everything below
+	Inherits    *bool    `yaml:"inherits"`     // default true
+	Overrides   []string `yaml:"overrides"`    // inherited rule IDs suppressed for this subtree
 }
+
+// ContextModeLogical is the only explicit context mode. The empty value keeps
+// the ordinary physical/historical classification inferred by the server.
+const ContextModeLogical = "logical"
 
 // SpecFile is one parsed spec bundle.
 type SpecFile struct {
-	Path      string // repo-relative path of the spec.md
-	Dir       string // context dir it scopes ("" = root)
-	Prefix    string
-	Scope     []string
-	Inherits  bool
-	Overrides []string
-	Rules     []ears.Rule
-	Sections  []ears.Section
+	Path        string // repo-relative path of the spec.md
+	Dir         string // context dir it scopes ("" = root)
+	Prefix      string
+	ContextMode string
+	Scope       []string
+	Inherits    bool
+	Overrides   []string
+	Rules       []ears.Rule
+	Sections    []ears.Section
 }
 
 // Cascade resolves the applicable rules for paths and nodes.
@@ -158,6 +164,9 @@ func (c *Cascade) parseFile(rel string) (SpecFile, error) {
 	if fm.Schema != "" && fm.Schema != workspace.SchemaStamp {
 		return SpecFile{}, fmt.Errorf("spec: %s: schema %q != %q — regenerate, there is no migration", rel, fm.Schema, workspace.SchemaStamp)
 	}
+	if fm.ContextMode != "" && fm.ContextMode != ContextModeLogical {
+		return SpecFile{}, fmt.Errorf("spec: %s: context-mode %q: must be %q or omitted", rel, fm.ContextMode, ContextModeLogical)
+	}
 	body, bodyStart := ears.StripFrontMatter(src)
 	rules, fs := ears.ParseRules(body, rel, bodyStart)
 	c.findings = append(c.findings, fs...)
@@ -169,7 +178,7 @@ func (c *Cascade) parseFile(rel string) (SpecFile, error) {
 	}
 	inherits := fm.Inherits == nil || *fm.Inherits
 	return SpecFile{
-		Path: rel, Dir: dir, Prefix: fm.Prefix, Scope: fm.Scope,
+		Path: rel, Dir: dir, Prefix: fm.Prefix, ContextMode: fm.ContextMode, Scope: fm.Scope,
 		Inherits: inherits, Overrides: fm.Overrides, Rules: rules,
 		Sections: ears.ParseSections(body),
 	}, nil

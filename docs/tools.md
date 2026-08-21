@@ -1,6 +1,6 @@
 # MCP tool surface
 
-Eighteen orthogonal tools (twelve lifecycle + three swarm + one codegen,
+Nineteen orthogonal tools (thirteen lifecycle + three swarm + one codegen,
 one portability, one benchmark). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
@@ -35,8 +35,12 @@ handshake) teaches the lifecycle loop — see `internal/mcpserver/server.go`.
 - **Budgets and cursors** on read tools (SPX-ARC-002).
 - **Corrections instead of errors** (SPX-ARC-003): unknown ID → `nf` with
   the nearest matches.
-- **The LLM never writes .spectackle files** — `draft`, `rule`, `move`,
-  `compact` are the only write paths, and they are server-side.
+- **The LLM never writes .spectackle files** — `draft`, `rule`, `context`,
+  `move`, and `compact` are server-owned write paths.
+- **Context material is language-agnostic** —
+  `workspace.Root.ContextHasMaterial` walks below a context while excluding
+  nested `.spectackle` bundles, ignored subtrees and nested Git boundaries;
+  any remaining file, including prose or a symlink, makes it physical.
 
 ## Output line grammar
 
@@ -45,6 +49,7 @@ n <id> <kind> <file>:<line>[-<endline>] [sig=<sig>] node (endline shown when kno
 e <src> <ekind> <dst> [via=<file>:<line>]        edge (call|incl|cgo|asm|launch|use|link)
 r <ruleID> <P> <scopeDir> <text>                 rule (P: U|E|S|N|O|C)
 r-root <ID> <ID> ...                             root-scoped rules, IDs only (full text via get)
+cx <dir> class=<class> mode=<mode> rules=<n> open=<n> unbound=<n>  records-only context status
 i <id> <kind> <state> <dir> <title>              lifecycle item (state: draft|submitted|approved|active|done|archived|rejected|blocked)
 s sec:<dir>#<name> <text>                        prose section
 j <ref> <summary> :: <snippet>                   journal/history record
@@ -58,7 +63,7 @@ x <kind> <key> src=<repo,repo> <summary>         merge conflict (knowledge op=me
 x <kind> <key> ours=".." theirs=".." (kept ours) an import disagrees with what this workspace holds (knowledge op=apply; reported, never adopted)
 x <kind> <key> same "..", differs in <f> (kept ours)  same headline value; <f> names the fields that actually differ (text|prose|context|decision|consequences|status, or "formatting" when only normalization does)
 c <dir> <reason> <n>                             compact candidate
-! <code> <sev> <ref> <msg>                       finding (lint E001-E101, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
+! <code> <sev> <ref> <msg>                       finding (lint E001-E101, CTX, LEASE, WT, GATE, LOCK, GRILL, NEEDS, TYPED, VAC)
 ag <name> <item|-> <hb-age>m <wt|main>           agent (heartbeat age, floored to minutes)
 l <path> <agent> <item|-> <exp>m                 scope lease (time left, floored to minutes)
 h <harness> <marker>                             detected harness (commands op=detect; claude|copilot|codex|kimi)
@@ -73,7 +78,7 @@ ok [<msg>]                                       success / nothing to report
 #impact #contracts #rejections                   context-pack sections (draft)
 #impact #contracts #rejections #history #docs #gaps #open  research pack sections
 #targets #contracts #tests #rejections #questions #computed #evidence  grill pack sections
-#version #items #rules #graph #swarm #drift #health  snapshot sections (state)
+#version #items #rules #contexts #graph #swarm #drift #health  snapshot sections (state)
 ```
 
 Item headers may also carry `rounds: n/max` (server-only reopen/gate-fail
@@ -191,6 +196,7 @@ known-false unconsumed finding per symbol with an `unconsumed-ok: <symbol>
   "applies":  {"type":"array","items":{"type":"string"}},
   "item":     {"type":"string"}}}
 ```
+
 `add`: slots → server composes the canonical sentence, lints (errors reject,
 nothing written — SPX-SPC-002), auto-IDs (SPX-SPC-004), appends to the scoped
 spec.md, journals, anchors `applies` for drift. Missing slots are returned
@@ -198,6 +204,22 @@ as `need` records **to the calling agent** — the rule's author — never as a
 user form (ELICIT-001).
 `edit`: recompose/relink by id. `retire`: removed from spec.md; full text
 survives in the journal.
+
+### 4a. `context` — classify an intentional records-only context
+
+```json
+{"type":"object","required":["op","dir","mode"],"properties":{
+  "op":  {"enum":["set"]},
+  "dir": {"type":"string","description":"non-root context dir"},
+  "mode":{"enum":["logical","physical"],"description":"physical clears the declaration"}}}
+```
+
+`logical` is accepted only for a `records-only-live` context with zero open
+items and at least one currently resolvable `applies` binding on every live
+rule. The write changes only `context-mode` in that context's spec
+frontmatter, atomically and through the server; its Markdown body is preserved
+byte-for-byte. `physical` clears the declaration. Root, unknown, historical-
+only, physical, open-work, and unbound logical declarations are refused.
 
 ### 5. `move` — lifecycle transition
 
@@ -420,7 +442,9 @@ name, active root), `#items` (counts by state + `i` lines, scoped to
 `path`), `#rules` (per-context-dir rule counts + a global lint-findings
 count), `#graph` (`g.Stats()` node/edge totals, plus the `! TYPED` typed-
 call-pass finding described under `check` above when that pass is
-degraded — omitted on a healthy pass, same gate on both tools), `#swarm`
+degraded — omitted on a healthy pass, same gate on both tools), `#contexts`
+(`cx` lines for historical-only, records-only-live, or explicitly logical
+non-root contexts, with live-rule/open-item/unbound counts), `#swarm`
 (`ag`/`l`/`wt` lines), `#drift` (anchor classification summary + bare `d
 <cls> ...` lines
 for evolved/tightened/diverged/gone/stale — `moved` anchors are counted,
