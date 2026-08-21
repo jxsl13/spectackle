@@ -794,6 +794,70 @@ func (r Root) SkipDir(rel, name string) bool {
 	return false
 }
 
+// ContextHasMaterial reports whether ctx contains any repository material
+// outside Spectackle's own records and the workspace's ignored subtrees.
+// Material is deliberately language-agnostic: a README, image, symlink or
+// source file all make a context physical. Empty directories do not.
+//
+// The walk uses the same SkipDir decisions as context discovery, spec loading
+// and coverage. In particular, nested Git boundaries and nested .spectackle
+// bundles are foreign/record state rather than material owned by ctx.
+func (r Root) ContextHasMaterial(ctx string) (bool, error) {
+	ctx = strings.Trim(filepath.ToSlash(ctx), "/")
+	base := filepath.Join(r.Dir, filepath.FromSlash(ctx))
+	if rel, err := filepath.Rel(r.Dir, base); err != nil || rel == ".." || strings.HasPrefix(filepath.ToSlash(rel), "../") {
+		return false, fmt.Errorf("workspace: context %q escapes root", ctx)
+	}
+
+	found := false
+	err := filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == base {
+			return nil
+		}
+		rel, err := filepath.Rel(r.Dir, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if r.SkipDir(rel, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if ignoredPath(r, rel) {
+			return nil
+		}
+		found = true
+		return filepath.SkipAll
+	})
+	if err != nil {
+		return false, err
+	}
+	return found, nil
+}
+
+// ignoredPath applies the path-based portions of SkipDir to a regular file.
+// DefaultSkipName and nested-Git checks are directory-only; configuration and
+// gitignore patterns can intentionally exclude individual generated files.
+func ignoredPath(r Root, rel string) bool {
+	for _, g := range r.Cfg.Ignore {
+		if matchIgnoreGlob(g, rel) {
+			return true
+		}
+	}
+	for _, pat := range r.Cfg.IgnoreRegex {
+		re, err := regexp.Compile(pat)
+		if err == nil && re.MatchString(rel) {
+			return true
+		}
+	}
+	return gitIgnoreFor(r.Dir).Ignored(rel)
+}
+
 // ContextDirs returns every repo-relative dir (incl. "" for root) that has a
 // .spectackle folder with at least one bundle file, shallow before deep.
 func (r Root) ContextDirs() ([]string, error) {

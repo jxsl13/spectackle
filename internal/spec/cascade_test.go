@@ -3,6 +3,7 @@ package spec
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -281,6 +282,52 @@ func TestSchemaStampRejected(t *testing.T) {
 	os.WriteFile(p, []byte("---\nschema: v99\n---\n"), 0o644)
 	if _, err := Load(root); err == nil {
 		t.Fatal("expected schema mismatch error, got nil")
+	}
+}
+
+func TestContextModeFrontMatter(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mode    string
+		want    string
+		wantErr bool
+	}{
+		{name: "absent"},
+		{name: "logical", mode: "logical", want: ContextModeLogical},
+		{name: "invalid", mode: "detached", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dot := filepath.Join(root, "ctx", ".spectackle")
+			if err := os.MkdirAll(dot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			front := "---\nschema: v1\n"
+			if tc.mode != "" {
+				front += "context-mode: " + tc.mode + "\n"
+			}
+			front += "---\n"
+			if err := os.WriteFile(filepath.Join(dot, "spec.md"), []byte(front), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			c, err := Load(root)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), `context-mode "detached"`) {
+					t.Fatalf("Load error = %v, want invalid context-mode detail", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			sf, ok := c.File("ctx")
+			if !ok {
+				t.Fatal("context spec not loaded")
+			}
+			if sf.ContextMode != tc.want {
+				t.Fatalf("ContextMode = %q, want %q", sf.ContextMode, tc.want)
+			}
+		})
 	}
 }
 

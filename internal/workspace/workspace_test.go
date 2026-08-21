@@ -259,6 +259,62 @@ func TestEnsureScaffoldAndContextDirs(t *testing.T) {
 	}
 }
 
+func TestContextHasMaterial(t *testing.T) {
+	root := t.TempDir()
+	ws := Root{Dir: root, Cfg: Config{
+		Ignore:      []string{"ignored/generated/**", "ignored/ignored.txt"},
+		IgnoreRegex: []string{`^ignored/tmp-[^/]+$`},
+	}}
+
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("empty/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("prose/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("prose/README.md", "context documentation\n")
+	write("nested/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("nested/deep/source.go", "package deep\n")
+	write("ignored/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("ignored/generated/out.go", "package generated\n")
+	write("ignored/ignored.txt", "generated\n")
+	write("ignored/tmp-cache", "generated\n")
+	write("child-records/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("child-records/sub/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("boundary/.spectackle/spec.md", "---\nschema: v1\n---\n")
+	write("boundary/vendor/.git", "gitdir: /elsewhere\n")
+	write("boundary/vendor/code.go", "package vendor\n")
+
+	for _, tc := range []struct {
+		ctx  string
+		want bool
+	}{
+		{"empty", false},
+		{"prose", true},
+		{"nested", true},
+		{"ignored", false},
+		{"child-records", false},
+		{"boundary", false},
+	} {
+		got, err := ws.ContextHasMaterial(tc.ctx)
+		if err != nil {
+			t.Fatalf("ContextHasMaterial(%q): %v", tc.ctx, err)
+		}
+		if got != tc.want {
+			t.Errorf("ContextHasMaterial(%q) = %v, want %v", tc.ctx, got, tc.want)
+		}
+	}
+	if _, err := ws.ContextHasMaterial("../outside"); err == nil {
+		t.Fatal("ContextHasMaterial must reject a context that escapes the workspace")
+	}
+}
+
 // TestSkipDirConfigIgnore proves Root.SkipDir — the single shared entry point
 // behind ContextDirs, spec.Load, the coverage-gap walk, and (via
 // DefaultSkipName/IsNestedGitBoundary) the indexer — honors both
