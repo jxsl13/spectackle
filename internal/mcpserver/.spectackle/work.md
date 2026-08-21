@@ -24,6 +24,7 @@ state: draft
 created: 2026-08-21
 parent: P-01M0K371V9EDV9Z3RTJEM4JBG7
 refs: P-01M0K371V9EDV9Z3RTJEM4JBG7
+grilled: 2026-08-21 open=1
 targets: docs/tools.md, internal/spec/author.go, internal/spec/author_test.go, internal/journal/journal.go, internal/replay/replay.go, internal/mcpserver/context.go, internal/mcpserver/context_test.go, internal/mcpserver/state.go, internal/mcpserver/tools.go, internal/mcpserver/tools_test.go
 
 Scope
