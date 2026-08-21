@@ -1,6 +1,6 @@
 # MCP tool surface
 
-Eighteen orthogonal tools (twelve lifecycle + three swarm + one codegen,
+Nineteen orthogonal tools (thirteen lifecycle + three swarm + one codegen,
 one portability, one benchmark). The Go structs in `internal/mcpserver/tools.go` are
 the normative schema source (SPX-REPO-001 keeps this file consistent with
 them). The server-description (MCP `instructions`, sent in the initialize
