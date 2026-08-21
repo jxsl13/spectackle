@@ -20,7 +20,7 @@ VERIFY. Add a rule with no active record and confirm the surface tells the calle
 
 ## T-01M0K3TT29EWST67ZG0TVGERYS surface and validate records-only context classifications
 kind: task
-state: draft
+state: active
 created: 2026-08-21
 parent: P-01M0K371V9EDV9Z3RTJEM4JBG7
 refs: P-01M0K371V9EDV9Z3RTJEM4JBG7
