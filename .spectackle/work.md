@@ -612,3 +612,25 @@ Required changes
 
 Verification
 go test ./internal/workspace ./internal/spec
+
+## T-01M0K3TTMJF96RD9RZNQBY3NFX adopt logical mode for the retained CLI context
+kind: task
+state: draft
+created: 2026-08-21
+parent: P-01M0K371V9EDV9Z3RTJEM4JBG7
+refs: P-01M0K371V9EDV9Z3RTJEM4JBG7
+targets: cmd/spectackle, main.go
+
+Scope
+Repair the existing cmd/spectackle records-only-live context using only server tools after the classifier and context mutation exist. Do not move or directly edit record files.
+
+Required changes
+1. Reindex so go:main.call is current.
+2. Edit CLI-002 through rule op=edit to add applies go:main.call while preserving text, rationale, ID, and context.
+3. Set cmd/spectackle context-mode to logical through context op=set.
+4. Verify CLI-001 still resolves to go:main.main and both rule IDs remain unchanged.
+5. Verify the cmd/spectackle journal and intent remain in place and no historical event is rewritten.
+6. State must report records-only-live, logical mode, two live rules, zero open items, and zero unresolved bindings. Check must be clean.
+
+Verification
+Run state scoped to cmd/spectackle, check the whole workspace, and run go test ./...
